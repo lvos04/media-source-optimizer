@@ -14,7 +14,7 @@ test("inlogpagina wordt getoond", async ({ page }) => {
   }
   await expect(page.getByRole("heading", { name: "Inloggen", level: 1 })).toBeVisible();
   await expect(page.getByLabel("Gebruikersnaam")).toBeVisible();
-  await expect(page.getByLabel("Wachtwoord")).toBeVisible();
+  await expect(page.getByLabel("Wachtwoord", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Inloggen" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow, "page must not scroll horizontally").toBeLessThanOrEqual(1);

@@ -1,0 +1,181 @@
+# Media Source Optimizer — CI
+#
+# python   ruff + pytest (unit/contract/integration incl. mocks over real HTTP) against a PostgreSQL 16 service
+# web      typecheck + lint + production build of the Next.js UI
+# images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
+# stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
+# e2e      fresh stack + Playwright (desktop + mobile) → screenshots/traces as artifacts
+#
+# Action versions are pinned by release tag.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "22"
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: mso
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mso" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      MSO_TEST_DATABASE_URL: postgresql://mso@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/core/pyproject.toml
+      - name: Install core + test extras
+        run: pip install -e "apps/core[test]"
+      - name: Ruff
+        run: ruff check apps/core apps/mocks tests/stack
+      - name: Pytest
+        working-directory: apps/core
+        run: python -m pytest -q -p no:warnings --junitxml=../../test-results/pytest.xml
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: pytest-results
+          path: test-results/
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: media-source-optimizer-core, context: apps/core}
+          - {name: media-source-optimizer-web, context: apps/web}
+          - {name: mso-mocks, context: apps/mocks}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: docker/setup-buildx-action@v3.11.1
+      - name: Login to GHCR (release tags only)
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.name != 'mso-mocks'
+        uses: docker/login-action@v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags
+        id: tags
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${{ matrix.name }}" != "mso-mocks" ]]; then
+            echo "tags=ghcr.io/lvos04/${{ matrix.name }}:${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${{ matrix.name }}:ci" >> "$GITHUB_OUTPUT"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/build-push-action@v6.18.0
+        with:
+          context: ${{ matrix.context }}
+          tags: ${{ steps.tags.outputs.tags }}
+          push: ${{ steps.tags.outputs.push }}
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    needs: [python, images]
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install httpx==0.28.1
+      - name: Container stack smoke/e2e
+        env:
+          MSO_STACK_PYTHON: python
+          # docker.io is reachable on GitHub runners; the mirror digest is identical
+          MSO_POSTGRES_IMAGE: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+        run: tests/stack/run.sh
+      - name: Job summary
+        if: always()
+        run: cat tests/stack/results/smoke-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: stack-results
+          path: tests/stack/results/
+
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    needs: [web, images]
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: pip install httpx==0.28.1
+      - name: Install Playwright
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+      - name: Stack + Playwright
+        env:
+          MSO_STACK_PYTHON: python
+          MSO_POSTGRES_IMAGE: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+        run: make e2e PY=python
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: playwright-results
+          path: |
+            apps/web/e2e/.results/
+            apps/web/playwright-report/
+            tests/stack/results/

@@ -1,0 +1,41 @@
+# Alternatief: images zelf bouwen uit de broncode in plaats van de gepinde ghcr.io-images.
+#
+#   git clone https://github.com/lvos04/media-source-optimizer && cd media-source-optimizer
+#   git checkout v1.0.0                       # altijd een release-tag, nooit een losse branch
+#   docker compose -f deploy/truenas/compose.yaml -f deploy/truenas/compose.build.yaml build
+#   docker compose -f deploy/truenas/compose.yaml -f deploy/truenas/compose.build.yaml up -d
+#
+# Achter een TLS-inspecterende proxy: geef de CA als build-secret mee (komt niet in het image):
+#   MSO_BUILD_CA=/pad/naar/ca.crt docker compose … build
+# (TrueNAS "Install via YAML" bouwt zelf niets; gebruik dit via de shell/een andere Docker-host en
+#  zet daarna MSO_CORE_IMAGE/MSO_WEB_IMAGE op de lokaal gebouwde tags.)
+
+x-core-build: &core-build
+  context: ../../apps/core
+  dockerfile: Dockerfile
+  secrets: [ca_bundle]
+
+services:
+  init:
+    image: ${MSO_CORE_IMAGE:-media-source-optimizer-core:local}
+    build: *core-build
+  migrate:
+    image: ${MSO_CORE_IMAGE:-media-source-optimizer-core:local}
+    build: *core-build
+  api:
+    image: ${MSO_CORE_IMAGE:-media-source-optimizer-core:local}
+    build: *core-build
+  worker:
+    image: ${MSO_CORE_IMAGE:-media-source-optimizer-core:local}
+    build: *core-build
+  web:
+    image: ${MSO_WEB_IMAGE:-media-source-optimizer-web:local}
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+      secrets: [ca_bundle]
+
+secrets:
+  ca_bundle:
+    # zonder proxy: wijst naar een leeg bestand (de Dockerfiles negeren een lege/ontbrekende bundel)
+    file: ${MSO_BUILD_CA:-/dev/null}

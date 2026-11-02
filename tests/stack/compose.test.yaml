@@ -1,0 +1,22 @@
+# Test stack override (NOT for production). Layered on top of the real TrueNAS compose file so the
+# production definition itself is what gets tested:
+#
+#   docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml \
+#                  -f tests/stack/results/compose.mocks.yaml up -d
+#
+# tests/stack/run.sh sets APPDATA/WORK (to tests/stack/.data), the image tags, the web port
+# (127.0.0.1:38081) and generates compose.mocks.yaml (one service per entry in msomocks.REGISTRY).
+services:
+  api:
+    environment:
+      # Temporary escape hatch when an in-progress feature module breaks import (reported by run.sh).
+      MSO_FEATURES: ${MSO_FEATURES:-}
+    # Direct API access for the smoke test only (production: no published API port).
+    ports: ["127.0.0.1:${MSO_STACK_API_PORT:-38200}:8200"]
+  worker:
+    environment:
+      MSO_FEATURES: ${MSO_FEATURES:-}
+      MSO_WORKER_POLL_S: "1"
+  migrate:
+    environment:
+      MSO_FEATURES: ${MSO_FEATURES:-}

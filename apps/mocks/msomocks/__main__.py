@@ -12,6 +12,13 @@ import importlib
 
 # name -> module path (each module exposes create_app(**faults) or, for TCP mocks, serve(host, port, **faults))
 REGISTRY: dict[str, str] = {
+    "qbittorrent": "msomocks.qbittorrent",
+    "mediaguard": "msomocks.mediaguard",
+    "sabnzbd": "msomocks.sabnzbd",
+    "nntp": "msomocks.nntp",
+    "prowlarr": "msomocks.prowlarr",
+    "newznab": "msomocks.newznab",
+    "spotweb": "msomocks.spotweb",
 }
 
 

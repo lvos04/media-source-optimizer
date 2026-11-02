@@ -5,17 +5,23 @@
 // files never collide; a duplicate key is a type error in ./nl/<area>.ts reviews, not at runtime.
 import { messages as auth } from "./nl/auth";
 import { messages as common } from "./nl/common";
+import { messages as insights } from "./nl/insights";
 import { messages as components } from "./nl/components";
 import { messages as logs } from "./nl/logs";
 import { messages as settings } from "./nl/settings";
 import { messages as system } from "./nl/system";
+import { messages as recovery } from "./nl/recovery";
+import { messages as torrent } from "./nl/torrent";
 
 export const nl = {
+  ...recovery,
   ...common,
   ...components,
   ...auth,
   ...settings,
   ...system,
   ...logs,
+  ...insights,
+  ...torrent,
 };
 export type MessageKey = keyof typeof nl;

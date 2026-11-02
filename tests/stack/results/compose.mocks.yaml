@@ -1,0 +1,187 @@
+{
+  "services": {
+    "mock-mediaguard": {
+      "image": "mso-mocks:stack",
+      "command": [
+        "mediaguard",
+        "--port",
+        "8080"
+      ],
+      "restart": "unless-stopped",
+      "read_only": true,
+      "user": "568:568",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "networks": [
+        "app"
+      ],
+      "mem_limit": "256m",
+      "pids_limit": 64
+    },
+    "mock-newznab": {
+      "image": "mso-mocks:stack",
+      "command": [
+        "newznab",
+        "--port",
+        "8080"
+      ],
+      "restart": "unless-stopped",
+      "read_only": true,
+      "user": "568:568",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "networks": [
+        "app"
+      ],
+      "mem_limit": "256m",
+      "pids_limit": 64
+    },
+    "mock-nntp": {
+      "image": "mso-mocks:stack",
+      "command": [
+        "nntp",
+        "--port",
+        "8080"
+      ],
+      "restart": "unless-stopped",
+      "read_only": true,
+      "user": "568:568",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "networks": [
+        "app"
+      ],
+      "mem_limit": "256m",
+      "pids_limit": 64
+    },
+    "mock-prowlarr": {
+      "image": "mso-mocks:stack",
+      "command": [
+        "prowlarr",
+        "--port",
+        "8080",
+        "--fault",
+        "api_key=prl84d7cb5712cb7ff1b121d4cbecbb972b"
+      ],
+      "restart": "unless-stopped",
+      "read_only": true,
+      "user": "568:568",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "networks": [
+        "app"
+      ],
+      "mem_limit": "256m",
+      "pids_limit": 64
+    },
+    "mock-qbittorrent": {
+      "image": "mso-mocks:stack",
+      "command": [
+        "qbittorrent",
+        "--port",
+        "8080",
+        "--fault",
+        "username=msostack",
+        "--fault",
+        "password=qb-acedfff2cdd40be836cea54d"
+      ],
+      "restart": "unless-stopped",
+      "read_only": true,
+      "user": "568:568",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "networks": [
+        "app"
+      ],
+      "mem_limit": "256m",
+      "pids_limit": 64
+    },
+    "mock-sabnzbd": {
+      "image": "mso-mocks:stack",
+      "command": [
+        "sabnzbd",
+        "--port",
+        "8080",
+        "--fault",
+        "api_key=sab51b9f61988557a1cd0f23d84424f25f1"
+      ],
+      "restart": "unless-stopped",
+      "read_only": true,
+      "user": "568:568",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "networks": [
+        "app"
+      ],
+      "mem_limit": "256m",
+      "pids_limit": 64
+    },
+    "mock-spotweb": {
+      "image": "mso-mocks:stack",
+      "command": [
+        "spotweb",
+        "--port",
+        "8080"
+      ],
+      "restart": "unless-stopped",
+      "read_only": true,
+      "user": "568:568",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "networks": [
+        "app"
+      ],
+      "mem_limit": "256m",
+      "pids_limit": 64
+    }
+  }
+}

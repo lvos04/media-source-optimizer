@@ -1,0 +1,213 @@
+# Media Source Optimizer — TrueNAS SCALE app ("Apps → Discover Apps → ⋮ → Install via YAML")
+#
+# ┌─ INSTALLEREN (volledige handleiding: docs/TRUENAS_INSTALL.md) ───────────────────────────────┐
+# │ 1. Maak twee datasets: tank/apps/media-source-optimizer (APPDATA) en                       │
+# │    tank/apps/media-source-optimizer-work (WORK, met quota). Eigenaar: apps (568:568).       │
+# │ 2. Install via YAML → naam "media-source-optimizer" → plak dit bestand.                     │
+# │ 3. Pas ALLEEN de paden hieronder aan als jouw pool niet 'tank' heet (zoek op /mnt/tank).    │
+# │ 4. Open http://<truenas-ip>:30081 → de setupwizard maakt de beheerder en de koppelingen.   │
+# └──────────────────────────────────────────────────────────────────────────────────────────────┘
+#
+# Instelbare variabelen (standaardwaarde achter ':-'; pas desnoods direct in dit bestand aan):
+#   APPDATA   /mnt/tank/apps/media-source-optimizer        config, PostgreSQL, vault-sleutel, back-ups
+#   WORK      /mnt/tank/apps/media-source-optimizer-work   cache/index (dataset-quota zetten!)
+#   DATA      (uit)  optionele alleen-lezen media-mount voor diagnose — zie 'api' hieronder
+#   MSO_WEB_PORT 30081 · MSO_WEB_BIND 0.0.0.0 · TZ Europe/Amsterdam · MSO_PUBLIC_URL (leeg)
+#   MSO_SECURE_COOKIES false (zet op true achter een TLS reverse proxy)
+#   MSO_CORE_IMAGE / MSO_WEB_IMAGE (vast gepinde versies; alleen wijzigen bij een update)
+#
+# Containers:
+#   init      eenmalig per start, root met alleen CHOWN/DAC_OVERRIDE/FOWNER, géén netwerk:
+#             maakt mappen, zet eigenaar 568:568, genereert het databasewachtwoord (APPDATA/db/password)
+#   postgres  PostgreSQL 16, draait als 568:568 zonder enige capability (datamap vooraf door init ge-chownd)
+#   migrate   eenmalig: databaseschema bijwerken (na 'postgres' gezond)
+#   api       FastAPI-core (OpenAPI, Newznab/Torznab-feeds) — GEEN gepubliceerde poort
+#   worker    achtergrondtaken (herstartveilig: hervat vanuit de database)
+#   web       Nederlandstalige UI; ENIGE gepubliceerde poort (30081). Proxyt /api/v1, /newznab en
+#             /torznab same-origin naar 'api'.
+#
+# Veiligheid: geen Docker-socket, geen host-netwerk, geen privileged, cap_drop ALL, no-new-privileges,
+# read-only root-filesystem (+tmpfs), alles behalve init als 568:568. API-sleutels en wachtwoorden van
+# Prowlarr/SABnzbd/qBittorrent/MediaGuard/providers staan NIET in dit bestand: die voer je in de
+# setupwizard in; ze worden versleuteld (AES-256-GCM) in de database bewaard, sleutel in APPDATA/secrets.
+# De database ('db'-netwerk) is intern: geen uitgaand verkeer en niet bereikbaar van buiten de stack.
+
+name: media-source-optimizer
+
+x-common: &common
+  restart: unless-stopped
+  user: "568:568"
+  read_only: true
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+x-core-env: &core-env
+  TZ: ${TZ:-Europe/Amsterdam}
+  MSO_DATA_DIR: /appdata
+  MSO_WORK_DIR: /work
+  MSO_DB_HOST: postgres
+  MSO_DB_PORT: "5432"
+  MSO_DB_NAME: mso
+  MSO_DB_USER: mso
+  MSO_DB_PASSWORD_FILE: /run/mso-db/password
+  # Basis-URL zoals Prowlarr/Sonarr/Radarr MSO bereiken (voor downloadlinks in Newznab/Torznab-feeds),
+  # bv. http://192.168.1.10:30081 — leeg = afgeleid van het verzoek.
+  MSO_PUBLIC_URL: ${MSO_PUBLIC_URL:-}
+  MSO_SECURE_COOKIES: ${MSO_SECURE_COOKIES:-false}
+  MSO_DISK_RESERVE_GB: ${MSO_DISK_RESERVE_GB:-2}
+
+x-core-volumes: &core-volumes
+  - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}:/appdata
+  - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}/db:/run/mso-db:ro
+  - ${WORK:-/mnt/tank/apps/media-source-optimizer-work}:/work
+  # Optioneel, alleen-lezen media voor diagnose (MSO werkt bij voorkeur alleen via API's).
+  # Inschakelen: haal het commentaarteken weg en zet in 'environment' MSO_MEDIA_DIR: /data/media
+  # - ${DATA:-/mnt/tank/data/media}:/data/media:ro
+
+services:
+  init:
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.0.0}
+    command: ["init"]
+    user: "0:0"
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    network_mode: none
+    environment:
+      MSO_UID: "568"
+      MSO_GID: "568"
+    volumes:
+      - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}:/bootstrap/appdata
+      - ${WORK:-/mnt/tank/apps/media-source-optimizer-work}:/bootstrap/work
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 32
+
+  postgres:
+    <<: *common
+    image: ${MSO_POSTGRES_IMAGE:-postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab}
+    depends_on:
+      init: {condition: service_completed_successfully}
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+      POSTGRES_USER: mso
+      POSTGRES_DB: mso
+      POSTGRES_PASSWORD_FILE: /run/mso-db/password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=trust --encoding=UTF8"
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}/postgres:/var/lib/postgresql/data
+      - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}/db:/run/mso-db:ro
+    tmpfs: ["/var/run/postgresql:uid=568,gid=568,mode=0775", "/tmp:uid=568,gid=568,mode=1777"]
+    shm_size: 128m
+    stop_grace_period: 60s
+    networks: [db]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mso", "-d", "mso", "-h", "127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
+    cpus: ${MSO_PG_CPUS:-2}
+    mem_limit: ${MSO_PG_MEM:-1g}
+    pids_limit: 256
+
+  migrate:
+    <<: *common
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.0.0}
+    command: ["migrate"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment: *core-env
+    volumes: *core-volumes
+    tmpfs: ["/tmp"]
+    networks: [db]
+    healthcheck: {disable: true}
+    cpus: 1
+    mem_limit: 256m
+    pids_limit: 64
+
+  api:
+    <<: *common
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.0.0}
+    command: ["api"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+    environment:
+      <<: *core-env
+      # 'api' is alleen bereikbaar voor 'web' en 'worker' (geen gepubliceerde poort); web zet
+      # X-Forwarded-For, zodat rate limits per echte client gelden.
+      MSO_FORWARDED_ALLOW_IPS: "*"
+    volumes: *core-volumes
+    tmpfs: ["/tmp"]
+    expose: ["8200"]
+    networks: [db, app]
+    healthcheck:
+      test: ["CMD", "mso-healthcheck", "api"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+    cpus: ${MSO_API_CPUS:-2}
+    mem_limit: ${MSO_API_MEM:-768m}
+    pids_limit: 256
+
+  worker:
+    <<: *common
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.0.0}
+    command: ["worker"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+    environment: *core-env
+    volumes: *core-volumes
+    tmpfs: ["/tmp"]
+    networks: [db, app]
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "mso-healthcheck", "worker"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    cpus: ${MSO_WORKER_CPUS:-2}
+    mem_limit: ${MSO_WORKER_MEM:-768m}
+    pids_limit: 256
+
+  web:
+    <<: *common
+    image: ${MSO_WEB_IMAGE:-ghcr.io/lvos04/media-source-optimizer-web:1.0.0}
+    depends_on:
+      api: {condition: service_healthy}
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+      MSO_CORE_URL: http://api:8200
+      MSO_WEB_HOST: 0.0.0.0
+      PORT: "3000"
+    # Alleen LAN: publiceer niet via port-forwarding op je router. Wil je alleen een reverse proxy op
+    # dezelfde host toelaten, zet MSO_WEB_BIND op 127.0.0.1.
+    ports: ["${MSO_WEB_BIND:-0.0.0.0}:${MSO_WEB_PORT:-30081}:3000"]
+    tmpfs: ["/tmp"]
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    cpus: ${MSO_WEB_CPUS:-1}
+    mem_limit: ${MSO_WEB_MEM:-512m}
+    pids_limit: 128
+
+networks:
+  db:
+    internal: true   # PostgreSQL: geen uitgaand verkeer, alleen api/worker/migrate
+  app:
+    driver: bridge   # web ⇄ api, en uitgaand verkeer van api/worker naar Prowlarr/SABnzbd/qBittorrent/MediaGuard/indexers

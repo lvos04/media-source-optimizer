@@ -1,0 +1,9 @@
+# build context for apps/core/Dockerfile — only the package and the container scripts are needed
+**/__pycache__
+**/*.pyc
+*.egg-info
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+tests

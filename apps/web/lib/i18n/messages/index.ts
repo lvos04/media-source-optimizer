@@ -12,6 +12,7 @@ import { messages as settings } from "./nl/settings";
 import { messages as system } from "./nl/system";
 import { messages as recovery } from "./nl/recovery";
 import { messages as torrent } from "./nl/torrent";
+import { messages as usenet } from "./nl/usenet";
 
 export const nl = {
   ...recovery,
@@ -23,5 +24,6 @@ export const nl = {
   ...logs,
   ...insights,
   ...torrent,
+  ...usenet,
 };
 export type MessageKey = keyof typeof nl;

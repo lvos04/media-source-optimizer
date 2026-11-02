@@ -82,7 +82,7 @@
         "--port",
         "8080",
         "--fault",
-        "api_key=prl5cd8974fb2f3ef744e173892fc1c3cd9"
+        "api_key=prl1973a675efba7043802249e5ec0ad4c5"
       ],
       "restart": "unless-stopped",
       "read_only": true,
@@ -111,7 +111,7 @@
         "--fault",
         "username=msostack",
         "--fault",
-        "password=qb-06c1da889683f360becd352c"
+        "password=qb-fc85e188c787d5cfecba6f6d"
       ],
       "restart": "unless-stopped",
       "read_only": true,
@@ -138,7 +138,7 @@
         "--port",
         "8080",
         "--fault",
-        "api_key=sab822e203f0cd36d92da610906c2bf548a"
+        "api_key=sabaf197008f3397907e4ceffce04d11d15"
       ],
       "restart": "unless-stopped",
       "read_only": true,

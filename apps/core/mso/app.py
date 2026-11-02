@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import pkgutil
 import uuid
 from collections.abc import Iterator
@@ -33,6 +34,16 @@ LOGGER = logging.getLogger(__name__)
 CORE_MODULES = ["mso.api.foundation", "mso.backups"]
 
 
+def _allowed(name: str) -> bool:
+    """``MSO_FEATURES`` (comma list of module-name prefixes) limits discovery — used to test one feature in
+    isolation. Unset = load everything (production)."""
+    allow = [p.strip() for p in os.environ.get("MSO_FEATURES", "").split(",") if p.strip()]
+    if not allow or name == "mso.connectors.base":
+        return True
+    return any(name.startswith(p) or name.startswith(f"mso.connectors.{p}") or name.startswith(f"mso.features.{p}")
+               for p in allow)
+
+
 def iter_feature_modules() -> Iterator[ModuleType]:
     for name in CORE_MODULES:
         yield importlib.import_module(name)
@@ -42,7 +53,8 @@ def iter_feature_modules() -> Iterator[ModuleType]:
         except ModuleNotFoundError:
             continue
         for info in sorted(pkgutil.walk_packages(pkg.__path__, pkg_name + "."), key=lambda i: i.name):
-            yield importlib.import_module(info.name)
+            if _allowed(info.name):
+                yield importlib.import_module(info.name)
 
 
 def load_modules() -> list[ModuleType]:

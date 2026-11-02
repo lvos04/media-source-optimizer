@@ -18,12 +18,16 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
+import sys
+
 import psycopg
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("MSO_ALLOW_LOOPBACK", "1")
+# mock services (fake Prowlarr/SABnzbd/qBittorrent/MediaGuard/NNTP/indexers) live in apps/mocks/msomocks
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mocks"))
 os.environ.setdefault("MSO_TESTING", "1")
 
 BASE_URL = os.environ.get("MSO_TEST_DATABASE_URL", "postgresql://mso@127.0.0.1:55432/postgres")

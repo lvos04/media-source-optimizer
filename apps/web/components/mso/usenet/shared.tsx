@@ -4,8 +4,7 @@ import { CircleHelp, Gauge, KeyRound, PlugZap, ShieldAlert, Timer, Unplug } from
 
 import { StatusChip, type Tone } from "@/components/mg/primitives";
 import type { ConfidenceLevel, ProviderStatus } from "@/lib/api/usenet";
-import { useI18n } from "@/lib/i18n";
-import type { MessageKey } from "@/lib/i18n/messages";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 const STATUS_TONE: Record<ProviderStatus, Tone> = {
   ok: "success", auth_failed: "danger", account_expired: "danger", rate_limited: "warning", block_exhausted: "danger",

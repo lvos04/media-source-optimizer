@@ -124,6 +124,7 @@ export const messages = {
   "usenet.prio.periodBytes": "Gedownload ({days} d)",
   "usenet.prio.successRatio": "Artikelen gevonden",
   "usenet.prio.suggestion": "Voorstel",
+  "usenet.prio.now": "Nu",
   "usenet.prio.noOps": "Geen wijziging voorgesteld: de huidige instellingen passen bij wat MSO heeft gemeten.",
   "usenet.prio.propose": "Voorstel maken",
   "usenet.prio.proposed": "Wijzigingsvoorstel gemaakt; keur het goed en pas het toe in beheermodus",

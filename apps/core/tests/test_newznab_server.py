@@ -282,3 +282,22 @@ def test_malformed_upstream_does_not_break_feed(client: Any, setup: dict[str, An
     setup["nz"].state.faults["malformed"] = "1"
     root = xml(client.get("/newznab/api", params={"t": "search", "q": "Expanse", "apikey": setup["key"]}))
     assert root.tag == "rss" and items(root) == []
+
+
+def test_private_magnets_not_persisted_and_magnet_only_redirect(
+    admin: Any, client: Any, serve: Any, setup: dict[str, Any], db: Any
+) -> None:
+    admin.patch("/api/v1/indexers/direct/upstream-torrent", json={"enabled": False})
+    priv = mock_nz.create_app(apikey=TZ_KEY, protocol="torrent", private="1")
+    add_direct(admin, serve(priv), kind="torznab", key=TZ_KEY, label="Prive", private=True)
+    root = xml(client.get("/torznab/api", params={"t": "movie", "q": "Dune", "apikey": setup["key"]}))
+    assert items(root)
+    rows = db.fetchall("SELECT * FROM release_cache WHERE source_id='direct:prive'")
+    assert rows and all(r["magnet"] is None for r in rows)
+    assert TZ_KEY not in str(rows)  # upstream key replaced by placeholder in stored links
+    # a magnet-only (public) result is handed out as a redirect by t=get
+    token = rows[0]["token"]
+    magnet = "magnet:?xt=urn:btih:" + "a" * 40 + "&dn=x"
+    db.execute("UPDATE release_cache SET download_url=NULL, magnet=%s WHERE token=%s", (magnet, token))
+    r = client.get("/torznab/api", params={"t": "get", "id": token, "apikey": setup["key"]}, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == magnet

@@ -39,6 +39,11 @@ de database met de sleutel `APPDATA/secrets/vault.key` (wordt bij de eerste star
 
 ## Installatie in één blok
 
+> Het blok haalt `compose.yaml` van release-tag `v1.0.0` en de YAML verwijst naar
+> `ghcr.io/lvos04/media-source-optimizer-{core,web}:1.0.0`. Die tag en images ontstaan pas wanneer de release
+> is gepubliceerd (CI-job `images` pusht bij een `v*`-tag). Bestaan ze nog niet, gebruik dan het bestand uit
+> je eigen checkout en bouw de images zelf (onderaan).
+
 Voer dit uit in **System → Shell** van TrueNAS (of via SSH) als je admin-gebruiker. `sudo` vraagt één keer om je
 wachtwoord, alleen voor het aanmaken van de datasets en het zetten van de eigenaar. Pas de drie variabelen
 bovenaan aan.
@@ -119,7 +124,8 @@ gebruikt dezelfde poort als de UI.
    - URL: `http://<truenas-ip>:30081/newznab`
    - API Path: `/api`
    - API Key: de sleutel uit stap 1
-   - Categories: 5000/5070 (tv, anime) en 2000 (films); MSO meldt de exacte lijst in `t=caps`.
+   - Categories: series 5000-reeks, anime 5070, films 2000-reeks (animefilms: films + 5070); MSO meldt de
+     exacte lijst in `t=caps`.
 4. Voor torrents: **Generic Torznab** met URL `http://<truenas-ip>:30081/torznab`, API Path `/api`.
 5. **Test** in Prowlarr moet slagen. Draait Prowlarr als TrueNAS-app in een eigen Docker-netwerk, dan bereikt
    het MSO via het host-IP en de gepubliceerde poort 30081 (niet verifieerd op echte hardware; zie

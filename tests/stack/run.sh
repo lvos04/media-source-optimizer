@@ -16,6 +16,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 HERE="$ROOT/tests/stack"
 RESULTS="$HERE/results"
+# a stack started only for Playwright keeps its logs apart, so the smoke report is not overwritten
+[[ -n "${MSO_STACK_UP_ONLY:-}" ]] && RESULTS="$HERE/results/e2e-stack"
 DATA="$HERE/.data"
 PY="${MSO_STACK_PYTHON:-$ROOT/.venv/bin/python}"
 [[ -x "$PY" ]] || PY="$(command -v python3)"
@@ -60,9 +62,9 @@ if [[ -z "${MSO_STACK_NO_WEB:-}" ]] && ! docker image inspect "$MSO_WEB_IMAGE" >
 fi
 
 rm -rf "$RESULTS"; mkdir -p "$RESULTS/logs"
-MOCKS=$("$PY" "$HERE/gen_mocks.py")
+MOCKS=$(MSO_STACK_MOCKS_OUT="$RESULTS/compose.mocks.yaml" "$PY" "$HERE/gen_mocks.py")
 echo "mocks: $MOCKS"
-COMPOSE="docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml -f tests/stack/results/compose.mocks.yaml"
+COMPOSE="docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml -f $RESULTS/compose.mocks.yaml"
 export MSO_STACK_COMPOSE="$COMPOSE"
 
 SERVICES="init postgres migrate api worker"

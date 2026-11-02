@@ -423,10 +423,11 @@ def _cache(items: list[NormalizedRelease], sources: dict[str, dict[str, Any]]) -
         r.extra["token"] = token
         sec = secrets_by_source.setdefault(r.source_id, _source_secret(r.source_id))
         url = strip_secret(r.download_url, sec)
-        magnet = r.extra.get("magnet")
         private = (
             r.private if r.private is not None else bool((sources.get(r.source_id) or {}).get("private"))
         )
+        # private-tracker magnets carry passkeys: only keep one when it is the sole way to download
+        magnet = strip_secret(r.extra.get("magnet"), sec) if (not private or not url) else None
         data = item_view(r, sources, include_token=True)
         rows.append(
             (
@@ -646,5 +647,6 @@ def fetch_download(token: str) -> Fetched:
             registry.count_usage(row["source_id"], grabs=1)
         return f
     if row["magnet"]:
-        return Fetched(b"", "application/x-bittorrent-magnet", None, final_url=row["magnet"])
+        magnet = fill_secret(row["magnet"], _source_secret(row["source_id"]))
+        return Fetched(b"", "application/x-bittorrent-magnet", None, final_url=magnet)
     raise LookupError("Geen downloadlink bij dit resultaat")

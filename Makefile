@@ -10,8 +10,6 @@
 # Behind a TLS-inspecting proxy: MSO_BUILD_CA=/pad/naar/ca.crt make images
 SHELL := /bin/bash
 PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
-STACK_COMPOSE = docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml \
-	-f tests/stack/results/compose.mocks.yaml
 
 .PHONY: lint test images stack e2e down
 
@@ -33,7 +31,7 @@ e2e:
 	  cd ../.. && $(MAKE) down; exit $$rc
 
 down:
-	-$(STACK_COMPOSE) down -v --remove-orphans
+	-docker compose -p msostack down -v --remove-orphans
 	-docker run --rm --user 0:0 --network none -v $(CURDIR)/tests/stack/.data:/d --entrypoint /bin/sh \
 	  media-source-optimizer-core:stack -c 'rm -rf /d/appdata /d/work'
 	-rm -rf tests/stack/.data

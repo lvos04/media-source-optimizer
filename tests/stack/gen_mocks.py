@@ -37,7 +37,7 @@ def main() -> None:
             "mem_limit": "256m",
             "pids_limit": 64,
         }
-    out = HERE / "results" / "compose.mocks.yaml"
+    out = Path(os.environ.get("MSO_STACK_MOCKS_OUT") or HERE / "results" / "compose.mocks.yaml")
     out.parent.mkdir(parents=True, exist_ok=True)
     # JSON is valid YAML; an empty mapping keeps compose happy when no mocks exist yet
     out.write_text(json.dumps({"services": services} if services else {}, indent=2) + "\n")

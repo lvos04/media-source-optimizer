@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mocks"))
 os.environ.setdefault("MSO_TESTING", "1")
 
 BASE_URL = os.environ.get("MSO_TEST_DATABASE_URL", "postgresql://mso@127.0.0.1:55432/postgres")
-KEEP_TABLES = {"schema_migrations", "system_state"}
+KEEP_TABLES = {"schema_migrations", "system_state", "ai_model_prices"}
 
 
 @pytest.fixture(scope="session")

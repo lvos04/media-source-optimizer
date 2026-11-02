@@ -85,10 +85,17 @@ def setup_admin(body: Credentials, request: Request, response: Response) -> dict
     return {"user": _user_view(row), "csrf_token": csrf}
 
 
+class SetupComplete(BaseModel):
+    mode: str | None = Field(default=None, pattern=r"^(read_only|manage)$")
+
+
 @router.post("/setup/complete")
-def setup_complete(p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+def setup_complete(body: SetupComplete | None = None, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+    if body and body.mode:
+        state.set_state("mode", body.mode)
     state.set_state("setup_completed", True)
-    audit(p.actor, "setup.completed", "Eerste-startwizard afgerond")
+    audit(p.actor, "setup.completed", "Eerste-startwizard afgerond",
+          detail={"mode": state.mode()})
     return setup_status()
 
 
@@ -509,8 +516,17 @@ def backups_create(body: BackupBody, p: Principal = Depends(require("admin"))) -
     return {"job_id": job["id"], "status": job["status"]}
 
 
+class RestoreBody(BaseModel):
+    confirm: str
+
+
 @router.post("/backups/{backup_id}/restore")
-def backups_restore(backup_id: int, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+def backups_restore(backup_id: int, body: RestoreBody, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+    row = get_db().fetchone("SELECT file FROM backups WHERE id=%s", (backup_id,))
+    if row is None:
+        raise HTTPException(404, detail="Back-up niet gevonden")
+    if body.confirm != row["file"]:
+        raise HTTPException(422, detail="Typ de bestandsnaam van de back-up ter bevestiging")
     try:
         return backups.restore_backup(backup_id, p.actor)
     except backups.BackupError as exc:

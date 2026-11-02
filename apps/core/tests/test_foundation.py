@@ -370,6 +370,19 @@ def test_restore_refuses_corrupt_backup(app: Any, db: Any) -> None:
     assert db.ping()
 
 
+def test_restore_api_requires_typed_confirmation(app: Any, admin: Any) -> None:
+    from mso import backups
+    b = backups.create_backup(actor="test")
+    assert admin.post(f"/api/v1/backups/{b['id']}/restore", json={"confirm": "fout"}).status_code == 422
+    assert admin.post(f"/api/v1/backups/{b['id']}/restore", json={"confirm": b["file"]}).status_code == 200
+
+
+def test_setup_complete_sets_mode(admin: Any) -> None:
+    r = admin.post("/api/v1/setup/complete", json={"mode": "manage"})
+    assert r.status_code == 200
+    assert admin.get("/api/v1/system/mode").json()["mode"] == "manage"
+
+
 def test_health_and_info(admin: Any) -> None:
     h = admin.get("/api/v1/system/health").json()
     assert h["components"][0]["name"] == "database" and h["components"][0]["status"] == "healthy"

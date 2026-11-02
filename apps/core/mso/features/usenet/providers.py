@@ -267,7 +267,7 @@ def credentials(slug: str) -> tuple[str, str]:
 def effective_connections(configured: int) -> int:
     try:
         mine = int(sr.get("usenet.check_connections"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         mine = 1
     return max(1, min(2, mine, int(configured or 1)))
 
@@ -296,7 +296,7 @@ def connection_slot(row: dict[str, Any], wait_s: float = 30.0) -> Iterator[None]
 def timeout_s() -> float:
     try:
         return float(sr.get("usenet.nntp_timeout_s"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 15.0
 
 

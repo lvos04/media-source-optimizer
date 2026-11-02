@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 VERSION = "0.1.0"
-INTERNAL_TOKEN = "mock-internal-token-0123456789"  # noqa: S105  (test double)
+INTERNAL_TOKEN = "mock-internal-token-0123456789"
 USERS = {  # username: (password, role)
     "mso-operator": ("Operator-Wachtwoord1", "operator"),
     "mso-viewer": ("Viewer-Wachtwoord1", "viewer"),

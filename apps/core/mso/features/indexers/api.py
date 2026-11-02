@@ -14,7 +14,7 @@ from mso.connectors import base as cb
 from mso.connectors.prowlarr import ProwlarrError
 from mso.db import get_db
 from mso.features.indexers import prowlarr_sync, prowlarr_view, registry, reliability
-from mso.features.search import settings as S  # noqa: F401  (defines settings)
+from mso.features.search import settings as S
 from mso.security import UnsafeTarget, limiter
 
 router = APIRouter(prefix="/api/v1/indexers", tags=["indexers"])

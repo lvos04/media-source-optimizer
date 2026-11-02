@@ -36,7 +36,7 @@ def _worker(_: argparse.Namespace) -> None:
         while not worker.stop_event.is_set():
             try:
                 state.set_state("worker_heartbeat", {"worker": worker.worker_id, "ts": time.time()}, db)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 LOGGER.warning("hartslag schrijven mislukt")
             worker.stop_event.wait(20)
 
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="mso")
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("api")
-    a.add_argument("--host", default="0.0.0.0")  # noqa: S104  (container-internal)
+    a.add_argument("--host", default="0.0.0.0")
     a.add_argument("--port", type=int, default=8200)
     a.add_argument("--forwarded-allow-ips", default="127.0.0.1")
     a.set_defaults(fn=_api)

@@ -20,11 +20,27 @@ def _list(name: str) -> list[str]:
     return [p.strip() for p in os.environ.get(name, "").split(",") if p.strip()]
 
 
+def _database_url() -> str:
+    """MSO_DATABASE_URL, or assembled from MSO_DB_* with the password read from MSO_DB_PASSWORD_FILE
+    (TrueNAS: the init container generates that file on APPDATA; the password never lives in YAML)."""
+    url = os.environ.get("MSO_DATABASE_URL")
+    if url:
+        return url
+    pw_file = os.environ.get("MSO_DB_PASSWORD_FILE")
+    if pw_file and Path(pw_file).exists():
+        from urllib.parse import quote
+        pw = quote(Path(pw_file).read_text().strip(), safe="")
+        user = os.environ.get("MSO_DB_USER", "mso")
+        host = os.environ.get("MSO_DB_HOST", "postgres")
+        port = os.environ.get("MSO_DB_PORT", "5432")
+        name = os.environ.get("MSO_DB_NAME", "mso")
+        return f"postgresql://{user}:{pw}@{host}:{port}/{name}"
+    return "postgresql://mso@127.0.0.1:55432/mso"
+
+
 @dataclass
 class Settings:
-    database_url: str = field(
-        default_factory=lambda: os.environ.get(
-            "MSO_DATABASE_URL", "postgresql://mso@127.0.0.1:55432/mso"))
+    database_url: str = field(default_factory=_database_url)
     # APPDATA dataset: secret key, backups, logs. WORK dataset: caches, header index.
     data_dir: Path = field(default_factory=lambda: Path(os.environ.get("MSO_DATA_DIR", "/appdata")))
     work_dir: Path = field(default_factory=lambda: Path(os.environ.get("MSO_WORK_DIR", "/work")))

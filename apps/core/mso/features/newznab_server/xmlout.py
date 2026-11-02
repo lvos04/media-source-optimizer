@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from typing import Any
-from xml.etree import ElementTree as ET  # noqa: S405  (generation only; parsing elsewhere uses defusedxml)
+from xml.etree import ElementTree as ET
 
 from mso.config import VERSION
 from mso.domain import categories as C

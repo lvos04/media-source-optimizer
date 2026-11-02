@@ -21,7 +21,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from typing import Any
-from xml.etree import ElementTree as ET  # noqa: S405  (generation only)
+from xml.etree import ElementTree as ET
 
 from fastapi import FastAPI, Request, Response
 

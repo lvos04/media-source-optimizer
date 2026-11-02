@@ -133,7 +133,7 @@ def run_one(job: dict[str, Any], db: Database | None = None) -> str:
     except JobCancelled:
         db.execute("UPDATE jobs SET locked_by=NULL, updated_at=now() WHERE id=%s", (job["id"],))
         return "cancelled"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         msg = redact(f"{type(exc).__name__}: {exc}")
         LOGGER.warning("job %s (%s) mislukt: %s", job["id"], job["kind"], msg)
         LOGGER.debug("%s", redact(traceback.format_exc()))
@@ -192,7 +192,8 @@ def enqueue_due_schedules(db: Database | None = None) -> int:
         try:
             if not sched.enabled():
                 continue
-        except Exception:  # noqa: BLE001
+        except Exception:
+            LOGGER.warning("schema-controle voor %s mislukt; overgeslagen", sched.kind)
             continue
         slot = now // sched.every_s
         before = db.scalar("SELECT count(*) FROM jobs WHERE idempotency_key=%s", (f"sched:{sched.kind}:{slot}",))
@@ -224,7 +225,7 @@ class Worker:
                     self.stop_event.wait(self.poll_s)
                     continue
                 run_one(job, self.db)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 LOGGER.exception("workerlus fout; opnieuw proberen")
                 self.stop_event.wait(self.poll_s)
 

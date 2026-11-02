@@ -376,7 +376,7 @@ def _job_purge(ctx: jobs.JobContext) -> dict[str, Any]:
 def enabled() -> bool:
     try:
         return bool(sr.get(f"{HI}.enabled"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 

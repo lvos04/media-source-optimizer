@@ -237,7 +237,7 @@ def serve(host: str, port: int, **faults: Any) -> None:
     if "articles" in faults and isinstance(faults["articles"], str):
         faults["articles"] = [a for a in faults["articles"].split(",") if a]
     server = _Server((host, port), _State(**faults))
-    print(f"mock NNTP op {host}:{port} (mode={server.state.mode})", flush=True)  # noqa: T201
+    print(f"mock NNTP op {host}:{port} (mode={server.state.mode})", flush=True)
     try:
         server.serve_forever()
     finally:

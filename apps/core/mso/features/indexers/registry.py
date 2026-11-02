@@ -378,7 +378,7 @@ def health_job(ctx: jobs.JobContext) -> dict[str, Any]:
 def _health_enabled() -> bool:
     try:
         return bool(get_db().scalar("SELECT count(*) FROM direct_indexers WHERE enabled"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 

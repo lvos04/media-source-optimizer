@@ -16,7 +16,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "apps" / "mocks"))
 
-from msomocks.__main__ import REGISTRY
+from msomocks.__main__ import REGISTRY  # noqa: E402
 
 
 def main() -> None:

@@ -245,7 +245,7 @@ def mediaguard_block(db: Database) -> dict[str, Any]:
                 "emergency_stop": (probe or {}).get("emergency_stop"),
                 "source": "mediaguard",
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             LOGGER.info("MediaGuard-status niet leesbaar: %s", exc)
             out = None
     if out is None:

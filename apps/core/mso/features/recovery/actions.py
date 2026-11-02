@@ -166,7 +166,7 @@ def send(media_ref: str, release_key: str, *, actor: str) -> dict[str, Any]:
             (str(exc), f"{key}:failed:{row['id']}", row["id"]),
         )
         raise HTTPException(409, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         msg = redact(f"{type(exc).__name__}: {exc}")
         db.execute(
             "UPDATE recovery_sends SET status='failed', error=%s, idempotency_key=%s, updated_at=now() "

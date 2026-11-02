@@ -26,9 +26,9 @@ def role() -> str:
 def check_api() -> int:
     url = f"http://127.0.0.1:{os.environ.get('MSO_API_PORT', '8200')}/healthz"
     try:
-        with urllib.request.urlopen(url, timeout=4) as resp:  # noqa: S310 (fixed loopback URL)
+        with urllib.request.urlopen(url, timeout=4) as resp:
             return 0 if resp.status == 200 else 1
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 1
 
 

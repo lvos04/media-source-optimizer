@@ -226,7 +226,7 @@ def _download(token: str, *, torznab: bool, consumer: dict[str, Any]) -> Respons
     except UnsafeTarget as exc:
         LOGGER.warning("download geweigerd (%s): %s", exc.code, redact(str(exc)))
         return _err(900, "download refused", 502)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.warning(
             "download via %s mislukt: %s", row["source_id"], redact(f"{type(exc).__name__}: {exc}")
         )
@@ -266,7 +266,7 @@ def torznab_api(request: Request) -> Response:
 def _guarded(request: Request, *, torznab: bool) -> Response:
     try:
         return _handle(request, torznab=torznab)
-    except Exception as exc:  # noqa: BLE001  — never leak a stack trace / secret to a Newznab client
+    except Exception as exc:
         LOGGER.error("newznab-endpoint fout: %s", redact(f"{type(exc).__name__}: {exc}"))
         return _err(900, None, 500)
 

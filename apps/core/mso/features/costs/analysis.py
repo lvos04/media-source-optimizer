@@ -61,7 +61,7 @@ def _min_sample() -> int:
 
     try:
         return int(sr.get("costs.min_sample"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 10
 
 
@@ -201,7 +201,7 @@ def usenet_contribution(source_id: str | None, period_days: int) -> dict[str, An
         return None
     try:
         data = provider_contribution(period_days)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.info("provider_contribution niet beschikbaar: %s", exc)
         return {"error": "Usenet-bijdragemeting gaf een fout"}
     keys = provider_keys(source_id)

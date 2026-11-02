@@ -39,14 +39,26 @@ def _remote(request: Request) -> str:
 
 
 def _set_cookie(response: Response, token: str) -> None:
-    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
-                        secure=get_settings().secure_cookies, path="/",
-                        max_age=get_settings().session_hours * 3600)
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="strict",
+        secure=get_settings().secure_cookies,
+        path="/",
+        max_age=get_settings().session_hours * 3600,
+    )
 
 
 def _user_view(row: dict[str, Any]) -> dict[str, Any]:
-    return {"id": row["id"], "username": row["username"], "role": row["role"], "disabled": row["disabled"],
-            "created_at": row["created_at"], "last_login_at": row.get("last_login_at")}
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "role": row["role"],
+        "disabled": row["disabled"],
+        "created_at": row["created_at"],
+        "last_login_at": row.get("last_login_at"),
+    }
 
 
 # ------------------------------------------------------------------ setup
@@ -61,9 +73,13 @@ def setup_status() -> dict[str, Any]:
     admin_exists = users_exist(db)
     completed = bool(state.get_state("setup_completed", False))
     rows = db.fetchall("SELECT id, status, url, enabled FROM connectors ORDER BY id")
-    return {"setup_required": not completed, "admin_exists": admin_exists, "completed": completed,
-            "version": VERSION, "connectors": {r["id"]: {"configured": bool(r["url"]) and r["enabled"],
-                                                         "status": r["status"]} for r in rows}}
+    return {
+        "setup_required": not completed,
+        "admin_exists": admin_exists,
+        "completed": completed,
+        "version": VERSION,
+        "connectors": {r["id"]: {"configured": bool(r["url"]) and r["enabled"], "status": r["status"]} for r in rows},
+    }
 
 
 @router.post("/setup/admin")
@@ -77,8 +93,10 @@ def setup_admin(body: Credentials, request: Request, response: Response) -> dict
         conn.execute("LOCK TABLE users IN EXCLUSIVE MODE")
         if conn.execute("SELECT count(*) AS n FROM users").fetchone()["n"]:
             raise HTTPException(409, detail="Er bestaat al een beheerder; log in")
-        row = conn.execute("INSERT INTO users(username,password_hash,role) VALUES (%s,%s,'admin') RETURNING *",
-                           (body.username, hash_password(body.password))).fetchone()
+        row = conn.execute(
+            "INSERT INTO users(username,password_hash,role) VALUES (%s,%s,'admin') RETURNING *",
+            (body.username, hash_password(body.password)),
+        ).fetchone()
     token, csrf = create_session(db, row["id"])
     _set_cookie(response, token)
     audit(body.username, "setup.admin_created", f"Beheerder '{body.username}' aangemaakt")
@@ -94,8 +112,7 @@ def setup_complete(body: SetupComplete | None = None, p: Principal = Depends(req
     if body and body.mode:
         state.set_state("mode", body.mode)
     state.set_state("setup_completed", True)
-    audit(p.actor, "setup.completed", "Eerste-startwizard afgerond",
-          detail={"mode": state.mode()})
+    audit(p.actor, "setup.completed", "Eerste-startwizard afgerond", detail={"mode": state.mode()})
     return setup_status()
 
 
@@ -110,8 +127,9 @@ def login(body: Credentials, request: Request, response: Response) -> dict[str, 
         raise HTTPException(429, detail=f"Te veel inlogpogingen; probeer over {int(max(wait_ip, wait_user)) + 1} s")
     row = db.fetchone("SELECT * FROM users WHERE lower(username)=lower(%s)", (body.username,))
     good = bool(row) and not row["disabled"] and verify_password(body.password, row["password_hash"])
-    db.execute("INSERT INTO login_attempts(username,remote,ok) VALUES (%s,%s,%s)",
-               (body.username[:64], _remote(request), good))
+    db.execute(
+        "INSERT INTO login_attempts(username,remote,ok) VALUES (%s,%s,%s)", (body.username[:64], _remote(request), good)
+    )
     if not good:
         raise HTTPException(401, detail="Onjuiste gebruikersnaam of wachtwoord")
     token, csrf = create_session(db, row["id"])
@@ -177,8 +195,10 @@ def create_user(body: NewUser, p: Principal = Depends(require("admin"))) -> dict
     db = get_db()
     if db.fetchone("SELECT 1 FROM users WHERE lower(username)=lower(%s)", (body.username,)):
         raise HTTPException(409, detail="Gebruikersnaam bestaat al")
-    row = db.fetchone("INSERT INTO users(username,password_hash,role) VALUES (%s,%s,%s) RETURNING *",
-                      (body.username, hash_password(body.password), body.role))
+    row = db.fetchone(
+        "INSERT INTO users(username,password_hash,role) VALUES (%s,%s,%s) RETURNING *",
+        (body.username, hash_password(body.password), body.role),
+    )
     audit(p.actor, "user.created", f"Gebruiker '{body.username}' ({body.role}) aangemaakt")
     return _user_view(row)
 
@@ -204,8 +224,12 @@ def patch_user(user_id: int, body: UserPatch, p: Principal = Depends(require("ad
         validate_password(body.password)
         db.execute("UPDATE users SET password_hash=%s WHERE id=%s", (hash_password(body.password), user_id))
         db.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
-    audit(p.actor, "user.updated", f"Gebruiker '{row['username']}' bijgewerkt",
-          detail={"role": body.role, "disabled": body.disabled, "password_reset": bool(body.password)})
+    audit(
+        p.actor,
+        "user.updated",
+        f"Gebruiker '{row['username']}' bijgewerkt",
+        detail={"role": body.role, "disabled": body.disabled, "password_reset": bool(body.password)},
+    )
     return _user_view(db.fetchone("SELECT * FROM users WHERE id=%s", (user_id,)))
 
 
@@ -223,8 +247,12 @@ def get_settings_api(_: Principal = Depends(require("viewer"))) -> dict[str, Any
 def put_settings(body: SettingsPut, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
     changed = settings_registry.put(body.values, p.actor)
     if changed:
-        audit(p.actor, "settings.updated", f"{len(changed)} instelling(en) gewijzigd",
-              detail={k: {"old": o, "new": n} for k, (o, n) in changed.items()})
+        audit(
+            p.actor,
+            "settings.updated",
+            f"{len(changed)} instelling(en) gewijzigd",
+            detail={k: {"old": o, "new": n} for k, (o, n) in changed.items()},
+        )
     return {"changed": list(changed), "values": settings_registry.all_values()}
 
 
@@ -262,6 +290,7 @@ def resume(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
 
 def _disk(path: Any) -> dict[str, Any] | None:
     import shutil
+
     try:
         u = shutil.disk_usage(path)
     except OSError:
@@ -272,15 +301,25 @@ def _disk(path: Any) -> dict[str, Any] | None:
 @router.get("/system/health")
 def health(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     db = get_db()
-    comps: list[dict[str, Any]] = [{"name": "database", "status": "healthy" if db.ping() else "offline",
-                                    "message": "PostgreSQL bereikbaar" if db.ping() else "PostgreSQL onbereikbaar"}]
+    comps: list[dict[str, Any]] = [
+        {
+            "name": "database",
+            "status": "healthy" if db.ping() else "offline",
+            "message": "PostgreSQL bereikbaar" if db.ping() else "PostgreSQL onbereikbaar",
+        }
+    ]
     hb = db.fetchone("SELECT value, updated_at FROM system_state WHERE key='worker_heartbeat'")
     if hb is None:
         comps.append({"name": "worker", "status": "degraded", "message": "Worker nog niet gezien"})
     else:
         age = db.scalar("SELECT extract(epoch FROM now() - updated_at) FROM system_state WHERE key='worker_heartbeat'")
-        comps.append({"name": "worker", "status": "healthy" if age < 90 else "offline",
-                      "message": f"Laatste hartslag {int(age)} s geleden"})
+        comps.append(
+            {
+                "name": "worker",
+                "status": "healthy" if age < 90 else "offline",
+                "message": f"Laatste hartslag {int(age)} s geleden",
+            }
+        )
     settings = get_settings()
     for label, path in (("appdata", settings.data_dir), ("work", settings.work_dir)):
         d = _disk(path)
@@ -288,33 +327,59 @@ def health(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
             comps.append({"name": label, "status": "degraded", "message": f"{path} niet beschikbaar"})
             continue
         reserve = settings.disk_reserve_gb * 1024**3
-        comps.append({"name": label, "status": "healthy" if d["free"] > reserve else "degraded",
-                      "message": f"{d['free'] / 1024**3:.1f} GB vrij", "disk": d})
+        comps.append(
+            {
+                "name": label,
+                "status": "healthy" if d["free"] > reserve else "degraded",
+                "message": f"{d['free'] / 1024**3:.1f} GB vrij",
+                "disk": d,
+            }
+        )
     for row in db.fetchall("SELECT id, label, status, enabled, url, last_error FROM connectors ORDER BY id"):
         if not row["enabled"] or not row["url"]:
             continue
-        comps.append({"name": f"connector:{row['id']}", "label": row["label"], "status": row["status"],
-                      "message": row["last_error"] or row["status"]})
+        comps.append(
+            {
+                "name": f"connector:{row['id']}",
+                "label": row["label"],
+                "status": row["status"],
+                "message": row["last_error"] or row["status"],
+            }
+        )
     statuses = [c["status"] for c in comps]
-    overall = "offline" if comps[0]["status"] == "offline" else (
-        "healthy" if all(s == "healthy" for s in statuses) else "degraded")
+    overall = (
+        "offline"
+        if comps[0]["status"] == "offline"
+        else ("healthy" if all(s == "healthy" for s in statuses) else "degraded")
+    )
     return {"status": overall, "components": comps}
 
 
 @router.get("/system/info")
 def info(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     db = get_db()
-    return {"version": VERSION, "schema_version": schema_version(db),
-            "migrations": [{"version": m["version"], "name": m["name"], "applied_at": m["applied_at"]}
-                           for m in applied_migrations(db)],
-            "uptime_s": int(time.time() - STARTED), "mode": state.mode(), "paused": state.paused()}
+    return {
+        "version": VERSION,
+        "schema_version": schema_version(db),
+        "migrations": [
+            {"version": m["version"], "name": m["name"], "applied_at": m["applied_at"]} for m in applied_migrations(db)
+        ],
+        "uptime_s": int(time.time() - STARTED),
+        "mode": state.mode(),
+        "paused": state.paused(),
+    }
 
 
 # ------------------------------------------------------------------ audit
 @router.get("/audit")
-def audit_list(limit: int = Query(100, ge=1, le=500), action: str | None = None, before_id: int | None = None,
-               target: str | None = None, q: str | None = None,
-               _: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+def audit_list(
+    limit: int = Query(100, ge=1, le=500),
+    action: str | None = None,
+    before_id: int | None = None,
+    target: str | None = None,
+    q: str | None = None,
+    _: Principal = Depends(require("viewer")),
+) -> dict[str, Any]:
     where, params = [], []
     if action:
         where.append("action LIKE %s")
@@ -335,8 +400,12 @@ def audit_list(limit: int = Query(100, ge=1, le=500), action: str | None = None,
 
 # ------------------------------------------------------------------ jobs
 @router.get("/jobs")
-def jobs_list(status: str | None = None, kind: str | None = None, limit: int = Query(100, ge=1, le=500),
-              _: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+def jobs_list(
+    status: str | None = None,
+    kind: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    _: Principal = Depends(require("viewer")),
+) -> dict[str, Any]:
     where, params = [], []
     if status:
         where.append("status = ANY(%s)")
@@ -344,9 +413,10 @@ def jobs_list(status: str | None = None, kind: str | None = None, limit: int = Q
     if kind:
         where.append("kind LIKE %s")
         params.append(kind.rstrip("*") + "%")
-    sql = ("SELECT id,kind,status,attempts,max_attempts,progress,summary,error,created_by,created_at,updated_at,"
-           "run_after,result FROM jobs" + (" WHERE " + " AND ".join(where) if where else "")
-           + " ORDER BY id DESC LIMIT %s")
+    sql = (
+        "SELECT id,kind,status,attempts,max_attempts,progress,summary,error,created_by,created_at,updated_at,"
+        "run_after,result FROM jobs" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT %s"
+    )
     return {"items": get_db().fetchall(sql, [*params, limit])}
 
 
@@ -376,8 +446,12 @@ def job_retry(job_id: int, p: Principal = Depends(require("operator"))) -> dict[
 
 # ------------------------------------------------------------------ changes
 @router.get("/changes")
-def changes_list(status: str | None = None, target: str | None = None, limit: int = Query(100, ge=1, le=500),
-                 _: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+def changes_list(
+    status: str | None = None,
+    target: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    _: Principal = Depends(require("viewer")),
+) -> dict[str, Any]:
     return {"items": changes.list_changes(status, target, limit), "mode": state.mode()}
 
 
@@ -404,8 +478,9 @@ class RollbackBody(BaseModel):
 
 
 @router.post("/changes/{change_id}/rollback")
-def change_rollback(change_id: int, body: RollbackBody | None = None,
-                    p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+def change_rollback(
+    change_id: int, body: RollbackBody | None = None, p: Principal = Depends(require("operator"))
+) -> dict[str, Any]:
     return changes.rollback(change_id, p.actor, (body.reason if body else ""))
 
 
@@ -457,8 +532,10 @@ def connector_put(cid: str, body: ConnectorPut, p: Principal = Depends(require("
     if body.url and body.enabled is None and not row["url"]:
         enabled = True
     options = row["options"] if body.options is None else body.options
-    db.execute("UPDATE connectors SET url=%s, enabled=%s, options=%s, updated_at=now() WHERE id=%s",
-               (url, enabled, jsonb(options), cid))
+    db.execute(
+        "UPDATE connectors SET url=%s, enabled=%s, options=%s, updated_at=now() WHERE id=%s",
+        (url, enabled, jsonb(options), cid),
+    )
     changed_secrets = []
     if body.secrets:
         allowed = {f.name for f in spec.secret_fields}
@@ -468,14 +545,20 @@ def connector_put(cid: str, body: ConnectorPut, p: Principal = Depends(require("
                 raise HTTPException(422, detail=f"Onbekend geheimveld '{name}'")
             vault.set(connectors.secret_name(cid, name), value)
             changed_secrets.append(name)
-    audit(p.actor, "connector.updated", f"Koppeling {spec.label} opgeslagen", target=cid,
-          detail={"url": url, "enabled": enabled, "secrets_changed": changed_secrets})
+    audit(
+        p.actor,
+        "connector.updated",
+        f"Koppeling {spec.label} opgeslagen",
+        target=cid,
+        detail={"url": url, "enabled": enabled, "secrets_changed": changed_secrets},
+    )
     return connectors.public_view(db.fetchone("SELECT * FROM connectors WHERE id=%s", (cid,)))
 
 
 @router.post("/connectors/{cid}/test")
-def connector_test(cid: str, request: Request, body: ConnectorTest | None = None,
-                   p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+def connector_test(
+    cid: str, request: Request, body: ConnectorTest | None = None, p: Principal = Depends(require("operator"))
+) -> dict[str, Any]:
     spec = _spec(cid)
     ok, _ = limiter.hit("connector-test", p.actor, 30, 60)
     if not ok:
@@ -487,14 +570,23 @@ def connector_test(cid: str, request: Request, body: ConnectorTest | None = None
     url = body.url or row["url"]
     if not url:
         raise HTTPException(422, detail="Vul eerst een URL in")
-    cfg = connectors.ConnectorConfig(id=cid, url=url, secrets=stored | {k: v for k, v in (body.secrets or {}).items() if v},
-                                     options=(body.options if body.options is not None else row["options"]) or {})
+    cfg = connectors.ConnectorConfig(
+        id=cid,
+        url=url,
+        secrets=stored | {k: v for k, v in (body.secrets or {}).items() if v},
+        options=(body.options if body.options is not None else row["options"]) or {},
+    )
     result = connectors.run_test(spec, cfg)
     # only persist status when testing the saved configuration
     if not body.url or body.url.rstrip("/") == (row["url"] or "").rstrip("/"):
         connectors.record_test(cid, result)
-    audit(p.actor, "connector.tested", f"Test {spec.label}: {result.status}", target=cid,
-          detail={"ok": result.ok, "message": result.message})
+    audit(
+        p.actor,
+        "connector.tested",
+        f"Test {spec.label}: {result.status}",
+        target=cid,
+        detail={"ok": result.ok, "message": result.message},
+    )
     return result.as_dict()
 
 
@@ -510,8 +602,9 @@ def backups_list(_: Principal = Depends(require("admin"))) -> dict[str, Any]:
 
 @router.post("/backups")
 def backups_create(body: BackupBody, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
-    job = jobs.enqueue("backup.create", {"include_secrets": body.include_secrets, "actor": p.actor},
-                       created_by=p.actor, max_attempts=1)
+    job = jobs.enqueue(
+        "backup.create", {"include_secrets": body.include_secrets, "actor": p.actor}, created_by=p.actor, max_attempts=1
+    )
     audit(p.actor, "backup.requested", "Back-up aangevraagd", detail={"include_secrets": body.include_secrets})
     return {"job_id": job["id"], "status": job["status"]}
 

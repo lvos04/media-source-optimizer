@@ -120,7 +120,7 @@ def parse_torrent(data: bytes) -> dict[str, Any]:
     return {
         "infohash": hashlib.sha1(raw).hexdigest(),  # noqa: S324 (BitTorrent v1 infohash)
         "name": name,
-        "files": files,  # noqa: S324 (BitTorrent v1)
+        "files": files,
         "total_size": sum(s for _, s in files),
         "private": int(info.get(b"private", 0)) == 1,
         "tracker_host": tracker_host(announce),
@@ -152,7 +152,7 @@ def _fetch_torrent(service: Any, release: Any) -> bytes | None:
             got = fetch(release)
             data = got[0] if isinstance(got, tuple) else got
             return data if isinstance(data, bytes | bytearray) else None
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             LOGGER.info("download via zoekdienst mislukt: %s", redact(str(exc)))
             return None
     url = getattr(release, "download_url", None)
@@ -201,7 +201,7 @@ def scan(limit: int | None = None) -> dict[str, Any]:
                 limit=50,
             )
             result = service.search(query, actor="cross-seed")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             LOGGER.info("cross-seed zoeken mislukt voor %s: %s", row["hash"][:8], redact(str(exc)))
             continue
         for rel in getattr(result, "items", []):

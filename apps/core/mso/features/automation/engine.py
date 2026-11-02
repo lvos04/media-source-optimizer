@@ -166,7 +166,7 @@ def evaluate_due(db: Database | None = None) -> dict[str, Any]:
             continue
         try:
             result = fn(dict(ch))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             result, msg = "unknown", f"Evaluator gaf een fout: {redact(str(exc))[:300]}"
         else:
             msg = ""
@@ -212,7 +212,7 @@ def evaluate_due(db: Database | None = None) -> dict[str, Any]:
                     )
                     _log("evaluate", "rolled_back", f"Teruggedraaid: {ch['title']}", ch["id"], area, db)
                     continue
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     msg = (
                         f"Automatisch terugdraaien mislukt: {redact(str(getattr(exc, 'detail', exc)))[:300]}"
                     )

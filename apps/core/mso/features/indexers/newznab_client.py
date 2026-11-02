@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
-from xml.etree.ElementTree import Element  # noqa: S405  (type only; parsing uses defusedxml)
+from xml.etree.ElementTree import Element
 
 import httpx
 from defusedxml import ElementTree as DET
@@ -62,7 +62,7 @@ def parse_error(root: Element) -> SourceError | None:
 def parse_xml(data: bytes) -> Element:
     try:
         return DET.fromstring(data)
-    except Exception as exc:  # noqa: BLE001  (ParseError, DTDForbidden, EntitiesForbidden…)
+    except Exception as exc:
         raise SourceError("error", f"Onleesbaar XML-antwoord van indexer ({type(exc).__name__})") from exc
 
 

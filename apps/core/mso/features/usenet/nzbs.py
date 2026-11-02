@@ -64,7 +64,7 @@ def parse_nzb(data: bytes) -> ParsedNzb:
         raise NzbError("NZB-bestand is te groot (max 40 MB)")
     try:
         root: Element = SafeET.fromstring(data, forbid_dtd=False, forbid_entities=True, forbid_external=True)
-    except Exception as exc:  # noqa: BLE001  (defusedxml raises several types)
+    except Exception as exc:
         raise NzbError("geen geldig NZB-bestand (XML kon niet worden gelezen)") from exc
     if _local(root.tag) != "nzb":
         raise NzbError("geen NZB: root-element is niet <nzb>")

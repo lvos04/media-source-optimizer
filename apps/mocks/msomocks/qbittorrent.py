@@ -744,7 +744,7 @@ def create_app(**faults: Any) -> FastAPI:
         if data:
             try:
                 ident, name = _torrent_identity(data)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 return PlainTextResponse("Fails.")
         if ident in qb.torrents:
             return PlainTextResponse("Fails.")

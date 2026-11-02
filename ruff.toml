@@ -1,0 +1,12 @@
+# Shared lint config for core, mocks and stack tests (apps/core/pyproject.toml mirrors it).
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "RUF100"]
+ignore = ["S101", "S311", "B008", "S608", "S104"]
+
+[lint.per-file-ignores]
+"apps/core/tests/*" = ["S105", "S106", "S107", "S108", "S112", "S603", "S607"]
+"apps/mocks/*" = ["S105", "S106", "S107", "S112"]
+"tests/stack/*" = ["S105", "S106", "S603", "S607", "S108"]

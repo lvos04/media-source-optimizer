@@ -287,7 +287,7 @@ class QbitClient:
         self,
         hashes: list[str] | None = None,
         *,
-        filter: str | None = None,  # noqa: A002
+        filter: str | None = None,
         category: str | None = None,
     ) -> list[dict[str, Any]]:
         return self._get_json(

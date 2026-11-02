@@ -88,7 +88,7 @@ def create(target: str, title: str, ops: list[dict[str, Any]], *, risk: str, exp
 def _validator(target: str) -> Callable[[str, Any], None] | None:
     try:
         return APPLIERS[target]().validate
-    except Exception:  # noqa: BLE001  (connector not configured: validate later at apply)
+    except Exception:
         return None
 
 
@@ -138,7 +138,7 @@ def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = 
         raise HTTPException(409, detail=f"Geen schrijfkoppeling voor '{ch['target']}'")
     try:
         applier = factory()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {exc}") from exc
 
     ops = [dict(op) for op in ch["ops"]]
@@ -168,13 +168,13 @@ def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = 
             if check != op["after"]:
                 raise RuntimeError(f"verificatie mislukt voor '{op['label']}': {check!r}")
             op["result"] = "toegepast"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         rollback_errors = []
         for op in reversed(written):
             try:
                 applier.write(op["path"], op["observed_before"])
                 op["result"] = "teruggedraaid"
-            except Exception as rexc:  # noqa: BLE001
+            except Exception as rexc:
                 rollback_errors.append(f"{op['label']}: {rexc}")
         err = f"{exc}" + (f" · herstel mislukt: {rollback_errors}" if rollback_errors else " · automatisch hersteld")
         db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s WHERE id=%s",
@@ -205,7 +205,7 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
         try:
             applier.write(op["path"], op["observed_before"])
             op["result"] = "teruggedraaid"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(f"{op['label']}: {exc}")
     if errors:
         db.execute("UPDATE change_sets SET error=%s, ops=%s WHERE id=%s", ("; ".join(errors), jsonb(ops), change_id))

@@ -146,7 +146,7 @@ def run_test(spec: ConnectorSpec, cfg: ConnectorConfig) -> TestResult:
         res = TestResult(False, "offline", "Verbinding geweigerd of host onbereikbaar")
     except httpx.HTTPError as exc:
         res = TestResult(False, "offline", redact(f"HTTP-fout: {exc}"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         res = TestResult(False, "unknown", redact(f"{type(exc).__name__}: {exc}"))
     if res.latency_ms is None:
         res.latency_ms = int((time.monotonic() - start) * 1000)

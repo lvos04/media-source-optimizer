@@ -22,7 +22,9 @@ def test_first_run_setup_creates_admin_once(client: TestClient) -> None:
     csrf = r.json()["csrf_token"]
     assert client.get("/api/v1/auth/me").json()["user"]["role"] == "admin"
     # second admin via setup is refused
-    r2 = TestClient(client.app).post("/api/v1/setup/admin", json={"username": "tweede", "password": "Sterk-Wachtwoord1"})
+    r2 = TestClient(client.app).post(
+        "/api/v1/setup/admin", json={"username": "tweede", "password": "Sterk-Wachtwoord1"}
+    )
     assert r2.status_code == 409
     r3 = client.post("/api/v1/setup/complete", headers={"X-CSRF-Token": csrf})
     assert r3.status_code == 200 and r3.json()["setup_required"] is False
@@ -43,7 +45,11 @@ def test_login_logout_and_cookie_flags(app: Any, admin: Any) -> None:
 def test_login_cookie_is_httponly_strict(app: Any, admin: Any) -> None:
     from mso.auth import hash_password
     from mso.db import get_db
-    get_db().execute("INSERT INTO users(username,password_hash,role) VALUES ('cookie','%s','viewer')" % hash_password("Wachtwoord123"))
+
+    get_db().execute(
+        "INSERT INTO users(username,password_hash,role) VALUES ('cookie',%s,'viewer')",
+        (hash_password("Wachtwoord123"),),
+    )
     r = TestClient(app).post("/api/v1/auth/login", json={"username": "cookie", "password": "Wachtwoord123"})
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=strict" in cookie
@@ -51,8 +57,10 @@ def test_login_cookie_is_httponly_strict(app: Any, admin: Any) -> None:
 
 def test_wrong_password_and_rate_limit(app: Any, admin: Any) -> None:
     c = TestClient(app)
-    codes = [c.post("/api/v1/auth/login", json={"username": "beheerder", "password": "fout-fout-fout"}).status_code
-             for _ in range(12)]
+    codes = [
+        c.post("/api/v1/auth/login", json={"username": "beheerder", "password": "fout-fout-fout"}).status_code
+        for _ in range(12)
+    ]
     assert codes[0] == 401
     assert 429 in codes
 
@@ -202,16 +210,21 @@ def test_change_drift_detection(admin: Any, fake: FakeSystem, manage_mode: None)
 
 def test_change_partial_failure_auto_rolls_back(admin: Any, fake: FakeSystem, manage_mode: None) -> None:
     fake.fail_on = "conns"
-    ch = changes.create("fake", "Twee", [{"path": "speed", "before": 100, "after": 90},
-                                         {"path": "conns", "before": 50, "after": 60}], risk="automatisch_veilig")
+    ch = changes.create(
+        "fake",
+        "Twee",
+        [{"path": "speed", "before": 100, "after": 90}, {"path": "conns", "before": 50, "after": 60}],
+        risk="automatisch_veilig",
+    )
     r = admin.post(f"/api/v1/changes/{ch['id']}/apply")
     assert r.status_code == 502
     assert fake.values == {"speed": 100, "conns": 50}
     assert changes.get(ch["id"])["status"] == "failed"
 
 
-def test_permission_required_changes_need_admin_approval(operator: Any, admin: Any, fake: FakeSystem,
-                                                         manage_mode: None) -> None:
+def test_permission_required_changes_need_admin_approval(
+    operator: Any, admin: Any, fake: FakeSystem, manage_mode: None
+) -> None:
     ch = changes.create("fake", "Risico", [{"path": "conns", "before": 50, "after": 200}], risk="toestemming_nodig")
     assert operator.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 403
     assert operator.post(f"/api/v1/changes/{ch['id']}/approve").status_code == 403
@@ -222,12 +235,14 @@ def test_permission_required_changes_need_admin_approval(operator: Any, admin: A
 
 def test_policy_validation_blocks_change(admin: Any, fake: FakeSystem) -> None:
     from fastapi import HTTPException
+
     with pytest.raises(HTTPException):
         changes.create("fake", "Te veel", [{"path": "conns", "before": 50, "after": 900}], risk="advies")
 
 
 def test_automatic_apply_only_for_safe_and_not_paused(app: Any, fake: FakeSystem, manage_mode: None) -> None:
     from fastapi import HTTPException
+
     advice = changes.create("fake", "Advies", [{"path": "speed", "after": 70}], risk="advies")
     with pytest.raises(HTTPException):
         changes.apply(advice["id"], "auto", automatic=True)
@@ -249,10 +264,14 @@ def test_change_dedupe_key(app: Any, fake: FakeSystem) -> None:
 @pytest.fixture()
 def testconn(app: Any) -> Any:
     from mso.connectors import base
-    spec = base.ConnectorSpec(id="testconn", kind="test", label="Testdienst",
-                              secret_fields=[base.SecretField("api_key", "API-sleutel")],
-                              test=lambda cfg: base.TestResult(cfg.secrets.get("api_key") == "SUPERGEHEIM",
-                                                               "healthy", "ok", version="1.0"))
+
+    spec = base.ConnectorSpec(
+        id="testconn",
+        kind="test",
+        label="Testdienst",
+        secret_fields=[base.SecretField("api_key", "API-sleutel")],
+        test=lambda cfg: base.TestResult(cfg.secrets.get("api_key") == "SUPERGEHEIM", "healthy", "ok", version="1.0"),
+    )
     base.register(spec)
     base.ensure_rows()
     yield spec
@@ -261,8 +280,10 @@ def testconn(app: Any) -> Any:
 
 def test_vault_encrypts_and_never_exposes(app: Any, db: Any, admin: Any, testconn: Any) -> None:
     from mso.vault import get_vault
-    r = admin.put("/api/v1/connectors/testconn", json={"url": "http://192.168.1.20:9696",
-                                                        "secrets": {"api_key": "SUPERGEHEIM"}})
+
+    r = admin.put(
+        "/api/v1/connectors/testconn", json={"url": "http://192.168.1.20:9696", "secrets": {"api_key": "SUPERGEHEIM"}}
+    )
     assert r.status_code == 200 and "SUPERGEHEIM" not in r.text
     raw = db.fetchone("SELECT ciphertext FROM secrets WHERE name='connector.testconn.api_key'")
     assert b"SUPERGEHEIM" not in bytes(raw["ciphertext"])
@@ -275,6 +296,7 @@ def test_vault_encrypts_and_never_exposes(app: Any, db: Any, admin: Any, testcon
 
 def test_redaction_in_logs(caplog: pytest.LogCaptureFixture) -> None:
     from mso.security import RedactingFilter, redact
+
     assert "abc123" not in redact("GET /api?apikey=abc123&t=search")
     assert "pw" not in redact("http://user:pw@host/x").split("@")[0].split("//")[1].replace("***", "")
     logger = logging.getLogger("redact-test")
@@ -285,8 +307,14 @@ def test_redaction_in_logs(caplog: pytest.LogCaptureFixture) -> None:
 
 def test_ssrf_guard() -> None:
     from mso.security import UnsafeTarget, check_url
-    for bad in ("file:///etc/passwd", "http://169.254.169.254/latest/meta-data", "gopher://x",
-                "http://user:pass@192.168.1.5:8080", "http://[fe80::1]/"):
+
+    for bad in (
+        "file:///etc/passwd",
+        "http://169.254.169.254/latest/meta-data",
+        "gopher://x",
+        "http://user:pass@192.168.1.5:8080",
+        "http://[fe80::1]/",
+    ):
         with pytest.raises(UnsafeTarget):
             check_url(bad)
     assert check_url("http://192.168.1.10:9696/") == "http://192.168.1.10:9696"
@@ -300,6 +328,7 @@ def test_ssrf_on_connector_save(admin: Any, testconn: Any) -> None:
 def test_loopback_blocked_unless_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     from mso.config import get_settings
     from mso.security import UnsafeTarget, check_url
+
     monkeypatch.setattr(get_settings(), "allow_loopback_targets", False)
     with pytest.raises(UnsafeTarget):
         check_url("http://127.0.0.1:8080")
@@ -317,6 +346,7 @@ def test_migrations_down_and_up(database_url: str) -> None:
     import psycopg
 
     from mso.db import Database, load_migrations, migrate_down, migrate_up, schema_version
+
     name = database_url.rsplit("/", 1)[1] + "_mig"
     base = database_url.rsplit("/", 1)[0]
     with psycopg.connect(base + "/postgres", autocommit=True) as conn:
@@ -342,6 +372,7 @@ def test_migrations_down_and_up(database_url: str) -> None:
 def test_backup_and_restore_roundtrip(app: Any, db: Any, admin: Any) -> None:
     from mso import backups
     from mso.vault import get_vault
+
     get_vault().set("connector.sabnzbd.api_key", "BEHOUDEN")
     admin.put("/api/v1/settings", json={"values": {"backup.keep": 5}})
     b = backups.create_backup(actor="test")
@@ -357,6 +388,7 @@ def test_backup_and_restore_roundtrip(app: Any, db: Any, admin: Any) -> None:
 def test_restore_refuses_corrupt_backup(app: Any, db: Any) -> None:
     from mso import backups
     from mso.config import get_settings
+
     b = backups.create_backup(actor="test")
     path = get_settings().backup_dir / b["file"]
     data = bytearray(path.read_bytes())
@@ -372,6 +404,7 @@ def test_restore_refuses_corrupt_backup(app: Any, db: Any) -> None:
 
 def test_restore_api_requires_typed_confirmation(app: Any, admin: Any) -> None:
     from mso import backups
+
     b = backups.create_backup(actor="test")
     assert admin.post(f"/api/v1/backups/{b['id']}/restore", json={"confirm": "fout"}).status_code == 422
     assert admin.post(f"/api/v1/backups/{b['id']}/restore", json={"confirm": b["file"]}).status_code == 200

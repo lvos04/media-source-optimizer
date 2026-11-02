@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import threading
 import time
 import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
-
-import sys
 
 import psycopg
 import pytest

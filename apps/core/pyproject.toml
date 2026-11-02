@@ -37,12 +37,4 @@ testpaths = ["tests"]
 addopts = "-q"
 
 [tool.ruff]
-line-length = 110
-target-version = "py312"
-
-[tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "S"]
-ignore = ["S101", "S311", "B008", "S608"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S105", "S106", "S108"]
+extend = "../../ruff.toml"

@@ -131,7 +131,7 @@ def ingest(adapter: TorrentClientAdapter | None = None) -> dict[str, Any]:
                 trackers = [r.as_dict() for r in rows]
                 counts["trackers_refreshed"] += 1
                 trackers_at = now
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 LOGGER.info("trackers voor %s niet op te halen: %s", h[:8], redact(str(exc)))
                 rows, trackers_at = None, (prev["trackers_at"] if prev else None)
         else:

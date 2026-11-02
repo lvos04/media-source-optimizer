@@ -266,7 +266,7 @@ def send_targets(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
             entry["available"] = True
         except HTTPException as exc:
             entry["reason"] = exc.detail
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             entry["reason"] = redact(f"Niet bereikbaar of niet ingesteld: {exc}")
         out.append(entry)
     return {"items": out, "media_categories": list(C.MEDIA_CATEGORIES)}
@@ -326,7 +326,7 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
     except (LookupError, UnsafeTarget) as exc:
         _fail(row, str(exc))
         raise HTTPException(409, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         msg = redact(f"{type(exc).__name__}: {exc}")
         _fail(row, msg)
         audit(

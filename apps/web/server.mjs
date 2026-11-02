@@ -22,6 +22,7 @@ const host = process.env.MSO_WEB_HOST ?? process.env.LAN_LISTEN_HOST ?? "0.0.0.0
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 const coreUrl = new URL(process.env.MSO_CORE_URL ?? "http://localhost:8200");
 const development = process.env.NODE_ENV !== "production";
+const trustProxy = process.env.MSO_TRUST_PROXY === "1";
 
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
   "trailer", "transfer-encoding", "upgrade", "host"]);
@@ -43,7 +44,15 @@ function forwardHeaders(req, base) {
   headers.host = base.host;
   headers["x-forwarded-host"] = req.headers.host ?? "";
   headers["x-forwarded-proto"] = req.socket.encrypted ? "https" : "http";
-  headers["x-forwarded-for"] = [req.headers["x-forwarded-for"], req.socket.remoteAddress].filter(Boolean).join(", ");
+  // Overwrite (never append): a LAN client must not be able to spoof its address for core's per-IP limits.
+  // Behind a trusted TLS reverse proxy set MSO_TRUST_PROXY=1 to keep that proxy's X-Forwarded-For/-Host/-Proto.
+  if (trustProxy && req.headers["x-forwarded-for"]) {
+    headers["x-forwarded-for"] = String(req.headers["x-forwarded-for"]).split(",")[0].trim();
+    headers["x-forwarded-host"] = req.headers["x-forwarded-host"] ?? req.headers.host ?? "";
+    headers["x-forwarded-proto"] = req.headers["x-forwarded-proto"] ?? headers["x-forwarded-proto"];
+  } else {
+    headers["x-forwarded-for"] = req.socket.remoteAddress ?? "";
+  }
   return headers;
 }
 

@@ -159,7 +159,7 @@ class QbitAdapter:
             state.update(self.qb.transfer_info())
         try:
             interfaces = self.qb.network_interfaces()
-        except Exception:  # noqa: BLE001
+        except Exception:
             interfaces = []
         return ClientSnapshot(
             client=self.client_id,
@@ -195,7 +195,7 @@ class QbitAdapter:
                     return True
         try:
             props = self.qb.properties(h)
-        except Exception:  # noqa: BLE001
+        except Exception:
             props = {}
         if isinstance(props.get("is_private"), bool):
             return props["is_private"]

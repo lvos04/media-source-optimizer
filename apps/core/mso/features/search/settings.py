@@ -195,5 +195,5 @@ sr.define(
 def get(key: str, default: Any = None) -> Any:
     try:
         return sr.get(key)
-    except Exception:  # noqa: BLE001  (no DB in pure unit tests)
+    except Exception:
         return default if default is not None else sr.REGISTRY[key].default

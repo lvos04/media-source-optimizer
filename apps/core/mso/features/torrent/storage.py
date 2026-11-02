@@ -105,7 +105,7 @@ def hardlink_scan() -> dict[str, Any]:
         save = r["info"].get("save_path") or ""
         try:
             files = adapter.files(r["hash"])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             LOGGER.info("bestandenlijst van %s niet op te halen: %s", r["hash"][:8], redact(str(exc)))
             continue
         for f in files:

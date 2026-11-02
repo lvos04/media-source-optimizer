@@ -187,7 +187,7 @@ class MediaGuardClient:
     def _detail(r: httpx.Response) -> Any:
         try:
             return r.json().get("detail")
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     def raise_for(self, r: httpx.Response) -> None:

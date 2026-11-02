@@ -46,9 +46,8 @@ class Database:
     @contextmanager
     def tx(self) -> Iterator[psycopg.Connection[dict[str, Any]]]:
         """One transaction; commits on success, rolls back on exception."""
-        with self.pool.connection() as conn:
-            with conn.transaction():
-                yield conn
+        with self.pool.connection() as conn, conn.transaction():
+            yield conn
 
     def fetchall(self, sql: str, params: Sequence[Any] | dict[str, Any] | None = None) -> list[dict[str, Any]]:
         with self.tx() as conn:
@@ -72,7 +71,7 @@ class Database:
     def ping(self) -> bool:
         try:
             return self.scalar("SELECT 1") == 1
-        except Exception:  # noqa: BLE001
+        except Exception:
             return False
 
 

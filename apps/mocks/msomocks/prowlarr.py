@@ -435,7 +435,7 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
                     if idx.get("implementation") in ("Newznab", "Torznab") and _field(idx, "baseUrl"):
                         try:
                             results += _proxy(idx, text=text, tokens=tokens, stype=stype, cats=cats)
-                        except Exception as exc:  # noqa: BLE001  — Prowlarr skips failing indexers
+                        except Exception as exc:
                             app.state.callback_errors.append(f"{idx['name']}: {exc}")
                     continue
                 for f in nz.FIXTURES:

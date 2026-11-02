@@ -118,30 +118,29 @@ def safe_fetch(
         target = check_url(current, purpose="download")
         with httpx.Client(
             timeout=httpx.Timeout(timeout, connect=5.0), follow_redirects=False, headers=h
-        ) as c:
-            with c.stream("GET", target) as resp:
-                if resp.status_code in (301, 302, 303, 307, 308):
-                    loc = resp.headers.get("location")
-                    if not loc:
-                        raise httpx.HTTPStatusError(
-                            "redirect zonder Location", request=resp.request, response=resp
-                        )
-                    current = str(resp.url.join(loc)) if not loc.startswith("magnet:") else loc
-                    continue
-                resp.raise_for_status()
-                total = 0
-                chunks: list[bytes] = []
-                for chunk in resp.iter_bytes():
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise UnsafeTarget(
-                            f"Download groter dan {max_bytes // (1024 * 1024)} MB geweigerd", "too_large"
-                        )
-                    chunks.append(chunk)
-                ctype = resp.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
-                filename = None
-                disp = resp.headers.get("content-disposition", "")
-                if "filename=" in disp:
-                    filename = disp.split("filename=", 1)[1].strip().strip('"').split(";")[0]
-                return Fetched(b"".join(chunks), ctype, filename)
+        ) as c, c.stream("GET", target) as resp:
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("location")
+                if not loc:
+                    raise httpx.HTTPStatusError(
+                        "redirect zonder Location", request=resp.request, response=resp
+                    )
+                current = str(resp.url.join(loc)) if not loc.startswith("magnet:") else loc
+                continue
+            resp.raise_for_status()
+            total = 0
+            chunks: list[bytes] = []
+            for chunk in resp.iter_bytes():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise UnsafeTarget(
+                        f"Download groter dan {max_bytes // (1024 * 1024)} MB geweigerd", "too_large"
+                    )
+                chunks.append(chunk)
+            ctype = resp.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+            filename = None
+            disp = resp.headers.get("content-disposition", "")
+            if "filename=" in disp:
+                filename = disp.split("filename=", 1)[1].strip().strip('"').split(";")[0]
+            return Fetched(b"".join(chunks), ctype, filename)
     raise UnsafeTarget("Te veel doorverwijzingen", "too_many_redirects")

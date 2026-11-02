@@ -37,7 +37,7 @@ class RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             msg = record.getMessage()
-        except Exception:  # noqa: BLE001
+        except Exception:
             return True
         record.msg = redact(msg)
         record.args = ()

@@ -51,7 +51,7 @@ def register_search_backend() -> bool:
             protocols={"usenet"},
         )
         _registered = True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.warning("header-index kon niet als zoekbackend worden geregistreerd: %s", exc)
     return _registered
 

@@ -79,7 +79,7 @@ def is_blacklisted(release_key: str) -> bool:
         return False
     try:
         return bool(blacklist.is_blacklisted(release_key))
-    except Exception:  # noqa: BLE001
+    except Exception:
         LOGGER.warning("blacklist-controle mislukt voor %s", release_key)
         return False
 
@@ -551,7 +551,7 @@ def search(
                     t.source_id, t.label, exc.status, latency_ms=latency, message=redact(exc.message)
                 )
                 continue
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 LOGGER.warning("zoekbron %s faalde: %s", t.source_id, redact(f"{type(exc).__name__}: {exc}"))
                 by_task[t.source_id] = SourceReport(
                     t.source_id, t.label, "error", latency_ms=latency, message=redact(f"{type(exc).__name__}")

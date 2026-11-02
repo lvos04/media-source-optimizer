@@ -25,7 +25,7 @@ REGISTRY: dict[str, str] = {
 def main() -> None:
     p = argparse.ArgumentParser(prog="msomocks")
     p.add_argument("name", choices=sorted(REGISTRY))
-    p.add_argument("--host", default="0.0.0.0")  # noqa: S104
+    p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--fault", action="append", default=[], help="key=value fault injection")
     args = p.parse_args()

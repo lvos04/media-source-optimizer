@@ -90,7 +90,7 @@ class GuardMiddleware(BaseHTTPMiddleware):
             key = request.cookies.get("mso_session") or (request.client.host if request.client else "?")
             try:
                 per_min = int(settings_registry.get("security.api_rate_per_min"))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 per_min = 600
             ok, wait = limiter.hit("api", key, per_min, 60)
             if not ok:

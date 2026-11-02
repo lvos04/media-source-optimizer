@@ -96,7 +96,7 @@ def _call_ai(
             effort=str(sr.get("ai.effort")),
             timeout_s=float(sr.get("ai.timeout_s")),
         )
-    except Exception as exc:  # noqa: BLE001  (AIError, UnsafeTarget, anything else)
+    except Exception as exc:
         msg = redact(str(exc)).replace(key, "***") if key else redact(str(exc))
         budget.record(model, purpose, "error", error=msg[:500], actor=actor, db=db)
         return None, f"AI niet bereikbaar: {msg}"

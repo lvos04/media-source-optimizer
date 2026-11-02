@@ -1,0 +1,9 @@
+node_modules
+.next
+e2e/.data
+e2e/.results
+test-results
+playwright-report
+tsconfig.tsbuildinfo
+*.log
+.git

@@ -1,0 +1,9 @@
+/* Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/app/globals.css — internally versioned copy, see PROVENANCE.md */
+@import "tailwindcss";
+@import "../styles/mg.css";
+@import "../styles/mso.css";
+
+:root {
+  --mg-font: var(--font-inter), "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --mg-mono: var(--font-mono), "JetBrains Mono Variable", ui-monospace, monospace;
+}

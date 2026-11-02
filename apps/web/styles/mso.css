@@ -1,0 +1,31 @@
+/* ==========================================================================
+   Media Source Optimizer — additions on top of the MediaGuard design system.
+   mg.css stays a verbatim (internally versioned) copy; everything MSO-specific
+   lives here and only uses the existing --mg-* tokens.
+   ========================================================================== */
+
+/* brand mark with initials instead of the MediaGuard shield */
+.brand-mark--text { font-size: 11px; font-weight: 800; letter-spacing: .02em; line-height: 1; }
+
+/* "Automatisering pauzeren" — same shape as MediaGuard's emergency stop, warning tone */
+.estop--pause { border-color: color-mix(in srgb, var(--mg-warning) 55%, transparent); background: var(--mg-warning-tint); color: var(--mg-warning); }
+.estop--pause:hover { border-color: var(--mg-warning); }
+.estop--pause[aria-pressed="true"] { background: var(--mg-warning); color: var(--mg-on-accent); border-color: var(--mg-warning); }
+.estop:disabled { opacity: .55; cursor: not-allowed; }
+
+/* connector logos (InstanceLogo look) */
+.instance-logo--prowlarr { background: color-mix(in srgb, var(--mg-viz-3) 16%, transparent); color: var(--mg-viz-3); }
+.instance-logo--sabnzbd { background: color-mix(in srgb, var(--mg-viz-2) 16%, transparent); color: var(--mg-viz-2); }
+.instance-logo--qbittorrent { background: color-mix(in srgb, var(--mg-viz-1) 16%, transparent); color: var(--mg-viz-1); }
+.instance-logo--mediaguard { background: color-mix(in srgb, var(--mg-viz-4) 16%, transparent); color: var(--mg-viz-4); }
+.instance-logo--generic { background: var(--mg-neutral-tint); color: var(--mg-text-2); }
+
+/* change preview */
+.change-ops-path { display: block; color: var(--mg-text-3); font-family: var(--mg-mono); font-size: 11px; overflow-wrap: anywhere; }
+.pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* operating-mode chip stays visible on mobile (icon only), unlike the other top pills */
+@media (max-width: 860px) {
+  .top-pill.mode-pill { display: inline-flex; padding: 0 9px; }
+  .top-pill.mode-pill strong { display: none; }
+}

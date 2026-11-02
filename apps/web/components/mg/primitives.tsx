@@ -1,0 +1,252 @@
+// Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/components/mg/primitives.tsx — internally versioned copy, see PROVENANCE.md
+"use client";
+
+import {
+  CircleCheck, CircleX, Info, Loader, LoaderCircle, Lock, Pause, TriangleAlert, type LucideIcon,
+} from "lucide-react";
+import Link from "next/link";
+import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+
+import { useI18n } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
+
+export type Tone = "success" | "warning" | "danger" | "info" | "accent" | "neutral";
+
+const TONE_ICON: Record<Tone, LucideIcon> = {
+  success: CircleCheck,
+  warning: TriangleAlert,
+  danger: CircleX,
+  info: Info,
+  accent: LoaderCircle,
+  neutral: Pause,
+};
+
+/** Status = colour + icon + text (never colour alone). */
+export function StatusChip({ tone, children, icon, pending = false, size, outline = false, title }: {
+  tone: Tone; children: ReactNode; icon?: LucideIcon | null; pending?: boolean; size?: "lg"; outline?: boolean; title?: string;
+}) {
+  const Icon = icon === null ? null : icon ?? (pending ? LoaderCircle : TONE_ICON[tone]);
+  return (
+    <span className={cn("chip", tone !== "neutral" && `chip--${tone}`, pending && "chip--pending", size === "lg" && "chip--lg", outline && "chip--outline")} title={title}>
+      {Icon ? <Icon className="ico" aria-hidden="true" /> : null}
+      {children}
+    </span>
+  );
+}
+
+export function LockedChip() {
+  const { t } = useI18n();
+  return <StatusChip tone="neutral" icon={Lock}>{t("status.locked")}</StatusChip>;
+}
+
+export function Dot({ tone }: { tone: "success" | "warning" | "danger" | "accent" | "neutral" }) {
+  return <span className={cn("dot", tone !== "neutral" && `dot--${tone}`)} aria-hidden="true" />;
+}
+
+export function Card({ title, icon: Icon, sub, actions, children, className, bodyClass, footer, flush, id, tone }: {
+  title?: ReactNode; icon?: LucideIcon; sub?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string;
+  bodyClass?: string; footer?: ReactNode; flush?: boolean; id?: string; tone?: "danger" | "warning";
+}) {
+  const autoId = useId();
+  const headingId = id ?? `card-${autoId}`;
+  return (
+    <section className={cn("card", tone && `card--${tone}`, className)} aria-labelledby={title ? headingId : undefined}>
+      {title || actions ? (
+        <div className="card-header">
+          {title ? <h2 className="card-title" id={headingId}>{Icon ? <Icon className="ico" aria-hidden="true" /> : null}{title}{sub ? <span className="card-sub">{sub}</span> : null}</h2> : <span />}
+          {actions ? <div className="row wrap">{actions}</div> : null}
+        </div>
+      ) : null}
+      {flush ? children : <div className={cn("card-body", bodyClass)}>{children}</div>}
+      {footer ? <div className="card-footer">{footer}</div> : null}
+    </section>
+  );
+}
+
+export function PageHeader({ title, sub, actions, crumbs }: { title: ReactNode; sub?: ReactNode; actions?: ReactNode; crumbs?: Array<{ label: string; href?: string }> }) {
+  return (
+    <div className="page-header">
+      <div>
+        {crumbs?.length ? (
+          <nav className="crumbs" aria-label="breadcrumb">
+            {crumbs.map((c, i) => (
+              <span key={`${c.label}-${i}`} className="row" style={{ gap: 6 }}>
+                {i > 0 ? <span aria-hidden="true">›</span> : null}
+                {c.href ? <Link href={c.href}>{c.label}</Link> : <span>{c.label}</span>}
+              </span>
+            ))}
+          </nav>
+        ) : null}
+        <h1 className="page-title">{title}</h1>
+        {sub ? <p className="page-sub">{sub}</p> : null}
+      </div>
+      {actions ? <div className="page-actions">{actions}</div> : null}
+    </div>
+  );
+}
+
+type BtnVariant = "primary" | "secondary" | "ghost" | "danger" | "danger-solid";
+export function Button({ variant = "secondary", size, icon: Icon, pending, children, className, iconOnly, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: BtnVariant; size?: "sm"; icon?: LucideIcon; pending?: boolean; iconOnly?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      aria-busy={pending || undefined}
+      disabled={rest.disabled || pending}
+      className={cn("btn", variant !== "secondary" && `btn--${variant}`, size === "sm" && "btn--sm", iconOnly && "btn--icon", className)}
+    >
+      {pending ? <Loader className="ico" aria-hidden="true" style={{ animation: "mg-spin 1.2s linear infinite" }} /> : Icon ? <Icon className="ico" aria-hidden="true" /> : null}
+      {iconOnly ? <span className="sr-only">{children}</span> : children}
+    </button>
+  );
+}
+
+export function LinkButton({ href, variant = "secondary", size, icon: Icon, children }: { href: string; variant?: BtnVariant; size?: "sm"; icon?: LucideIcon; children: ReactNode }) {
+  return (
+    <Link href={href} className={cn("btn", variant !== "secondary" && `btn--${variant}`, size === "sm" && "btn--sm")}>
+      {Icon ? <Icon className="ico" aria-hidden="true" /> : null}{children}
+    </Link>
+  );
+}
+
+export function Switch({ checked, onChange, label, disabled, id }: { checked: boolean; onChange?: (v: boolean) => void; label: string; disabled?: boolean; id?: string }) {
+  return (
+    <button id={id} type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} className="switch" onClick={() => onChange?.(!checked)} />
+  );
+}
+
+export function Segmented<T extends string>({ value, options, onChange, label }: {
+  value: T; options: Array<{ value: T; label: ReactNode; count?: number | string; disabled?: boolean; title?: string }>; onChange: (v: T) => void; label: string;
+}) {
+  return (
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} type="button" aria-pressed={o.value === value} disabled={o.disabled} title={o.title} onClick={() => onChange(o.value)}>
+          {o.label}{o.count !== undefined ? <span className="count">{o.count}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Route-based tabs (each tab is a link) or state tabs (onSelect). */
+export function Tabs<T extends string>({ items, value, onSelect, label }: {
+  items: Array<{ value: T; label: ReactNode; count?: number | string; href?: string }>; value: T; onSelect?: (v: T) => void; label: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (!onSelect || (e.key !== "ArrowRight" && e.key !== "ArrowLeft")) return;
+    const idx = items.findIndex((i) => i.value === value);
+    const next = items[(idx + (e.key === "ArrowRight" ? 1 : items.length - 1)) % items.length];
+    onSelect(next.value);
+    window.setTimeout(() => ref.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus(), 0);
+  };
+  return (
+    <div className="tabs" role={onSelect ? "tablist" : undefined} aria-label={label} ref={ref} onKeyDown={onKey}>
+      {items.map((item) =>
+        item.href ? (
+          <Link key={item.value} href={item.href} className="tab" aria-current={item.value === value ? "page" : undefined}>
+            {item.label}{item.count !== undefined ? <span className="count">{item.count}</span> : null}
+          </Link>
+        ) : (
+          <button key={item.value} type="button" role="tab" className="tab" aria-selected={item.value === value} tabIndex={item.value === value ? 0 : -1} onClick={() => onSelect?.(item.value)}>
+            {item.label}{item.count !== undefined ? <span className="count">{item.count}</span> : null}
+          </button>
+        ),
+      )}
+    </div>
+  );
+}
+
+export function Field({ label, hint, error, htmlFor, children }: { label: ReactNode; hint?: ReactNode; error?: ReactNode; htmlFor: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="label" htmlFor={htmlFor}>{label}</label>
+      {children}
+      {error ? <div className="field-error" id={`${htmlFor}-error`} role="alert"><CircleX className="ico ico-sm" aria-hidden="true" />{error}</div> : hint ? <p className="hint" id={`${htmlFor}-hint`}>{hint}</p> : null}
+    </div>
+  );
+}
+
+export function InlineState({ tone = "info", icon: Icon, children, role }: { tone?: "info" | "warning" | "danger" | "success" | "neutral"; icon?: LucideIcon; children: ReactNode; role?: "status" | "alert" }) {
+  const I = Icon ?? (tone === "danger" ? CircleX : tone === "warning" ? TriangleAlert : tone === "success" ? CircleCheck : Info);
+  return (
+    <div className={cn("inline-state", tone !== "neutral" && `inline-state--${tone}`)} role={role}>
+      <I className="ico" aria-hidden="true" />
+      <div>{children}</div>
+    </div>
+  );
+}
+
+export function Progress({ value, tone, thin, label, indeterminate }: { value: number | null | undefined; tone?: "success" | "warning" | "danger" | "cpu"; thin?: boolean; label: string; indeterminate?: boolean }) {
+  const v = Math.max(0, Math.min(100, value ?? 0));
+  return (
+    <div className={cn("progress", tone && `progress--${tone}`, thin && "progress--thin", indeterminate && "progress--indeterminate")} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={indeterminate ? undefined : Math.round(v)}>
+      <span style={{ width: `${v}%` }} />
+    </div>
+  );
+}
+
+export function Skeleton({ lines = 3, height }: { lines?: number; height?: number }) {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: lines }, (_, i) => (
+        <div key={i} className="skeleton skeleton-line" style={{ width: `${90 - i * 12}%`, height }} />
+      ))}
+    </div>
+  );
+}
+
+export function Kbd({ children }: { children: ReactNode }) {
+  return <span className="kbd">{children}</span>;
+}
+
+/** Simple modal dialog with focus management (Esc closes, focus restored). */
+export function Modal({ open, onClose, title, children, footer, danger, icon: Icon, labelledBy, role = "dialog", description }: {
+  open: boolean; onClose: () => void; title: ReactNode; children?: ReactNode; footer?: ReactNode; danger?: boolean; icon?: LucideIcon;
+  labelledBy?: string; role?: "dialog" | "alertdialog"; description?: ReactNode;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  const titleId = useId();
+  const descId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const node = ref.current;
+    const focusables = () => Array.from(node?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])') ?? []);
+    (node?.querySelector<HTMLElement>("[data-autofocus]") ?? focusables()[0])?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+      if (e.key === "Tab") {
+        const items = focusables();
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      previous?.focus?.();
+    };
+  }, [onClose, open]);
+  if (!open) return null;
+  return (
+    <div className="overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <section ref={ref} className={cn("dialog", danger && "dialog--danger")} role={role} aria-modal="true" aria-labelledby={labelledBy ?? titleId} aria-describedby={description ? descId : undefined}>
+        <div className="dialog-head">
+          {Icon ? <span className={cn("list-icon", danger ? "list-icon--danger" : "list-icon--accent")}><Icon className="ico" aria-hidden="true" /></span> : null}
+          <div>
+            <h2 className="dialog-title" id={titleId}>{title}</h2>
+            {description ? <p className="t-2" id={descId} style={{ fontSize: 13, marginTop: 4 }}>{description}</p> : null}
+          </div>
+        </div>
+        {children ? <div className="dialog-body">{children}</div> : null}
+        {footer ? <div className="dialog-foot">{footer}</div> : null}
+      </section>
+    </div>
+  );
+}

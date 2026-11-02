@@ -1,0 +1,7 @@
+pyproject.toml
+mso_core.egg-info/PKG-INFO
+mso_core.egg-info/SOURCES.txt
+mso_core.egg-info/dependency_links.txt
+mso_core.egg-info/entry_points.txt
+mso_core.egg-info/requires.txt
+mso_core.egg-info/top_level.txt

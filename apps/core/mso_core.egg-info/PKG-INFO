@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: mso-core
+Version: 1.0.0
+Summary: Media Source Optimizer — core API + worker
+License: Proprietary (own project); third-party licenses see THIRD_PARTY.md
+Requires-Python: >=3.12
+Requires-Dist: fastapi==0.162.0
+Requires-Dist: starlette==1.10.0
+Requires-Dist: uvicorn[standard]==0.54.0
+Requires-Dist: psycopg[binary]==3.3.6
+Requires-Dist: psycopg-pool==3.3.3
+Requires-Dist: httpx==0.28.1
+Requires-Dist: cryptography==50.0.2
+Requires-Dist: pydantic==2.14.2
+Requires-Dist: defusedxml==0.7.1
+Provides-Extra: test
+Requires-Dist: pytest==9.2.0; extra == "test"
+Requires-Dist: pytest-cov; extra == "test"
+Requires-Dist: respx==0.23.1; extra == "test"
+Requires-Dist: ruff==0.17.3; extra == "test"

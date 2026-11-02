@@ -1,0 +1,2 @@
+[console_scripts]
+mso-core = mso.__main__:main

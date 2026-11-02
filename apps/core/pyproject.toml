@@ -1,0 +1,48 @@
+[project]
+name = "mso-core"
+version = "1.0.0"
+description = "Media Source Optimizer — core API + worker"
+requires-python = ">=3.12"
+license = { text = "Proprietary (own project); third-party licenses see THIRD_PARTY.md" }
+dependencies = [
+  "fastapi==0.162.0",
+  "starlette==1.10.0",
+  "uvicorn[standard]==0.54.0",
+  "psycopg[binary]==3.3.6",
+  "psycopg-pool==3.3.3",
+  "httpx==0.28.1",
+  "cryptography==50.0.2",
+  "pydantic==2.14.2",
+  "defusedxml==0.7.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.2.0", "pytest-cov", "respx==0.23.1", "ruff==0.17.3"]
+
+[project.scripts]
+mso-core = "mso.__main__:main"
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mso*"]
+
+[tool.setuptools.package-data]
+"mso.migrations" = ["*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "S311", "B008", "S608"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "S108"]

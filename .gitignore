@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+.next/
+apps/web/test-results/
+apps/web/playwright-report/
+*.log
+.env
+.env.*
+!.env.example
+/var/
+/tmp/

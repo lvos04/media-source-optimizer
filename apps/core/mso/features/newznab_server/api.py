@@ -88,8 +88,19 @@ def _cat_match(r_cats: list[int], wanted: list[int]) -> bool:
     return bool(have & want)
 
 
+def _request_origin(request: Request) -> str:
+    """Origin as the caller saw it. The web container proxies /newznab and /torznab to core and sets
+    X-Forwarded-Host/-Proto (core is only reachable through web), so links point at the published port,
+    not at the internal ``api:8200``."""
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip() or request.url.scheme
+    if host and proto in ("http", "https") and "/" not in host and "@" not in host:
+        return f"{proto}://{host}"
+    return str(request.base_url).rstrip("/")
+
+
 def _base_url(request: Request) -> str:
-    return keys.public_base_url() or str(request.base_url).rstrip("/")
+    return keys.public_base_url() or _request_origin(request)
 
 
 def _limits(consumer: dict[str, Any], *, grab: bool) -> Response | None:
@@ -279,7 +290,7 @@ api_router = APIRouter(prefix="/api/v1/newznab", tags=["newznab"])
 def endpoint_info(request: Request, _: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     consumer = keys.ensure_default_consumer()
     pub = keys.public_base_url()
-    base = pub or str(request.base_url).rstrip("/")
+    base = pub or _request_origin(request)
     regs = get_db().fetchall(
         "SELECT id, label, enabled, meta FROM sources WHERE origin='prowlarr' "
         "AND (meta->>'is_mso')::boolean IS TRUE ORDER BY id"

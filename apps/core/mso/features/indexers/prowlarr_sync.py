@@ -206,7 +206,12 @@ def _sync_job(ctx: jobs.JobContext) -> dict[str, Any]:
         and last["updated_at"] > datetime.now(UTC) - interval + timedelta(seconds=30)
     ):
         return {"skipped": "recent gesynchroniseerd"}
-    result = sync_sources()
+    try:
+        result = sync_sources()
+    except ProwlarrError as exc:
+        if exc.code == "not_configured":  # URL saved before the key (setup in progress): nothing to do yet
+            return {"skipped": exc.message}
+        raise
     try:
         from mso.features.indexers import prowlarr_view
 

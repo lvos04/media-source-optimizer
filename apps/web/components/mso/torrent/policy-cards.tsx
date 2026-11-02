@@ -48,7 +48,7 @@ export function PreferencesCard() {
     <Card className="span-6" title={t("torrent.prefs.title")} icon={SlidersHorizontal} flush>
       <ResourceView resource={prefs} endpoint="GET /api/v1/torrent/preferences" compact>
         {(d) => (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
             <table className="table table--stack table--compact">
               <thead><tr><th>{t("torrent.prefs.setting")}</th><th>{t("torrent.prefs.value")}</th><th>{t("torrent.prefs.bounds")}</th></tr></thead>
               <tbody>{d.items.map((p) => (

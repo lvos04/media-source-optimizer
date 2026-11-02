@@ -81,7 +81,7 @@ export function CompareDrawer({ tokens, category, onClose }: { tokens: string[];
         {data ? (
           <>
             {data.same_identity ? <InlineState tone="info">{t("zoeken.compareSame")}</InlineState> : null}
-            <div className="table-wrap" style={{ overflowX: "auto" }}>
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)" style={{ overflowX: "auto" }}>
               <table className="table table--compact">
                 <thead>
                   <tr>

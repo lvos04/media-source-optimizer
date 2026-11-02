@@ -53,7 +53,7 @@ function CrossSeedCard() {
               <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("storage.cross.explain")}</p>
             </div>
             {d.items.length ? (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                 <table className="table table--stack">
                   <thead><tr>
                     <th>{t("storage.cross.col.candidate")}</th><th>{t("storage.cross.col.payload")}</th><th>{t("storage.cross.col.status")}</th>
@@ -164,7 +164,7 @@ export default function StoragePage() {
           <ResourceView resource={report} endpoint="GET /api/v1/torrent/storage" compact isEmpty={(d) => d.categories.length === 0}
             empty={<StateView kind="empty" compact title={t("torrent.empty")} />}>
             {(d) => (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                 <table className="table table--stack table--compact">
                   <thead><tr><th>{t("storage.cat.category")}</th><th>{t("storage.cat.size")}</th><th>{t("storage.cat.torrents")}</th></tr></thead>
                   <tbody>{d.categories.map((c) => (
@@ -184,7 +184,7 @@ export default function StoragePage() {
           <ResourceView resource={report} endpoint="GET /api/v1/torrent/storage" compact isEmpty={(d) => d.obligations.length === 0}
             empty={<StateView kind="empty" compact title={t("storage.obl.none")} body={t("storage.obl.noneBody")} />}>
             {(d) => (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                 <table className="table table--stack">
                   <thead><tr><th>{t("torrent.col.name")}</th><th>{t("storage.obl.ratio")}</th><th>{t("storage.obl.time")}</th><th>{t("storage.obl.status")}</th></tr></thead>
                   <tbody>{d.obligations.map((o) => {

@@ -51,7 +51,7 @@ MOCK_SECRETS: dict[str, dict[str, str]] = json.loads(os.environ.get("MSO_STACK_S
 ONE_SHOT = {"init", "migrate"}
 
 ADMIN = "stackadmin"
-ADMIN_PW = "Stack-" + secrets.token_urlsafe(18)
+ADMIN_PW = os.environ.get("MSO_STACK_ADMIN_PW") or "Stack-" + secrets.token_urlsafe(18)
 VIEWER = "stackviewer"
 VIEWER_PW = "Viewer-" + secrets.token_urlsafe(18)
 # every secret we hand to the stack; none may ever appear in container logs

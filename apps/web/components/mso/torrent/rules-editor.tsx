@@ -130,7 +130,7 @@ export function RulesEditor() {
           return (
             <div className="stack" style={{ paddingBottom: 12 }}>
               {d.items.length ? (
-                <div className="table-wrap">
+                <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                   <table className="table table--stack">
                     <thead><tr>
                       <th>{t("torrent.rules.scope")}</th><th>{t("torrent.rules.obligation")}</th><th>{t("torrent.rules.crossSeedShort")}</th>

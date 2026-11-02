@@ -57,7 +57,7 @@ export function BaselineCard({ className = "span-12" }: { className?: string }) 
               {d.coverage.known_share != null ? <Confidence value={d.coverage.known_share} tone={d.coverage.known_share >= 0.5 ? "success" : "warning"} /> : null}
             </div>
             <DistributionBar segments={segments(d, d.totals)} />
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
               <table className="table table--stack">
                 <thead><tr><th>{t("rec.baseline.category")}</th><th>{t("rec.baseline.total")}</th><th style={{ width: "60%" }}>{t("rec.baseline.causes")}</th></tr></thead>
                 <tbody>
@@ -72,7 +72,7 @@ export function BaselineCard({ className = "span-12" }: { className?: string }) 
               </table>
             </div>
             {d.by_source.length ? (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                 <table className="table table--stack">
                   <thead><tr><th>{t("rec.baseline.source")}</th><th>{t("rec.baseline.total")}</th><th style={{ width: "60%" }}>{t("rec.baseline.causes")}</th></tr></thead>
                   <tbody>

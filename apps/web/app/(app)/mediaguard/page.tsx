@@ -153,7 +153,7 @@ export default function MediaGuardPage() {
           <ResourceView resource={requests} endpoint="GET /api/v1/mediaguard/search-requests" isEmpty={(d) => d.items.length === 0}
             empty={<StateView kind="empty" compact title={t("mg.req.empty")} body={t("mg.req.emptyBody")} />}>
             {(d) => (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                 <table className="table table--stack">
                   <thead><tr><th>{t("mg.req.when")}</th><th>{t("mg.req.item")}</th><th>{t("mg.req.status")}</th><th>{t("mg.req.trigger")}</th><th>{t("mg.req.actor")}</th></tr></thead>
                   <tbody>

@@ -94,7 +94,7 @@ function AuditView() {
               : (
                 <>
                   {first.stale ? <div className="stale-mark" role="status" style={{ padding: "0 16px 8px" }}>{t("state.stale", { age: relative(first.fetchedAt) })}</div> : null}
-                  <div className="table-wrap">
+                  <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                     <table className="table table--compact table--stack">
                       <thead><tr><th>{t("logs.when")}</th><th>{t("logs.who")}</th><th>{t("logs.what")}</th><th>{t("logs.target")}</th><th>{t("logs.summary")}</th><th><span className="sr-only">{t("action.details")}</span></th></tr></thead>
                       <tbody>

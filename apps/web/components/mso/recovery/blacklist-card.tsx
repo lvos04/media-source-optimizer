@@ -46,7 +46,7 @@ export function BlacklistCard({ reloadKey }: { reloadKey?: number }) {
       <ResourceView resource={list} endpoint="GET /api/v1/recovery/blacklist" isEmpty={(d) => d.items.length === 0}
         empty={<StateView kind="empty" compact title={t("rec.bl.empty")} body={t("rec.bl.emptyBody")} />}>
         {(d) => (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
             <table className="table table--stack">
               <thead><tr><th>{t("rec.bl.release")}</th><th>{t("rec.bl.reason")}</th><th>{t("rec.bl.failures")}</th><th>{t("rec.bl.until")}</th><th><span className="sr-only">{t("rec.bl.actions")}</span></th></tr></thead>
               <tbody>

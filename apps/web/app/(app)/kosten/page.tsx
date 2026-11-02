@@ -77,7 +77,7 @@ export default function CostsPage() {
             empty={<StateView kind="empty" title={t("costs.noServices")} body={t("costs.noServicesBody")}
               action={<Button variant="primary" icon={Plus} disabled={!isAdmin} title={isAdmin ? undefined : t("costs.adminOnly")} onClick={() => setEditing({ service: null })}>{t("costs.addService")}</Button>} />}>
             {(d) => (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                 <table className="table table--stack">
                   <thead><tr>
                     <th>{t("costs.col.service")}</th><th>{t("costs.col.amount")}</th><th>{t("costs.col.monthly")}</th>

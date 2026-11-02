@@ -142,7 +142,7 @@ export function TorrentDownloadsTab() {
         <ResourceView resource={list} endpoint="GET /api/v1/torrent/torrents" isEmpty={(d) => d.items.length === 0}
           empty={<StateView kind="empty" title={t("torrent.empty")} body={t("torrent.emptyBody")} />}>
           {() => items.length === 0 ? <StateView kind="empty" compact title={t("torrent.noMatch")} /> : (
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
               <table className="table table--stack">
                 <thead><tr>
                   <th><span className="sr-only">{t("torrent.col.expand")}</span></th>

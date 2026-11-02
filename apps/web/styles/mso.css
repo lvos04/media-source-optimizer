@@ -29,3 +29,12 @@
   .top-pill.mode-pill { display: inline-flex; padding: 0 9px; }
   .top-pill.mode-pill strong { display: none; }
 }
+
+/* light theme: connector logo text must reach ≥ 4.5:1 on its tint (axe color-contrast) */
+:root[data-theme="light"] .instance-logo--prowlarr { color: #8F5300; }
+:root[data-theme="light"] .instance-logo--sabnzbd { color: #146B48; }
+:root[data-theme="light"] .instance-logo--qbittorrent { color: #1A5CB5; }
+:root[data-theme="light"] .instance-logo--mediaguard { color: #5B3AA8; }
+
+/* long status chips inside key/value rows may wrap on narrow screens instead of being clipped */
+.dl dd .chip, .kv .chip { white-space: normal; height: auto; min-height: 22px; padding-block: 3px; max-width: 100%; }

@@ -104,7 +104,7 @@ export default function MissingPage() {
             empty={<StateView kind="empty" title={t("rec.wanted.empty")} body={wanted.data?.mode === "connected" ? t("rec.wanted.emptyConnected") : t("rec.wanted.emptyStandalone")} />}>
             {(d) => (
               <>
-                <div className="table-wrap">
+                <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                   <table className="table table--stack">
                     <thead><tr><th>{t("rec.wanted.item")}</th><th>{t("rec.manual.category")}</th><th>{t("rec.wanted.cause")}</th><th>{t("rec.wanted.candidates")}</th><th><span className="sr-only">{t("rec.bl.actions")}</span></th></tr></thead>
                     <tbody>

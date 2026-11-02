@@ -301,3 +301,10 @@ def test_private_magnets_not_persisted_and_magnet_only_redirect(
     db.execute("UPDATE release_cache SET download_url=NULL, magnet=%s WHERE token=%s", (magnet, token))
     r = client.get("/torznab/api", params={"t": "get", "id": token, "apikey": setup["key"]}, follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == magnet
+
+
+def test_endpoint_uses_forwarded_host_from_web_proxy(admin) -> None:  # type: ignore[no-untyped-def]
+    r = admin.get("/api/v1/newznab/endpoint", headers={"X-Forwarded-Host": "nas.lan:30081",
+                                                       "X-Forwarded-Proto": "http"})
+    assert r.status_code == 200
+    assert "nas.lan:30081" in r.text and "api:8200" not in r.text

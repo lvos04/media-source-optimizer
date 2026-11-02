@@ -54,7 +54,7 @@ export default function SystemPage() {
         <Card className="span-12" title={t("system.migrations")} icon={ListChecks} flush>
           <ResourceView resource={info} endpoint="GET /api/v1/system/info" compact isEmpty={(v) => !v.migrations?.length} empty={<StateView kind="empty" compact title={t("system.noMigrations")} />}>
             {(v) => (
-              <div className="table-wrap" style={{ maxHeight: 320 }}>
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)" style={{ maxHeight: 320 }}>
                 <table className="table table--compact table--stack">
                   <thead><tr><th>{t("system.migrationVersion")}</th><th>{t("system.migrationName")}</th><th>{t("system.migrationApplied")}</th></tr></thead>
                   <tbody>{[...v.migrations].reverse().map((m) => (

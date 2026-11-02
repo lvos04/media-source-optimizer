@@ -121,7 +121,7 @@ function Connectors({ o }: { o: Overview }) {
             <div className="list-row" key={c.id}>
               <div className="list-main">
                 <div className="list-title">{c.label}</div>
-                <div className="list-sub">{c.configured ? (c.last_checked_at ? t("overview.checked", { age: relative(c.last_checked_at) }) : t("overview.neverChecked")) : t("status.notConfigured")}{c.version ? ` · v${c.version}` : ""}</div>
+                <div className="list-sub">{c.configured ? (c.last_checked_at ? t("overview.checked", { age: relative(c.last_checked_at) }) : t("overview.neverChecked")) : t("status.notConfigured")}{c.version ? ` · ${/^v/i.test(c.version) ? c.version : `v${c.version}`}` : ""}</div>
               </div>
               {c.configured ? <StatusChip tone={healthTone(c.status)} title={c.message ?? undefined}>{t(healthLabel(c.status))}</StatusChip>
                 : <StatusChip tone="neutral">{t("status.notConfigured")}</StatusChip>}
@@ -213,7 +213,7 @@ function FailureReasons({ o }: { o: Overview }) {
   if (!f.available || f.by_reason.length === 0) return null;
   return (
     <Card className="span-12" title={t("overview.failureReasons")} icon={CircleX} flush>
-      <div className="table-wrap">
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
         <table className="table table--compact table--stack">
           <thead><tr><th>{t("overview.reason")}</th><th className="num">{t("overview.last24h")}</th><th className="num">{t("overview.last7d")}</th></tr></thead>
           <tbody>{f.by_reason.map((r) => (

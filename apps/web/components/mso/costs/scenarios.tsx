@@ -19,7 +19,7 @@ export function Scenarios({ periodDays }: { periodDays: number }) {
         empty={<StateView kind="empty" compact title={t("costs.scen.none")} body={res.data?.reason ?? undefined} />}>
         {(d) => (
           <>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
               <table className="table table--stack">
                 <thead><tr><th>Scenario</th><th>{t("costs.scen.monthly")}</th><th>{t("costs.scen.backbones")}</th><th>{t("costs.scen.observed")}</th></tr></thead>
                 <tbody>{d.items.map((s) => (

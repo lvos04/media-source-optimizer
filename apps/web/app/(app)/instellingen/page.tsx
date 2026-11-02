@@ -243,7 +243,7 @@ function UsersTab() {
     <Card title={t("users.title")} sub={t("users.sub")} flush actions={<Button variant="primary" size="sm" icon={Plus} onClick={() => { setError(null); setForm({ username: "", password: "", role: "viewer" }); setAdding(true); }}>{t("users.add")}</Button>}>
       <ResourceView resource={users} endpoint="GET /api/v1/users" isEmpty={(d) => itemsOf(d).length === 0} empty={<StateView kind="empty" title={t("users.empty")} />}>
         {(data) => (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
             <table className="table table--stack">
               <thead><tr><th>{t("users.username")}</th><th>{t("users.role")}</th><th>{t("users.lastLogin")}</th><th>{t("users.status")}</th><th><span className="sr-only">{t("action.details")}</span></th></tr></thead>
               <tbody>

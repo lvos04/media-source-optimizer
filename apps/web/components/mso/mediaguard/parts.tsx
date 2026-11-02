@@ -73,7 +73,7 @@ export function CompatTable({ compat }: { compat: CompatMatrix }) {
         {compat.live_source ? t(compat.live_source === "openapi" ? "mg.compat.sourceOpenapi" : "mg.compat.sourceProbe") : t("mg.compat.sourceNone")}
         {compat.checked_at ? ` · ${relative(compat.checked_at)}` : ""}
       </p>
-      <div className="table-wrap">
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
         <table className="table table--stack">
           <thead>
             <tr><th>{t("mg.compat.route")}</th><th>{t("mg.compat.role")}</th><th>{t("mg.compat.purpose")}</th><th>{t("mg.compat.verified")}</th><th>{t("mg.compat.live")}</th></tr>

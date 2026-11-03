@@ -1,0 +1,19 @@
+# build context for deploy/allinone/Dockerfile (repo root)
+**/.git
+.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+apps/core/tests
+apps/mocks
+apps/web/e2e/.results
+apps/web/e2e/.data
+apps/web/test-results
+apps/web/playwright-report
+docs
+tests
+*.log

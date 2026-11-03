@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from mso import jobs
 from mso.audit import audit
@@ -48,8 +48,10 @@ def _pg_env() -> tuple[list[str], dict[str, str]]:
     url = urlsplit(get_settings().database_url)
     env = dict(os.environ)
     if url.password:
-        env["PGPASSWORD"] = url.password
-    args = ["-h", url.hostname or "localhost", "-p", str(url.port or 5432), "-U", url.username or "postgres"]
+        env["PGPASSWORD"] = unquote(url.password)
+    # libpq URLs may name a unix-socket directory as ?host=/path (all-in-one image: no TCP at all)
+    host = parse_qs(url.query).get("host", [None])[0] or url.hostname or "localhost"
+    args = ["-h", host, "-p", str(url.port or 5432), "-U", unquote(url.username or "postgres")]
     return args, env | {"PGDATABASE": url.path.lstrip("/") or "postgres"}
 
 

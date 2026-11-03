@@ -425,3 +425,12 @@ def test_health_and_info(admin: Any) -> None:
 
 def test_healthz_unauthenticated(client: TestClient) -> None:
     assert client.get("/healthz").json()["status"] == "ok"
+
+
+def test_backup_env_supports_unix_socket_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mso import backups
+    from mso.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "database_url", "postgresql://mso@/mso?host=/tmp/mso-pg")
+    args, env = backups._pg_env()
+    assert args[:2] == ["-h", "/tmp/mso-pg"] and env["PGDATABASE"] == "mso" and "-U" in args

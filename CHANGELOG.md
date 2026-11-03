@@ -2,6 +2,22 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.1.0] — 2026-11-03
+
+### Toegevoegd
+- **Alles-in-één image** `ghcr.io/lvos04/media-source-optimizer` (database, API, worker, web in één container),
+  installeerbaar als gewone TrueNAS **Custom App** zonder YAML, wachtwoorden of variabelen
+  (`docs/TRUENAS_CUSTOM_APP.md`, ook als `deploy/truenas/compose.allinone.yaml`).
+- Supervisor: zet bij start als root eenmalig de eigenaar van `/appdata` op 568 en draait daarna alles als 568;
+  duidelijke Nederlandse foutmelding bij verkeerde maprechten; ruimt een achtergebleven `postmaster.pid` op na een
+  harde stop; herstart gecrashte onderdelen met backoff; stopt netjes (< 1 s gemeten).
+- PostgreSQL alleen via een unix-socket in de container: geen databasepoort en geen databasewachtwoord.
+- End-to-end test `tests/stack/allinone_test.py` (9 scenario's), draait in de release-workflow vóórdat er iets
+  wordt gepubliceerd.
+
+### Opgelost
+- Back-up/herstel werkt nu ook met een unix-socket-databaseadres (`?host=/pad`).
+
 ## [1.0.0] — 2026-11-02
 
 Eerste volledige versie.

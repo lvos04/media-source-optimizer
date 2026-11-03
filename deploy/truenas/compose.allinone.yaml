@@ -1,0 +1,28 @@
+# Media Source Optimizer — alles-in-één, voor TrueNAS SCALE "Install via YAML".
+# (Liever zonder YAML? Gebruik het gewone Custom App-formulier: zie docs/TRUENAS_CUSTOM_APP.md.)
+#
+# Eén container (database + API + worker + web), één map, één poort. Geen wachtwoorden of geheimen hier:
+# die voer je in de setup-wizard van de app in. Pas alleen het pad en eventueel de poort aan.
+services:
+  media-source-optimizer:
+    image: ghcr.io/lvos04/media-source-optimizer:1.1.0
+    restart: unless-stopped
+    ports:
+      - "30081:30081"            # http://<truenas>:30081
+    volumes:
+      - /mnt/tank/apps/media-source-optimizer:/appdata    # ← vervang 'tank' door jouw pool
+      # optioneel, alleen-lezen, voor hardlink-/vrije-ruimtediagnose:
+      # - /mnt/tank/media:/media:ro
+    environment:
+      TZ: Europe/Amsterdam
+      # MSO_MEDIA_DIR: /media
+      # MSO_PUBLIC_URL: http://192.168.1.10:30081   # alleen als Prowlarr MSO via een ander adres bereikt
+    security_opt:
+      - no-new-privileges:true
+    cpus: 2
+    mem_limit: 1536m
+    pids_limit: 512
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the Media Source Optimizer images locally.
 #
-#   scripts/build-images.sh [core|web|mocks|all] (default: all)
+#   scripts/build-images.sh [core|web|mocks|allinone|all] (default: all)
 #
 # Environment:
 #   MSO_IMAGE_TAG   tag for the images (default: local) → media-source-optimizer-{core,web}:<tag>, mso-mocks:<tag>
@@ -33,6 +33,7 @@ case "$WHAT" in
   core)  build media-source-optimizer-core apps/core ;;
   web)   build media-source-optimizer-web apps/web ;;
   mocks) build mso-mocks apps/mocks ;;
+  allinone) args+=(-f deploy/allinone/Dockerfile); build media-source-optimizer . ;;
   all)   build media-source-optimizer-core apps/core; build mso-mocks apps/mocks; build media-source-optimizer-web apps/web ;;
-  *) echo "gebruik: $0 [core|web|mocks|all]" >&2; exit 2 ;;
+  *) echo "gebruik: $0 [core|web|mocks|allinone|all]" >&2; exit 2 ;;
 esac

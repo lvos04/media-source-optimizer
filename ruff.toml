@@ -9,4 +9,6 @@ ignore = ["S101", "S311", "B008", "S608", "S104"]
 [lint.per-file-ignores]
 "apps/core/tests/*" = ["S105", "S106", "S107", "S108", "S112", "S603", "S607"]
 "apps/mocks/*" = ["S105", "S106", "S107", "S112"]
-"tests/stack/*" = ["S105", "S106", "S603", "S607", "S108"]
+"tests/stack/*" = ["S103", "S105", "S106", "S603", "S607", "S108"]
+# container supervisor: fixed argv lists, container-private /tmp
+"deploy/allinone/*" = ["S108", "S603", "S607"]

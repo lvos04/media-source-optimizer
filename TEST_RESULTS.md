@@ -18,6 +18,15 @@ Zie [docs/HARDWARE_ACCEPTANCE.md](docs/HARDWARE_ACCEPTANCE.md).
 | Containerstack (gebouwde images + 7 mocks) smoke/e2e | **19 / 19 geslaagd** | `docs/test-evidence/stack-smoke-report.md` |
 | Playwright (15 schermen × donker/licht × 1440/390 + toetsenbord, alleen-lezen, login) | **68 / 68 geslaagd** | `docs/test-evidence/playwright.log`, `docs/screenshots/` (60 png) |
 
+## 0. Aanvulling 1.1.0 — alles-in-één image (3 nov 2026)
+
+`tests/stack/allinone_test.py` tegen de gebouwde image: **9 / 9 scenario's geslaagd**
+(`docs/test-evidence/allinone-report.md`): start als root op lege map (eigenaar → 568, alle processen behalve
+dumb-init als 568), setup/login/CSRF + SABnzbd-koppeling, back-up + herstel, `docker restart`, harde kill (SIGKILL) met
+achtergebleven `postmaster.pid`, netjes stoppen (0,5 s), start als `--user 568`, duidelijke foutmelding bij een
+root-map, geen geheimen in de log. Backend opnieuw: 311 tests geslaagd (incl. nieuwe socket-URL-test).
+Niet geverifieerd: het TrueNAS Custom App-formulier op echte hardware.
+
 ## 1. MediaGuard bit-voor-bit ongewijzigd (acceptatiecriterium 1)
 
 - Lokale referentiekloon `lvos04/media-guard-ultimate@e92c2acc`: HEAD gelijk, `git status --porcelain --ignored`

@@ -1,6 +1,8 @@
 # Release: publishes the core and web images to ghcr.io and tags the commit.
 # Trigger: a push that changes release/VERSION (any branch), or a manual run.
-# Images: ghcr.io/lvos04/media-source-optimizer-{core,web}:<VERSION> — exactly what deploy/truenas/compose.yaml uses.
+# Images: ghcr.io/lvos04/media-source-optimizer:<VERSION>            — all-in-one (TrueNAS Custom App)
+#         ghcr.io/lvos04/media-source-optimizer-{core,web}:<VERSION> — multi-container (deploy/truenas/compose.yaml)
+# The all-in-one image is end-to-end tested (tests/stack/allinone_test.py) BEFORE anything is pushed.
 name: release
 
 on:
@@ -70,6 +72,21 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build all-in-one image + test mocks (local, not pushed yet)
+        run: |
+          docker build -f deploy/allinone/Dockerfile --build-arg VERSION=${{ steps.v.outputs.version }} \
+            -t media-source-optimizer:local .
+          docker build -t mso-mocks:stack apps/mocks
+      - name: End-to-end test of the all-in-one image (root, user 568, restart, kill, backup/restore, rights)
+        run: |
+          python3 -m venv /tmp/aio-venv && /tmp/aio-venv/bin/pip install -q httpx==0.28.1
+          # root only so the test can create a folder owned by 568 (scenario 7)
+          sudo /tmp/aio-venv/bin/python tests/stack/allinone_test.py media-source-optimizer:local
+      - name: Push all-in-one image
+        run: |
+          v=${{ steps.v.outputs.version }}
+          docker tag media-source-optimizer:local ghcr.io/lvos04/media-source-optimizer:$v
+          docker push ghcr.io/lvos04/media-source-optimizer:$v
       - name: Build and push core
         uses: docker/build-push-action@v6.18.0
         with:

@@ -41,7 +41,7 @@ ARG UID=568
 ARG GID=568
 LABEL org.opencontainers.image.title="media-source-optimizer-core" \
       org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer" \
-      org.opencontainers.image.version="1.0.0"
+      org.opencontainers.image.version="1.1.0"
 COPY --from=pgclient /out/ /opt/pgclient/
 COPY --from=build /install /usr/local
 COPY docker/entrypoint.sh /usr/local/bin/mso-entrypoint

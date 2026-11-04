@@ -5,7 +5,7 @@ met als doel minder mislukte/ontbrekende downloads en inzicht in wat je abonneme
 Werkt naast **MediaGuard Ultimate** (zelfde huisstijl, samenwerking via de gedocumenteerde API) zonder
 MediaGuard op enige manier te wijzigen, en werkt ook volledig zonder MediaGuard.
 
-> Status 1.1.0 — gebouwd en getest in een Linux/Docker-sandbox met mock-diensten (zie
+> Status 1.1.1 — gebouwd en getest in een Linux/Docker-sandbox met mock-diensten (zie
 > [TEST_RESULTS.md](TEST_RESULTS.md)). **Niet** getest op echte TrueNAS-hardware of tegen echte
 > Prowlarr/SABnzbd/qBittorrent/MediaGuard/providers: zie [docs/HARDWARE_ACCEPTANCE.md](docs/HARDWARE_ACCEPTANCE.md).
 
@@ -30,8 +30,8 @@ Screenshots: [docs/screenshots/](docs/screenshots/).
 
 ## Installeren
 
-**Aanbevolen — gewone Custom App, zonder YAML:** één image `ghcr.io/lvos04/media-source-optimizer:1.1.0`
-(database, API, worker en web in één container), één map → `/appdata`, poort `30081`. Geen wachtwoorden of
+**Aanbevolen — gewone Custom App, zonder YAML:** één image `ghcr.io/lvos04/media-source-optimizer:1.1.1`
+(database, API, worker en web in één container), één map → `/appdata`, poort `38081`. Geen wachtwoorden of
 variabelen nodig; rechten worden automatisch goed gezet. Stap voor stap: **[docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md)**.
 
 Alternatief met losse containers via *Install via YAML*: [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md).

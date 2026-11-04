@@ -5,7 +5,7 @@ Verwijzingen naar tests staan tussen haakjes; de testresultaten staan in `TEST_R
 
 ## 1. Uitgangspunten
 
-- **Alleen LAN.** De stack publiceert één poort (web, standaard `30081`). Geen host-network, geen
+- **Alleen LAN.** De stack publiceert één poort (web, standaard `38081`). Geen host-network, geen
   `docker.sock`, geen publieke toegang of externe hosting standaard. Voor toegang van buitenaf: zelf een
   reverse proxy met TLS ervoor zetten en `MSO_SECURE_COOKIES=1` instellen (zie `docs/TRUENAS_INSTALL.md`).
 - **Least privilege.** Containers draaien als uid/gid 568 (TrueNAS `apps`), `cap_drop: ALL`,

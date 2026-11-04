@@ -4,7 +4,7 @@
 #   docker build -f deploy/allinone/Dockerfile [--secret id=ca_bundle,src=ca.crt] -t media-source-optimizer:dev .
 #
 # Install as a normal TrueNAS "Custom App": image ghcr.io/lvos04/media-source-optimizer:<versie>,
-# one host path → /appdata, one port 30081 → 30081. No YAML, no passwords, no environment variables.
+# one host path → /appdata, one port 38081 → 38081. No YAML, no passwords, no environment variables.
 # PostgreSQL 16 runs inside, on a unix socket only (no network port, no password).
 # Starts as root only to fix /appdata ownership; every process then runs as uid/gid 568 (TrueNAS "apps").
 
@@ -51,7 +51,7 @@ RUN --mount=type=secret,id=ca_bundle,required=false \
 
 # ---------------------------------------------------------------- runtime
 FROM ${PYTHON_IMAGE}
-ARG VERSION=1.1.0
+ARG VERSION=1.1.1
 LABEL org.opencontainers.image.title="media-source-optimizer" \
       org.opencontainers.image.description="Media Source Optimizer — alles-in-één (database, API, worker, web)" \
       org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer" \
@@ -76,9 +76,9 @@ RUN set -eu; \
       > /usr/local/bin/mso; chmod 0755 /usr/local/bin/mso; \
     python -c "import mso.app, psycopg, uvicorn, cryptography"
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
-    MSO_DATA_DIR=/appdata MSO_PORT=30081 TZ=Europe/Amsterdam
+    MSO_DATA_DIR=/appdata MSO_PORT=38081 TZ=Europe/Amsterdam
 VOLUME ["/appdata"]
-EXPOSE 30081
+EXPOSE 38081
 HEALTHCHECK --interval=30s --timeout=8s --start-period=90s --retries=3 \
   CMD ["python", "/usr/local/lib/mso/healthcheck.py"]
 ENTRYPOINT ["/usr/local/bin/dumb-init", "--"]

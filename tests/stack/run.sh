@@ -2,7 +2,7 @@
 # Build the images and run the full container stack + mocks, then the smoke/e2e test (smoke.py).
 #
 #   tests/stack/run.sh                 build images, start stack, run smoke test, tear down
-#   MSO_STACK_KEEP=1 tests/stack/run.sh   leave the stack running afterwards (http://127.0.0.1:38081)
+#   MSO_STACK_KEEP=1 tests/stack/run.sh   leave the stack running afterwards (http://127.0.0.1:48081)
 #   MSO_STACK_NO_BUILD=1 …             reuse existing :stack images
 #   MSO_STACK_NO_WEB=1 …               run without the web container (API direct)
 #   MSO_STACK_UP_ONLY=1 …              only start a fresh stack and wait until healthy (implies KEEP; for Playwright)
@@ -28,7 +28,7 @@ export MSO_WEB_IMAGE="media-source-optimizer-web:stack"
 export MSO_MOCKS_IMAGE="mso-mocks:stack"
 export MSO_POSTGRES_IMAGE="${MSO_POSTGRES_IMAGE:-mirror.gcr.io/library/postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab}"
 export APPDATA="$DATA/appdata" WORK="$DATA/work"
-export MSO_WEB_BIND=127.0.0.1 MSO_WEB_PORT="${MSO_STACK_WEB_PORT:-38081}" MSO_STACK_API_PORT="${MSO_STACK_API_PORT:-38200}"
+export MSO_WEB_BIND=127.0.0.1 MSO_WEB_PORT="${MSO_STACK_WEB_PORT:-48081}" MSO_STACK_API_PORT="${MSO_STACK_API_PORT:-38200}"
 export MSO_FEATURES="${MSO_FEATURES:-}"
 
 # credentials the mocks are started with (random per run → leak check in logs is meaningful)

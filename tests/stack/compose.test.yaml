@@ -5,7 +5,7 @@
 #                  -f tests/stack/results/compose.mocks.yaml up -d
 #
 # tests/stack/run.sh sets APPDATA/WORK (to tests/stack/.data), the image tags, the web port
-# (127.0.0.1:38081) and generates compose.mocks.yaml (one service per entry in msomocks.REGISTRY).
+# (127.0.0.1:48081) and generates compose.mocks.yaml (one service per entry in msomocks.REGISTRY).
 services:
   api:
     environment:

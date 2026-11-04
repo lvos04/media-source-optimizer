@@ -147,7 +147,7 @@ sudo docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsa
 
 ## Netwerk en beveiliging in bedrijf
 
-- Alleen `web` publiceert een poort (standaard `0.0.0.0:30081`). `api` is alleen bereikbaar voor `web` en
+- Alleen `web` publiceert een poort (standaard `0.0.0.0:38081`). `api` is alleen bereikbaar voor `web` en
   `worker`; PostgreSQL alleen op het interne `db`-netwerk zonder uitgaand verkeer.
 - `api` vertrouwt `X-Forwarded-For` van elke afzender in het interne netwerk (`MSO_FORWARDED_ALLOW_IPS=*`),
   zodat rate limits per echte client gelden. Omdat `api` niet gepubliceerd is, kan alleen `web` die header

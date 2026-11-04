@@ -2,7 +2,7 @@
 
 ## 1. Eerste start
 
-1. Open `http://<truenas>:30081`. Bij een lege installatie verschijnt **Setup**.
+1. Open `http://<truenas>:38081`. Bij een lege installatie verschijnt **Setup**.
 2. **Beheerder aanmaken** (≥ 10 tekens, hoofd/kleine letters of cijfers).
 3. **Koppelingen**: vul per dienst de URL in (LAN-adres of containernaam, bijv. `http://192.168.1.10:9696`),
    daarna de sleutel/het wachtwoord. Klik **Test** (laat versie en mogelijkheden zien) en **Bewaar**.

@@ -3,7 +3,7 @@
 ## 1. Overzicht
 
 ```
-                 LAN (poort 30081)
+                 LAN (poort 38081)
                         │
                 ┌───────▼────────┐  same-origin proxy: /api/v1 · /newznab · /torznab
                 │ web (Next.js)  │  MediaGuard-design system (afgeleide kopie, zie apps/web/PROVENANCE.md)

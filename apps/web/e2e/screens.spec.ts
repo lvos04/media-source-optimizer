@@ -6,7 +6,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Full-app browser test against a running stack with mocks (tests/stack/run.sh with MSO_STACK_KEEP=1):
- *   MSO_E2E_BASE_URL=http://127.0.0.1:38081 MSO_E2E_USER=stackadmin MSO_E2E_PASSWORD=… npx playwright test e2e/screens.spec.ts
+ *   MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin MSO_E2E_PASSWORD=… npx playwright test e2e/screens.spec.ts
  *
  * Per screen × theme (dark/light) × viewport (project 1440 / 390):
  *  - renders real backend data (no error state, h1 present)

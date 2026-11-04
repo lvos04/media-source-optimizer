@@ -5,10 +5,10 @@
 # die voer je in de setup-wizard van de app in. Pas alleen het pad en eventueel de poort aan.
 services:
   media-source-optimizer:
-    image: ghcr.io/lvos04/media-source-optimizer:1.1.0
+    image: ghcr.io/lvos04/media-source-optimizer:1.1.1
     restart: unless-stopped
     ports:
-      - "30081:30081"            # http://<truenas>:30081
+      - "38081:38081"            # http://<truenas>:38081
     volumes:
       - /mnt/tank/apps/media-source-optimizer:/appdata    # ← vervang 'tank' door jouw pool
       # optioneel, alleen-lezen, voor hardlink-/vrije-ruimtediagnose:
@@ -16,7 +16,7 @@ services:
     environment:
       TZ: Europe/Amsterdam
       # MSO_MEDIA_DIR: /media
-      # MSO_PUBLIC_URL: http://192.168.1.10:30081   # alleen als Prowlarr MSO via een ander adres bereikt
+      # MSO_PUBLIC_URL: http://192.168.1.10:38081   # alleen als Prowlarr MSO via een ander adres bereikt
     security_opt:
       - no-new-privileges:true
     cpus: 2

@@ -31,8 +31,8 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 | 1.4 | `ls -ln` op APPDATA na eerste start. | Mappen `postgres/ db/ secrets/ backups/` van 568:568; `db/password` modus `-r--------`. | NIET GEVERIFIEERD |
 | 1.5 | Controleer dat `init` op deze dataset-ACL de eigenaar mocht zetten (logs van de init-container). | Geen regel `LET OP: … controleer de ACL`. | NIET GEVERIFIEERD |
 | 1.6 | `sudo docker inspect` op elke container: `HostConfig.Privileged=false`, `CapDrop=[ALL]`, `ReadonlyRootfs=true` (behalve init), geen `/var/run/docker.sock` mount, `NetworkMode` ≠ `host`. | Zoals beschreven. | NIET GEVERIFIEERD |
-| 1.7 | Vanaf een ander LAN-apparaat `http://<truenas-ip>:30081` openen. | Setupwizard verschijnt. | NIET GEVERIFIEERD |
-| 1.8 | Vanaf buiten het LAN (bijv. mobiel netwerk) poort 30081 proberen. | Niet bereikbaar (geen port-forward op de router). | NIET GEVERIFIEERD |
+| 1.7 | Vanaf een ander LAN-apparaat `http://<truenas-ip>:38081` openen. | Setupwizard verschijnt. | NIET GEVERIFIEERD |
+| 1.8 | Vanaf buiten het LAN (bijv. mobiel netwerk) poort 38081 proberen. | Niet bereikbaar (geen port-forward op de router). | NIET GEVERIFIEERD |
 
 ## 2. Eerste start, login, persistentie
 
@@ -50,7 +50,7 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 |---|---|---|---|
 | 3.1 | Koppeling Prowlarr: URL (bijv. `http://<truenas-ip>:9696`) + API-sleutel in de wizard, *Test*. | Status gezond, versie getoond; API-sleutel nergens zichtbaar (UI, logs). | NIET GEVERIFIEERD |
 | 3.2 | Indexerlijst, statistieken en indexerstatus uitlezen. | Komen overeen met de Prowlarr-UI. | NIET GEVERIFIEERD |
-| 3.3 | MSO als *Generic Newznab* in Prowlarr toevoegen (`http://<truenas-ip>:30081/newznab`, API-pad `/api`, sleutel uit MSO). Prowlarr *Test*. | Test slaagt; caps tonen de vier categorieën (tv, tv-anime, movies, movies-anime). | NIET GEVERIFIEERD |
+| 3.3 | MSO als *Generic Newznab* in Prowlarr toevoegen (`http://<truenas-ip>:38081/newznab`, API-pad `/api`, sleutel uit MSO). Prowlarr *Test*. | Test slaagt; caps tonen de vier categorieën (tv, tv-anime, movies, movies-anime). | NIET GEVERIFIEERD |
 | 3.4 | Idem *Generic Torznab* (`…/torznab`). | Test slaagt. | NIET GEVERIFIEERD |
 | 3.5 | Zoeken vanuit Prowlarr op de MSO-indexer terwijl MSO zelf Prowlarr als bron gebruikt. | Geen zoeklus: MSO weigert de cyclische hop (reason code in MSO-log/trace), Prowlarr-log toont één verzoek per zoekopdracht. | NIET GEVERIFIEERD |
 | 3.6 | Downloadlink uit een MSO-resultaat via Prowlarr naar SABnzbd/qBittorrent sturen. | Link wijst naar `MSO_PUBLIC_URL`/`newznab.public_url` (niet naar `http://api:8200`) en werkt. | NIET GEVERIFIEERD |

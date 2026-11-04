@@ -2,6 +2,13 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.1.1] — 2026-11-04
+
+### Gewijzigd
+- Standaardpoort van **30081** naar **38081** (image, Custom App-handleiding, beide compose-bestanden, docs).
+  30000–31000 is het bereik dat TrueNAS-catalogus-apps standaard gebruiken; 30081 kon daardoor botsen.
+  Bestaande installaties: alleen de poort in de app-instellingen aanpassen; data blijft behouden.
+
 ## [1.1.0] — 2026-11-03
 
 ### Toegevoegd

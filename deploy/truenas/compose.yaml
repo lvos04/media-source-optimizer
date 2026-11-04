@@ -5,14 +5,14 @@
 # │    tank/apps/media-source-optimizer-work (WORK, met quota). Eigenaar: apps (568:568).       │
 # │ 2. Install via YAML → naam "media-source-optimizer" → plak dit bestand.                     │
 # │ 3. Pas ALLEEN de paden hieronder aan als jouw pool niet 'tank' heet (zoek op /mnt/tank).    │
-# │ 4. Open http://<truenas-ip>:30081 → de setupwizard maakt de beheerder en de koppelingen.   │
+# │ 4. Open http://<truenas-ip>:38081 → de setupwizard maakt de beheerder en de koppelingen.   │
 # └──────────────────────────────────────────────────────────────────────────────────────────────┘
 #
 # Instelbare variabelen (standaardwaarde achter ':-'; pas desnoods direct in dit bestand aan):
 #   APPDATA   /mnt/tank/apps/media-source-optimizer        config, PostgreSQL, vault-sleutel, back-ups
 #   WORK      /mnt/tank/apps/media-source-optimizer-work   cache/index (dataset-quota zetten!)
 #   DATA      (uit)  optionele alleen-lezen media-mount voor diagnose — zie 'api' hieronder
-#   MSO_WEB_PORT 30081 · MSO_WEB_BIND 0.0.0.0 · TZ Europe/Amsterdam · MSO_PUBLIC_URL (leeg)
+#   MSO_WEB_PORT 38081 · MSO_WEB_BIND 0.0.0.0 · TZ Europe/Amsterdam · MSO_PUBLIC_URL (leeg)
 #   MSO_SECURE_COOKIES false (zet op true achter een TLS reverse proxy)
 #   MSO_CORE_IMAGE / MSO_WEB_IMAGE (vast gepinde versies; alleen wijzigen bij een update)
 #
@@ -23,7 +23,7 @@
 #   migrate   eenmalig: databaseschema bijwerken (na 'postgres' gezond)
 #   api       FastAPI-core (OpenAPI, Newznab/Torznab-feeds) — GEEN gepubliceerde poort
 #   worker    achtergrondtaken (herstartveilig: hervat vanuit de database)
-#   web       Nederlandstalige UI; ENIGE gepubliceerde poort (30081). Proxyt /api/v1, /newznab en
+#   web       Nederlandstalige UI; ENIGE gepubliceerde poort (38081). Proxyt /api/v1, /newznab en
 #             /torznab same-origin naar 'api'.
 #
 # Veiligheid: geen Docker-socket, geen host-netwerk, geen privileged, cap_drop ALL, no-new-privileges,
@@ -54,7 +54,7 @@ x-core-env: &core-env
   MSO_DB_USER: mso
   MSO_DB_PASSWORD_FILE: /run/mso-db/password
   # Basis-URL zoals Prowlarr/Sonarr/Radarr MSO bereiken (voor downloadlinks in Newznab/Torznab-feeds),
-  # bv. http://192.168.1.10:30081 — leeg = afgeleid van het verzoek.
+  # bv. http://192.168.1.10:38081 — leeg = afgeleid van het verzoek.
   MSO_PUBLIC_URL: ${MSO_PUBLIC_URL:-}
   MSO_SECURE_COOKIES: ${MSO_SECURE_COOKIES:-false}
   MSO_DISK_RESERVE_GB: ${MSO_DISK_RESERVE_GB:-2}
@@ -69,7 +69,7 @@ x-core-volumes: &core-volumes
 
 services:
   init:
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.1}
     command: ["init"]
     user: "0:0"
     restart: "no"
@@ -119,7 +119,7 @@ services:
 
   migrate:
     <<: *common
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.1}
     command: ["migrate"]
     restart: "no"
     depends_on:
@@ -135,7 +135,7 @@ services:
 
   api:
     <<: *common
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.1}
     command: ["api"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -161,7 +161,7 @@ services:
 
   worker:
     <<: *common
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.1.1}
     command: ["worker"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -183,7 +183,7 @@ services:
 
   web:
     <<: *common
-    image: ${MSO_WEB_IMAGE:-ghcr.io/lvos04/media-source-optimizer-web:1.1.0}
+    image: ${MSO_WEB_IMAGE:-ghcr.io/lvos04/media-source-optimizer-web:1.1.1}
     depends_on:
       api: {condition: service_healthy}
     environment:
@@ -193,7 +193,7 @@ services:
       PORT: "3000"
     # Alleen LAN: publiceer niet via port-forwarding op je router. Wil je alleen een reverse proxy op
     # dezelfde host toelaten, zet MSO_WEB_BIND op 127.0.0.1.
-    ports: ["${MSO_WEB_BIND:-0.0.0.0}:${MSO_WEB_PORT:-30081}:3000"]
+    ports: ["${MSO_WEB_BIND:-0.0.0.0}:${MSO_WEB_PORT:-38081}:3000"]
     tmpfs: ["/tmp"]
     networks: [app]
     healthcheck:

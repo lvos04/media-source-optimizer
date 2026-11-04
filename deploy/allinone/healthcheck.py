@@ -13,6 +13,6 @@ def ok(url: str) -> bool:
         return False
 
 
-port = os.environ.get("MSO_PORT", "30081")
+port = os.environ.get("MSO_PORT", "38081")
 api = os.environ.get("MSO_API_PORT", "8200")
 sys.exit(0 if ok(f"http://127.0.0.1:{api}/healthz") and ok(f"http://127.0.0.1:{port}/login") else 1)

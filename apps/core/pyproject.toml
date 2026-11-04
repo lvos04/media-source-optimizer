@@ -1,6 +1,6 @@
 [project]
 name = "mso-core"
-version = "1.1.0"
+version = "1.1.1"
 description = "Media Source Optimizer — core API + worker"
 requires-python = ">=3.12"
 license = { text = "Proprietary (own project); third-party licenses see THIRD_PARTY.md" }

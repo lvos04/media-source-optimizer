@@ -32,7 +32,7 @@ DATA = Path(os.environ.get("MSO_DATA_DIR", "/appdata"))
 WORK = Path(os.environ.get("MSO_WORK_DIR", str(DATA / "work")))
 PGDATA = DATA / "postgres"
 SOCKET_DIR = Path("/tmp/mso-pg")
-PORT = os.environ.get("MSO_PORT", "30081")
+PORT = os.environ.get("MSO_PORT", "38081")
 API_PORT = os.environ.get("MSO_API_PORT", "8200")
 DB_URL = f"postgresql://mso@/mso?host={SOCKET_DIR}"
 STOP = threading.Event()

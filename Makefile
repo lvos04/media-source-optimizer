@@ -4,7 +4,7 @@
 #   make test     lint + core unit/contract/integration tests (needs PostgreSQL 16, see docs/dev/AGENT_BRIEF.md)
 #   make images   build media-source-optimizer-{core,web}:local and mso-mocks:local
 #   make stack    build + run the container stack with mocks + smoke/e2e (tests/stack/results/)
-#   make e2e      fresh stack + Playwright browser tests against it (web on http://127.0.0.1:38081)
+#   make e2e      fresh stack + Playwright browser tests against it (web on http://127.0.0.1:48081)
 #   make down     remove the test stack (project msostack) and its data
 #
 # Behind a TLS-inspecting proxy: MSO_BUILD_CA=/pad/naar/ca.crt make images
@@ -27,7 +27,7 @@ stack:
 
 e2e:
 	MSO_STACK_UP_ONLY=1 tests/stack/run.sh
-	cd apps/web && MSO_E2E_BASE_URL=http://127.0.0.1:38081 npx playwright test; rc=$$?; \
+	cd apps/web && MSO_E2E_BASE_URL=http://127.0.0.1:48081 npx playwright test; rc=$$?; \
 	  cd ../.. && $(MAKE) down; exit $$rc
 
 down:

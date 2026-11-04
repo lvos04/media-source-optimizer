@@ -1,14 +1,14 @@
 # Installeren als gewone TrueNAS Custom App (aanbevolen)
 
-Sinds versie 1.1.0 is Media Source Optimizer (MSO) ook één enkele image waarin alles zit: database,
+Sinds versie 1.1.0 (poort 38081 sinds 1.1.1) is Media Source Optimizer (MSO) ook één enkele image waarin alles zit: database,
 API, worker en webinterface. Je installeert die met het normale **Custom App**-formulier van TrueNAS SCALE:
 geen YAML, geen databasewachtwoord, geen omgevingsvariabelen, geen tweede of derde container.
 
 | Wat | Waarde |
 |---|---|
 | Image | `ghcr.io/lvos04/media-source-optimizer` |
-| Tag | `1.1.0` (altijd een vaste versie, nooit `latest`) |
-| Poort | `30081` → `30081` |
+| Tag | `1.1.1` (altijd een vaste versie, nooit `latest`) |
+| Poort | `38081` → `38081` |
 | Opslag | één map (dataset) → `/appdata` |
 | Gebruiker | niets invullen: MSO regelt de rechten zelf |
 
@@ -45,7 +45,7 @@ submappen (`postgres`, `secrets`, `backups`, `work`) en verder niets.
 |---|---|---|
 | Application Name | | `media-source-optimizer` |
 | Image Configuration | Repository | `ghcr.io/lvos04/media-source-optimizer` |
-| | Tag | `1.1.0` |
+| | Tag | `1.1.1` |
 | | Pull Policy | *Pull the image if it is not already present on host* |
 | Container Configuration | Timezone | jouw tijdzone (bijv. `Europe/Amsterdam`) |
 | | Restart Policy | *Unless Stopped* |
@@ -53,7 +53,7 @@ submappen (`postgres`, `secrets`, `backups`, `work`) en verder niets.
 | Security Context | Privileged | **uit** |
 | | Custom User | **uit** (niet aanvinken) |
 | Network Configuration | Host Network | **uit** |
-| | Ports → Add | Container Port `30081`, Host Port `30081`, Protocol TCP |
+| | Ports → Add | Container Port `38081`, Host Port `38081`, Protocol TCP |
 | Storage Configuration | Add → Type | **Host Path** |
 | | Mount Path | `/appdata` |
 | | Host Path | `/mnt/tank/apps/media-source-optimizer` (jouw dataset) |
@@ -64,7 +64,7 @@ na de healthcheck op *Healthy*.
 
 ## 3. Openen en instellen
 
-Open `http://<ip-van-truenas>:30081`. De setup-wizard vraagt om:
+Open `http://<ip-van-truenas>:38081`. De setup-wizard vraagt om:
 1. een beheerdersaccount;
 2. de URL en sleutel van Prowlarr, SABnzbd, qBittorrent en optioneel MediaGuard. Gebruik het **LAN-IP van TrueNAS**
    met de poort van die app, bijv. `http://192.168.1.10:9696`. Gebruik geen `localhost`: dat wijst naar de MSO-container zelf;
@@ -75,8 +75,8 @@ Open `http://<ip-van-truenas>:30081`. De setup-wizard vraagt om:
 | Wens | Hoe |
 |---|---|
 | Hardlink- en vrije-ruimtediagnose van je media | extra Host Path: je mediamap → `/media`, **Read Only** aan, en Environment Variable `MSO_MEDIA_DIR=/media` |
-| Prowlarr bereikt MSO via een ander adres | Environment Variable `MSO_PUBLIC_URL=http://<ip>:30081` |
-| Andere poort | Host Port aanpassen (Container Port blijft `30081`) |
+| Prowlarr bereikt MSO via een ander adres | Environment Variable `MSO_PUBLIC_URL=http://<ip>:38081` |
+| Andere poort | Host Port aanpassen (Container Port blijft `38081`) |
 
 ## Updaten en terugdraaien
 
@@ -92,6 +92,7 @@ Open `http://<ip-van-truenas>:30081`. De setup-wizard vraagt om:
 | `FOUT: /appdata bestaat niet` | Storage-regel ontbreekt of Mount Path is niet precies `/appdata`. |
 | `FOUT: geen schrijfrechten op /appdata/...` | Je hebt *Custom User* aangezet met een andere gebruiker. Zet het uit (MSO regelt de rechten), of geef gebruiker 568 schrijfrechten op de dataset. |
 | `oude postmaster.pid ... verwijderd` | Geen fout: de vorige stop was onverwacht (stroom/kill); de database start gewoon. |
+| Poort bezet / "port is already in use" bij opslaan | Een andere app gebruikt die host-poort. TrueNAS-catalogus-apps zitten meestal tussen 30000 en 31000; MSO gebruikt daarom 38081. Kies anders een andere vrije **Host Port** (Container Port blijft `38081`). |
 | Image kan niet worden opgehaald (`denied`/`unauthorized`) | Stap 0 is nog niet gedaan: het pakket staat nog op privé. |
 | Koppeling: "Loopback-adressen zijn uitgeschakeld" | Gebruik het LAN-IP van TrueNAS in plaats van `localhost`/`127.0.0.1`. |
 

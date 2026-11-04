@@ -29,7 +29,7 @@ import httpx
 
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else "media-source-optimizer:local"
 MOCKS = os.environ.get("MSO_MOCKS_IMAGE", "mso-mocks:stack")
-NAME, NET, PORT = "mso-aio-test", "mso-aio-net", 38091
+NAME, NET, PORT = "mso-aio-test", "mso-aio-net", 48091
 BASE = f"http://127.0.0.1:{PORT}"
 ADMIN, ADMIN_PW = "beheerder", "Aio-" + secrets.token_urlsafe(16)
 SAB_KEY = "sab" + secrets.token_hex(16)
@@ -71,7 +71,7 @@ def run(data: Path, *extra: str, name: str = NAME) -> None:
         "--network",
         NET,
         "-p",
-        f"127.0.0.1:{PORT}:30081",
+        f"127.0.0.1:{PORT}:38081",
         "-v",
         f"{data}:/appdata",
         *extra,

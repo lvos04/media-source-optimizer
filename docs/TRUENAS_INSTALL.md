@@ -18,7 +18,7 @@ Deze handleiding installeert Media Source Optimizer (MSO) als eigen app op TrueN
 | `migrate` | eenmalig: databaseschema bijwerken | `db` | 568:568 |
 | `api` | core-API, Newznab/Torznab-feeds (niet gepubliceerd) | `db`, `app` | 568:568 |
 | `worker` | achtergrondtaken (back-ups, polling, herstel) | `db`, `app` | 568:568 |
-| `web` | gebruikersinterface + same-origin proxy (`/api/v1`, `/newznab`, `/torznab` → `api`) | `app`, poort **30081** | 568:568 |
+| `web` | gebruikersinterface + same-origin proxy (`/api/v1`, `/newznab`, `/torznab` → `api`) | `app`, poort **38081** | 568:568 |
 
 Alle containers: `no-new-privileges`, `cap_drop: ALL`, read-only root-filesystem met tmpfs voor `/tmp`, vaste
 CPU-/geheugen-/PID-limieten, logrotatie (20 MB × 5). Geen Docker-socket, geen host-netwerk, geen privileged
@@ -62,7 +62,7 @@ zfs get -H -o name,property,value quota "$POOL/apps/media-source-optimizer-work"
 ls -ldn "/mnt/$POOL/apps/media-source-optimizer" "/mnt/$POOL/apps/media-source-optimizer-work"
 # Kopieer compose.yaml en zet je pool en IP erin; plak de uitvoer daarna in "Install via YAML":
 curl -fsSL https://raw.githubusercontent.com/lvos04/media-source-optimizer/v1.0.0/deploy/truenas/compose.yaml \
-  | sed -e "s#/mnt/tank/#/mnt/$POOL/#g" -e "s#MSO_PUBLIC_URL:-}#MSO_PUBLIC_URL:-http://$TRUENAS_IP:30081}#" \
+  | sed -e "s#/mnt/tank/#/mnt/$POOL/#g" -e "s#MSO_PUBLIC_URL:-}#MSO_PUBLIC_URL:-http://$TRUENAS_IP:38081}#" \
   > /tmp/mso-compose.yaml
 cat /tmp/mso-compose.yaml
 ```
@@ -96,7 +96,7 @@ door de standaardwaarde achter `:-` in het bestand aan te passen.
 
 ## Eerste start: setupwizard
 
-1. Open `http://<truenas-ip>:30081`. Zonder beheerder stuurt MSO je naar **/setup**.
+1. Open `http://<truenas-ip>:38081`. Zonder beheerder stuurt MSO je naar **/setup**.
 2. Maak de beheerder aan (minimaal 10 tekens, met hoofd- en kleine letters of cijfers).
 3. Vul per koppeling URL + sleutel in en klik **Test**. Gebruik LAN-adressen of hostnamen die de
    `api`-container kan bereiken, bijvoorbeeld:
@@ -117,18 +117,18 @@ gebruikt dezelfde poort als de UI.
 1. Haal in MSO de Newznab-sleutel op (NZB-indexers → Newznab-endpoint; de sleutel wordt alleen op verzoek
    getoond).
 2. Zet de publieke basis-URL: `MSO_PUBLIC_URL` in de YAML (het installatieblok hierboven doet dat) of de
-   instelling `newznab.public_url`, bijvoorbeeld `http://192.168.1.10:30081`. **Zonder deze instelling bevatten
+   instelling `newznab.public_url`, bijvoorbeeld `http://192.168.1.10:38081`. **Zonder deze instelling bevatten
    downloadlinks in de feed het interne adres `http://api:8200`**, omdat de web-proxy de Host-header naar de
    core herschrijft. Prowlarr kan dat adres niet bereiken.
 3. Prowlarr → **Indexers → Add Indexer → Generic Newznab**:
-   - URL: `http://<truenas-ip>:30081/newznab`
+   - URL: `http://<truenas-ip>:38081/newznab`
    - API Path: `/api`
    - API Key: de sleutel uit stap 1
    - Categories: series 5000-reeks, anime 5070, films 2000-reeks (animefilms: films + 5070); MSO meldt de
      exacte lijst in `t=caps`.
-4. Voor torrents: **Generic Torznab** met URL `http://<truenas-ip>:30081/torznab`, API Path `/api`.
+4. Voor torrents: **Generic Torznab** met URL `http://<truenas-ip>:38081/torznab`, API Path `/api`.
 5. **Test** in Prowlarr moet slagen. Draait Prowlarr als TrueNAS-app in een eigen Docker-netwerk, dan bereikt
-   het MSO via het host-IP en de gepubliceerde poort 30081 (niet verifieerd op echte hardware; zie
+   het MSO via het host-IP en de gepubliceerde poort 38081 (niet verifieerd op echte hardware; zie
    HARDWARE_ACCEPTANCE 3.3).
 6. Anti-lus: gebruikt MSO zelf deze Prowlarr als bron, dan weigert MSO cyclische verzoeken (Prowlarr →
    MSO → dezelfde Prowlarr) met een reden-code. Zet in Prowlarr bij de MSO-indexer geen sync naar apps die
@@ -136,13 +136,13 @@ gebruikt dezelfde poort als de UI.
 
 ## Reverse proxy en TLS
 
-MSO zelf spreekt HTTP op poort 30081 in je LAN. Voor HTTPS zet je er een reverse proxy voor (bijv. de
+MSO zelf spreekt HTTP op poort 38081 in je LAN. Voor HTTPS zet je er een reverse proxy voor (bijv. de
 TrueNAS-app van Nginx Proxy Manager, Caddy of Traefik):
 
-- Proxy naar `http://<truenas-ip>:30081` en geef de headers `Host`, `X-Forwarded-For` en
+- Proxy naar `http://<truenas-ip>:38081` en geef de headers `Host`, `X-Forwarded-For` en
   `X-Forwarded-Proto` door. WebSocket/SSE-ondersteuning aan, buffering uit (live-updates).
 - Zet in de YAML `MSO_SECURE_COOKIES: true` (cookie alleen over HTTPS) en `MSO_PUBLIC_URL` op de https-URL.
-- Draait de proxy op dezelfde TrueNAS, zet dan `MSO_WEB_BIND` op `127.0.0.1` zodat poort 30081 niet meer
+- Draait de proxy op dezelfde TrueNAS, zet dan `MSO_WEB_BIND` op `127.0.0.1` zodat poort 38081 niet meer
   rechtstreeks uit het LAN bereikbaar is.
 - Publiceer MSO niet naar internet. Er is geen ingebouwde 2FA; gebruik VPN als je van buitenaf wilt beheren.
 

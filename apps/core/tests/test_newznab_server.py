@@ -304,7 +304,7 @@ def test_private_magnets_not_persisted_and_magnet_only_redirect(
 
 
 def test_endpoint_uses_forwarded_host_from_web_proxy(admin) -> None:  # type: ignore[no-untyped-def]
-    r = admin.get("/api/v1/newznab/endpoint", headers={"X-Forwarded-Host": "nas.lan:30081",
+    r = admin.get("/api/v1/newznab/endpoint", headers={"X-Forwarded-Host": "nas.lan:38081",
                                                        "X-Forwarded-Proto": "http"})
     assert r.status_code == 200
-    assert "nas.lan:30081" in r.text and "api:8200" not in r.text
+    assert "nas.lan:38081" in r.text and "api:8200" not in r.text

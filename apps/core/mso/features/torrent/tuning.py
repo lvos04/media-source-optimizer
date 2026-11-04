@@ -135,21 +135,52 @@ def candidates(snap: dict[str, Any], torrents: list[dict[str, Any]]) -> list[dic
     out: list[dict[str, Any]] = []
     cap = ts.upload_cap_bps()
     up = prefs.get("up_limit")
+    guardrails: list[dict[str, Any]] = []
     if cap is not None and up is not None and (int(up) == 0 or int(up) > cap):
-        out.append(
+        guardrails.append(
             {
                 "param": "pref:up_limit",
                 "label": "Globale uploadlimiet",
                 "before": up,
-                "after": cap,
+                "after": cap,  # already a whole number of KiB/s (qBittorrent's unit)
                 "direction": "down",
                 "kind": "guardrail",
                 "metric": "torrent.dl_speed_active",
                 "risk": "toestemming_nodig" if int(up) == 0 or int(up) > cap * 1.25 else "automatisch_veilig",
+                "severity": float("inf") if int(up) == 0 else int(up) / cap,
                 "why": f"Upload staat {'onbeperkt' if int(up) == 0 else 'boven'} de veilige grens van "
                 f"{ts.get('upload_cap_pct')}% van je lijn; een volle uplink remt ook downloads.",
             }
         )
+    # extreme connection / upload-slot values: brought back within the caps even without measurements or a
+    # declared line capacity (a guardrail, not an optimisation), one parameter at a time, largest first
+    for v in policy.pref_violations(prefs):
+        unlimited = v["value"] <= 0
+        bound = (
+            f"de bovengrens van {v['max']}"
+            if unlimited or (v["max"] is not None and v["value"] > v["max"])
+            else f"het minimum van {v['min']}"
+        )
+        guardrails.append(
+            {
+                "param": f"pref:{v['key']}",
+                "label": v["label"],
+                "before": v["value"],
+                "after": v["target"],
+                "direction": "down" if v["target"] < v["value"] or unlimited else "up",
+                "kind": "guardrail",
+                "metric": "torrent.dl_speed_active",
+                "risk": "toestemming_nodig",
+                "severity": v["severity"],
+                "why": f"{v['label']} staat in qBittorrent op "
+                f"{'onbeperkt' if unlimited else v['value']}, buiten de veilige grens "
+                f"({v['min'] if v['min'] is not None else '…'}–{v['max'] if v['max'] is not None else '…'}). "
+                "Zulke extreme waarden kosten geheugen en CPU, overbelasten router/NAT-tabel en VPN, en "
+                f"leveren geen snelheid op. MSO stelt voor terug te gaan naar {bound}.",
+            }
+        )
+    guardrails.sort(key=lambda c: c["severity"], reverse=True)  # stable: up_limit first on equal severity
+    out.extend(guardrails)
     now = datetime.now(UTC)
     io = metric_stats("torrent.io_queue", now - timedelta(hours=2), now)
     mad = prefs.get("max_active_downloads")
@@ -292,6 +323,44 @@ def propose(actor: str = "system") -> dict[str, Any]:
     }
 
 
+KIND_LABEL = {"guardrail": "beleidsgrens", "tuning": "tuning", "disk_io": "schijf-I/O"}
+
+
+def _fmt_metric(metric: str, value: float | None) -> str:
+    from mso.features.torrent.diagnostics import human_rate
+
+    if value is None:
+        return "geen metingen"
+    unit = METRICS[metric]["unit"]
+    if unit == "B/s":
+        return human_rate(value)
+    if unit == "ratio":
+        return f"{value * 100:.0f}%"
+    return f"{value:g} {unit}"
+
+
+def _impact(c: dict[str, Any], baseline: dict[str, Any], eval_h: float) -> dict[str, str]:
+    """Human-readable impact (Dutch labels, plain strings) — shown as-is by every change preview."""
+    meta = METRICS[c["metric"]]
+    n = int(baseline.get("n") or 0)
+    base = (
+        f"mediaan {_fmt_metric(c['metric'], baseline.get('median'))} ({n} metingen)"
+        if n
+        else "nog geen metingen (een beleidsgrens heeft geen basislijn nodig)"
+    )
+    return {
+        "Soort": KIND_LABEL.get(c["kind"], c["kind"]),
+        "Gemeten maatstaf": f"{meta['label']} ({'hoger' if meta['higher'] else 'lager'} is beter)",
+        "Basislijn": base,
+        "Evaluatie": f"na {eval_h:g} uur; "
+        + (
+            "een beleidsgrens blijft staan, ook bij verslechtering"
+            if c["kind"] == "guardrail"
+            else "bij verslechtering volgt terugdraaien"
+        ),
+    }
+
+
 def _create_run(c: dict[str, Any], baseline: dict[str, Any], actor: str) -> dict[str, Any]:
     db = get_db()
     eval_h = _jittered_eval_hours()
@@ -301,9 +370,14 @@ def _create_run(c: dict[str, Any], baseline: dict[str, Any], actor: str) -> dict
         f"Tuning: {c['label']} {c['before']} → {c['after']}",
         [{"path": c["param"], "label": c["label"], "before": c["before"], "after": c["after"]}],
         risk=c["risk"],
-        explanation=c["why"] + f" Na {eval_h:g} uur wordt {meta['label'].lower()} vergeleken met de "
-        "basislijn; bij verslechtering volgt terugdraaien.",
-        impact={"metric": c["metric"], "baseline": baseline, "evaluate_after_h": eval_h, "kind": c["kind"]},
+        explanation=c["why"]
+        + f" Na {eval_h:g} uur wordt {meta['label'].lower()} vergeleken met de basislijn; "
+        + (
+            "dit is een beleidsgrens en blijft ook bij verslechtering staan."
+            if c["kind"] == "guardrail"
+            else "bij verslechtering volgt terugdraaien."
+        ),
+        impact=_impact(c, baseline, eval_h),
         source="tuning",
         actor=actor,
         dedupe_key=f"torrent-tuning:{c['param']}",

@@ -81,6 +81,9 @@ Rules (same as MediaGuard):
 ### Data
 
 - `useResource<T>(path | null, query?, refreshMs?)` → `{ data, error, loading, stale, reload, setData }`. `null` path = disabled.
+- Job-starting endpoints (`{job_id}`): `await waitForJob(id, { onUpdate })` from `lib/api/jobs.ts` polls `GET /jobs/{id}` until
+  done/failed, then reload what changed (see the back-up card on /systeem). Job status labels: `jobLabel()` in `lib/status.ts`
+  (`done` → "Geslaagd"); other backend enums: `enumLabel(t, prefix, value)`.
 - `useMutation(fn)` → `{ run, pending, error }` (never throws), or `useAction()` → `run(key, "post", path, body, successToast)`
   with `pending === key` and automatic error toasts.
 - `api.get/post/put/patch/del` send cookies + `X-CSRF-Token`; failures are `ApiError { kind, status, message, code, correlationId, detail }`.
@@ -90,7 +93,10 @@ Rules (same as MediaGuard):
 ### Permissions and operating mode
 
 - `useSession().can("viewer" | "operator" | "admin")`.
-- `useMode()` → `{ mode: "read_only" | "manage" | null, readOnly, paused, pause(), resume(), reload }`.
+- `useMode()` → `{ mode: "read_only" | "manage" | null, readOnly, paused, pause(), resume(), setMode(mode), reload }`.
+  This is the single live source for mode/pause: derive every "mag automatisering draaien?" display from it (not from a
+  page's own polled copy). The mode is switched in Instellingen → Systeem → Bedrijfsmodus (`/instellingen?tab=systeem#modus`,
+  also the topbar chip's link); `setMode` does `PUT /system/mode` (admin) and reloads all consumers.
 - Anything that changes an **external** system (Prowlarr, SABnzbd, qBittorrent, MediaGuard) must be gated:
   ```tsx
   const gate = useWriteGate("operator");            // role + manage mode
@@ -114,7 +120,8 @@ From `components/mg/domain.tsx`: `KpiCard`, `Sparkline`, `ConnectorCard` (read-o
 `ConnectorStatusChip`, `ConnectorLogo`, `EvidenceCard`, `Confidence`, `Trace`, `DiffViewer`,
 `DistributionBar({segments})`, `Stepper`, `Timeline`, `DangerDialog` (typed confirm via `confirmWord`), `PendingAction`.
 From `components/mg/primitives.tsx`: `Card`, `PageHeader`, `Button`, `LinkButton`, `StatusChip`, `Dot`, `Switch`,
-`Segmented`, `Tabs`, `Field`, `InlineState`, `Progress`, `Skeleton`, `Kbd`, `Modal`. Toasts: `useToast().push(tone, title, body?)`.
+`Segmented`, `Tabs`, `Field`, `InlineState`, `Progress`, `Skeleton`, `Kbd`, `Modal` (portal on `<body>`, always fully visible with
+internal scroll, `wide` for detail views; focuses once on open and never steals focus on re-render). Toasts: `useToast().push(tone, title, body?)`.
 Shell data: `useShell()` → `{ health, info, reloadHealth }`.
 
 ### Texts (i18n)

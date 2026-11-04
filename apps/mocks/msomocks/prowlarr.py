@@ -18,6 +18,11 @@ Prowlarr).
 If MSO then searched this Prowlarr again, the recursion would continue; ``app.state.max_active`` records the
 deepest nesting, and nesting beyond 6 returns HTTP 508 so a broken guard fails the test instead of hanging.
 
+Every indexer carries Prowlarr-style ``capabilities.categories``. ``app.state.data['health']`` (list, like
+``/api/v1/health``) and ``app.state.data['indexer_status']`` (list, or None for the default TorrentLeech
+failure) can be replaced by tests. Torrent results carry ``downloadVolumeFactor: 0`` + ``freeleech`` flag for
+every tracker, as Prowlarr's Cardigann definitions do for public trackers.
+
 Faults (``create_app(**faults)`` or ``app.state.faults``): ``auth=fail``, ``timeout=<seconds>`` (search),
 ``category_error=1`` (search → HTTP 400 category validation), ``error500=1`` (search → 500), ``malformed=1``,
 ``user_agent=<ua>`` (User-Agent used when proxying to Newznab indexers; default ``Prowlarr/…``).
@@ -51,6 +56,21 @@ def _fields(base_url: str = "", api_path: str = "/api", api_key: str = "") -> li
     ]
 
 
+def caps(*cats: tuple[int, str, list[tuple[int, str]]]) -> dict[str, Any]:
+    """Prowlarr ``capabilities`` block: ``caps((5000, 'TV', [(5070, 'TV/Anime')]), ...)``."""
+    return {
+        "categories": [
+            {"id": i, "name": n, "subCategories": [{"id": si, "name": sn, "subCategories": []} for si, sn in sub]}
+            for i, n, sub in cats
+        ]
+    }
+
+
+TV_CAPS = (5000, "TV", [(5030, "TV/SD"), (5040, "TV/HD"), (5070, "TV/Anime")])
+MOVIE_CAPS = (2000, "Movies", [(2030, "Movies/SD"), (2040, "Movies/HD")])
+ANIME_CAPS = (5000, "TV", [(5070, "TV/Anime")])
+
+
 def default_state() -> dict[str, Any]:
     normal_usenet = [f["id"] for f in nz.FIXTURES if 5070 not in f["cats"]]
     anime = [f["id"] for f in nz.FIXTURES if 5070 in f["cats"]]
@@ -66,6 +86,7 @@ def default_state() -> dict[str, Any]:
                 "tags": [2],
                 "implementation": "Newznab",
                 "definitionName": "nzbgeek",
+                "capabilities": caps(TV_CAPS, MOVIE_CAPS),
                 "priority": 25,
                 "appProfileId": 1,
                 "fields": _fields("https://api.nzbgeek.info"),
@@ -80,6 +101,7 @@ def default_state() -> dict[str, Any]:
                 "tags": [1],
                 "implementation": "Cardigann",
                 "definitionName": "nyaasi",
+                "capabilities": caps(ANIME_CAPS, (3000, "Audio", []), (7000, "Books", [])),
                 "priority": 25,
                 "appProfileId": 1,
                 "fields": [],
@@ -94,6 +116,7 @@ def default_state() -> dict[str, Any]:
                 "tags": [2],
                 "implementation": "Newznab",
                 "definitionName": "animetosho",
+                "capabilities": caps(ANIME_CAPS, MOVIE_CAPS),
                 "priority": 25,
                 "appProfileId": 1,
                 "fields": _fields("https://feed.animetosho.org"),
@@ -108,6 +131,7 @@ def default_state() -> dict[str, Any]:
                 "tags": [],
                 "implementation": "Cardigann",
                 "definitionName": "torrentleech",
+                "capabilities": caps(TV_CAPS, MOVIE_CAPS, (6000, "XXX", [])),
                 "priority": 25,
                 "appProfileId": 1,
                 "fields": [],
@@ -144,6 +168,15 @@ def default_state() -> dict[str, Any]:
                 "tags": [1],
             },
         ],
+        "health": [
+            {
+                "source": "IndexerStatusCheck",
+                "type": "warning",
+                "message": "Indexers unavailable due to failures: TorrentLeech",
+                "wikiUrl": "",
+            }
+        ],
+        "indexer_status": None,  # None = TorrentLeech failed just now and is disabled for an hour
         "next_id": 10,
     }
 
@@ -210,14 +243,7 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
     def health(request: Request) -> Any:
         if not authed(request):
             return unauthorized()
-        return [
-            {
-                "source": "IndexerStatusCheck",
-                "type": "warning",
-                "message": "Indexers unavailable due to failures: TorrentLeech",
-                "wikiUrl": "",
-            }
-        ]
+        return app.state.data["health"]
 
     @app.get("/api/v1/tag")
     def tags(request: Request) -> Any:
@@ -297,6 +323,8 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
     def indexer_status(request: Request) -> Any:
         if not authed(request):
             return unauthorized()
+        if app.state.data.get("indexer_status") is not None:
+            return app.state.data["indexer_status"]
         until = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         return [{"indexerId": 4, "disabledTill": until, "mostRecentFailure": datetime.now(UTC).isoformat()}]
 
@@ -475,7 +503,12 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
                             "leechers": 3 if torrent else None,
                             "infoHash": h if torrent else None,
                             "magnetUrl": f"magnet:?xt=urn:btih:{h}&dn={f['id']}" if torrent else None,
-                            "indexerFlags": ["freeleech"] if torrent and idx["id"] == 2 else [],
+                            # like Prowlarr's Cardigann definitions: public trackers report factor 0
+                            # (+ 'freeleech' flag) although nothing is "free" there; TorrentLeech (private)
+                            # reports a real freeleech
+                            "indexerFlags": ["freeleech"] if torrent else [],
+                            "downloadVolumeFactor": 0 if torrent else 1,
+                            "uploadVolumeFactor": 1,
                         }
                     )
             off, lim = int(qp.get("offset", 0) or 0), int(qp.get("limit", 100) or 100)

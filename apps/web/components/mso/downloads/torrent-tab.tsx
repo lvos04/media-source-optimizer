@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Magnet, Megaphone, RefreshCw, ScanSearch, TriangleAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, Magnet, Megaphone, RefreshCw, ScanSearch, ShieldAlert, TriangleAlert } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 
 import { Button, Card, InlineState, Progress, Segmented, StatusChip } from "@/components/mg/primitives";
@@ -15,8 +15,18 @@ import type { JobRef, TorrentDetail, TorrentList, TorrentRow } from "@/lib/api/t
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
-type Filter = "all" | "problems" | "downloading" | "seeding";
-const DL = new Set(["downloading", "forcedDL", "metaDL", "forcedMetaDL", "stalledDL", "queuedDL", "pausedDL", "stoppedDL", "checkingDL", "allocating"]);
+type Filter = "all" | "problems" | "downloading" | "seeding" | "stopped";
+/** Active or waiting downloads (stopped downloads are under "Gestopt"). */
+const DL = new Set(["downloading", "forcedDL", "metaDL", "forcedMetaDL", "stalledDL", "queuedDL", "checkingDL", "allocating"]);
+/** Really seeding (or waiting/checking to seed) — a stopped complete torrent does not seed. */
+const SEED = new Set(["uploading", "forcedUP", "stalledUP", "queuedUP", "checkingUP"]);
+/** Stopped by the user/arr (qBittorrent 5: stopped*, older: paused*). */
+const STOPPED = new Set(["pausedUP", "stoppedUP", "pausedDL", "stoppedDL"]);
+const MATCH: Record<Exclude<Filter, "all" | "problems">, (x: TorrentRow) => boolean> = {
+  downloading: (x) => DL.has(x.state ?? ""),
+  seeding: (x) => SEED.has(x.state ?? ""),
+  stopped: (x) => STOPPED.has(x.state ?? ""),
+};
 
 function Details({ hash }: { hash: string }) {
   const { t, num, relative } = useI18n();
@@ -86,13 +96,13 @@ export function TorrentDownloadsTab() {
     return all.filter((x) => {
       if (needle && !x.name.toLowerCase().includes(needle)) return false;
       if (filter === "problems") return !!x.diagnosis && x.diagnosis.severity !== "info";
-      if (filter === "downloading") return DL.has(x.state ?? "");
-      if (filter === "seeding") return (x.progress ?? 0) >= 1;
+      if (filter !== "all") return MATCH[filter](x);
       return true;
     });
   }, [filter, list.data, q]);
   const all = list.data?.items ?? [];
   const problems = all.filter((x) => x.diagnosis && x.diagnosis.severity !== "info").length;
+  const suspicious = all.filter((x) => x.suspicious).length;
 
   const refresh = async () => {
     setPending("refresh");
@@ -133,12 +143,14 @@ export function TorrentDownloadsTab() {
           <Segmented label={t("torrent.filter")} value={filter} onChange={setFilter} options={[
             { value: "all", label: t("torrent.filter.all"), count: all.length },
             { value: "problems", label: t("torrent.filter.problems"), count: problems },
-            { value: "downloading", label: t("torrent.filter.downloading"), count: all.filter((x) => DL.has(x.state ?? "")).length },
-            { value: "seeding", label: t("torrent.filter.seeding"), count: all.filter((x) => (x.progress ?? 0) >= 1).length },
+            { value: "downloading", label: t("torrent.filter.downloading"), count: all.filter(MATCH.downloading).length },
+            { value: "seeding", label: t("torrent.filter.seeding"), count: all.filter(MATCH.seeding).length },
+            { value: "stopped", label: t("torrent.filter.stopped"), count: all.filter(MATCH.stopped).length },
           ]} />
           <input className="input input--sm" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("torrent.searchPlaceholder")} aria-label={t("torrent.searchPlaceholder")} style={{ maxWidth: 260 }} />
         </div>
         {list.data?.stale ? <div style={{ padding: "0 16px 12px" }}><InlineState tone="warning">{t("torrent.staleData")}</InlineState></div> : null}
+        {suspicious ? <div style={{ padding: "0 16px 12px" }}><InlineState tone="danger" role="alert">{t("torrent.suspiciousBanner", { count: num(suspicious) })}</InlineState></div> : null}
         <ResourceView resource={list} endpoint="GET /api/v1/torrent/torrents" isEmpty={(d) => d.items.length === 0}
           empty={<StateView kind="empty" title={t("torrent.empty")} body={t("torrent.emptyBody")} />}>
           {() => items.length === 0 ? <StateView kind="empty" compact title={t("torrent.noMatch")} /> : (
@@ -166,6 +178,7 @@ export function TorrentDownloadsTab() {
                           <div className="row wrap" style={{ gap: 4, marginTop: 4 }}>
                             {x.category ? <span className="tag">{x.category}</span> : null}
                             <PrivateChip value={x.private} />
+                            {x.suspicious ? <StatusChip tone="danger" icon={ShieldAlert} title={x.suspicious.explanation}>{t("torrent.suspicious")}</StatusChip> : null}
                             {x.tracker_host ? <span className="t-3 mono" style={{ fontSize: 11.5 }}>{x.tracker_host}</span> : null}
                           </div>
                         </td>

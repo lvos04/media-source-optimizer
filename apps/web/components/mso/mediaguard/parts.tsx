@@ -32,7 +32,7 @@ export function QuotaMeter({ quota, instanceId, compact }: { quota: MgQuotaOverv
           <span>{t("mg.quota.mso")}</span>
           <span className="num">{t("mg.quota.used", { used: num(m.hour_used), max: num(m.hour_max) })} · {t("mg.quota.day", { used: num(m.day_used), max: num(m.day_max) })}</span>
         </div>
-        <Progress value={m.hour_max ? m.hour_used / m.hour_max : 1} tone={tone(m.remaining)} thin label={t("mg.quota.mso")} />
+        <Progress value={m.hour_max ? (m.hour_used / m.hour_max) * 100 : 100} tone={tone(m.remaining)} thin label={t("mg.quota.mso")} />
       </div>
       {rows.length ? rows.map(([id, q]) => {
         const usable = Math.max(0, q.remaining - quota.reserve);
@@ -42,7 +42,7 @@ export function QuotaMeter({ quota, instanceId, compact }: { quota: MgQuotaOverv
               <span>{t("mg.quota.instance", { id })}</span>
               <span className="num">{t("mg.quota.remaining", { left: num(q.remaining), usable: num(usable) })}</span>
             </div>
-            <Progress value={q.hour_max ? q.hour_used / q.hour_max : 1} tone={tone(usable)} thin label={t("mg.quota.instance", { id })} />
+            <Progress value={q.hour_max ? (q.hour_used / q.hour_max) * 100 : 100} tone={tone(usable)} thin label={t("mg.quota.instance", { id })} />
           </div>
         );
       }) : <p className="hint">{t("mg.quota.unknown")}</p>}

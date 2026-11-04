@@ -15,6 +15,12 @@ path).
                                     Rollback is refused: MSO never removes torrents.
 
 Validation (``policy.validate``) does not need a reachable client, so guardrails also hold at preview time.
+
+Speed limits (``pref:up_limit|dl_limit|alt_up_limit|alt_dl_limit``, ``torrent:<hash>:up_limit|dl_limit``) are
+kept by qBittorrent in whole KiB/s: a written 200000000 reads back as 199999488. ``read`` therefore reports
+the value that was just written (by this applier instance) when qBittorrent's value is that same limit rounded
+to KiB (difference < 1024 bytes/s), so verify-after-write does not fail and auto-roll back a correct write.
+MSO itself proposes limits as multiples of 1024 already (``settings.kib_floor``).
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ def _record_action(h: str, action: str) -> None:
 
 def build() -> Applier:
     state: dict[str, Any] = {}
+    written: dict[str, Any] = {}  # rate path → value this applier wrote (for KiB-tolerant read-back)
 
     def adapter() -> Any:
         if "a" not in state:
@@ -72,7 +79,10 @@ def build() -> Applier:
             if row is None:
                 raise ValueError("cross-seed-kandidaat bestaat niet")
             return "toegevoegd_gepauzeerd" if adapter().has_torrent(row["candidate_hash"]) else "afwezig"
-        return adapter().read_value(path)
+        value = adapter().read_value(path)
+        if path in written and policy.rate_matches(written[path], value):
+            return written[path]  # same limit, rounded by qBittorrent to whole KiB/s
+        return value
 
     def write(path: str, value: Any) -> None:
         # no validation here: changes.apply validates every 'after' value; rollback must be able to restore
@@ -110,6 +120,8 @@ def build() -> Applier:
             )
             return
         adapter().write_value(path, value)
+        if policy.is_rate_path(path):
+            written[path] = value
 
     return Applier(read=read, write=write, validate=policy.validate)
 

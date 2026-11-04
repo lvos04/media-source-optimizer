@@ -71,7 +71,7 @@ def get_wanted(
     q: str | None = None,
     reason_code: str | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=200),
     _: Principal = Depends(require("viewer")),
 ) -> dict[str, Any]:
     return service.cached_wanted(

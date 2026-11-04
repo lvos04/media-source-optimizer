@@ -40,7 +40,9 @@ export const messages = {
   "change.rollbackBody": "De oorspronkelijke waarden worden teruggezet in {target}.",
 
   "connector.url": "URL",
-  "connector.urlHint": "Interne URL zoals MSO hem bereikt, bijv. http://sabnzbd:8080",
+  "connector.urlHint": "URL zoals de MSO-container hem bereikt — gebruik het LAN-IP, geen localhost. Bijv. {example}",
+  "connector.apiKeyUsed": "De API-sleutel wordt gebruikt om in te loggen. De gebruikersnaam en het wachtwoord zijn daardoor overbodig en kun je wissen.",
+  "connector.clearLogin": "Gebruikersnaam en wachtwoord wissen",
   "connector.enabled": "Ingeschakeld",
   "connector.secretSet": "ingesteld — laat leeg om te behouden",
   "connector.secretEmpty": "leeg",

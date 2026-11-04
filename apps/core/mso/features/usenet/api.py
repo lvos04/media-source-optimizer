@@ -18,7 +18,8 @@ from mso.connectors import base as cb
 from mso.connectors.sabnzbd import SabClient, SabError
 from mso.db import get_db
 from mso.domain import outcomes
-from mso.features.usenet import articles, history, metrics, nzbs, providers, recommend
+from mso.domain.categories import MEDIA_CATEGORIES
+from mso.features.usenet import articles, history, metrics, nzbs, providers, recommend, serverstatus
 from mso.features.usenet.headerindex import engine as hi
 from mso.security import limiter
 
@@ -46,16 +47,36 @@ def overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "enabled FROM connectors WHERE id='sabnzbd'"
     )
     rows = providers.list_rows()
+    sab_states = serverstatus.current()
+    labels = {r["sab_server"]: r["label"] for r in rows if r["sab_server"]}
     return {
         "sab": {"configured": cb.is_configured("sabnzbd"), **(dict(row) if row else {})},
         "ingest": history.ingest_status(),
         "providers": {
             "total": len(rows),
             "ok": sum(1 for r in rows if r["status"] == "ok"),
+            "missing_credentials": sum(1 for r in rows if not providers.has_credentials(r["slug"])),
             "problems": [
                 {"slug": r["slug"], "label": r["label"], "status": r["status"]}
                 for r in rows
-                if r["enabled"] and r["status"] not in ("ok", "unknown")
+                if r["enabled"] and r["status"] not in ("ok", "unknown", "missing_credentials")
+            ],
+        },
+        "sab_servers": {
+            "total": len(sab_states),
+            "failing": [
+                {
+                    "server": st["server"],
+                    "name": serverstatus.display_name(st, labels),
+                    "status": st["status"],
+                    "label": st["label"],
+                    "explanation": st["explanation"],
+                    "message": st["message"],
+                    "since": st["since"],
+                    "source": "sabnzbd",
+                }
+                for st in sab_states.values()
+                if st["status"] in serverstatus.FAILING and st["enabled"]
             ],
         },
         "headerindex": {"enabled": bool(sr.get("usenet.headerindex.enabled"))},
@@ -85,6 +106,11 @@ def sab_servers(
             return c.servers()
 
     servers = _sab(load)
+    try:  # SABnzbd's own per-server errors (login refused, account expired, …)
+        serverstatus.refresh()
+    except SabError:
+        pass  # keep the last persisted state; observed_at shows its age
+    sab_states = serverstatus.current()
     linked = {r["sab_server"]: r for r in providers.list_rows() if r["sab_server"]}
     day0 = date.today() - timedelta(days=period_days)
     stats = {
@@ -108,17 +134,26 @@ def sab_servers(
         tried = int(st["tried"]) if st and st["tried"] is not None else None
         success = int(st["success"]) if st and st["success"] is not None else None
         p = linked.get(s["name"])
+        ratio = round(success / tried, 4) if tried and success is not None else None
         items.append(
             {
                 **{k: v for k, v in s.items() if k != "host"},
                 "provider": {"slug": p["slug"], "label": p["label"], "kind": p["kind"], "status": p["status"]}
                 if p
                 else None,
+                "sab_status": serverstatus.public(sab_states.get(s["name"])),
+                "low_article_success": bool(
+                    s["enable"]
+                    and tried
+                    and tried >= recommend.LOW_SUCCESS_MIN_TRIED
+                    and ratio is not None
+                    and ratio < recommend.LOW_SUCCESS_RATIO
+                ),
                 "period": {
                     "bytes": int(st["bytes"]) if st else 0,
                     "articles_tried": tried,
                     "articles_success": success,
-                    "success_ratio": round(success / tried, 4) if tried and success is not None else None,
+                    "success_ratio": ratio,
                 },
                 "daily": daily.get(s["name"], []),
                 "total_bytes": totals.get(s["name"]),
@@ -139,10 +174,52 @@ def sab_categories(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
 
     cats = _sab(load)
     mapping = history.category_map()
-    return {
-        "items": [{"name": c, "media_category": mapping.get(c.lower())} for c in cats],
-        "mapping": mapping,
-    }
+    items = []
+    for c in ["*", *cats]:
+        media, source = history.resolve_category(c, mapping)
+        items.append(
+            {
+                "name": c,
+                "media_category": media,
+                "source": source,
+                "auto": history.auto_category(c),
+            }
+        )
+    return {"items": items, "mapping": mapping, "media_categories": list(MEDIA_CATEGORIES)}
+
+
+class CategoryChoice(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    media_category: str | None = None  # None = explicitly no library category
+
+
+class CategoryMapIn(BaseModel):
+    items: list[CategoryChoice] = Field(max_length=200)
+
+
+@router.put("/sab/category-map")
+def sab_category_map(body: CategoryMapIn, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+    """Store explicit choices only where they differ from the automatic name heuristic (so automatic
+    mappings keep following SABnzbd)."""
+    lines: list[str] = []
+    for item in body.items:
+        name = item.name.strip()
+        if "=" in name or not name:
+            raise HTTPException(422, detail=f"Ongeldige categorienaam '{item.name}'")
+        if item.media_category is not None and item.media_category not in MEDIA_CATEGORIES:
+            raise HTTPException(422, detail=f"Onbekende bibliotheekcategorie '{item.media_category}'")
+        if item.media_category != history.auto_category(name):
+            lines.append(f"{name}={item.media_category or 'none'}")
+    changed = sr.put({"usenet.category_map": lines}, p.actor)
+    if changed:
+        audit(
+            p.actor,
+            "usenet.category_map",
+            "Koppeling SABnzbd-categorieën → bibliotheekcategorieën gewijzigd",
+            target="usenet.category_map",
+            detail={"before": changed["usenet.category_map"][0], "after": lines},
+        )
+    return sab_categories(p)
 
 
 class RefreshBody(BaseModel):
@@ -154,9 +231,26 @@ def sab_refresh(
     body: RefreshBody | None = None, p: Principal = Depends(require("operator"))
 ) -> dict[str, Any]:
     _limit("usenet-refresh", p.actor, 10)
+    servers = _sab(serverstatus.refresh)
     res = _sab(lambda: history.ingest(force=bool(body and body.full)))
     stats = _sab(history.snapshot_server_stats)
-    return {"history": res, "stats": stats}
+    return {"history": res, "stats": stats, "servers": servers}
+
+
+@router.get("/sab/server-status")
+def sab_server_status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Last persisted SABnzbd view per server (no SABnzbd call)."""
+    labels = {r["sab_server"]: r["label"] for r in providers.list_rows() if r["sab_server"]}
+    return {
+        "items": [
+            {
+                "server": st["server"],
+                "name": serverstatus.display_name(st, labels),
+                **(serverstatus.public(st) or {}),
+            }
+            for st in sorted(serverstatus.current().values(), key=lambda x: x["server"])
+        ]
+    }
 
 
 @router.get("/failure-reasons")
@@ -205,7 +299,12 @@ def _usage() -> dict[str, int]:
 @router.get("/providers")
 def providers_list(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     usage = _usage()
-    return {"items": [providers.public(r, block_usage=usage) for r in providers.list_rows()]}
+    sab_states = serverstatus.current()
+    return {
+        "items": [
+            providers.public(r, block_usage=usage, sab_states=sab_states) for r in providers.list_rows()
+        ]
+    }
 
 
 @router.get("/providers/presets")
@@ -251,7 +350,14 @@ def providers_test(slug: str, p: Principal = Depends(require("operator"))) -> di
 @router.post("/providers/import-sab")
 def providers_import(p: Principal = Depends(require("admin"))) -> dict[str, Any]:
     created = _sab(lambda: providers.import_from_sab(p.actor))
-    return {"items": [providers.public(r) for r in created]}
+    sab_states = serverstatus.current()
+    return {
+        "items": [providers.public(r, sab_states=sab_states) for r in created],
+        "note": "SABnzbd geeft geen wachtwoorden door: vul per provider gebruikersnaam en wachtwoord in om "
+        "MSO zelf te laten testen. Tot die tijd toont MSO de status die SABnzbd zelf meldt."
+        if created
+        else None,
+    }
 
 
 # ------------------------------------------------------------------ availability / contribution

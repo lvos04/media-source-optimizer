@@ -2,20 +2,22 @@
 "use client";
 
 import { Ban, DatabaseBackup, HeartPulse, ListChecks, RotateCcw, Stethoscope } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useShell } from "@/components/shell/app-shell";
+import { useToast } from "@/components/mg/toast";
 import { useAction } from "@/lib/api/actions";
 import type { Backup, BackupList, Job, JobList, SystemInfo } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
+import { waitForJob } from "@/lib/api/jobs";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
-import { healthLabel, healthTone, jobLabel, jobTone } from "@/lib/status";
+import { healthLabel, healthTone, jobKindLabel, jobLabel, jobTone } from "@/lib/status";
 
-const JOB_FILTERS = ["", "queued", "running", "failed", "succeeded", "cancelled"] as const;
+const JOB_FILTERS = ["", "queued", "running", "done", "failed", "cancelled"] as const;
 type JobFilter = (typeof JOB_FILTERS)[number];
 
 export default function SystemPage() {
@@ -43,7 +45,7 @@ export default function SystemPage() {
             health.components.length ? (
               <div className="list">{health.components.map((c) => (
                 <div className="list-row" key={c.name}>
-                  <div className="list-main"><div className="list-title mono">{c.name}</div>{c.message ? <div className="list-sub" style={{ whiteSpace: "normal" }}>{c.message}</div> : null}</div>
+                  <div className="list-main"><div className="list-title">{componentLabel(c, t)}</div>{c.message && c.message !== c.status ? <div className="list-sub" style={{ whiteSpace: "normal" }}>{c.message}</div> : null}</div>
                   <StatusChip tone={healthTone(c.status)}>{t(healthLabel(c.status))}</StatusChip>
                 </div>
               ))}</div>
@@ -77,31 +79,72 @@ export default function SystemPage() {
   );
 }
 
+/** Health component name → Dutch label (backend may also send its own `label`). */
+function componentLabel(c: { name: string; label?: string | null }, t: ReturnType<typeof useI18n>["t"]): string {
+  if (c.label) return c.label;
+  switch (c.name) {
+    case "database": return t("system.component.database");
+    case "worker": return t("system.component.worker");
+    case "appdata": return t("system.component.appdata");
+    case "work": return t("system.component.work");
+    default: return c.name.startsWith("connector:") ? c.name.slice("connector:".length) : c.name;
+  }
+}
+
+const BACKUP_KINDS: Record<string, "system.backupKind.manual" | "system.backupKind.auto" | "system.backupKind.preRestore"> = {
+  manual: "system.backupKind.manual", auto: "system.backupKind.auto", "pre-restore": "system.backupKind.preRestore",
+};
+
 function BackupsCard() {
-  const { t, dateTime, bytes } = useI18n();
+  const { t, dateTime, bytes, pct } = useI18n();
   const { can } = useSession();
+  const toast = useToast();
   const backups = useResource<BackupList>("/backups");
   const { run, pending } = useAction();
   const [includeSecrets, setIncludeSecrets] = useState(false);
   const [restore, setRestore] = useState<Backup | null>(null);
+  const [creating, setCreating] = useState<{ jobId: string | number; progress: number | null } | null>(null);
   const admin = can("admin");
+  const kindLabel = (kind: string) => (BACKUP_KINDS[kind] ? t(BACKUP_KINDS[kind]) : kind);
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
 
   const create = async () => {
-    const result = await run("backup", "post", "/backups", { include_secrets: includeSecrets }, t("system.backupStarted"));
-    if (result !== undefined) {
-      window.dispatchEvent(new CustomEvent("mso:jobs-changed"));
-      await backups.reload();
-    }
+    const result = await run<{ job_id: number | string; status: string }>("backup", "post", "/backups", { include_secrets: includeSecrets });
+    if (result === undefined) return;
+    window.dispatchEvent(new CustomEvent("mso:jobs-changed"));
+    setCreating({ jobId: result.job_id, progress: null });
+    abort.current?.abort();
+    const ac = new AbortController();
+    abort.current = ac;
+    toast.push("info", t("system.backupStarted"), t("system.backupStartedBody"));
+    const { job, timedOut } = await waitForJob(result.job_id, {
+      signal: ac.signal,
+      onUpdate: (j) => setCreating({ jobId: result.job_id, progress: typeof j.progress === "number" ? j.progress : null }),
+    });
+    if (ac.signal.aborted) return;
+    setCreating(null);
+    window.dispatchEvent(new CustomEvent("mso:jobs-changed"));
+    await backups.reload();
+    if (timedOut) toast.push("info", t("system.backupSlow"));
+    else if (job && (job.status === "done" || job.status === "succeeded")) toast.push("success", t("system.backupDone"));
+    else toast.push("danger", t("system.backupFailed"), job?.error ?? undefined);
   };
 
   return (
     <Card className="span-6" title={t("system.backups")} icon={DatabaseBackup} flush
-      actions={<Button size="sm" variant="primary" disabled={!admin} title={!admin ? t("system.restoreAdminOnly") : undefined} pending={pending === "backup"} onClick={() => void create()} data-testid="backup-create">{t("system.backupNow")}</Button>}>
+      actions={<Button size="sm" variant="primary" disabled={!admin} title={!admin ? t("system.restoreAdminOnly") : undefined} pending={pending === "backup" || creating !== null} onClick={() => void create()} data-testid="backup-create">{t("system.backupNow")}</Button>}>
       <div className="card-body stack-sm" style={{ borderBottom: "1px solid var(--mg-border-soft)" }}>
         <label className="row t-2" style={{ fontSize: 13 }}>
           <Switch checked={includeSecrets} onChange={setIncludeSecrets} label={t("system.backupIncludeSecrets")} disabled={!admin} />{t("system.backupIncludeSecrets")}
         </label>
         {includeSecrets ? <InlineState tone="warning">{t("system.backupIncludeSecretsHelp")}</InlineState> : <p className="hint" style={{ margin: 0 }}>{t("system.backupIncludeSecretsHelp")}</p>}
+        {creating ? (
+          <div className="stack-sm" role="status" data-testid="backup-progress">
+            <span className="t-2" style={{ fontSize: 12.5 }}>{t("system.backupRunning", { id: String(creating.jobId) })}{creating.progress ? ` · ${pct(creating.progress <= 1 ? creating.progress * 100 : creating.progress)}` : ""}</span>
+            <Progress value={creating.progress ? (creating.progress <= 1 ? creating.progress * 100 : creating.progress) : null} indeterminate={!creating.progress} thin label={t("system.backupRunning", { id: String(creating.jobId) })} />
+          </div>
+        ) : null}
       </div>
       <ResourceView resource={backups} endpoint="GET /api/v1/backups" compact isEmpty={(r) => !r.items?.length} empty={<StateView kind="empty" compact title={t("system.noBackups")} />}>
         {(r) => (
@@ -109,7 +152,7 @@ function BackupsCard() {
             <div className="list-row" key={String(b.id)}>
               <div className="list-main">
                 <div className="list-title mono" title={b.file}>{b.file}</div>
-                <div className="list-sub">{dateTime(b.created_at)} · {bytes(b.size_bytes)} · {b.kind}</div>
+                <div className="list-sub">{dateTime(b.created_at)} · {bytes(b.size_bytes)} · {kindLabel(b.kind)}</div>
               </div>
               <StatusChip tone={b.includes_secrets ? "warning" : "neutral"} icon={null} outline={!b.includes_secrets}>{b.includes_secrets ? t("system.backupWithSecrets") : t("system.backupWithoutSecrets")}</StatusChip>
               <Button size="sm" variant="danger" icon={RotateCcw} disabled={!admin} title={!admin ? t("system.restoreAdminOnly") : undefined} onClick={() => setRestore(b)}>{t("system.restore")}</Button>
@@ -122,7 +165,7 @@ function BackupsCard() {
         facts={restore ? [
           { label: t("system.created"), value: dateTime(restore.created_at) },
           { label: t("system.size"), value: bytes(restore.size_bytes) },
-          { label: t("system.kind"), value: restore.kind },
+          { label: t("system.kind"), value: kindLabel(restore.kind) },
           { label: t("system.backupIncludeSecrets"), value: restore.includes_secrets ? t("settings.yes") : t("settings.no") },
         ] : undefined}
         confirmWord={restore?.file} confirmLabel={t("system.restore")}
@@ -169,7 +212,7 @@ function JobsCard({ num }: { num: (v: number | null | undefined, d?: number) => 
             return (
               <div className="list-row" key={String(job.id)} style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
                 <div className="list-main" style={{ minWidth: 200 }}>
-                  <div className="list-title"><span className="mono">{job.kind}</span> <span className="t-3">#{String(job.id)}</span></div>
+                  <div className="list-title">{jobKindLabel(job.kind)} <span className="mono t-3" style={{ fontSize: 11.5 }}>{job.kind} · #{String(job.id)}</span></div>
                   <div className="list-sub" style={{ whiteSpace: "normal" }}>
                     {job.summary ? `${job.summary} · ` : ""}{t("jobs.attempts")} {num(job.attempts)}/{num(job.max_attempts)} · {t("jobs.created")} {dateTime(job.created_at)}{job.updated_at ? ` · ${t("jobs.updated")} ${relative(job.updated_at)}` : ""}
                   </div>

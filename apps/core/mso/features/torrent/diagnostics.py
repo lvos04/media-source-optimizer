@@ -9,6 +9,7 @@ same number while all trackers fail is weak). Nothing here writes anything.
 
 from __future__ import annotations
 
+import re
 import statistics
 from typing import Any
 
@@ -31,6 +32,121 @@ DISK_BUSY_STATES = {"checkingDL", "checkingUP", "allocating", "moving", "checkin
 STOPPED_UP = {"pausedUP", "stoppedUP"}
 BAD_TRACKER = {"not_working", "tracker_error", "unreachable"}
 GB = 1024**3
+
+# ------------------------------------------------------------------ payload integrity (malware-like releases)
+# Media downloads never contain programs, scripts or shortcuts. Fake releases ("Show S01E01 1080p.exe",
+# "... x265-MeGusta.scr") are a known malware vector on public trackers.
+EXEC_EXT = {
+    "exe", "scr", "com", "bat", "cmd", "msi", "lnk", "js", "jse", "vbs", "vbe", "ps1", "jar", "apk",
+    "pif", "hta", "wsf", "cpl", "msp",
+}  # fmt: skip
+# extensions that are only suspicious inside a media download (legitimate elsewhere)
+MEDIA_ONLY_EXT = {"zipx"}
+MEDIA_EXT = {
+    "mkv", "mp4", "avi", "m4v", "mov", "wmv", "ts", "m2ts", "webm", "mpg", "mpeg", "flv", "srt", "ass",
+    "sub", "idx", "nfo", "jpg", "png", "mp3", "flac", "aac",
+}  # fmt: skip
+ARCHIVE_EXT = {"rar", "zip", "7z", "zipx"}
+RELEASE_RE = re.compile(
+    r"(?i)\b(s\d{1,2}e\d{1,3}|\d{3,4}p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|bdrip|hdtv|remux)\b"
+)
+PASSWORD_HINT_RE = re.compile(r"(?i)(pass(word)?|wachtwoord|unlock)[^/\\]*\.(txt|url|html?|lnk|exe)$")
+PAYLOAD_MAX_FILES = 2000
+
+
+def _exts(name: str) -> list[str]:
+    """Lower-case extensions of the last path segment, outermost last ('a.mkv.exe' → ['mkv', 'exe'])."""
+    base = re.split(r"[/\\]", name.strip())[-1].strip()
+    parts = [p.strip().lower() for p in base.split(".")[1:]]
+    return [p for p in parts if p and len(p) <= 5 and p.isalnum()]
+
+
+def looks_like_media(name: str, media_category: str | None) -> bool:
+    return media_category is not None or bool(RELEASE_RE.search(name or ""))
+
+
+def payload_scan(
+    name: str, files: list[dict[str, Any]] | None, *, media: bool
+) -> dict[str, Any]:
+    """Pure check of a torrent's name and file list for executable/script/shortcut payloads.
+
+    Returns ``{matches: [{where, name, ext, reason}], files_checked}``. Only flags programs when the torrent is
+    a media download (``media``): a software torrent with an .exe is not suspicious by itself."""
+    matches: list[dict[str, Any]] = []
+    if not media:
+        return {"matches": [], "files_checked": len(files or [])}
+
+    def check(where: str, n: str, is_name: bool) -> None:
+        ex = _exts(n)
+        if not ex:
+            return
+        last = ex[-1]
+        double = len(ex) >= 2 and ex[-2] in MEDIA_EXT
+        # '.com' at the end of a torrent *name* is usually a site tag ('... - site.com'); only a double
+        # extension ('.mkv.com') counts there
+        if last in EXEC_EXT and not (is_name and last == "com" and not double):
+            reason = "dubbele extensie (vermomd als video)" if double else "uitvoerbaar bestand/script/snelkoppeling"
+            matches.append({"where": where, "name": n[-200:], "ext": last, "reason": reason})
+        elif last in MEDIA_ONLY_EXT:
+            matches.append(
+                {"where": where, "name": n[-200:], "ext": last, "reason": "ongebruikelijk archief in media-download"}
+            )
+        elif not is_name and PASSWORD_HINT_RE.search(n):
+            matches.append(
+                {"where": where, "name": n[-200:], "ext": last, "reason": "wachtwoordhint (beveiligd archief)"}
+            )
+
+    check("naam", name or "", True)
+    file_names = [str(f.get("name") or "") for f in (files or [])[:PAYLOAD_MAX_FILES]]
+    for fn in file_names:
+        check("bestand", fn, False)
+    has_archive = any((_exts(fn) or [""])[-1] in ARCHIVE_EXT for fn in file_names)
+    has_hint = any(m["reason"].startswith("wachtwoordhint") for m in matches)
+    if has_hint and not has_archive:
+        # a "password" text file without an archive is odd but not the classic locked-archive scam
+        matches = [m for m in matches if not m["reason"].startswith("wachtwoordhint")]
+    # de-duplicate and keep the evidence small
+    seen, uniq = set(), []
+    for m in matches:
+        key = (m["where"], m["name"])
+        if key not in seen:
+            seen.add(key)
+            uniq.append(m)
+    return {"matches": uniq[:20], "match_count": len(uniq), "files_checked": len(file_names)}
+
+
+def payload_finding(scan: dict[str, Any] | None, source: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if not scan or not scan.get("matches"):
+        return None
+    m = scan["matches"]
+    strong = any(x["reason"] != "wachtwoordhint (beveiligd archief)" and x["ext"] != "zipx" for x in m)
+    src = source or {}
+    blame = ", ".join(
+        x
+        for x in (
+            f"tracker {src['tracker']}" if src.get("tracker") else "",
+            f"indexer {src['indexer']}" if src.get("indexer") else "",
+            f"bronpagina {src['comment_host']}" if src.get("comment_host") else "",
+            f"categorie {src['category']}" if src.get("category") else "",
+        )
+        if x
+    )
+    first = m[0]
+    return finding(
+        "suspicious_payload",
+        "Verdacht bestand (uitvoerbaar) in media-download",
+        "Media-downloads (series, films, anime) bevatten nooit programma's, scripts of snelkoppelingen. "
+        f"Deze torrent bevat '{first['name']}' ({first['reason']})"
+        + (f" en nog {scan.get('match_count', len(m)) - 1} verdacht(e) bestand(en)" if len(m) > 1 else "")
+        + ". Dit is vrijwel zeker een nep-release met malware, geen echte aflevering of film."
+        + (f" Herkomst: {blame}." if blame else ""),
+        severity="critical",
+        confidence=0.95 if strong else 0.75,
+        evidence={"matches": m, "files_checked": scan.get("files_checked"), "source": src},
+        suggestion="Open niets uit deze download. Stop of verwijder de torrent zelf in qBittorrent (MSO "
+        "verwijdert nooit iets), controleer de indexer/tracker waar hij vandaan kwam en blokkeer de release of "
+        "indexer in Sonarr/Radarr (bijv. via de blocklist en een release-profiel dat deze extensies weigert).",
+    )
 
 
 def finding(
@@ -129,6 +245,8 @@ def diagnose_torrent(
     reserve_bytes: int = 0,
     false_eta_factor: float = 3.0,
     stalled_for_h: float | None = None,
+    payload: dict[str, Any] | None = None,
+    source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     samples = samples or []
     st = str(t.get("state") or "unknown")
@@ -146,6 +264,11 @@ def diagnose_torrent(
     free = server_state.get("free_space_on_disk")
     f: list[dict[str, Any]] = []
     recheck_reason = None
+
+    # --- integrity: executable payload in a media download (never deleted by MSO)
+    sus = payload_finding(payload, source)
+    if sus:
+        f.append(sus)
 
     # --- error states (recheck only on evidence)
     if st == "missingFiles":
@@ -488,9 +611,47 @@ def diagnose_client(
     torrents: list[dict[str, Any]] | None = None,
     upload_cap_bps: int | None = None,
     reserve_bytes: int = 0,
+    suspicious: list[dict[str, Any]] | None = None,
+    pref_violations: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     torrents = torrents or []
     f: list[dict[str, Any]] = []
+    if suspicious:
+        sources = sorted({s.get("tracker") or s.get("indexer") or "onbekend" for s in suspicious})
+        f.append(
+            finding(
+                "suspicious_torrents",
+                f"{len(suspicious)} verdachte torrent(s) met uitvoerbare bestanden",
+                f"{len(suspicious)} media-download(s) bevatten programma's/scripts (bijv. .exe of .scr) in "
+                "plaats van video. Dit zijn vrijwel zeker nep-releases met malware. Herkomst: "
+                + ", ".join(sources[:5])
+                + ("…" if len(sources) > 5 else "")
+                + ".",
+                severity="critical",
+                confidence=0.9,
+                evidence={"torrents": [s.get("name") for s in suspicious[:20]], "sources": sources},
+                suggestion="Filter de torrentlijst op 'Problemen', verwijder ze zelf in qBittorrent en blokkeer "
+                "de bron in Sonarr/Radarr. MSO verwijdert nooit iets.",
+            )
+        )
+    if pref_violations:
+        f.append(
+            finding(
+                "prefs_out_of_bounds",
+                "Instellingen buiten de veilige grens",
+                "; ".join(
+                    f"{v['label']}: {'onbeperkt' if v['value'] <= 0 else v['value']} (veilig "
+                    f"{v['min'] if v['min'] is not None else '…'}–{v['max'] if v['max'] is not None else '…'})"
+                    for v in pref_violations
+                )
+                + ". Extreme waarden kosten geheugen/CPU en overbelasten router en VPN zonder sneller te worden.",
+                severity="warning",
+                confidence=0.9,
+                evidence={v["key"]: v["value"] for v in pref_violations},
+                suggestion="Bereken een tuningvoorstel: MSO brengt de grootste afwijking als eerste terug "
+                "(met jouw toestemming).",
+            )
+        )
     cs = server_state.get("connection_status")
     port = prefs.get("listen_port")
     if cs == "disconnected":

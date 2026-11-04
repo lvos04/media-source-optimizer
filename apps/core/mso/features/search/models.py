@@ -19,6 +19,7 @@ SOURCE_STATUSES = (
     "rate_limited",
     "backoff",
     "auth_error",
+    "unavailable",  # the indexer manager (Prowlarr) itself reports this indexer as not working
 )
 
 
@@ -61,6 +62,7 @@ class SourceReport:
     count: int = 0
     latency_ms: int | None = None
     message: str = ""
+    parent: str | None = None  # e.g. 'prowlarr' for a per-indexer row under the Prowlarr aggregate
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

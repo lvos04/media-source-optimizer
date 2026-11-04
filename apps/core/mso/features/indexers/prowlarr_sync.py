@@ -2,7 +2,11 @@
 ``prowlarr``).
 
 Sync: every Prowlarr indexer becomes ``sources.id = 'prowlarr:<id>'`` with kind by protocol, private flag from
-Prowlarr's privacy, and scopes from MediaGuard's tags ``anime``/``normal`` (untagged → both, flagged).
+Prowlarr's privacy, and scopes from MediaGuard's tags ``anime``/``normal``. Untagged indexers get scopes
+derived from their Prowlarr category capabilities (``meta.scope_source`` tag|derived|default); indexers
+without any TV/Movies category are marked ``library_relevant=false``, and indexers that Prowlarr's health
+check names as not working (no definition / unavailable due to failures) get ``prowlarr_broken=true`` —
+both are skipped by the search aggregator by default.
 Indexers that point back at MSO itself are recognised (``meta.is_mso``) so the search aggregator never asks
 Prowlarr to query MSO (anti-loop).
 
@@ -15,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
@@ -87,6 +92,119 @@ def scopes_from_tags(tag_ids: list[int], tmap: dict[int, str]) -> tuple[list[str
     return scopes, False
 
 
+def capability_categories(idx: dict[str, Any]) -> list[tuple[int, str]]:
+    """All (id, name) Newznab categories an indexer declares in Prowlarr (``capabilities.categories``,
+    including sub-categories). Empty when Prowlarr did not report capabilities."""
+    out: list[tuple[int, str]] = []
+
+    def walk(items: Any) -> None:
+        for c in items or []:
+            if not isinstance(c, dict):
+                continue
+            try:
+                out.append((int(c.get("id")), str(c.get("name") or "")))
+            except (TypeError, ValueError):
+                pass
+            walk(c.get("subCategories"))
+
+    walk((idx.get("capabilities") or {}).get("categories"))
+    return out
+
+
+def derive_scope(idx: dict[str, Any], tmap: dict[int, str]) -> dict[str, Any]:
+    """Scopes of a Prowlarr indexer and where they come from.
+
+    * tagged ``anime``/``normal`` (MediaGuard) → those scopes, ``scope_source='tag'`` (tags always win);
+    * untagged with category capabilities → ``'derived'``: only TV/Anime (5070) as video category → anime,
+      otherwise both scopes;
+    * untagged without capabilities → both (``'default'``).
+
+    ``library_relevant`` is False when Prowlarr reports categories but none under TV (5xxx) or Movies (2xxx)
+    — e.g. XXX-, console- or book-only indexers: they never serve a MediaGuard library category.
+    """
+    scopes, untagged = scopes_from_tags(idx.get("tags") or [], tmap)
+    cats = capability_categories(idx)
+    ids = {c for c, _ in cats}
+    tv = {c for c in ids if 5000 <= c < 6000}
+    movies = {c for c in ids if 2000 <= c < 3000}
+    relevant: bool | None = None
+    reason = None
+    if cats:
+        relevant = bool(tv or movies)
+        if not relevant:
+            tops = sorted({name.split("/")[0].strip() for c, name in cats if c < 100000 and name} or {"?"})
+            reason = "Alleen categorieën " + ", ".join(tops[:6]) + " — geen series of films"
+    # Prowlarr lists the parent (e.g. 5000 TV) of every mapped sub-category: judge "anime only" on leaves
+    leaves: set[int] = set()
+    for top in (idx.get("capabilities") or {}).get("categories") or []:
+        if not isinstance(top, dict):
+            continue
+        subs = [c.get("id") for c in top.get("subCategories") or [] if isinstance(c, dict)]
+        for c in subs or [top.get("id")]:
+            try:
+                leaves.add(int(c))
+            except (TypeError, ValueError):
+                pass
+    tv_leaves = {c for c in leaves if 5000 <= c < 6000}
+    source = "tag"
+    if untagged:
+        source = "derived" if cats else "default"
+        if cats and tv_leaves and tv_leaves <= {C.TV_ANIME} and not movies:
+            scopes = ["anime"]
+    return {
+        "scopes": scopes,
+        "untagged": untagged,
+        "scope_source": source,
+        "library_relevant": relevant,
+        "relevance_reason": reason,
+        "video_categories": sorted(tv | movies),
+    }
+
+
+# Prowlarr health checks that name indexers (message "...: Name A, Name B. Please ...").
+_HEALTH_KINDS = (
+    ("no definition", "no_definition", True),
+    ("obsolete", "no_definition", True),
+    ("unavailable due to failures", "failing", True),
+    ("vip", "vip", False),
+    ("invalid download client", "download_client", False),
+)
+
+
+def parse_health(health: list[dict[str, Any]], names: dict[int, str]) -> dict[int, list[dict[str, Any]]]:
+    """Map Prowlarr ``/api/v1/health`` messages to indexer ids. ``broken`` = Prowlarr says the indexer does
+    not work (no definition / unavailable due to failures) → MSO shows a warning and skips it in searches.
+    Proxy/application/download-client checks that do not concern indexers are ignored."""
+    out: dict[int, list[dict[str, Any]]] = {}
+    by_name = {str(n).strip().lower(): i for i, n in names.items() if n}
+    for h in health or []:
+        if not isinstance(h, dict):
+            continue
+        src = str(h.get("source") or "")
+        msg = str(h.get("message") or "")
+        low = msg.lower()
+        if "proxy" in src.lower() or "application" in src.lower() or "indexer" not in low:
+            continue
+        kind = next(((k, b) for needle, k, b in _HEALTH_KINDS if needle in low), None)
+        if kind is None:
+            continue
+        hit: set[int] = set()
+        if low.startswith("all indexers"):
+            hit = set(names)
+        elif ":" in msg:
+            listed = msg.split(":", 1)[1]
+            listed = re.sub(r"\.\s+[A-Z].*$", "", listed.strip(), flags=re.S).rstrip(". ")
+            items = {x.strip().lower() for x in listed.split(",") if x.strip()}
+            hit = {by_name[x] for x in items if x in by_name}
+            if not hit:  # names containing ', ' or odd punctuation: fall back to containment
+                hit = {i for n, i in by_name.items() if n and n in listed.lower()}
+        for iid in hit:
+            out.setdefault(iid, []).append(
+                {"kind": kind[0], "broken": kind[1], "message": msg[:400], "source": src}
+            )
+    return out
+
+
 def is_mso_indexer(idx: dict[str, Any], public_base: str | None = None) -> bool:
     """Is this Prowlarr indexer MSO's own Newznab/Torznab endpoint? (name, or baseUrl → MSO path)."""
     if str(idx.get("name") or "").startswith(MSO_INDEXER_PREFIX):
@@ -121,6 +239,12 @@ def sync_sources() -> dict[str, Any]:
         }
     except ProwlarrError:
         stats = {}
+    try:
+        health = parse_health(
+            client.health(), {int(i["id"]): str(i.get("name") or "") for i in indexers if "id" in i}
+        )
+    except ProwlarrError:
+        health = {}
     db = get_db()
     seen: list[str] = []
     mso_ids: list[int] = []
@@ -129,7 +253,9 @@ def sync_sources() -> dict[str, Any]:
         iid = int(idx["id"])
         sid = f"prowlarr:{iid}"
         seen.append(sid)
-        scopes, untagged = scopes_from_tags(idx.get("tags") or [], tmap)
+        scope = derive_scope(idx, tmap)
+        scopes, untagged = scope["scopes"], scope["untagged"]
+        issues = health.get(iid, [])
         mso = is_mso_indexer(idx, pub)
         if mso:
             mso_ids.append(iid)
@@ -138,6 +264,7 @@ def sync_sources() -> dict[str, Any]:
         sx = stats.get(iid) or {}
         meta = {
             "prowlarr_id": iid,
+            "removed": False,
             "name": idx.get("name"),
             "implementation": idx.get("implementation"),
             "definition": idx.get("definitionName"),
@@ -145,6 +272,12 @@ def sync_sources() -> dict[str, Any]:
             "privacy": idx.get("privacy"),
             "tags": sorted({tmap.get(int(t), str(t)) for t in idx.get("tags") or []}),
             "untagged": untagged,
+            "scope_source": scope["scope_source"],
+            "library_relevant": scope["library_relevant"],
+            "relevance_reason": scope["relevance_reason"],
+            "video_categories": scope["video_categories"],
+            "prowlarr_health": issues,
+            "prowlarr_broken": any(i["broken"] for i in issues),
             "is_mso": mso,
             "anime_name": is_anime_name(idx.get("name"), idx.get("definitionName")),
             "disabled_till": st.get("disabledTill"),

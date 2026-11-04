@@ -1,11 +1,12 @@
 "use client";
 
-import { Activity, Gauge, KeyRound, Network, Plug } from "lucide-react";
+import { Activity, Gauge, KeyRound, Network, Plug, ShieldAlert } from "lucide-react";
 
 import { Card, InlineState, StatusChip } from "@/components/mg/primitives";
 import { DiagnosisChip, FindingList, useRate } from "@/components/mso/torrent/shared";
 import type { TorrentOverview } from "@/lib/api/torrent";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { enumLabel } from "@/lib/status";
 
 const CAP_LABEL: Record<string, MessageKey> = {
   sync_maindata: "torrent.cap.sync_maindata",
@@ -98,6 +99,11 @@ export function BottleneckCard({ data }: { data: TorrentOverview }) {
   return (
     <Card className="span-12" title={t("torrent.bottleneck.title")} icon={Activity}>
       <div className="stack">
+        {data.suspicious_count ? (
+          <InlineState tone="danger" role="alert">
+            <ShieldAlert className="ico ico-sm" aria-hidden="true" /> {t("torrent.suspiciousSummary", { count: num(data.suspicious_count) })}
+          </InlineState>
+        ) : null}
         <dl className="kv">
           <dt>{t("torrent.bottleneck.download")}</dt><dd>{rate(tr.dl_info_speed as number | null)}{tr.dl_rate_limit ? ` (${t("torrent.limit")} ${rate(tr.dl_rate_limit as number)})` : ""}</dd>
           <dt>{t("torrent.bottleneck.upload")}</dt><dd>{rate(tr.up_info_speed as number | null)}{tr.up_rate_limit ? ` (${t("torrent.limit")} ${rate(tr.up_rate_limit as number)})` : ` (${t("torrent.unlimited")})`}</dd>
@@ -108,8 +114,8 @@ export function BottleneckCard({ data }: { data: TorrentOverview }) {
           <ul className="list" style={{ marginTop: 4 }}>
             {counts.map(([code, n]) => (
               <li key={code} className="list-row">
-                <div className="list-main"><div className="list-title">{code === "ok" ? t("torrent.diag.ok") : t(`torrent.code.${code}` as MessageKey)}</div></div>
-                <span className="list-aside"><StatusChip tone={code === "ok" ? "success" : "neutral"} icon={Gauge}>{num(n)}</StatusChip></span>
+                <div className="list-main"><div className="list-title">{code === "ok" ? t("torrent.diag.ok") : enumLabel(t, "torrent.code", code)}</div></div>
+                <span className="list-aside"><StatusChip tone={code === "ok" ? "success" : code === "suspicious_payload" ? "danger" : "neutral"} icon={code === "suspicious_payload" ? ShieldAlert : Gauge}>{num(n)}</StatusChip></span>
               </li>
             ))}
             {!counts.length ? <li className="list-row t-3">{t("torrent.empty")}</li> : null}

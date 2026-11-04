@@ -1,7 +1,8 @@
 """SABnzbd connector (``/api?mode=…&output=json&apikey=…``).
 
 Read: ``version``, ``queue``, ``history`` (incl. ``fail_message``/``stage_log``), ``server_stats``,
-``get_config&section=servers``, ``get_cats``. Direct (audited, rate limited, idempotent) user actions:
+``get_config&section=servers``, ``status``/``fullstatus`` (per-server ``servererror``), ``warnings``,
+``get_cats``. Direct (audited, rate limited, idempotent) user actions:
 ``addurl``/``addfile``. Server settings (priority/enable/optional) are ONLY written through the change-set
 applier ``sabnzbd`` (drift detection + rollback restores the original values).
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -163,6 +165,71 @@ class SabClient:
                     "username_set": bool(s.get("username")),
                 }
             )
+        return out
+
+    def server_status(self) -> list[dict[str, Any]] | None:
+        """Live per-server state from ``mode=status`` (SABnzbd ≥ 4; ``fullstatus`` on older versions):
+        ``servername`` (display name), ``serveractive``, ``servererror`` (SABnzbd's own last warning for that
+        server, e.g. "482 Account expired"), ``serveroptional``, connections. ``None`` when the version
+        doesn't offer it."""
+        body: Any = None
+        for mode in ("status", "fullstatus"):
+            try:
+                body = self._call(mode, {"skip_dashboard": 1, "calculate_performance": 0})
+            except SabError as exc:
+                if exc.code in ("auth", "timeout", "unreachable"):
+                    raise
+                continue
+            st = body.get("status") if isinstance(body, dict) else None
+            if isinstance(st, dict) and isinstance(st.get("servers"), list):
+                break
+        else:
+            return None
+        out = []
+        for s in st["servers"]:
+            if not isinstance(s, dict):
+                continue
+            out.append(
+                {
+                    "servername": str(s.get("servername") or ""),
+                    "active": bool(s.get("serveractive", True)),
+                    "error": redact(str(s.get("servererror") or "")).strip()[:500],
+                    "optional": bool(s.get("serveroptional", False)),
+                    "priority": _int(s.get("serverpriority"), 0),
+                    "total_conn": _int(s.get("servertotalconn"), 0),
+                    "active_conn": _int(s.get("serveractiveconn"), 0),
+                }
+            )
+        return out
+
+    def warnings(self) -> list[dict[str, Any]]:
+        """SABnzbd's own warning list (``mode=warnings``): ``[{text, type, time}]``; ``time`` is a unix
+        timestamp or ``None`` (older versions return plain strings)."""
+        body = self._call("warnings")
+        raw = body.get("warnings") if isinstance(body, dict) else body
+        out: list[dict[str, Any]] = []
+        for w in raw or []:
+            if isinstance(w, dict):
+                ts = w.get("time")
+                out.append(
+                    {
+                        "text": redact(str(w.get("text") or "")).strip()[:500],
+                        "type": str(w.get("type") or "WARNING"),
+                        "time": _int(ts, 0) or None,
+                    }
+                )
+            elif isinstance(w, str):
+                # "2024-01-01 12:00:00,123\nWARNING\nServer x reported: …"
+                parts = w.split("\n")
+                ts = None
+                if len(parts) >= 3:
+                    try:
+                        ts = int(datetime.strptime(parts[0][:19], "%Y-%m-%d %H:%M:%S").timestamp())
+                    except ValueError:
+                        ts = None
+                    out.append({"text": redact("\n".join(parts[2:])).strip()[:500], "type": parts[1], "time": ts})
+                else:
+                    out.append({"text": redact(w).strip()[:500], "type": "WARNING", "time": None})
         return out
 
     def categories(self) -> list[str]:
@@ -370,6 +437,17 @@ def _test(cfg: cb.ConnectorConfig) -> cb.TestResult:
                 if exc.code == "auth":
                     return cb.TestResult(False, "auth_failed", str(exc), version=version)
                 modes[mode] = False
+        try:  # SABnzbd's own per-server errors (shown, not a connector failure)
+            from mso.features.usenet.serverstatus import classify_message
+
+            live = client.server_status()
+            if live is not None:
+                modes["status"] = True
+                info["servers_failing"] = sum(1 for s in live if s["error"] and classify_message(s["error"]))
+        except SabError:
+            modes["status"] = False
+        except ImportError:  # feature module disabled
+            pass
         latency = int((time.monotonic() - start) * 1000)
     failed = [m for m, ok in modes.items() if not ok]
     caps = {"modes": modes, **info}
@@ -385,7 +463,12 @@ def _test(cfg: cb.ConnectorConfig) -> cb.TestResult:
     return cb.TestResult(
         True,
         "healthy",
-        f"SABnzbd {version} · {info.get('servers', 0)} server(s), {info.get('categories', 0)} categorieën",
+        f"SABnzbd {version} · {info.get('servers', 0)} server(s), {info.get('categories', 0)} categorieën"
+        + (
+            f" · {info['servers_failing']} server(s) melden fouten (zie Usenet-providers)"
+            if info.get("servers_failing")
+            else ""
+        ),
         version=version,
         capabilities=caps,
         latency_ms=latency,

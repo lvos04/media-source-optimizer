@@ -84,16 +84,60 @@ def get_wanted(
     media_category: Category | None = None,
     q: str | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=200),
     _: Principal = Depends(require("viewer")),
 ) -> dict[str, Any]:
+    """Paged list (default 50, max 200 per page). With ``source=all`` the open manual items come first
+    (newest first), followed by the MediaGuard cache — one consistent ordering, so pages never overlap."""
     from mso.features.mediaguard import service as mg
 
     items: list[dict[str, Any]] = []
-    total = 0
     meta: dict[str, Any] = {"mode": mg.mode()}
+    offset = (page - 1) * page_size
+    manual_total = 0
+    manual_rows: list[dict[str, Any]] = []
+    if source in ("all", "manual"):
+        where, params = ["status='open'"], []
+        if media_category:
+            where.append("media_category=%s")
+            params.append(media_category)
+        if q:
+            where.append("title ILIKE %s")
+            params.append(f"%{q}%")
+        db = get_db()
+        w = " WHERE " + " AND ".join(where)
+        manual_total = int(db.scalar("SELECT count(*) FROM recovery_manual_wanted" + w, params) or 0)
+        if offset < manual_total:
+            manual_rows = db.fetchall(
+                "SELECT * FROM recovery_manual_wanted" + w + " ORDER BY id DESC LIMIT %s OFFSET %s",
+                [*params, page_size, offset],
+            )
+    total = manual_total
+    for r in manual_rows:
+        items.append(
+            {
+                "media_ref": f"manual:{r['id']}",
+                "origin": "manual",
+                "title": r["title"],
+                "media_category": r["media_category"],
+                "season_number": r["season_number"],
+                "episode_number": r["episode_number"],
+                "absolute_episode_number": r["absolute_episode_number"],
+                "year": r["year"],
+                "status": r["status"],
+                "reason_code": None,
+                "attempts": None,
+                "stale": False,
+                "requirements": r["requirements"],
+            }
+        )
     if source in ("all", "mediaguard"):
-        res = mg.cached_wanted(media_category=media_category, q=q, page=page, page_size=page_size)
+        res = mg.cached_wanted(
+            media_category=media_category,
+            q=q,
+            offset=max(0, offset - manual_total),
+            limit=page_size - len(manual_rows),
+        )
         total += res["total"]
         meta.update(mediaguard_fetched_at=res["fetched_at"], mediaguard_stale=res["stale"])
         for r in res["items"]:
@@ -111,37 +155,6 @@ def get_wanted(
                     "attempts": r["attempts"],
                     "instance_id": r["instance_id"],
                     "stale": r["stale"],
-                }
-            )
-    if source in ("all", "manual"):
-        where, params = ["status='open'"], []
-        if media_category:
-            where.append("media_category=%s")
-            params.append(media_category)
-        if q:
-            where.append("title ILIKE %s")
-            params.append(f"%{q}%")
-        db = get_db()
-        w = " WHERE " + " AND ".join(where)
-        total += int(db.scalar("SELECT count(*) FROM recovery_manual_wanted" + w, params) or 0)
-        for r in db.fetchall(
-            "SELECT * FROM recovery_manual_wanted" + w + " ORDER BY id DESC LIMIT %s", [*params, page_size]
-        ):
-            items.append(
-                {
-                    "media_ref": f"manual:{r['id']}",
-                    "origin": "manual",
-                    "title": r["title"],
-                    "media_category": r["media_category"],
-                    "season_number": r["season_number"],
-                    "episode_number": r["episode_number"],
-                    "absolute_episode_number": r["absolute_episode_number"],
-                    "year": r["year"],
-                    "status": r["status"],
-                    "reason_code": None,
-                    "attempts": None,
-                    "stale": False,
-                    "requirements": r["requirements"],
                 }
             )
     refs = [i["media_ref"] for i in items]

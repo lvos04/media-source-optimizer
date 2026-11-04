@@ -181,6 +181,14 @@ def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = 
                    (err, jsonb(ops), change_id))
         audit(actor, "change.failed", f"Toepassen mislukt: {ch['title']}", target=ch["target"],
               change_id=change_id, detail={"error": err})
+        if written:
+            restored = [o["label"] for o in written if o.get("result") == "teruggedraaid"]
+            audit("systeem", "change.auto_restored" if not rollback_errors else "change.auto_restore_failed",
+                  (f"Automatisch hersteld na mislukte wijziging: {ch['title']}" if not rollback_errors
+                   else f"Automatisch herstel deels mislukt: {ch['title']}"),
+                  target=ch["target"], change_id=change_id,
+                  detail={"restored": restored, "errors": rollback_errors,
+                          "values": [{"label": o["label"], "back_to": o["observed_before"]} for o in written]})
         raise HTTPException(502, detail=f"Toepassen mislukt: {err}") from exc
     db.execute("UPDATE change_sets SET status='applied', applied_by=%s, applied_at=now(), ops=%s, error=NULL "
                "WHERE id=%s", (actor, jsonb(ops), change_id))

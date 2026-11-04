@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, PlugZap, Repeat, Trash2 } from "lucide-react";
+import { CircleSlash, Pencil, PlugZap, Repeat, Trash2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { Confidence, DangerDialog } from "@/components/mg/domain";
@@ -22,10 +22,19 @@ const DIRECT_STATUS: Record<string, { tone: Tone; label: MessageKey }> = {
 };
 
 function StatusCell({ s }: { s: IndexerSource }) {
-  const { t, relative } = useI18n();
+  const { t, relative, num } = useI18n();
   if (s.is_mso) return <StatusChip tone="info" icon={Repeat}>{t("idx.isMso")}</StatusChip>;
   if (!s.enabled) return <StatusChip tone="neutral">{t("idx.disabled")}</StatusChip>;
   const chips = [];
+  const notes: Array<{ text: string; danger?: boolean }> = [];
+  if (s.prowlarr_broken) {
+    chips.push(<StatusChip key="broken" tone="danger" icon={TriangleAlert} title={t("idx.brokenHelp")}>{t("idx.broken")}</StatusChip>);
+    for (const h of s.prowlarr_health ?? []) if (h.broken) notes.push({ text: h.message, danger: true });
+  }
+  if (s.library_relevant === false) {
+    chips.push(<StatusChip key="irr" tone="neutral" icon={CircleSlash} title={t("idx.irrelevantHelp")}>{t("idx.irrelevant")}</StatusChip>);
+    if (s.relevance_reason) notes.push({ text: s.relevance_reason });
+  }
   if (s.direct) {
     const st = DIRECT_STATUS[s.direct.status] ?? DIRECT_STATUS.unknown;
     chips.push(<StatusChip key="d" tone={st.tone}>{t(st.label)}</StatusChip>);
@@ -35,20 +44,33 @@ function StatusCell({ s }: { s: IndexerSource }) {
   } else if (s.prowlarr?.disabled_till && new Date(s.prowlarr.disabled_till) > new Date()) {
     chips.push(<StatusChip key="p" tone="warning">{t("idx.disabledTill", { when: relative(s.prowlarr.disabled_till) })}</StatusChip>);
   }
-  if (s.stats?.last_search_at) {
-    const last = (s.stats.last_status ?? "ok") as SourceStatus;
-    const recentError = s.stats.errors > 0 && s.stats.last_status;
-    const st = recentError ? SOURCE_STATUS[last] ?? SOURCE_STATUS.error : SOURCE_STATUS.ok;
-    if (!s.direct) chips.push(<StatusChip key="s" tone={st.tone} icon={st.icon}>{t(st.label)}</StatusChip>);
+  if (!s.direct) {
+    if (s.stats?.last_search_at) {
+      // the status of the LAST observation (ok / empty / timeout / error …), not "any error in the window"
+      const st = SOURCE_STATUS[(s.stats.last_status ?? "ok") as SourceStatus] ?? SOURCE_STATUS.error;
+      chips.push(<StatusChip key="s" tone={st.tone} icon={st.icon}>{t(st.label)}</StatusChip>);
+    } else if (s.prowlarr?.queries) {
+      // never asked by MSO yet, but Prowlarr has measurements: say so instead of "not queried"
+      const failed = s.prowlarr.failed_queries ?? 0;
+      chips.push(<StatusChip key="pm" tone={failed > s.prowlarr.queries / 2 ? "warning" : "neutral"}>{t("idx.prowlarrMeasured")}</StatusChip>);
+      notes.push({ text: t("idx.prowlarrQueries", { n: num(s.prowlarr.queries), failed: num(failed) }) });
+    }
   }
   return (
     <div className="stack-sm">
       <span className="row wrap" style={{ gap: 4 }}>{chips.length ? chips : <StatusChip tone="neutral">{t("idx.never")}</StatusChip>}</span>
       {s.stats?.last_search_at ? <span className="cell-sub">{t("idx.lastSearch", { when: relative(s.stats.last_search_at) })}</span> : null}
+      {notes.map((n) => <span key={n.text} className={n.danger ? "cell-sub t-danger" : "cell-sub"} style={{ maxWidth: 360 }}>{n.text}</span>)}
       {s.direct?.last_error ? <span className="cell-sub t-danger">{s.direct.last_error}</span> : null}
     </div>
   );
 }
+
+const SCOPE_SOURCE: Record<string, { label: MessageKey; help: MessageKey }> = {
+  tag: { label: "idx.scopeSource.tag", help: "idx.scopeSource.tagHelp" },
+  derived: { label: "idx.scopeSource.derived", help: "idx.scopeSource.derivedHelp" },
+  default: { label: "idx.scopeSource.default", help: "idx.scopeSource.defaultHelp" },
+};
 
 export function IndexerTable({ items, protocol, reload }: { items: IndexerSource[]; protocol: Protocol; reload: () => void | Promise<void> }) {
   const { t, num } = useI18n();
@@ -108,9 +130,12 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
           {sorted.map((s) => {
             const originKey = (s.kind === "spotweb" ? "idx.origin.spotweb" : `idx.origin.${s.origin}`) as MessageKey;
             const rel = s.reliability_detail;
-            const latency = s.stats?.median_latency_ms ?? s.prowlarr?.avg_response_ms ?? null;
+            const msoLatency = s.stats?.median_latency_ms ?? null;
+            const latency = msoLatency ?? s.prowlarr?.avg_response_ms ?? null;
+            const scopeSrc = s.origin === "prowlarr" ? SCOPE_SOURCE[s.scope_source ?? (s.untagged ? "default" : "tag")] : undefined;
+            const inactive = s.library_relevant === false || Boolean(s.prowlarr_broken);
             return (
-              <tr key={s.id}>
+              <tr key={s.id} style={inactive ? { opacity: 0.62 } : undefined} data-inactive={inactive || undefined}>
                 <td data-label={t("idx.col.indexer")}>
                   <div className="cell-title">{s.label}</div>
                   <div className="cell-sub row wrap" style={{ gap: 4 }}>
@@ -121,8 +146,14 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
                 </td>
                 <td data-label={t("idx.col.scope")}>
                   <span className="row wrap" style={{ gap: 4 }}>
-                    {s.scopes.map((sc) => <span key={sc} className="tag">{t(`idx.scope.${sc}`)}</span>)}
-                    {s.untagged ? <StatusChip tone="warning" title={t("idx.untaggedHelp")}>{t("idx.untagged")}</StatusChip> : null}
+                    {s.library_relevant === false ? <span className="t-3" style={{ fontSize: 12 }}>—</span>
+                      : s.scopes.map((sc) => <span key={sc} className="tag">{t(`idx.scope.${sc}`)}</span>)}
+                    {scopeSrc && s.library_relevant !== false ? (
+                      <span className="t-3" style={{ fontSize: 11 }} title={t(scopeSrc.help)}>
+                        {t(scopeSrc.label)}<span className="sr-only"> — {t(scopeSrc.help)}</span>
+                      </span>
+                    ) : null}
+                    {s.untagged && s.library_relevant !== false ? <StatusChip tone="warning" title={t("idx.untaggedHelp")}>{t("idx.untagged")}</StatusChip> : null}
                   </span>
                 </td>
                 <td data-label={t("idx.col.status")}><StatusCell s={s} /></td>
@@ -131,7 +162,10 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
                     : <span className="t-3" style={{ fontSize: 12 }}>{t("idx.notEnoughData")}</span>}
                   {rel ? <div className="cell-sub">{t("idx.samples", { n: num(rel.samples), fp: num(rel.false_positives) })}</div> : null}
                 </td>
-                <td data-label={t("idx.col.latency")} className="mono" style={{ fontSize: 12 }}>{latency !== null ? `${num(latency)} ms` : "—"}</td>
+                <td data-label={t("idx.col.latency")} className="mono" style={{ fontSize: 12 }}>
+                  {latency !== null ? `${num(latency)} ms` : "—"}
+                  {latency !== null ? <div className="cell-sub" style={{ fontFamily: "inherit" }}>{t(msoLatency !== null ? "idx.latency.mso" : "idx.latency.prowlarr")}</div> : null}
+                </td>
                 <td data-label={t("idx.col.actions")}>
                   {s.direct ? (
                     <div className="row wrap" style={{ gap: 6, justifyContent: "flex-end" }}>

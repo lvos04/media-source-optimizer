@@ -22,17 +22,72 @@ export function formatOpValue(value: unknown): ReactNode {
   return <pre className="mono pre-wrap" style={{ margin: 0, fontSize: 11.5 }}>{JSON.stringify(value, null, 2)}</pre>;
 }
 
+/** Dutch labels for impact keys the backend may send (unknown keys are shown humanised). */
+const IMPACT_LABELS: Record<string, string> = {
+  kind: "Soort", metric: "Maatstaf", baseline: "Basislijn", eval_h: "Evaluatie na (uur)", evaluate_after_h: "Evaluatie na (uur)",
+  area: "Onderdeel", servers: "Servers", reasons: "Redenen", tracker: "Tracker", save_path: "Opslagpad", files: "Bestanden",
+  payloads: "Te registreren", already: "Al aanwezig", tags_used: "Gebruikte tags", n: "Aantal metingen", median: "Mediaan",
+  mean: "Gemiddelde", from: "Vanaf", to: "Tot", count: "Aantal", items: "Onderdelen", hysteresis: "Hysterese",
+  param: "Instelling", before: "Huidig", after: "Voorgesteld", reason: "Reden", name: "Naam", label: "Naam", status: "Status",
+  category: "Categorie", categories: "Categorieën", indexers: "Indexers", priority: "Prioriteit", expected: "Verwacht",
+  risk: "Risico", note: "Opmerking", message: "Toelichting", window_h: "Meetperiode (uur)", samples: "Metingen",
+};
+const IMPACT_VALUES: Record<string, string> = {
+  guardrail: "beleidsgrens", tuning: "tuning", disk_io: "schijf-I/O", advies: "advies", automatisch_veilig: "automatisch veilig",
+  toestemming_nodig: "toestemming nodig", true: "ja", false: "nee",
+};
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+function humanKey(key: string): string {
+  if (IMPACT_LABELS[key]) return IMPACT_LABELS[key];
+  if (/[A-Z ]/.test(key)) return key; // already a human label ("Basislijn", "Status in qBittorrent")
+  const words = key.replace(/[._-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Readable value: primitives inline, lists joined, objects as nested key/value rows — never a raw JSON dump. */
+function ImpactValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  const { dateTime, num } = useI18n();
+  if (value === null || value === undefined || value === "") return <span className="t-3">—</span>;
+  if (typeof value === "boolean") return <>{value ? "ja" : "nee"}</>;
+  if (typeof value === "number") return <>{num(value, Number.isInteger(value) ? 0 : 2)}</>;
+  if (typeof value === "string") {
+    if (ISO_DATE.test(value) && !Number.isNaN(Date.parse(value))) return <>{dateTime(value)}</>;
+    return <span className="pre-wrap">{IMPACT_VALUES[value] ?? value}</span>;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return <span className="t-3">—</span>;
+    if (value.every((v) => v === null || typeof v !== "object")) return <span className="pre-wrap">{value.map((v) => (typeof v === "string" ? IMPACT_VALUES[v] ?? v : String(v))).join(", ")}</span>;
+    if (depth >= 2) return <>{value.length} onderdelen</>;
+    return (
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {value.slice(0, 20).map((v, i) => <li key={i}><ImpactValue value={v} depth={depth + 1} /></li>)}
+        {value.length > 20 ? <li className="t-3">… en nog {value.length - 20}</li> : null}
+      </ul>
+    );
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (!entries.length) return <span className="t-3">—</span>;
+    if (depth >= 2) return <>{entries.map(([k, v]) => `${humanKey(k)}: ${v !== null && typeof v === "object" ? "…" : String(v)}`).join(" · ")}</>;
+    return <ImpactRows entries={entries} depth={depth + 1} />;
+  }
+  return <>{String(value)}</>;
+}
+
+function ImpactRows({ entries, depth }: { entries: Array<[string, unknown]>; depth: number }) {
+  return (
+    <dl className="kv" data-testid="change-impact">
+      {entries.map(([k, v]) => <div key={k} style={{ display: "contents" }}><dt>{humanKey(k)}</dt><dd><ImpactValue value={v} depth={depth} /></dd></div>)}
+    </dl>
+  );
+}
+
 function Impact({ impact }: { impact: unknown }) {
   if (impact === null || impact === undefined || impact === "") return null;
   if (typeof impact === "string" || typeof impact === "number") return <p style={{ margin: 0, fontSize: 13 }}>{String(impact)}</p>;
-  if (Array.isArray(impact)) return <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>{impact.map((i, n) => <li key={n}>{typeof i === "object" ? JSON.stringify(i) : String(i)}</li>)}</ul>;
-  if (typeof impact === "object") {
-    return (
-      <dl className="kv">
-        {Object.entries(impact as Record<string, unknown>).map(([k, v]) => <div key={k} style={{ display: "contents" }}><dt>{k}</dt><dd>{formatOpValue(v)}</dd></div>)}
-      </dl>
-    );
-  }
+  if (Array.isArray(impact)) return <div style={{ fontSize: 13 }}><ImpactValue value={impact} /></div>;
+  if (typeof impact === "object") return <ImpactRows entries={Object.entries(impact as Record<string, unknown>)} depth={1} />;
   return null;
 }
 

@@ -19,6 +19,9 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``username``/``password`` (default admin/adminadmin), ``api_key`` (only accepted when version ≥ 5.2)
 - ``auth_fail=1`` → every login fails; ``session_ttl=N`` → a SID expires after N authenticated requests (403)
 - ``firewalled=1``, ``free_space=<bytes>``, ``interface=<name>`` (bound interface), ``scenario=empty|full``
+
+Like real qBittorrent, speed limits (``setPreferences`` up/dl/alt limits, ``setUploadLimit``/
+``setDownloadLimit``) are stored in whole KiB/s: written values are rounded down to a multiple of 1024.
 """
 
 from __future__ import annotations
@@ -34,6 +37,14 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 GB = 1024**3
 MB = 1024**2
+RATE_PREFS = ("up_limit", "dl_limit", "alt_up_limit", "alt_dl_limit")
+
+
+def _kib(v: Any) -> int:
+    """Real qBittorrent keeps speed limits in whole KiB/s: a written byte value is rounded down to a multiple of
+    1024 (200000000 → 199999488); 0 and negatives (no limit) are kept."""
+    n = int(v)
+    return (n // 1024) * 1024 if n > 0 else n
 
 
 def _h(name: str) -> str:
@@ -115,6 +126,7 @@ def _torrent(
     ratio: float = 0.0,
     seeding_time: int = 0,
     save_path: str = "/data/torrents",
+    comment: str = "",
 ) -> dict[str, Any]:
     h = _h(name)
     downloaded = int(size * progress)
@@ -150,6 +162,7 @@ def _torrent(
         "save_path": f"{save_path}/{category}",
         "content_path": f"{save_path}/{category}/{name}",
         "tracker": tracker if state != "error" else "",
+        "comment": comment,
         "up_limit": 0,
         "dl_limit": 0,
         "ratio_limit": -2,
@@ -562,7 +575,7 @@ def create_app(**faults: Any) -> FastAPI:
         f = await form(request)
         for k, v in json.loads(f.get("json") or "{}").items():
             if k in qb.prefs:
-                qb.prefs[k] = v
+                qb.prefs[k] = _kib(v) if k in RATE_PREFS else v
         qb._recompute()
         return PlainTextResponse("")
 
@@ -699,8 +712,8 @@ def create_app(**faults: Any) -> FastAPI:
 
         return fn
 
-    _write("/api/v2/torrents/setUploadLimit", _set_field("up_limit"))
-    _write("/api/v2/torrents/setDownloadLimit", _set_field("dl_limit"))
+    _write("/api/v2/torrents/setUploadLimit", _set_field("up_limit", cast=_kib))
+    _write("/api/v2/torrents/setDownloadLimit", _set_field("dl_limit", cast=_kib))
 
     def share(f: dict[str, Any]) -> Response | None:
         if qb.old and "inactiveSeedingTimeLimit" in f:

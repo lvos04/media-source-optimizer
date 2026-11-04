@@ -31,10 +31,12 @@ sr.define(
     "usenet.category_map",
     "SABnzbd-categorie → bibliotheekcategorie",
     "list",
-    ["tv=tv", "tv-anime=tv-anime", "movies=movies", "movies-anime=movies-anime", "anime=tv-anime"],
+    [],
     category=CAT,
-    help="Regels 'sab-categorie=categorie' met als doel tv, tv-anime, movies of movies-anime. "
-    "Onbekende SABnzbd-categorieën krijgen geen bibliotheekcategorie (geen gok).",
+    help="Regels 'sab-categorie=categorie' met als doel tv, tv-anime, movies, movies-anime of none. "
+    "SABnzbd-categorieën zonder regel worden automatisch op naam herkend (tv/series/sonarr → tv, "
+    "anime → tv-anime, movies/films/radarr → movies, anime + film/radarr → movies-anime); '*' en "
+    "onbekende namen krijgen geen bibliotheekcategorie.",
 )
 sr.define(
     "usenet.stats_poll_min",

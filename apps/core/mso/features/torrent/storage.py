@@ -144,6 +144,10 @@ def hardlink_scan() -> dict[str, Any]:
     }
 
 
+SEEDING_STATES = {"uploading", "forcedUP", "stalledUP", "queuedUP", "checkingUP"}
+STOPPED_STATES = {"pausedUP", "stoppedUP", "pausedDL", "stoppedDL"}
+
+
 def report() -> dict[str, Any]:
     db = get_db()
     snap = db.fetchone("SELECT server_state, updated_at, error FROM torrent_client_snapshot WHERE id=1")
@@ -179,15 +183,19 @@ def report() -> dict[str, Any]:
                 "bytes": 0,
                 "seeding": 0,
                 "downloading": 0,
+                "stopped": 0,
                 "private": 0,
             },
         )
         c["torrents"] += 1
         c["bytes"] += int(r["info"].get("total_size") or r["info"].get("size") or 0)
         c["private"] += bool(r["private"])
-        if float(r["info"].get("progress") or 0) >= 1:
+        # stopped torrents (complete or not) neither seed nor download; error/missing files count nowhere
+        if r["state"] in STOPPED_STATES:
+            c["stopped"] += 1
+        elif r["state"] in SEEDING_STATES:
             c["seeding"] += 1
-        else:
+        elif float(r["info"].get("progress") or 0) < 1:
             c["downloading"] += 1
     rules = policy.list_rules(db)
     obligations = []

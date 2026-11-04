@@ -113,6 +113,17 @@ def caps_category_ids(caps: dict[str, Any]) -> set[int]:
     return ids
 
 
+def _freeleech(dvf: str | None, private: bool | None, protocol: str) -> bool | None:
+    """Freeleech only on a private torrent tracker with an explicit ``downloadvolumefactor`` (public trackers
+    often report 0 — that is not freeleech; a missing factor is never read as 0)."""
+    if protocol != "torrent" or not private or dvf is None or str(dvf).strip() == "":
+        return None
+    try:
+        return float(dvf) == 0
+    except ValueError:
+        return None
+
+
 def parse_items(
     root: Element, *, source_id: str, origin: str, protocol: str, private: bool | None = None
 ) -> tuple[list[NormalizedRelease], dict[str, int | None]]:
@@ -198,7 +209,7 @@ def parse_items(
             private=private,
             infohash_v1=v1,
             infohash_v2=v2,
-            freeleech=(a1.get("downloadvolumefactor") == "0") if "downloadvolumefactor" in a1 else None,
+            freeleech=_freeleech(a1.get("downloadvolumefactor"), private, protocol),
             parsed=parse_title(title),
         )
         if protocol == "usenet":

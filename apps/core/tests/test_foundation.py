@@ -220,6 +220,8 @@ def test_change_partial_failure_auto_rolls_back(admin: Any, fake: FakeSystem, ma
     assert r.status_code == 502
     assert fake.values == {"speed": 100, "conns": 50}
     assert changes.get(ch["id"])["status"] == "failed"
+    actions = [i["action"] for i in admin.get("/api/v1/audit?action=change.").json()["items"]]
+    assert "change.auto_restored" in actions
 
 
 def test_permission_required_changes_need_admin_approval(

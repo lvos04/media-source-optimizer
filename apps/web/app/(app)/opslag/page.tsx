@@ -171,7 +171,7 @@ export default function StoragePage() {
                     <tr key={c.category}>
                       <td className="cell-primary">{c.category}{c.media_category ? <div className="t-3" style={{ fontSize: 11.5 }}>{c.media_category}</div> : null}</td>
                       <td data-label={t("storage.cat.size")}>{bytes(c.bytes)}</td>
-                      <td data-label={t("storage.cat.torrents")}>{t("storage.cat.counts", { total: num(c.torrents), seeding: num(c.seeding), dl: num(c.downloading), priv: num(c.private) })}</td>
+                      <td data-label={t("storage.cat.torrents")}>{t("storage.cat.counts", { total: num(c.torrents), seeding: num(c.seeding), dl: num(c.downloading), stopped: num(c.stopped ?? 0), priv: num(c.private) })}</td>
                     </tr>
                   ))}</tbody>
                 </table>

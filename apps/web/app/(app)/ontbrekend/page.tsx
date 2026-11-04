@@ -1,10 +1,10 @@
 "use client";
 
-import { Activity, ListTodo, Search, Trash2 } from "lucide-react";
+import { Activity, FileSearch, ListTodo, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { Button, Card, InlineState, PageHeader, Segmented, StatusChip } from "@/components/mg/primitives";
+import { Button, Card, InlineState, Modal, PageHeader, Segmented, StatusChip } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { MgModeChip } from "@/components/mso/mediaguard/parts";
 import { BaselineCard, useCategoryLabel } from "@/components/mso/recovery/baseline-card";
@@ -13,9 +13,13 @@ import { ItemPanel } from "@/components/mso/recovery/item-panel";
 import { ManualWantedDialog } from "@/components/mso/recovery/requirements-editor";
 import { useAction } from "@/lib/api/actions";
 import { useResource } from "@/lib/api/hooks";
+import { waitForJob } from "@/lib/api/jobs";
 import type { MediaCategory, MgReasons, WantedList, WantedRow } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
+import { enumLabel } from "@/lib/status";
+
+const PAGE_SIZES = [50, 100, 200] as const;
 
 type Source = "all" | "mediaguard" | "manual";
 
@@ -36,9 +40,10 @@ export default function MissingPage() {
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(50);
   const [selected, setSelected] = useState<string | null>(null);
   const [bump, setBump] = useState(0);
-  const wanted = useResource<WantedList>("/recovery/wanted", { source, media_category: cat || undefined, q: query || undefined, page, page_size: 50 }, 120_000);
+  const wanted = useResource<WantedList>("/recovery/wanted", { source, media_category: cat || undefined, q: query || undefined, page, page_size: pageSize }, 120_000);
   const reasons = useResource<{ data: MgReasons | null }>("/mediaguard/reasons");
   const { run, pending } = useAction();
   const isOperator = can("operator");
@@ -54,7 +59,13 @@ export default function MissingPage() {
     window.history.replaceState(null, "", url.toString());
   };
   const reasonLabel = (code: string | null) => (code ? reasons.data?.data?.[code]?.label_nl ?? code : null);
-  const analyze = async () => { if (await run("analyze", "post", "/recovery/analyze", undefined, t("rec.analyzeQueued"))) setBump((b) => b + 1); };
+  const [analyzing, setAnalyzing] = useState(false);
+  const analyze = async () => {
+    const r = await run<{ job_id: number }>("analyze", "post", "/recovery/analyze", undefined, t("rec.analyzeQueued"));
+    if (!r) return;
+    setAnalyzing(true);
+    try { await waitForJob(r.job_id, { timeoutMs: 5 * 60_000 }); } finally { setAnalyzing(false); setBump((b) => b + 1); void wanted.reload(); }
+  };
   const archive = async (ref: string) => {
     if (await run("arch:" + ref, "del", `/recovery/wanted/${ref.split(":")[1]}`, undefined, t("rec.manual.archived"))) {
       if (selected === ref) select(null);
@@ -68,7 +79,7 @@ export default function MissingPage() {
         actions={<>
           <MgModeChip mode={wanted.data?.mode} />
           <ManualWantedDialog disabled={!isOperator} disabledReason={t("mg.needOperator")} onCreated={(ref) => { void wanted.reload(); select(ref); }} />
-          <Button variant="primary" icon={Activity} pending={pending === "analyze"} disabled={!isOperator} title={isOperator ? undefined : t("mg.needOperator")} onClick={() => void analyze()}>{t("rec.analyze")}</Button>
+          <Button variant="primary" icon={Activity} pending={pending === "analyze" || analyzing} disabled={!isOperator} title={isOperator ? undefined : t("mg.needOperator")} onClick={() => void analyze()}>{t("rec.analyze")}</Button>
         </>} />
 
       {wanted.data && wanted.data.mode !== "connected" ? (
@@ -116,7 +127,7 @@ export default function MissingPage() {
                               <StatusChip tone={r.origin === "mediaguard" ? "accent" : "info"} icon={null}>{r.origin === "mediaguard" ? t("rec.origin.mg") : t("rec.origin.manual")}</StatusChip>
                               {r.stale ? <StatusChip tone="warning">{t("state.staleShort")}</StatusChip> : null}
                             </div>
-                            <div className="hint">{[numbering(r), r.instance_id, r.status].filter(Boolean).join(" · ")}</div>
+                            <div className="hint">{[numbering(r), r.instance_id, r.status ? enumLabel(t, "rec.wanted.status", r.status) : null].filter(Boolean).join(" · ")}</div>
                           </td>
                           <td data-label={t("rec.manual.category")}>{categoryLabel(r.media_category)}</td>
                           <td data-label={t("rec.wanted.cause")}>
@@ -141,24 +152,48 @@ export default function MissingPage() {
                     </tbody>
                   </table>
                 </div>
-                {d.total > d.page_size ? (
-                  <div className="row-between" style={{ padding: "10px 16px" }}>
-                    <span className="hint" style={{ margin: 0 }}>{t("rec.wanted.page", { page: num(d.page), total: num(d.total) })}</span>
-                    <div className="row" style={{ gap: 6 }}>
-                      <Button size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>{t("action.previous")}</Button>
-                      <Button size="sm" disabled={page * d.page_size >= d.total} onClick={() => setPage(page + 1)}>{t("action.next")}</Button>
-                    </div>
-                  </div>
-                ) : null}
+                <Pager page={d.page} pageSize={d.page_size} total={d.total} onPage={setPage}
+                  onPageSize={(n) => { setPageSize(n); setPage(1); }} />
               </>
             )}
           </ResourceView>
         </Card>
 
-        {selected ? <ItemPanel key={selected} mediaRef={selected} onChanged={() => { void wanted.reload(); setBump((b) => b + 1); }} /> : null}
 
         <BlacklistCard reloadKey={bump} />
       </div>
+
+      {/* details open in a dialog (always in view), not at the bottom of a long list */}
+      <Modal open={selected !== null} onClose={() => select(null)} wide icon={FileSearch} title={t("rec.item.title")}
+        footer={<Button onClick={() => select(null)}>{t("rec.item.close")}</Button>}>
+        {selected ? <ItemPanel key={selected} mediaRef={selected} bare onChanged={() => { void wanted.reload(); setBump((b) => b + 1); }} /> : null}
+      </Modal>
     </>
+  );
+}
+
+function Pager({ page, pageSize, total, onPage, onPageSize }: {
+  page: number; pageSize: number; total: number; onPage: (p: number) => void; onPageSize: (n: number) => void;
+}) {
+  const { t, num } = useI18n();
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total ? (page - 1) * pageSize + 1 : 0;
+  const to = Math.min(total, page * pageSize);
+  return (
+    <div className="row-between wrap" style={{ padding: "10px 16px", gap: 8 }} data-testid="wanted-pager">
+      <span className="hint" style={{ margin: 0 }}>
+        {t("rec.wanted.page", { page: num(page), pages: num(pages), total: num(total) })} · {t("rec.wanted.range", { from: num(from), to: num(to), total: num(total) })}
+      </span>
+      <div className="row wrap" style={{ gap: 6 }}>
+        <label className="sr-only" htmlFor="rec-page-size">{t("rec.wanted.pageSize")}</label>
+        <select id="rec-page-size" className="select input--sm" style={{ width: "auto" }} value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))} title={t("rec.wanted.pageSize")}>
+          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <Button size="sm" disabled={page <= 1} onClick={() => onPage(1)} aria-label={t("rec.wanted.first")} title={t("rec.wanted.first")}>«</Button>
+        <Button size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>{t("action.previous")}</Button>
+        <Button size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>{t("action.next")}</Button>
+        <Button size="sm" disabled={page >= pages} onClick={() => onPage(pages)} aria-label={t("rec.wanted.last")} title={t("rec.wanted.last")}>»</Button>
+      </div>
+    </div>
   );
 }

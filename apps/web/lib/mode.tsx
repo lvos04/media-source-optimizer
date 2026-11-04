@@ -19,6 +19,8 @@ export interface ModeValue {
   /** POST /system/pause · POST /system/resume, then reload. Throws ApiError on failure. */
   pause: () => Promise<void>;
   resume: () => Promise<void>;
+  /** PUT /system/mode (admin), then reload so every `useMode()` consumer updates. Throws ApiError on failure. */
+  setMode: (mode: OperatingMode) => Promise<void>;
 }
 
 const ModeContext = createContext<ModeValue | null>(null);
@@ -29,6 +31,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const { reload } = res;
   const pause = useCallback(async () => { await api.post("/system/pause"); await reload(); }, [reload]);
   const resume = useCallback(async () => { await api.post("/system/resume"); await reload(); }, [reload]);
+  const setMode = useCallback(async (mode: OperatingMode) => { await api.put("/system/mode", { mode }); await reload(); }, [reload]);
   const value = useMemo<ModeValue>(() => ({
     mode: res.data?.mode ?? null,
     // unknown mode is treated as read-only: never enable a mutation we cannot vouch for
@@ -39,7 +42,8 @@ export function ModeProvider({ children }: { children: ReactNode }) {
     reload,
     pause,
     resume,
-  }), [pause, reload, res.data, res.error, res.loading, resume]);
+    setMode,
+  }), [pause, reload, res.data, res.error, res.loading, resume, setMode]);
   return <ModeContext.Provider value={value}>{children}</ModeContext.Provider>;
 }
 

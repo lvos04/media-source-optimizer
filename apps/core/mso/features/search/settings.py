@@ -23,6 +23,24 @@ sr.define(
     help="Maximale wachttijd per indexer/backend. Een time-out wordt apart gerapporteerd, niet als 'leeg'.",
 )
 sr.define(
+    "search.prowlarr_skip_failing",
+    "Prowlarr-indexers overslaan die volgens Prowlarr niet werken",
+    "bool",
+    True,
+    category="zoeken",
+    help="Indexers die Prowlarr in zijn gezondheidsmeldingen noemt (geen definitie, onbeschikbaar door "
+    "fouten) worden niet bevraagd en staan als 'Werkt niet volgens Prowlarr' in het bronrapport.",
+)
+sr.define(
+    "search.prowlarr_skip_irrelevant",
+    "Prowlarr-indexers zonder series-/filmcategorieën overslaan",
+    "bool",
+    True,
+    category="zoeken",
+    help="Een indexer zonder TV- (5xxx) of Movies-categorie (2xxx) in Prowlarr (bijv. alleen boeken, "
+    "console of XXX) is niet relevant voor de bibliotheek en wordt standaard niet bevraagd.",
+)
+sr.define(
     "search.per_source_limit",
     "Maximaal aantal resultaten per bron",
     "int",

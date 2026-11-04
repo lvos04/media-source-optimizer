@@ -83,6 +83,15 @@ def list_sources(
             "reliability": s["reliability"],
             "reliability_detail": meta.get("reliability"),
             "untagged": bool(meta.get("untagged")),
+            "scope_source": (
+                (meta.get("scope_source") or ("default" if meta.get("untagged") else "tag"))
+                if s["origin"] == "prowlarr"
+                else "config"
+            ),
+            "library_relevant": meta.get("library_relevant"),
+            "relevance_reason": meta.get("relevance_reason"),
+            "prowlarr_health": meta.get("prowlarr_health") or [],
+            "prowlarr_broken": bool(meta.get("prowlarr_broken")),
             "is_mso": bool(meta.get("is_mso")),
             "stats": stats.get(s["id"]),
             "updated_at": s["updated_at"],

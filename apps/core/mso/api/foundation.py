@@ -261,6 +261,9 @@ class ModeBody(BaseModel):
     mode: str = Field(pattern=r"^(read_only|manage)$")
 
 
+_MODE_NL = {"read_only": "Alleen-lezen", "manage": "Beheermodus"}
+
+
 @router.get("/system/mode")
 def get_mode(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     return {"mode": state.mode(), "paused": state.paused()}
@@ -270,7 +273,12 @@ def get_mode(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
 def put_mode(body: ModeBody, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
     old = state.mode()
     state.set_state("mode", body.mode)
-    audit(p.actor, "system.mode", f"Modus: {old} → {body.mode}")
+    audit(
+        p.actor,
+        "system.mode",
+        f"Bedrijfsmodus: {_MODE_NL.get(old, old)} → {_MODE_NL.get(body.mode, body.mode)}",
+        detail={"old": old, "new": body.mode},
+    )
     return get_mode(p)
 
 
@@ -296,6 +304,18 @@ def _disk(path: Any) -> dict[str, Any] | None:
     except OSError:
         return None
     return {"path": str(path), "total": u.total, "free": u.free, "used": u.used}
+
+
+_STATUS_NL = {
+    "healthy": "Gezond",
+    "ok": "Gezond",
+    "degraded": "Verstoord",
+    "offline": "Offline",
+    "error": "Fout",
+    "unknown": "Onbekend",
+    "unconfigured": "Niet ingesteld",
+    "auth_failed": "Inloggen geweigerd",
+}
 
 
 @router.get("/system/health")
@@ -343,7 +363,7 @@ def health(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
                 "name": f"connector:{row['id']}",
                 "label": row["label"],
                 "status": row["status"],
-                "message": row["last_error"] or row["status"],
+                "message": row["last_error"] or _STATUS_NL.get(row["status"] or "", row["status"]),
             }
         )
     statuses = [c["status"] for c in comps]

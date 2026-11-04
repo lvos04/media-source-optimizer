@@ -1,6 +1,7 @@
 "use client";
 
 import { Ban, CheckCheck, Gauge, History, KeyRound, ListChecks, RefreshCw, Scale, ShieldCheck, ShieldAlert, TableProperties } from "lucide-react";
+import { useState } from "react";
 
 import { Button, Card, InlineState, PageHeader, Segmented, StatusChip } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
@@ -8,6 +9,7 @@ import { ConnectorList } from "@/components/mso/connector-form";
 import { CompatTable, MgModeChip, QuotaMeter } from "@/components/mso/mediaguard/parts";
 import { useAction } from "@/lib/api/actions";
 import { useResource } from "@/lib/api/hooks";
+import { waitForJob } from "@/lib/api/jobs";
 import type { MgSearchRequest, MgStatus } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
@@ -31,7 +33,14 @@ export default function MediaGuardPage() {
   const s = status.data;
 
   const probe = async () => { const r = await run<MgStatus>("probe", "post", "/mediaguard/probe", undefined, t("mg.probed")); if (r) status.setData(() => r); };
-  const sync = async () => { if (await run("sync", "post", "/mediaguard/sync", undefined, t("mg.syncQueued"))) window.setTimeout(() => void status.reload(), 3000); };
+  const [syncing, setSyncing] = useState(false);
+  const sync = async () => {
+    const r = await run<{ job_id: number }>("sync", "post", "/mediaguard/sync", undefined, t("mg.syncQueued"));
+    if (!r) return;
+    setSyncing(true);
+    // poll the sync job, then refresh status/quota/KPIs (instead of guessing with a fixed delay)
+    try { await waitForJob(r.job_id, { timeoutMs: 5 * 60_000 }); } finally { setSyncing(false); void status.reload(); }
+  };
   const setMethod = async (method: "apikey" | "user" | "token") => {
     if (await run("method", "put", "/connectors/mediaguard", { options: { auth_method: method } }, t("mg.auth.saved"))) void probe();
   };
@@ -42,7 +51,7 @@ export default function MediaGuardPage() {
         actions={<>
           <Button icon={RefreshCw} pending={pending === "probe"} disabled={!isOperator || !s?.configured}
             title={!isOperator ? t("mg.needOperator") : !s?.configured ? t("mg.notConfigured") : undefined} onClick={() => void probe()}>{t("mg.probe")}</Button>
-          <Button variant="primary" icon={RefreshCw} pending={pending === "sync"} disabled={!isOperator || !s?.configured}
+          <Button variant="primary" icon={RefreshCw} pending={pending === "sync" || syncing} disabled={!isOperator || !s?.configured}
             title={!isOperator ? t("mg.needOperator") : !s?.configured ? t("mg.notConfigured") : undefined} onClick={() => void sync()}>{t("mg.syncNow")}</Button>
         </>} />
 

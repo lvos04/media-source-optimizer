@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -366,3 +367,75 @@ def magnet_name(magnet: str) -> str | None:
     except ValueError:
         return None
     return (q.get("dn") or [None])[0]
+
+
+# ------------------------------------------------------------------ title relevance (search ranking)
+# Where the "name" part of a release title ends: numbering, year, resolution or a quality/source token.
+_TITLE_CUT_RE = re.compile(
+    r"(?<![a-z0-9])(?:S\d{1,2}[\s._-]?E\d{1,4}|S\d{1,2}(?![a-z0-9])|Season[\s._-]?\d|E\d{2,4}(?![a-z0-9])"
+    r"|19[2-9]\d|20[0-4]\d|\d{3,4}[pi]|4k|uhd|complete|bluray|blu-ray|bdrip|brrip|bdremux|remux|web-?dl"
+    r"|webrip|web|hdtv|dvdrip|dvd|x26[45]|h\.?26[45]|hevc|avc|xvid|proper|repack|multi|dual|dubbed)"
+    r"(?![a-z0-9])",
+    re.I,
+)
+_STOPWORDS = {"the", "a", "an"}
+_YEAR_TOKEN_RE = re.compile(r"^(19[2-9]\d|20[0-4]\d)$")
+
+
+def title_part(title: str) -> str:
+    """The name part of a release title: without leading ``[group]`` tags and without everything from the
+    first numbering/year/quality token on. ``'[HR] Spirited Away (2001) [1080p]'`` → ``'Spirited Away'``;
+    ``'Dragon Ball Z S01E32 Spirit Bomb Away 1080p'`` → ``'Dragon Ball Z'``."""
+    t = (title or "").strip()
+    if m := RE_ANIME.match(t):
+        return m.group("title").strip(" -._")
+    t = re.sub(r"^(?:\s*[\[(【][^\])】]*[\])】]\s*)+", "", t)
+    t = re.sub(r"[._]+", " ", t)
+    for m in _TITLE_CUT_RE.finditer(t):
+        if m.start() > 0 and t[: m.start()].strip(" -([{"):
+            t = t[: m.start()]
+            break
+    t = re.split(r"[\[({【]", t, maxsplit=1)[0] or t
+    return t.strip(" -:,")
+
+
+def _norm_tokens(text: str) -> list[str]:
+    s = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+    s = s.replace("&", " and ").replace("'", "").replace("\u2019", "")
+    return [w for w in re.findall(r"[a-z0-9]+", s) if w not in _STOPWORDS]
+
+
+def query_year(query: str | None) -> int | None:
+    """A year typed in the search text (``'Dune 2021'``) or None."""
+    years = [int(w) for w in _norm_tokens(query or "") if _YEAR_TOKEN_RE.match(w)]
+    return years[-1] if years else None
+
+
+def title_similarity(query: str | None, title: str) -> float | None:
+    """0..1 how well the asked title matches the release's *name part* (normalised token match). None when
+    there is no text query (id-only or category browse). Episode titles after ``S01E32`` never count: only
+    the series/film name before the numbering/year/quality part is compared."""
+    q = [w for w in _norm_tokens(query or "") if not _YEAR_TOKEN_RE.match(w)]
+    if not q:
+        return None
+    t = _norm_tokens(title_part(title))
+    if not t:
+        return 0.0
+    if q == t:
+        return 1.0
+    pool = list(t)
+    matched = 0
+    for w in q:
+        if w in pool:
+            pool.remove(w)
+            matched += 1
+    if not matched:
+        return 0.0
+    coverage = matched / len(q)
+    precision = matched / len(t)
+    return round(coverage * (0.75 + 0.25 * precision), 2)
+
+
+def is_episodic(p: ParsedTitle) -> bool:
+    """Parsed as a TV episode / season pack / absolute-numbered anime episode (never a single film)."""
+    return bool(p.episodes or p.absolute_episodes or (p.season is not None and p.full_season))

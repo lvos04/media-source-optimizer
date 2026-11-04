@@ -21,7 +21,7 @@ import { useResource } from "@/lib/api/hooks";
 import { useI18n } from "@/lib/i18n";
 import { ModeProvider, useMode } from "@/lib/mode";
 import { SessionProvider, useSession } from "@/lib/session";
-import { healthTone } from "@/lib/status";
+import { healthLabel, healthTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------- shell data (health/info)
@@ -188,11 +188,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <Brand />
       <NavList onNavigate={onNavigate} />
       <div className="sidebar-footer" data-testid="sidebar-health">
-        <Link href="/systeem" className="health-line" title={problems.map((p) => `${p.name}: ${p.message ?? p.status}`).join("\n") || undefined}>
+        <Link href="/systeem" className="health-line" title={problems.map((p) => `${p.label ?? p.name}: ${p.message && p.message !== p.status ? p.message : t(healthLabel(p.status))}`).join("\n") || undefined}>
           <Dot tone={dot} /><strong>{label}</strong>
         </Link>
         {problems.slice(0, 3).map((p) => (
-          <div key={p.name} className="health-line"><Dot tone={healthTone(p.status) === "danger" ? "danger" : "warning"} /><span title={p.message ?? undefined}>{p.name}{p.message ? ` — ${p.message}` : ""}</span></div>
+          <div key={p.name} className="health-line"><Dot tone={healthTone(p.status) === "danger" ? "danger" : "warning"} /><span title={p.message ?? undefined}>{p.label ?? p.name.replace(/^connector:/, "")} — {p.message && p.message !== p.status ? p.message : t(healthLabel(p.status))}</span></div>
         ))}
         {problems.length > 3 ? <div className="health-line"><span>{t("health.issues", { count: problems.length })}</span></div> : null}
         <div className="version-line"><span>{info ? t("health.version", { version: info.version }) : "—"}</span><span>{t("app.short")}</span></div>
@@ -204,12 +204,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 function NavDrawer({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  // focus once when the drawer opens; shell re-renders (health polling) must not move focus again
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>("button, a")?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCloseRef.current(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
   return (
     <>
       <div className="drawer-overlay" onClick={onClose} aria-hidden="true" />
@@ -266,7 +269,7 @@ function ModeChip() {
   const label = mode ? t(`mode.${mode}`) : error ? t("mode.unknown") : "—";
   const title = mode === "manage" ? t("mode.chipTitleManage") : mode === "read_only" ? t("mode.chipTitleReadOnly") : t("mode.unknownReason");
   return (
-    <Link className={cn("top-pill mode-pill", mode === "manage" && "top-pill--warning")} href="/instellingen" title={title} aria-label={label} data-testid="mode-chip" data-mode={mode ?? "unknown"}>
+    <Link className={cn("top-pill mode-pill", mode === "manage" && "top-pill--warning")} href="/instellingen?tab=systeem#modus" title={`${title} ${t("mode.chipChange")}`} aria-label={`${label} — ${t("mode.chipChange")}`} data-testid="mode-chip" data-mode={mode ?? "unknown"}>
       {mode === "manage" ? <ShieldCheck className="ico ico-sm" aria-hidden="true" /> : <Eye className="ico ico-sm" aria-hidden="true" />}
       <strong>{label}</strong>
     </Link>

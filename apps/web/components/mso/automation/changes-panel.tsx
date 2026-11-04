@@ -10,7 +10,7 @@ import { RiskChip } from "@/components/mso/risk-chip";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
 import { useI18n } from "@/lib/i18n";
-import { CHANGE_STATUS } from "@/lib/status";
+import { CHANGE_STATUS, EVALUATION_LABEL } from "@/lib/status";
 
 type Row = ChangeSet & { created_at: string; applied_at: string | null; evaluate_after: string | null };
 const FILTERS = { open: "preview,approved", applied: "applied", closed: "rolled_back,failed,discarded" } as const;
@@ -70,7 +70,7 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
             {ev ? (
               <Card title={t("automation.evaluation")}>
                 <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                  <StatusChip tone={ev.result === "keep" ? "success" : ev.result === "rollback" ? "danger" : "neutral"}>{ev.result}</StatusChip>
+                  <StatusChip tone={ev.result === "keep" ? "success" : ev.result === "rollback" ? "danger" : "neutral"}>{EVALUATION_LABEL[ev.result] ?? ev.result}</StatusChip>
                   <span className="t-2" style={{ fontSize: 13 }}>{ev.message}</span>
                 </div>
               </Card>

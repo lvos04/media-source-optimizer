@@ -16,6 +16,7 @@ from mso.domain import outcomes
 from mso.features.indexers.prowlarr_sync import (
     MG_APP_PREFIX,
     REGISTRATIONS,
+    derive_scope,
     find_registrations,
     is_anime_name,
     is_mso_indexer,
@@ -84,6 +85,7 @@ def build_view(client: ProwlarrClient | None = None) -> dict[str, Any]:
             scope_counts[s] += 1
         mso = is_mso_indexer(idx, pub)
         anime_name = is_anime_name(idx.get("name"), idx.get("definitionName"))
+        derived = derive_scope(idx, tmap)
         idx_view.append(
             {
                 "id": idx.get("id"),
@@ -92,14 +94,16 @@ def build_view(client: ProwlarrClient | None = None) -> dict[str, Any]:
                 "privacy": idx.get("privacy"),
                 "enable": idx.get("enable"),
                 "tags": labels,
-                "scopes": scopes or ["normal", "anime"],
+                "scopes": derived["scopes"],
                 "untagged": not scopes,
+                "scope_source": derived["scope_source"],
+                "library_relevant": derived["library_relevant"],
                 "is_mso": mso,
                 "anime_name": anime_name,
             }
         )
         sid = f"prowlarr:{idx.get('id')}"
-        if not scopes and not mso and managed:
+        if not scopes and not mso and managed and derived["library_relevant"] is not False:
             conflicts.append(
                 _conflict(
                     "indexer_untagged",
@@ -108,13 +112,15 @@ def build_view(client: ProwlarrClient | None = None) -> dict[str, Any]:
                     f"'{idx.get('name')}' heeft geen bereik-tag",
                     "Applicaties met tags krijgen alleen indexers met een overeenkomende tag; deze "
                     "indexer wordt dus "
-                    "mogelijk niet naar de MediaGuard-instanties gesynchroniseerd. MSO behandelt hem als "
-                    "'beide'.",
+                    "mogelijk niet naar de MediaGuard-instanties gesynchroniseerd. MSO leidt het bereik af "
+                    f"uit de Prowlarr-categorieën: {' + '.join(derived['scopes'])}.",
                     {
                         "where": "MediaGuard → Inrichten → Indexers → bereik per indexer",
                         "indexer": idx.get("name"),
                         "current_tags": labels,
-                        "suggested_tags": ["anime"] if anime_name else ["anime", "normal"],
+                        "suggested_tags": ["anime"]
+                        if anime_name or derived["scopes"] == ["anime"]
+                        else ["anime", "normal"],
                     },
                 )
             )

@@ -217,6 +217,9 @@ export function DangerDialog({ open, onClose, onConfirm, title, description, imp
 }) {
   const { t } = useI18n();
   const [typed, setTyped] = useState("");
+  // reset the typed confirmation whenever the dialog closes (also when the parent closes it after success)
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) { setWasOpen(open); if (!open) setTyped(""); }
   const ok = !confirmWord || typed.trim() === confirmWord;
   const close = () => { setTyped(""); onClose(); };
   return (

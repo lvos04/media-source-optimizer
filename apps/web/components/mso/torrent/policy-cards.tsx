@@ -1,6 +1,6 @@
 "use client";
 
-import { Gauge, ListOrdered, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Gauge, ListOrdered, ShieldCheck, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { Button, Card, InlineState, StatusChip } from "@/components/mg/primitives";
@@ -10,7 +10,7 @@ import { ChangeDialog, useRate } from "@/components/mso/torrent/shared";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
-import type { PreferenceItem, TorrentPolicy } from "@/lib/api/torrent";
+import type { PreferenceItem, PreferenceList, TorrentPolicy } from "@/lib/api/torrent";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
@@ -36,11 +36,12 @@ function usePreview(onDone: () => void) {
 export function PreferencesCard() {
   const { t, num } = useI18n();
   const rate = useRate();
-  const prefs = useResource<{ items: PreferenceItem[]; updated_at: string | null; stale: boolean }>("/torrent/preferences", undefined, 60_000);
+  const prefs = useResource<PreferenceList>("/torrent/preferences", undefined, 60_000);
   const show = (p: PreferenceItem) => {
     if (!p.present) return <span className="t-3">{t("torrent.prefs.absent")}</span>;
     if (p.kind === "bool") return p.value ? t("torrent.on") : t("torrent.off");
     if (p.kind === "rate") return Number(p.value) === 0 ? t("torrent.unlimited") : rate(Number(p.value));
+    if (p.kind === "int" && typeof p.value === "number" && p.value < 0) return t("torrent.unlimited");
     if (typeof p.value === "number") return num(p.value, 2);
     return <span className="mono">{String(p.value ?? "—")}</span>;
   };
@@ -48,18 +49,29 @@ export function PreferencesCard() {
     <Card className="span-6" title={t("torrent.prefs.title")} icon={SlidersHorizontal} flush>
       <ResourceView resource={prefs} endpoint="GET /api/v1/torrent/preferences" compact>
         {(d) => (
+          <>
+          {d.out_of_bounds ? <div style={{ padding: "0 16px 12px" }}><InlineState tone="warning">{t("torrent.prefs.outOfBoundsHint", { count: num(d.out_of_bounds) })}</InlineState></div> : null}
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
             <table className="table table--stack table--compact">
               <thead><tr><th>{t("torrent.prefs.setting")}</th><th>{t("torrent.prefs.value")}</th><th>{t("torrent.prefs.bounds")}</th></tr></thead>
               <tbody>{d.items.map((p) => (
                 <tr key={p.key}>
                   <td className="cell-primary">{p.label}<div className="t-3 mono" style={{ fontSize: 11 }}>{p.key}</div></td>
-                  <td data-label={t("torrent.prefs.value")}>{show(p)}</td>
-                  <td data-label={t("torrent.prefs.bounds")} className="t-3">{p.min !== null || p.max !== null ? `${p.min ?? "…"} – ${p.max ?? "…"}` : "—"}</td>
+                  <td data-label={t("torrent.prefs.value")}>
+                    {show(p)}
+                    {p.bounds === "buiten_grens" ? (
+                      <div style={{ marginTop: 4 }}>
+                        <StatusChip tone="warning" icon={TriangleAlert}>{t("torrent.speed.over")}</StatusChip>
+                        {p.target !== null ? <div className="t-3" style={{ fontSize: 11.5 }}>{t("torrent.prefs.target", { value: num(p.target) })}</div> : null}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td data-label={t("torrent.prefs.bounds")} className="t-3">{p.min !== null || p.max !== null ? `${p.min !== null ? (p.kind === "rate" ? rate(p.min) : num(p.min)) : "…"} – ${p.max !== null ? (p.kind === "rate" ? rate(p.max) : num(p.max)) : "…"}` : "—"}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
+          </>
         )}
       </ResourceView>
     </Card>
@@ -79,18 +91,27 @@ export function PolicyCards() {
         <ResourceView resource={policy} endpoint="GET /api/v1/torrent/policy" compact>
           {(d) => {
             const s = d.speed;
+            const lim = (v: number | null) => (v === null ? "—" : v < 0 ? t("torrent.unlimited") : num(v));
             return (
               <div className="stack">
                 <dl className="kv">
-                  <dt>{t("torrent.speed.line")}</dt><dd>{s.line_down_mbit ? `${num(s.line_down_mbit)} / ${num(s.line_up_mbit)} Mbit/s` : t("torrent.speed.lineUnknown")}</dd>
+                  <dt>{t("torrent.speed.line")}</dt><dd>{s.line_down_mbit || s.line_up_mbit
+                    ? `${s.line_down_mbit ? num(s.line_down_mbit) : t("torrent.speed.lineUnknown")} / ${s.line_up_mbit ? num(s.line_up_mbit) : t("torrent.speed.lineUnknown")} Mbit/s`
+                    : t("torrent.speed.lineUnknown")}</dd>
                   <dt>{t("torrent.speed.cap")}</dt><dd>{s.max_upload_bps ? `${rate(s.max_upload_bps)} (${num(s.upload_cap_pct)}%)` : "—"}</dd>
                   <dt>{t("torrent.speed.current")}</dt><dd>{s.current_up_limit === null ? "—" : s.current_up_limit === 0 ? t("torrent.unlimited") : rate(s.current_up_limit)}</dd>
                   <dt>{t("torrent.speed.status")}</dt>
                   <dd>{s.status === "ok" ? <StatusChip tone="success">{t("torrent.speed.ok")}</StatusChip>
                     : s.status === "boven_grens" ? <StatusChip tone="warning">{t("torrent.speed.over")}</StatusChip>
                       : <StatusChip tone="neutral">{t("torrent.speed.unknown")}</StatusChip>}</dd>
-                  <dt>{t("torrent.speed.conns")}</dt><dd>{num(s.current_max_connec ?? 0)} / {t("torrent.max")} {num(s.max_connections_cap)} · {t("torrent.speed.perTorrent")} {num(s.current_max_connec_per_torrent ?? 0)} / {num(s.max_connections_per_torrent_cap)}</dd>
+                  <dt>{t("torrent.speed.conns")}</dt><dd>{lim(s.current_max_connec)} / {t("torrent.max")} {num(s.max_connections_cap)} · {t("torrent.speed.perTorrent")} {lim(s.current_max_connec_per_torrent)} / {num(s.max_connections_per_torrent_cap)}</dd>
+                  <dt>{t("torrent.speed.slots")}</dt><dd>{lim(s.current_max_uploads)} / {t("torrent.max")} {num(s.max_uploads_cap)} · {t("torrent.speed.perTorrent")} {lim(s.current_max_uploads_per_torrent)} / {num(s.max_uploads_per_torrent_cap)}</dd>
+                  <dt>{t("torrent.speed.connStatus")}</dt>
+                  <dd>{s.out_of_bounds.length
+                    ? <StatusChip tone="warning" icon={TriangleAlert}>{t("torrent.speed.over")} ({s.out_of_bounds.map((v) => v.label).join(", ")})</StatusChip>
+                    : <StatusChip tone="success">{t("torrent.speed.ok")}</StatusChip>}</dd>
                 </dl>
+                {s.out_of_bounds.length ? <InlineState tone="warning">{t("torrent.speed.connOverHint")}</InlineState> : null}
                 {s.status === "onbekend" ? <InlineState tone="info">{t("torrent.speed.setLine")}</InlineState> : null}
                 {s.status === "boven_grens" && s.max_upload_bps ? (
                   <div className="row wrap">

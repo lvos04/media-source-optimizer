@@ -9,11 +9,13 @@ import { ResourceView } from "@/components/mg/states";
 import { QuotaMeter } from "@/components/mso/mediaguard/parts";
 import { useCategoryLabel } from "@/components/mso/recovery/baseline-card";
 import { RequirementsEditor, cleanRequirements } from "@/components/mso/recovery/requirements-editor";
+import { useToast } from "@/components/mg/toast";
 import { useAction } from "@/lib/api/actions";
 import { useResource } from "@/lib/api/hooks";
 import type { CandidateResult, MgQuotaOverview, RecoveryItem, RequirementsInput, RequirementsView, StoredCandidate } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
+import { enumLabel } from "@/lib/status";
 
 function RequirementChips({ r }: { r: RequirementsView }) {
   const { t } = useI18n();
@@ -74,7 +76,11 @@ function CandidateRow({ c, canSend, sendReason, onSend, pending }: {
   );
 }
 
-export function ItemPanel({ mediaRef, onChanged }: { mediaRef: string; onChanged: () => void }) {
+/**
+ * Detail of one wanted item (requirements, MediaGuard diagnosis, actions, candidates, history).
+ * `bare` renders without the surrounding Card (used inside the details dialog on /ontbrekend).
+ */
+export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: string; onChanged: () => void; bare?: boolean }) {
   const { t, relative, num } = useI18n();
   const { can } = useSession();
   const categoryLabel = useCategoryLabel();
@@ -92,9 +98,15 @@ export function ItemPanel({ mediaRef, onChanged }: { mediaRef: string; onChanged
       t("rec.cand.found"));
     if (res) { setLast(res); void item.reload(); onChanged(); }
   };
+  const toast = useToast();
   const requestSearch = async () => {
     const res = await run<{ duplicate: boolean; message: string }>("req", "post", `/recovery/items/${encodeURIComponent(mediaRef)}/request-search`);
-    if (res) { void item.reload(); void quota.reload(); onChanged(); }
+    if (res) {
+      toast.push(res.duplicate ? "info" : "success", res.duplicate ? res.message : t("rec.item.requested"), res.duplicate ? undefined : res.message);
+      // MSO limit + MediaGuard quota changed: reload item (history), quota meter and the list
+      await Promise.all([item.reload(), quota.reload()]);
+      onChanged();
+    }
     return res;
   };
   const send = async (releaseKey: string) => {
@@ -102,8 +114,8 @@ export function ItemPanel({ mediaRef, onChanged }: { mediaRef: string; onChanged
     if (res) { void item.reload(); onChanged(); }
   };
 
-  return (
-    <Card className="span-12" title={t("rec.item.title")} icon={FileSearch} actions={<Button size="sm" icon={RotateCcw} onClick={() => void item.reload()}>{t("action.reload")}</Button>}>
+  const reloadButton = <Button size="sm" icon={RotateCcw} onClick={() => { void item.reload(); void quota.reload(); }}>{t("action.reload")}</Button>;
+  const content = (
       <ResourceView resource={item} endpoint={`GET /api/v1/recovery/items/${mediaRef}`}>
         {(d) => {
           const tgt = d.target;
@@ -171,7 +183,7 @@ export function ItemPanel({ mediaRef, onChanged }: { mediaRef: string; onChanged
               {last ? (
                 <InlineState tone={last.counts.accepted ? "success" : "info"}>
                   {t("rec.cand.summary", { accepted: num(last.counts.accepted), total: num(last.counts.total), blacklisted: num(last.counts.blacklisted) })}
-                  {last.search.sources.length ? ` · ${last.search.sources.map((s) => `${s.label ?? s.source_id}: ${s.status}`).join(", ")}` : ""}
+                  {last.search.sources.length ? ` · ${last.search.sources.map((s) => `${s.label ?? s.source_id}: ${enumLabel(t, "rec.src.status", s.status)}`).join(", ")}` : ""}
                 </InlineState>
               ) : null}
 
@@ -193,8 +205,8 @@ export function ItemPanel({ mediaRef, onChanged }: { mediaRef: string; onChanged
                 <section>
                   <h3 className="card-title" style={{ fontSize: 13, marginBottom: 6 }}>{t("rec.item.history")}</h3>
                   <Timeline items={[
-                    ...d.search_requests.map((r) => ({ title: t("rec.item.histRequest", { status: r.status }), meta: `${relative(r.requested_at)} · ${r.actor}${r.error ? ` · ${r.error}` : ""}`, tone: (r.status === "sent" ? "success" : r.status === "failed" ? "danger" : "warning") as "success" | "danger" | "warning" })),
-                    ...d.sends.map((s) => ({ title: t("rec.item.histSend", { client: s.client, status: s.status }), meta: `${relative(s.created_at)} · ${s.title}${s.error ? ` · ${s.error}` : ""}`, tone: (s.status === "sent" || s.status === "download_ok" ? "success" : "danger") as "success" | "danger" })),
+                    ...d.search_requests.map((r) => ({ title: t("rec.item.histRequest", { status: enumLabel(t, "rec.req.status", r.status) }), meta: `${relative(r.requested_at)} · ${r.actor}${r.error ? ` · ${r.error}` : ""}`, tone: (r.status === "sent" ? "success" : r.status === "failed" ? "danger" : "warning") as "success" | "danger" | "warning" })),
+                    ...d.sends.map((s) => ({ title: t("rec.item.histSend", { client: s.client, status: enumLabel(t, "rec.send.status", s.status) }), meta: `${relative(s.created_at)} · ${s.title}${s.error ? ` · ${s.error}` : ""}`, tone: (s.status === "sent" || s.status === "download_ok" ? "success" : "danger") as "success" | "danger" })),
                   ]} />
                 </section>
               ) : null}
@@ -202,6 +214,7 @@ export function ItemPanel({ mediaRef, onChanged }: { mediaRef: string; onChanged
           );
         }}
       </ResourceView>
-    </Card>
   );
+  if (bare) return <div className="stack"><div className="row" style={{ justifyContent: "flex-end" }}>{reloadButton}</div>{content}</div>;
+  return <Card className="span-12" title={t("rec.item.title")} icon={FileSearch} actions={reloadButton}>{content}</Card>;
 }

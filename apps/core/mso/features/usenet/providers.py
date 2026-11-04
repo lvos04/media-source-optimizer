@@ -87,9 +87,54 @@ def list_rows() -> list[dict[str, Any]]:
     return get_db().fetchall("SELECT * FROM usenet_providers ORDER BY kind DESC, label")
 
 
-def public(row: dict[str, Any], *, block_usage: dict[str, int] | None = None) -> dict[str, Any]:
+MISSING_CREDENTIALS_TEXT = (
+    "Geen gebruikersnaam/wachtwoord in MSO ingesteld (SABnzbd geeft wachtwoorden niet door). Vul ze in via "
+    "Bewerken om MSO zelf te laten testen; tot die tijd toont MSO de status die SABnzbd meldt."
+)
+
+
+def has_credentials(slug: str) -> bool:
+    user, password = credentials(slug)
+    return bool(user and password)
+
+
+def health(
+    row: dict[str, Any], sab: dict[str, Any] | None, creds_complete: bool
+) -> dict[str, Any]:
+    """Primary health shown for a provider: MSO's own NNTP check when MSO has credentials and has tested;
+    otherwise SABnzbd's view of the linked server; otherwise 'missing_credentials'/'unknown'."""
+    own_tested = row["status"] not in ("unknown", "missing_credentials")
+    if creds_complete and own_tested:
+        return {"status": row["status"], "detail": row["status_detail"], "source": "mso"}
+    if sab and sab["status"] not in ("unknown",):
+        return {
+            "status": sab["status"],
+            "detail": sab.get("message") or sab.get("explanation"),
+            "source": "sabnzbd",
+        }
+    if not creds_complete:
+        return {"status": "missing_credentials", "detail": MISSING_CREDENTIALS_TEXT, "source": "mso"}
+    return {"status": row["status"], "detail": row["status_detail"], "source": "mso"}
+
+
+def public(
+    row: dict[str, Any],
+    *,
+    block_usage: dict[str, int] | None = None,
+    sab_states: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    from mso.features.usenet import serverstatus  # lazy: serverstatus imports the SAB connector
+
     vault = get_vault()
     slug = row["slug"]
+    if sab_states is None:
+        sab_states = serverstatus.current() if row["sab_server"] else {}
+    sab = serverstatus.public(sab_states.get(row["sab_server"] or ""))
+    cred = {
+        "username": vault.status(secret_name(slug, "username")),
+        "password": vault.status(secret_name(slug, "password")),
+    }
+    complete = all(v == "ingesteld" for v in cred.values())
     used = (block_usage or {}).get(row["sab_server"] or "") if row["kind"] == "block" else None
     size_b = int(row["block_size_gb"] * 1024**3) if row["block_size_gb"] else None
     return {
@@ -115,10 +160,10 @@ def public(row: dict[str, Any], *, block_usage: dict[str, int] | None = None) ->
         "last_check_at": row["last_check_at"],
         "last_ok_at": row["last_ok_at"],
         "capabilities": row["capabilities"],
-        "credentials": {
-            "username": vault.status(secret_name(slug, "username")),
-            "password": vault.status(secret_name(slug, "password")),
-        },
+        "credentials": cred,
+        "credentials_complete": complete,
+        "sab_status": sab,
+        "health": health(row, sab, complete),
         "updated_at": row["updated_at"],
     }
 
@@ -174,6 +219,7 @@ def create(data: dict[str, Any], *, username: str | None, password: str | None, 
         (slug, *[vals[k] for k in FIELDS]),
     )
     _set_credentials(slug, username, password)
+    _sync_credential_status(slug)
     row = get(slug)
     _mirror(row)
     audit(
@@ -201,6 +247,7 @@ def update(
         (*[vals[k] for k in FIELDS], slug),
     )
     _set_credentials(slug, username, password)
+    _sync_credential_status(slug)
     row = get(slug)
     if row["kind"] != cur["kind"]:  # source id changes with the kind; keep the old one but disabled
         outcomes.upsert_source(
@@ -256,6 +303,23 @@ def _set_credentials(slug: str, username: str | None, password: str | None) -> N
         vault.set(secret_name(slug, "username"), username.strip())
     if password is not None:
         vault.set(secret_name(slug, "password"), password)
+
+
+def _sync_credential_status(slug: str) -> None:
+    """No credentials → 'missing_credentials' (never 'auth_failed'); credentials (re)entered → 'unknown' so
+    the next check tests them."""
+    db = get_db()
+    if has_credentials(slug):
+        db.execute(
+            "UPDATE usenet_providers SET status='unknown', status_detail=NULL WHERE slug=%s "
+            "AND status='missing_credentials'",
+            (slug,),
+        )
+    else:
+        db.execute(
+            "UPDATE usenet_providers SET status='missing_credentials', status_detail=%s WHERE slug=%s",
+            (MISSING_CREDENTIALS_TEXT, slug),
+        )
 
 
 def credentials(slug: str) -> tuple[str, str]:
@@ -324,12 +388,20 @@ def check(slug: str, *, actor: str = "system") -> dict[str, Any]:
     row = get(slug)
     user, password = credentials(slug)
     if not user or not password:
-        result = {
-            "status": "auth_failed",
-            "message": "Gebruikersnaam of wachtwoord ontbreekt",
+        # Nothing was tested: never report this as a refused login.
+        if row["status"] != "missing_credentials":
+            get_db().execute(
+                "UPDATE usenet_providers SET status='missing_credentials', status_detail=%s WHERE slug=%s",
+                (MISSING_CREDENTIALS_TEXT, slug),
+            )
+        return {
+            "status": "missing_credentials",
+            "message": MISSING_CREDENTIALS_TEXT,
             "capabilities": [],
             "latency_ms": None,
             "code": None,
+            "tested": False,
+            "provider": public(get(slug)),
         }
     else:
         try:
@@ -382,7 +454,7 @@ def check(slug: str, *, actor: str = "system") -> dict[str, Any]:
             target=slug,
             detail={"before": row["status"], "after": result["status"], "message": result["message"]},
         )
-    return {**result, "provider": public(get(slug))}
+    return {**result, "tested": True, "provider": public(get(slug))}
 
 
 # ------------------------------------------------------------------ periodic checks
@@ -393,7 +465,9 @@ def due_for_check() -> list[str]:
         "last_check_at < now() - make_interval(mins => %s)) ORDER BY last_check_at NULLS FIRST",
         (every_min,),
     )
-    return [r["slug"] for r in rows]
+    # Providers without credentials are never checked periodically (they would only produce a false
+    # "login refused"); their health comes from SABnzbd's own server status.
+    return [r["slug"] for r in rows if has_credentials(r["slug"])]
 
 
 @jobs.handler("usenet.provider_checks")
@@ -401,6 +475,9 @@ def _job_checks(ctx: jobs.JobContext) -> dict[str, Any]:
     slugs = ctx.payload.get("slugs") or due_for_check()
     results = {}
     for slug in slugs:
+        if not has_credentials(slug):
+            results[slug] = "missing_credentials"
+            continue
         try:
             results[slug] = check(slug)["status"]
         except HTTPException:
@@ -458,4 +535,11 @@ def import_from_sab(actor: str) -> list[dict[str, Any]]:
         )
         existing.add(slug)
         created.append(row)
+    if created:
+        from mso.features.usenet import serverstatus
+
+        try:  # imported providers have no credentials: show SABnzbd's own server status right away
+            serverstatus.refresh()
+        except Exception as exc:  # import itself succeeded
+            LOGGER.info("SABnzbd-serverstatus na import niet beschikbaar: %s", type(exc).__name__)
     return created

@@ -29,7 +29,8 @@ export function IndexersPage({ protocol }: { protocol: Protocol }) {
   const items = (list.data?.items ?? []).filter((i) => !i.is_mso);
   const measured = items.filter((i) => i.reliability !== null);
   const avgRel = measured.length ? measured.reduce((a, b) => a + (b.reliability ?? 0), 0) / measured.length : null;
-  const okLast = items.filter((i) => i.stats?.last_search_at && !(i.stats.errors > 0 && i.stats.last_status)).length;
+  // last observation answered (results or a genuine empty answer)
+  const okLast = items.filter((i) => i.stats?.last_search_at && ["ok", "empty", null].includes(i.stats.last_status)).length;
   const ready = list.data !== null;
 
   const recompute = async () => {

@@ -31,7 +31,7 @@ export function ModeGate({ children, minRole = "operator", requireManage = true,
   return (
     <InlineState tone="info" icon={Eye}>
       <strong>{t("mode.gateTitle")}</strong> {gate.reason}{" "}
-      <Link href="/instellingen" className="link-more" style={{ display: "inline-flex" }}><Settings className="ico ico-sm" aria-hidden="true" />{t("mode.gateLink")}</Link>
+      <Link href="/instellingen?tab=systeem#modus" className="link-more" style={{ display: "inline-flex" }}><Settings className="ico ico-sm" aria-hidden="true" />{t("mode.gateLink")}</Link>
     </InlineState>
   );
 }

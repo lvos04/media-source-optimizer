@@ -2,7 +2,8 @@
 
 Implements: version, queue, history (incl. fail_message, stage_log, last_history_update conditional polling),
 server_stats (per-server daily bytes + articles_tried/articles_success), get_config&section=servers,
-set_config&section=servers, get_cats, addurl, addfile (multipart parsed without extra dependencies).
+set_config&section=servers, status/fullstatus (per-server ``servererror``/``serveractive``), warnings
+(``[{text, type, time}]``), get_cats, addurl, addfile (multipart parsed without extra dependencies).
 
 Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``api_key``             expected key (default ``sabkey``)
@@ -11,6 +12,9 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
                           ``empty``
 - ``ignore_set_config=1`` accept set_config but don't change anything (verification failure)
 - ``broken_mode=<mode>``  that mode answers HTTP 500
+- ``server_errors=report`` like the field report: newshosting "502 Authentication Failed", block server
+                          "482 Account expired" (in ``servererror`` and as warnings); eweka works
+- ``status_mode=fullstatus|none``  only answer the old ``fullstatus`` mode / neither (old SABnzbd)
 Tests can reach the live state through ``app.state.sab`` (a ``SabState``).
 """
 
@@ -36,6 +40,7 @@ FAIL_MESSAGES = {
     "missing": "Aborted, cannot be completed - https://sabnzbd.org/not-complete",
     "repair": "Repair failed, not enough repair blocks (12 short)",
     "encrypted": "Unpacking failed, archive requires a password",
+    "unpack": "Unpacking failed, see logfile",
 }
 
 
@@ -81,6 +86,10 @@ def _history_for(scenario: str) -> list[dict[str, Any]]:
         "expired": [("Show.Name.S01E02.1080p.WEB.H264-GRP", "tv", "expired")],
         "auth": [("Show.Name.S01E03.1080p.WEB.H264-GRP", "tv", "auth")],
         "missing": [("Movie.Title.2020.2160p.UHD.BluRay.x265-GRP", "movies", "missing")],
+        "unpack": [
+            ("Paranoia.Agent.S01E01.2004.1080p.BluRay.x265.10bit.FLAC.2.0-ADE", "*", "unpack"),
+            ("Slay 2024 1080p WEBRip-SMILEY", "*", "unpack"),
+        ],
         "empty": [],
     }[scenario]
     return [_slot(i + 1, n, c, k, now - (len(plans) - i) * 600) for i, (n, c, k) in enumerate(plans)]
@@ -157,6 +166,37 @@ class SabState:
             },
         }
 
+        # SABnzbd's own per-server state: name -> servererror text ("" = fine); warnings list
+        self.server_errors: dict[str, str] = {}
+        self.server_inactive: set[str] = set()
+        self.warnings: list[dict[str, Any]] = []
+
+    def set_server_error(self, name: str, text: str, *, warn: bool = True, at: int | None = None) -> None:
+        self.server_errors[name] = text
+        if warn and text:
+            self.warnings.append({"text": text, "type": "WARNING", "time": at or int(time.time())})
+
+    def status(self) -> dict[str, Any]:
+        servers = []
+        for s in sorted(self.servers, key=lambda x: (x["priority"], x["name"])):
+            if not s["enable"]:
+                continue
+            servers.append(
+                {
+                    "servername": s["displayname"],
+                    "servertotalconn": s["connections"],
+                    "serverssl": s["ssl"],
+                    "serveractiveconn": 0,
+                    "serveroptional": bool(s["optional"]),
+                    "serveractive": s["name"] not in self.server_inactive,
+                    "servererror": self.server_errors.get(s["name"], ""),
+                    "serverpriority": s["priority"],
+                    "serverbps": "0 ",
+                    "serverconnections": [],
+                }
+            )
+        return {"status": {"paused": False, "servers": servers, "warnings": list(self.warnings)}}
+
     def add_history(self, slot: dict[str, Any]) -> None:
         with self.lock:
             self.history.append(slot)
@@ -199,6 +239,12 @@ def create_app(**faults: Any) -> FastAPI:
     state = SabState(str(faults.get("scenario", "mixed")))
     ignore_set = str(faults.get("ignore_set_config", "0")) in ("1", "true")
     broken = str(faults.get("broken_mode", ""))
+    status_mode = str(faults.get("status_mode", "status"))
+    if str(faults.get("server_errors", "")) == "report":
+        state.set_server_error(
+            "news.newshosting.test", "Server news.newshosting.test reported: 502 Authentication Failed"
+        )
+        state.set_server_error("block.example.test", "Server block.example.test reported: 482 Account expired.")
     app = FastAPI(title="Mock SABnzbd")
     app.state.sab = state
 
@@ -261,6 +307,12 @@ def create_app(**faults: Any) -> FastAPI:
                 )
             if mode == "server_stats":
                 return ok(state.server_stats())
+            if mode in ("status", "fullstatus"):
+                if status_mode == "none" or (status_mode == "fullstatus" and mode == "status"):
+                    return ok({"status": False, "error": "not implemented"})
+                return ok(state.status())
+            if mode == "warnings":
+                return ok({"warnings": list(state.warnings)})
             if mode == "get_config":
                 if params.get("section") != "servers":
                     return ok({"config": {}})

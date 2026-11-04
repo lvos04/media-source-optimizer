@@ -14,6 +14,7 @@ import type { Risk } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
 import type { Overview } from "@/lib/api/insights";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useMode } from "@/lib/mode";
 import { healthLabel, healthTone } from "@/lib/status";
 
 const RISKS: Risk[] = ["toestemming_nodig", "automatisch_veilig", "advies"];
@@ -27,11 +28,13 @@ export default function OverviewPage() {
   const health = o?.health;
   const healthTxt = health ? t(healthLabel(health.status)) : "—";
   const cost = o?.costs;
+  const { mode: liveMode } = useMode();
+  const shownMode = liveMode ?? o?.mode ?? null;
   return (
     <>
       <PageHeader
         title={t("overview.title")}
-        sub={t("overview.sub", { date: date(new Date()), mode: o ? t(o.mode === "manage" ? "mode.manage" : "mode.read_only") : "—" })}
+        sub={t("overview.sub", { date: date(new Date()), mode: shownMode ? t(shownMode === "manage" ? "mode.manage" : "mode.read_only") : "—" })}
         actions={<LinkButton href="/automatisering" icon={Lightbulb}>{t("nav.automation")}</LinkButton>}
       />
       {ov.error && !o ? (

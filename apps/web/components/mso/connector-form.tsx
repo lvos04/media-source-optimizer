@@ -21,6 +21,14 @@ export function sortConnectors(rows: Connector[]): Connector[] {
   return [...rows].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
 }
 
+/** Per-connector URL example (LAN IP + the usual port; `localhost` inside the MSO container is MSO itself). */
+const URL_EXAMPLES: Record<string, string> = {
+  prowlarr: "http://192.168.1.10:9696",
+  sabnzbd: "http://192.168.1.10:8080",
+  qbittorrent: "http://192.168.1.10:8080",
+  mediaguard: "http://192.168.1.10:30080",
+};
+
 function capabilityList(value: ConnectorTestResult["capabilities"]): string[] {
   if (!value) return [];
   if (Array.isArray(value)) return value.map(String);
@@ -36,8 +44,10 @@ function capabilityList(value: ConnectorTestResult["capabilities"]): string[] {
  *   cleared and only "ingesteld" is shown — secrets are never echoed.
  * Pass `canEdit={false}` + `disabledReason` for users who may not change connectors.
  */
-export function ConnectorForm({ connector, onSaved, canEdit = true, disabledReason, optional }: {
+export function ConnectorForm({ connector, onSaved, onTested, canEdit = true, disabledReason, optional }: {
   connector: Connector; onSaved?: () => void | Promise<void>; canEdit?: boolean; disabledReason?: string; optional?: boolean;
+  /** Called after a test; the backend stores status/version/"gecontroleerd" when the saved configuration was tested. */
+  onTested?: () => void | Promise<void>;
 }) {
   const { t, num, relative } = useI18n();
   const [url, setUrl] = useState(connector.url ?? "");
@@ -47,7 +57,7 @@ export function ConnectorForm({ connector, onSaved, canEdit = true, disabledReas
   const [testError, setTestError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [urlError, setUrlError] = useState<string | null>(null);
-  const [pending, setPending] = useState<"test" | "save" | null>(null);
+  const [pending, setPending] = useState<"test" | "save" | "clear" | null>(null);
   const [saved, setSaved] = useState(false);
 
   const filled = Object.fromEntries(Object.entries(secrets).filter(([, v]) => v !== ""));
@@ -72,6 +82,22 @@ export function ConnectorForm({ connector, onSaved, canEdit = true, disabledReas
     } finally {
       setPending(null);
     }
+    // refresh the card (status badge, version, "Gecontroleerd …") from the stored result
+    await onTested?.();
+  };
+
+  const clearSecrets = async (names: string[]) => {
+    setPending("clear");
+    setSaveError(null);
+    try {
+      await api.put(`/connectors/${encodeURIComponent(connector.id)}`, { secrets: Object.fromEntries(names.map((n) => [n, null])) });
+      setSecrets((s) => { const n = { ...s }; names.forEach((k) => delete n[k]); return n; });
+      await onSaved?.();
+    } catch (e) {
+      setSaveError(errorMessage(e));
+    } finally {
+      setPending(null);
+    }
   };
 
   const save = async () => {
@@ -92,6 +118,11 @@ export function ConnectorForm({ connector, onSaved, canEdit = true, disabledReas
 
   const caps = capabilityList(result?.capabilities ?? null);
   const disabled = !canEdit;
+  const isSet = (name: string) => connector.secret_fields.some((f) => f.name === name && f.status === "ingesteld");
+  const authOption = String(connector.options?.auth_method ?? "");
+  const redundantLogin = String(connector.id) === "mediaguard" && authOption !== "user" && authOption !== "token"
+    && isSet("api_key") && (isSet("username") || isSet("password"));
+  const urlExample = URL_EXAMPLES[String(connector.id)] ?? "http://192.168.1.10:8080";
 
   return (
     <article className="instance" id={idBase} data-testid={idBase} style={{ scrollMarginTop: 80 }} aria-labelledby={`${idBase}-title`}>
@@ -107,7 +138,7 @@ export function ConnectorForm({ connector, onSaved, canEdit = true, disabledReas
       {connector.last_error ? <InlineState tone="warning">{connector.last_error}</InlineState> : null}
       {disabled && disabledReason ? <InlineState tone="neutral">{disabledReason}</InlineState> : null}
 
-      <Field label={t("connector.url")} htmlFor={`${idBase}-url`} hint={t("connector.urlHint")} error={urlError}>
+      <Field label={t("connector.url")} htmlFor={`${idBase}-url`} hint={t("connector.urlHint", { example: urlExample })} error={urlError}>
         <input id={`${idBase}-url`} className="input mono" value={url} disabled={disabled} inputMode="url" autoComplete="off" spellCheck={false}
           aria-invalid={Boolean(urlError)} onChange={(e) => { setUrl(e.target.value); setSaved(false); }} />
       </Field>
@@ -121,6 +152,15 @@ export function ConnectorForm({ connector, onSaved, canEdit = true, disabledReas
       <label className="row t-2" style={{ fontSize: 13 }}>
         <Switch checked={enabled} onChange={(v) => { setEnabled(v); setSaved(false); }} label={t("connector.enabled")} disabled={disabled} />{t("connector.enabled")}
       </label>
+      {redundantLogin ? (
+        <InlineState tone="info">
+          <div>{t("connector.apiKeyUsed")}</div>
+          <div style={{ marginTop: 6 }}>
+            <Button size="sm" pending={pending === "clear"} disabled={disabled || pending !== null} title={disabled ? disabledReason : undefined}
+              onClick={() => void clearSecrets(["username", "password"])}>{t("connector.clearLogin")}</Button>
+          </div>
+        </InlineState>
+      ) : null}
 
       {result ? (
         <InlineState tone={result.ok ? "success" : "danger"} role="status">
@@ -158,7 +198,8 @@ export function ConnectorList({ only, canEdit = true, disabledReason }: { only?:
       {(data) => (
         <div className="instance-grid">
           {sortConnectors(itemsOf(data)).filter((c) => !only || only.includes(String(c.id))).map((c) => (
-            <ConnectorForm key={c.id} connector={c} optional={OPTIONAL_CONNECTORS.has(String(c.id))} canEdit={canEdit} disabledReason={disabledReason} onSaved={() => connectors.reload()} />
+            <ConnectorForm key={c.id} connector={c} optional={OPTIONAL_CONNECTORS.has(String(c.id))} canEdit={canEdit} disabledReason={disabledReason}
+              onSaved={() => connectors.reload()} onTested={() => connectors.reload()} />
           ))}
         </div>
       )}

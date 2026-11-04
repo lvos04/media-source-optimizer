@@ -13,7 +13,7 @@ import math
 import secrets
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -21,7 +21,7 @@ from mso.connectors import base as cb
 from mso.db import get_db, jsonb
 from mso.domain import categories as C
 from mso.domain import outcomes
-from mso.domain.release import NormalizedRelease, dedupe
+from mso.domain.release import NormalizedRelease, dedupe, is_episodic, query_year, title_similarity
 from mso.features.search import origin
 from mso.features.search import settings as S
 from mso.features.search.backends import BACKENDS
@@ -59,7 +59,11 @@ MISMATCH_FLAGS = {
     "tvdb_wijkt_af",
     "tmdb_wijkt_af",
     "jaar_wijkt_af",
+    "titel_wijkt_af",
+    "aflevering_geen_film",
+    "nummering_ontbreekt",
 }
+PROWLARR_FAILURE_SLACK_S = 5  # Prowlarr's mostRecentFailure may be stamped slightly before our request
 
 
 @dataclass
@@ -69,6 +73,7 @@ class _Task:
     scopes: tuple[str, ...]
     run: Any  # () -> list[NormalizedRelease]
     target: str = ""
+    detail: dict[str, Any] = field(default_factory=dict)  # per-task extras (Prowlarr: per-indexer data)
 
 
 def is_blacklisted(release_key: str) -> bool:
@@ -137,14 +142,19 @@ def _plan(
                         (sources.get(child) or {}).get("label") or child,
                         "skipped_cycle",
                         message=f"cycle_detected: {why}",
+                        parent="prowlarr",
                     )
                 )
+            skip_failing = bool(S.get("search.prowlarr_skip_failing", True))
+            skip_irrelevant = bool(S.get("search.prowlarr_skip_irrelevant", True))
             ids: list[int] = []
-            scope_skipped = 0
+            labels: dict[int, str] = {}
+            counts = {"scope": 0, "broken": 0, "irrelevant": 0}
             for child in allowed:
                 src = sources.get(child)
                 if not src or not src["enabled"]:
                     continue
+                meta = src.get("meta") or {}
                 cid = int(child.split(":", 1)[1])
                 if cid in mso_ids:
                     skipped.append(
@@ -153,25 +163,69 @@ def _plan(
                             src["label"],
                             "skipped_cycle",
                             message="cycle_detected: MSO-registratie in Prowlarr",
+                            parent="prowlarr",
                         )
                     )
                     continue
                 proto = "torrent" if src["kind"] == "torrent_indexer" else "usenet"
                 if not _protocol_ok(query, proto):
                     continue
+                if skip_irrelevant and meta.get("library_relevant") is False:
+                    counts["irrelevant"] += 1
+                    skipped.append(
+                        SourceReport(
+                            child,
+                            src["label"],
+                            "skipped_scope",
+                            message="Niet relevant voor bibliotheek: "
+                            + (meta.get("relevance_reason") or "geen series-/filmcategorieën"),
+                            parent="prowlarr",
+                        )
+                    )
+                    continue
+                if skip_failing and meta.get("prowlarr_broken"):
+                    counts["broken"] += 1
+                    msgs = [i.get("message", "") for i in meta.get("prowlarr_health") or [] if i.get("broken")]
+                    skipped.append(
+                        SourceReport(
+                            child,
+                            src["label"],
+                            "unavailable",
+                            message="Werkt niet volgens Prowlarr: " + ("; ".join(msgs)[:300] or "storing"),
+                            parent="prowlarr",
+                        )
+                    )
+                    continue
                 if not _scope_ok(query, src["scopes"]):
-                    scope_skipped += 1
+                    counts["scope"] += 1
+                    skipped.append(
+                        SourceReport(
+                            child,
+                            src["label"],
+                            "skipped_scope",
+                            message=f"Bereik {' + '.join(src['scopes'])} past niet bij {query.media_category}",
+                            parent="prowlarr",
+                        )
+                    )
                     continue
                 ids.append(cid)
+                labels[cid] = src["label"]
             known_children = any(s.startswith("prowlarr:") for s in sources)
+            extra = []
+            if counts["scope"]:
+                extra.append(f"{counts['scope']} buiten bereik ({C.scope_for(query.media_category or 'tv')})")
+            if counts["broken"]:
+                extra.append(f"{counts['broken']} werken niet volgens Prowlarr")
+            if counts["irrelevant"]:
+                extra.append(f"{counts['irrelevant']} niet relevant voor bibliotheek")
             if known_children and not ids:
                 skipped.append(
                     SourceReport(
                         "prowlarr",
                         "Prowlarr",
                         "skipped_scope",
-                        message=f"Geen Prowlarr-indexer met passend bereik/protocol "
-                        f"({scope_skipped} buiten bereik)",
+                        message="Geen Prowlarr-indexer met passend bereik/protocol"
+                        + (f" ({'; '.join(extra)})" if extra else ""),
                     )
                 )
             else:
@@ -183,19 +237,28 @@ def _plan(
                 note = (
                     f"{len(ids)} indexers" if known_children else "alle indexers (nog niet gesynchroniseerd)"
                 )
-                if scope_skipped:
-                    note += f"; {scope_skipped} buiten bereik ({C.scope_for(query.media_category or 'tv')})"
+                if extra:
+                    note += "; " + "; ".join(extra)
+                detail: dict[str, Any] = {"ids": ids if known_children else None, "labels": labels}
 
                 def run_prowlarr(
                     ids: list[int] | None = ids if known_children else None,
                     privates: set[int] = privates,
                     mso_ids: set[int] = mso_ids,
+                    detail: dict[str, Any] = detail,
                 ) -> list[NormalizedRelease]:
-                    return _search_prowlarr(query, trace, ids, privates, mso_ids, timeout, per_source)
+                    return _search_prowlarr(
+                        query, trace, ids, privates, mso_ids, timeout, per_source, detail=detail
+                    )
 
                 tasks.append(
                     _Task(
-                        "prowlarr", f"Prowlarr ({note})", ("normal", "anime"), run_prowlarr, target="prowlarr"
+                        "prowlarr",
+                        f"Prowlarr ({note})",
+                        ("normal", "anime"),
+                        run_prowlarr,
+                        target="prowlarr",
+                        detail=detail,
                     )
                 )
 
@@ -256,10 +319,14 @@ def _search_prowlarr(
     mso_ids: set[int],
     timeout: float,
     limit: int,
+    *,
+    detail: dict[str, Any] | None = None,
 ) -> list[NormalizedRelease]:
     from mso.connectors.prowlarr import ProwlarrClient, ProwlarrError, normalize_result, prowlarr_query
 
     cats = query.newznab_cats or (C.newznab_for(query.media_category) if query.media_category else None)
+    started_at = datetime.now(UTC)
+    t0 = time.monotonic()
     try:
         client = ProwlarrClient.from_config(timeout=timeout)
         with origin.outbound("prowlarr", query.fingerprint()):
@@ -302,6 +369,39 @@ def _search_prowlarr(
         r = normalize_result(rec, private_ids=privates)
         if _protocol_ok(query, r.protocol):
             out.append(r)
+    if detail is not None:
+        # Prowlarr's search response carries no per-indexer errors; its indexerstatus does (mostRecentFailure).
+        # One cheap extra call, only with time to spare, so a slow search never gets slower.
+        remaining = timeout - (time.monotonic() - t0)
+        detail["failures"] = {}
+        if remaining > 1.5:
+            detail["failures"] = _prowlarr_failures(client, started_at, min(5.0, remaining - 0.5))
+    return out
+
+
+def _prowlarr_failures(client: Any, since: datetime, timeout: float) -> dict[int, str]:
+    from mso.connectors.prowlarr import ProwlarrError
+
+    try:
+        rows = client.request("GET", "indexerstatus", timeout=timeout) or []
+    except ProwlarrError:
+        return {}
+    out: dict[int, str] = {}
+    cutoff = since - timedelta(seconds=PROWLARR_FAILURE_SLACK_S)
+    for row in rows if isinstance(rows, list) else []:
+        try:
+            iid = int(row.get("indexerId"))
+            failed = datetime.fromisoformat(str(row.get("mostRecentFailure")).replace("Z", "+00:00"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if failed.tzinfo is None:
+            failed = failed.replace(tzinfo=UTC)
+        if failed < cutoff:
+            continue
+        msg = "Prowlarr meldt een fout bij deze zoekopdracht"
+        if row.get("disabledTill"):
+            msg += f"; uitgeschakeld tot {str(row['disabledTill'])[:16].replace('T', ' ')} UTC"
+        out[iid] = msg
     return out
 
 
@@ -391,8 +491,36 @@ def _flags(r: NormalizedRelease, query: SearchQuery) -> None:
         or (query.tvdb_id and r.tvdb_id and "tvdb_wijkt_af" not in f)
         or (query.tmdb_id and r.tmdb_id and "tmdb_wijkt_af" not in f)
     )
-    conf = 0.3 + 0.5 * p.confidence + (0.2 if ids_match else 0.0)
-    conf -= 0.25 * len([x for x in f if x in MISMATCH_FLAGS])
+    movie = _wants_movie(query)
+    if movie and is_episodic(p):
+        f.append("aflevering_geen_film")  # a series episode/pack is never a film
+    if (
+        _wants_tv(query)
+        and (query.episode is not None or query.absolute_episode is not None)
+        and not is_episodic(p)
+        and p.season is None
+    ):
+        f.append("nummering_ontbreekt")  # an episode was asked; this release has no numbering at all
+    year_bonus = 0.0
+    if movie and p.year:
+        qy = query_year(query.q)
+        if qy is None or abs(p.year - qy) <= 1:
+            year_bonus = 0.05 if qy is None else 0.1
+        else:
+            f.append("jaar_wijkt_af")
+    # title similarity (normalised name part vs the asked text) is the dominant factor when text was given
+    tm = title_similarity(query.q, r.title) if query.q else None
+    r.extra["title_match"] = tm
+    if tm is None:
+        conf = 0.3 + 0.5 * p.confidence
+    else:
+        if tm < 0.5 and not ids_match:
+            f.append("titel_wijkt_af")
+        conf = 0.2 + 0.25 * p.confidence + 0.55 * tm
+    conf += (0.2 if ids_match else 0.0) + year_bonus
+    conf -= 0.3 * len([x for x in f if x in MISMATCH_FLAGS and x != "titel_wijkt_af"])
+    if "aflevering_geen_film" in f:
+        conf -= 0.2  # heavy: together with the mismatch weight above −0.5
     conf -= 0.1 * len(
         [x for x in f if x in ("categorie_onzeker", "geobfusceerd", "verdacht_klein", "taal_onbekend")]
     )
@@ -400,12 +528,31 @@ def _flags(r: NormalizedRelease, query: SearchQuery) -> None:
     r.false_positive_flags = sorted(set(f))
 
 
+def _wants_movie(query: SearchQuery) -> bool:
+    if query.media_category:
+        return C.CATEGORIES[query.media_category].kind == "movie"
+    return query.kind == "movie"
+
+
+def _wants_tv(query: SearchQuery) -> bool:
+    if query.media_category:
+        return C.CATEGORIES[query.media_category].kind == "tv"
+    return query.kind == "tvsearch"
+
+
+def _not_a_movie(r: NormalizedRelease, query: SearchQuery) -> bool:
+    """Explicit SxxEyy numbering in a film category: a series episode, never a film → dropped."""
+    return _wants_movie(query) and r.parsed.season is not None and bool(r.parsed.episodes)
+
+
 def _rank(r: NormalizedRelease, sources: dict[str, dict[str, Any]]) -> float:
+    """Confidence (title match dominant, see _flags) first; source reliability scales it mildly; seeders
+    only break near-ties."""
     rel = (sources.get(r.source_id) or {}).get("reliability")
     rel = 0.6 if rel is None else float(rel)
-    s = r.confidence * (0.5 + 0.5 * rel)
+    s = r.confidence * (0.7 + 0.3 * rel)
     if r.protocol == "torrent" and r.seeders:
-        s += min(0.1, math.log10(1 + r.seeders) / 40)
+        s += min(0.05, math.log10(1 + r.seeders) / 80)
     if "geblokkeerd" in r.false_positive_flags:
         s -= 1
     return s
@@ -506,6 +653,114 @@ def _record(report: SourceReport) -> None:
     )
 
 
+DROP_TEXT = {
+    "scope": "bereik",
+    "category": "categorie",
+    "not_a_movie": "serie-aflevering in filmcategorie",
+    "language": "taal",
+}
+
+
+def _drop_reason(
+    r: NormalizedRelease,
+    query: SearchQuery,
+    sources: dict[str, dict[str, Any]],
+    required: list[str],
+    excluded: list[str],
+) -> str | None:
+    """None = keep (and sets r.media_category); else the reason the result is dropped."""
+    scopes = (sources.get(r.source_id) or {}).get("scopes") or ["normal", "anime"]
+    if not _scope_ok(query, scopes):
+        return "scope"
+    mc = _classify(r, query, scopes)
+    if query.media_category and mc is None:
+        return "category"
+    if _not_a_movie(r, query):
+        return "not_a_movie"
+    r.media_category = mc
+    if not _languages_ok(r, required, excluded):
+        return "language"
+    return None
+
+
+def _dropped_text(dropped: dict[str, int]) -> str:
+    n = sum(dropped.values())
+    parts = ", ".join(f"{DROP_TEXT.get(k, k)}: {v}" for k, v in sorted(dropped.items()))
+    return f"{n} resultaat/resultaten weggefilterd ({parts})"
+
+
+def _slow_note(
+    rep: SourceReport, timeout: float, sources: dict[str, dict[str, Any]], detail: dict[str, Any]
+) -> str:
+    """Prowlarr answers only when its slowest indexer did: say so when a search was slow, and name the
+    indexers Prowlarr itself measures as slowest (no per-indexer latency is in the search response)."""
+    if rep.latency_ms is None or rep.latency_ms < max(3000, 0.5 * timeout * 1000):
+        return ""
+    ids = detail.get("ids") or []
+    slow = []
+    for iid in ids:
+        meta = (sources.get(f"prowlarr:{iid}") or {}).get("meta") or {}
+        avg = meta.get("avg_response_ms")
+        if isinstance(avg, (int, float)) and avg >= 2000:
+            slow.append((avg, (sources.get(f"prowlarr:{iid}") or {}).get("label") or str(iid)))
+    slow.sort(reverse=True)
+    note = f"Traag: {rep.latency_ms / 1000:.1f} s van max. {timeout:.0f} s — Prowlarr wacht op zijn traagste indexer"
+    if slow:
+        note += " (gem. volgens Prowlarr: " + ", ".join(f"{n} {a / 1000:.1f} s" for a, n in slow[:3]) + ")"
+    return note + ". "
+
+
+def _prowlarr_children(
+    detail: dict[str, Any],
+    raw: list[NormalizedRelease],
+    dropped_by_child: dict[str, int],
+    sources: dict[str, dict[str, Any]],
+) -> list[SourceReport]:
+    """Per-indexer rows under the Prowlarr aggregate: results per indexer (from the response's indexerId),
+    'empty' for queried indexers without results and 'error' when Prowlarr's indexerstatus shows a failure
+    during this search."""
+    counts: dict[str, int] = {}
+    names: dict[str, str] = {}
+    for r in raw:
+        counts[r.source_id] = counts.get(r.source_id, 0) + 1
+        if r.extra.get("indexer"):
+            names[r.source_id] = str(r.extra["indexer"])
+    labels = {f"prowlarr:{k}": v for k, v in (detail.get("labels") or {}).items()}
+    queried = [f"prowlarr:{i}" for i in detail.get("ids") or []] or list(counts)
+    failures = {f"prowlarr:{k}": v for k, v in (detail.get("failures") or {}).items()}
+    out = []
+    for sid in dict.fromkeys([*queried, *counts]):
+        label = labels.get(sid) or names.get(sid) or (sources.get(sid) or {}).get("label") or sid
+        n = counts.get(sid, 0)
+        msg = ""
+        if dropped_by_child.get(sid):
+            msg = f"{dropped_by_child[sid]} weggefilterd"
+        if n:
+            status = "ok"
+        elif sid in failures:
+            status, msg = "error", failures[sid]
+        else:
+            status = "empty"
+        out.append(SourceReport(sid, label, status, count=n, message=msg, parent="prowlarr"))
+    order = {"ok": 0, "error": 1, "empty": 2}
+    out.sort(key=lambda x: (order.get(x.status, 3), -x.count, x.label.lower()))
+    return out
+
+
+def _order_reports(reports: list[SourceReport]) -> list[SourceReport]:
+    """Children directly after their parent row (queried first, then skipped); orphans at the end."""
+    top = [r for r in reports if not r.parent]
+    present = {r.source_id for r in top}
+    out: list[SourceReport] = []
+    for r in top:
+        out.append(r)
+        kids = [c for c in reports if c.parent == r.source_id]
+        kids.sort(key=lambda c: c.status.startswith("skipped") or c.status == "unavailable")
+        out.extend(kids)
+    out.extend(r for r in reports if r.parent and r.parent not in present)
+    return out
+
+
 # ------------------------------------------------------------------ main entry
 def search(
     query: SearchQuery,
@@ -568,38 +823,33 @@ def search(
     )
     excluded = list(S.get("search.excluded_languages", []) or [])
     merged: list[NormalizedRelease] = []
+    dropped_by_child: dict[str, int] = {}
     for sid, items in results.items():
-        dropped = 0
+        dropped: dict[str, int] = {}
         for r in items:
-            scopes = (sources.get(r.source_id) or {}).get("scopes") or ["normal", "anime"]
-            if not _scope_ok(query, scopes):
-                dropped += 1
-                continue
-            mc = _classify(r, query, scopes)
-            if query.media_category and mc is None:
-                dropped += 1
-                continue
-            r.media_category = mc
-            if not _languages_ok(r, required, excluded):
-                dropped += 1
+            why = _drop_reason(r, query, sources, required, excluded)
+            if why:
+                dropped[why] = dropped.get(why, 0) + 1
+                dropped_by_child[r.source_id] = dropped_by_child.get(r.source_id, 0) + 1
                 continue
             r.trace = [*tr.visited, sid] + ([r.source_id] if r.source_id != sid else [])
             _flags(r, query)
             merged.append(r)
         if dropped and sid in by_task:
-            by_task[sid].message = (
-                by_task[sid].message + " " if by_task[sid].message else ""
-            ) + f"{dropped} resultaat/resultaten weggefilterd (categorie/bereik/taal)"
+            by_task[sid].message = (by_task[sid].message + " " if by_task[sid].message else "") + _dropped_text(
+                dropped
+            )
     for t in tasks:
         rep = by_task[t.source_id]
+        if t.source_id == "prowlarr":
+            rep.message = _slow_note(rep, timeout, sources, t.detail) + rep.message
         reports.append(rep)
         _record(rep)
-        if t.source_id == "prowlarr" and t.source_id in results:
-            per_idx: dict[str, int] = {}
-            for r in results["prowlarr"]:
-                per_idx[r.source_id] = per_idx.get(r.source_id, 0) + 1
-            for sid, n in per_idx.items():
-                _record(SourceReport(sid, sid, "ok", count=n))
+        if t.source_id == "prowlarr" and rep.status in ("ok", "empty"):
+            for child in _prowlarr_children(t.detail, results.get("prowlarr", []), dropped_by_child, sources):
+                reports.append(child)
+                _record(child)
+    reports = _order_reports(reports)
     items = dedupe(merged)
     if sort == "age":
         items.sort(key=lambda r: r.publish_date or datetime.min.replace(tzinfo=UTC), reverse=True)

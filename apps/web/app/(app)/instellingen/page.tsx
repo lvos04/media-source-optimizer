@@ -9,6 +9,7 @@ import { NO_DRAFT, SettingField, type Draft } from "@/components/mg/setting-fiel
 import { ErrorState, ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ConnectorList } from "@/components/mso/connector-form";
+import { ModeSettingsCard } from "@/components/mso/mode-settings";
 import { api, ApiError, errorMessage } from "@/lib/api/client";
 import { itemsOf, ROLES, type Role, type SettingDef, type SettingsPayload, type UserRow } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -17,6 +18,8 @@ import { useSession } from "@/lib/session";
 
 const CONNECTIONS = "verbindingen";
 const USERS = "gebruikers";
+/** Settings category that also hosts the operating-mode section (deep link `/instellingen?tab=systeem#modus`). */
+const SYSTEM = "systeem";
 
 export default function SettingsPage() {
   return <Suspense><SettingsView /></Suspense>;
@@ -31,12 +34,13 @@ function SettingsView() {
 
   const categories = useMemo(() => {
     const map = new Map<string, number>();
+    map.set(SYSTEM, 0); // always present: the Bedrijfsmodus section lives here
     (settings.data?.definitions ?? []).forEach((d) => map.set(d.category, (map.get(d.category) ?? 0) + 1));
     return [...map.entries()];
   }, [settings.data]);
   const requested = params.get("tab");
   const tab = requested && (requested === CONNECTIONS || requested === USERS || categories.some(([c]) => c === requested))
-    ? requested : categories[0]?.[0] ?? CONNECTIONS;
+    ? requested : SYSTEM;
   const select = (value: string) => {
     const qs = new URLSearchParams(params.toString());
     qs.set("tab", value);
@@ -54,6 +58,7 @@ function SettingsView() {
     <>
       <PageHeader title={t("settings.title")} sub={t("settings.sub")} />
       <div style={{ marginBottom: 16, overflowX: "auto" }}><Tabs label={t("settings.tabs")} value={tab} onSelect={select} items={items} /></div>
+      {tab === SYSTEM ? <div style={{ marginBottom: 16 }}><ModeSettingsCard /></div> : null}
       {tab === CONNECTIONS ? <ConnectionsTab />
         : tab === USERS ? <UsersTab />
           : settings.loading ? <StateView kind="loading" />

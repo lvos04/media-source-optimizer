@@ -68,8 +68,90 @@ PATH_RE = re.compile(
 )
 
 
+RATE_PREFS = tuple(k for k, m in ALLOWED_PREFS.items() if m["kind"] == "rate")
+KIB_TOLERANCE = 1024  # qBittorrent keeps speed limits in whole KiB/s
+
+
 class PolicyError(ValueError):
     pass
+
+
+def is_rate_path(path: str) -> bool:
+    """Applier paths whose value is a speed limit in bytes/s (stored by qBittorrent in whole KiB/s)."""
+    kind, _, rest = path.partition(":")
+    if kind == "pref":
+        return rest in RATE_PREFS
+    if kind == "torrent":
+        return rest.rpartition(":")[2] in ("up_limit", "dl_limit")
+    return False
+
+
+def rate_matches(requested: Any, actual: Any) -> bool:
+    """True when ``actual`` is what qBittorrent makes of ``requested``: equal, or the same limit rounded to
+    whole KiB/s (difference < 1024 bytes/s). 0 and -1 both mean "no limit" in qBittorrent and match each
+    other, never a real limit."""
+    if isinstance(requested, bool) or isinstance(actual, bool):
+        return False
+    try:
+        r, a = int(requested), int(actual)
+    except (TypeError, ValueError):
+        return False
+    if r == a or (r <= 0 and a <= 0):
+        return True
+    if r <= 0 or a <= 0:
+        return False
+    return abs(r - a) < KIB_TOLERANCE
+
+
+# ------------------------------------------------------------------ guardrail bounds (connections / slots)
+def pref_bounds(key: str) -> tuple[int | None, int | None]:
+    """Safe (min, max) for a numeric preference: configured caps for connection counts, else ALLOWED_PREFS."""
+    meta = ALLOWED_PREFS.get(key) or {}
+    lo, hi = meta.get("min"), meta.get("max")
+    if key == "max_connec":
+        hi = int(ts.get("max_connections_cap"))
+    elif key == "max_connec_per_torrent":
+        hi = int(ts.get("max_connections_per_torrent_cap"))
+    return lo, hi
+
+
+# preferences tuning brings back within bounds when qBittorrent holds an extreme value (-1 = unlimited)
+GUARDED_PREFS = ("max_connec", "max_connec_per_torrent", "max_uploads", "max_uploads_per_torrent")
+
+
+def pref_violations(prefs: dict[str, Any]) -> list[dict[str, Any]]:
+    """Connection/upload-slot preferences outside the safe bounds, largest violation first.
+
+    ``severity`` = value / max (``inf`` for unlimited ``-1``/``0``); ``target`` = the nearest safe value."""
+    out = []
+    for key in GUARDED_PREFS:
+        v = prefs.get(key)
+        if isinstance(v, bool) or not isinstance(v, int):
+            continue
+        lo, hi = pref_bounds(key)
+        if v <= 0:  # -1 (and 0 for these keys) = unlimited in qBittorrent
+            if hi is None:
+                continue
+            sev, target = float("inf"), hi
+        elif hi is not None and v > hi:
+            sev, target = v / hi, hi
+        elif lo is not None and v < lo:
+            sev, target = lo / max(v, 1), lo
+        else:
+            continue
+        out.append(
+            {
+                "key": key,
+                "label": ALLOWED_PREFS[key]["label"],
+                "value": v,
+                "min": lo,
+                "max": hi,
+                "target": target,
+                "severity": sev,
+            }
+        )
+    out.sort(key=lambda x: x["severity"], reverse=True)
+    return out
 
 
 # ------------------------------------------------------------------ tracker / category rules
@@ -361,6 +443,13 @@ def speed_policy(prefs: dict[str, Any]) -> dict[str, Any]:
         "max_connections_per_torrent_cap": ts.get("max_connections_per_torrent_cap"),
         "current_max_connec": prefs.get("max_connec"),
         "current_max_connec_per_torrent": prefs.get("max_connec_per_torrent"),
+        "current_max_uploads": prefs.get("max_uploads"),
+        "current_max_uploads_per_torrent": prefs.get("max_uploads_per_torrent"),
+        "max_uploads_cap": ALLOWED_PREFS["max_uploads"]["max"],
+        "max_uploads_per_torrent_cap": ALLOWED_PREFS["max_uploads_per_torrent"]["max"],
+        "out_of_bounds": [
+            {k: v for k, v in x.items() if k != "severity"} for x in pref_violations(prefs)
+        ],
     }
 
 

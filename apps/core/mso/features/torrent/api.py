@@ -75,6 +75,9 @@ def torrent_view(r: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
         "eta_reasons": eta.get("reasons", []),
         "diagnosis": diag.get("primary"),
         "findings_count": len(diag.get("findings") or []),
+        "suspicious": next(
+            (f for f in diag.get("findings") or [] if f.get("code") == "suspicious_payload"), None
+        ),
         "recheck_suggested": bool(diag.get("recheck_suggested")),
         "recheck_reason": diag.get("recheck_reason"),
         "obligation": diag.get("obligation"),
@@ -105,6 +108,14 @@ def overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "WHERE NOT removed GROUP BY 1"
     )
     states = db.fetchall("SELECT state, count(*) AS n FROM torrent_state WHERE NOT removed GROUP BY 1")
+    suspicious = int(
+        db.scalar(
+            "SELECT count(*) FROM torrent_state WHERE NOT removed AND EXISTS (SELECT 1 FROM "
+            "jsonb_array_elements(COALESCE(diagnosis->'findings', '[]'::jsonb)) f "
+            "WHERE f->>'code' = 'suspicious_payload')"
+        )
+        or 0
+    )
     return {
         "connector": _connector(),
         "client": None
@@ -143,6 +154,7 @@ def overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "findings": (snap or {}).get("findings") or [],
         "diagnosis_counts": {(c["code"] or "ok"): c["n"] for c in counts},
         "state_counts": {c["state"]: c["n"] for c in states},
+        "suspicious_count": suspicious,
         "mode": state.mode(),
         "paused": state.paused(),
     }
@@ -265,7 +277,7 @@ def _action_preview(h: str, action: Literal["recheck", "reannounce"], actor: str
         ],
         risk=risk,
         explanation=expl,
-        impact={"torrent": r["name"], "state": r["state"]},
+        impact={"Torrent": r["name"], "Status in qBittorrent": r["state"] or "onbekend"},
         actor=actor,
         dedupe_key=f"torrent-{action}:{r['hash']}",
     )
@@ -286,19 +298,40 @@ def reannounce_preview(h: str, p: Principal = Depends(require("operator"))) -> d
 def preferences(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     snap = _snapshot()
     prefs = (snap or {}).get("preferences") or {}
-    items = [
-        {
-            "key": k,
-            "label": m["label"],
-            "kind": m["kind"],
-            "value": prefs.get(k),
-            "min": m.get("min"),
-            "max": m.get("max"),
-            "present": k in prefs,
-        }
-        for k, m in policy.ALLOWED_PREFS.items()
-    ]
-    return {"items": items, "updated_at": snap["updated_at"] if snap else None, "stale": _stale(snap)}
+    violations = {v["key"]: v for v in policy.pref_violations(prefs)}
+    cap = ts.upload_cap_bps()
+    items = []
+    for k, m in policy.ALLOWED_PREFS.items():
+        lo, hi = policy.pref_bounds(k) if m["kind"] == "int" else (m.get("min"), m.get("max"))
+        bounds = None  # None = no judgement (no bound known / not applicable)
+        if k in prefs:
+            v = prefs.get(k)
+            if k in violations:
+                bounds = "buiten_grens"
+            elif k in ("up_limit", "alt_up_limit") and cap is not None and isinstance(v, int):
+                bounds = "buiten_grens" if v <= 0 or v > cap else "ok"
+                hi = cap
+            elif k in policy.GUARDED_PREFS:
+                bounds = "ok"
+        items.append(
+            {
+                "key": k,
+                "label": m["label"],
+                "kind": m["kind"],
+                "value": prefs.get(k),
+                "min": lo,
+                "max": hi,
+                "present": k in prefs,
+                "bounds": bounds,
+                "target": violations[k]["target"] if k in violations else None,
+            }
+        )
+    return {
+        "items": items,
+        "out_of_bounds": sum(1 for i in items if i["bounds"] == "buiten_grens"),
+        "updated_at": snap["updated_at"] if snap else None,
+        "stale": _stale(snap),
+    }
 
 
 @router.get("/policy")
@@ -362,6 +395,8 @@ def preferences_preview(body: PrefPreview, p: Principal = Depends(require("opera
         if meta is None:
             raise HTTPException(422, detail=f"Instelling '{key}' wordt door MSO niet beheerd")
         before = prefs.get(key)
+        if meta["kind"] == "rate" and isinstance(after, int) and not isinstance(after, bool):
+            after = ts.kib_floor(after)  # qBittorrent keeps limits in whole KiB/s; round down like it does
         ops.append({"path": f"pref:{key}", "label": meta["label"], "before": before, "after": after})
         small = (
             isinstance(before, int)

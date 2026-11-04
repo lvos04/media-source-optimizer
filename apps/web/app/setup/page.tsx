@@ -194,7 +194,7 @@ function ConnectorsStep({ onNext }: { onNext: () => void }) {
       {connectors.loading ? <StateView kind="loading" />
         : connectors.error && !connectors.data ? <ErrorState error={connectors.error} onRetry={() => void connectors.reload()} endpoint="GET /api/v1/connectors" />
           : rows.length === 0 ? <StateView kind="empty" title={t("connector.empty")} />
-            : rows.map((c) => <ConnectorForm key={c.id} connector={c} optional={OPTIONAL.has(String(c.id))} onSaved={() => connectors.reload()} />)}
+            : rows.map((c) => <ConnectorForm key={c.id} connector={c} optional={OPTIONAL.has(String(c.id))} onSaved={() => connectors.reload()} onTested={() => connectors.reload()} />)}
       {missing.length ? <InlineState tone="info">{t("setup.connectorsLater")}</InlineState> : null}
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <Button variant="primary" onClick={onNext}>{t("action.next")} <ArrowRight className="ico" aria-hidden="true" /></Button>

@@ -27,6 +27,7 @@ class Classification:
     certainty: str  # zeker|waarschijnlijk|onbekend
     evidence: str  # short Dutch description of the matched rule
     detail: str  # redacted original message
+    likely_cause: dict[str, Any] | None = None  # e.g. server login problems active at that time
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,11 +114,17 @@ RULES: list[tuple[str, str, str, re.Pattern[str]]] = [
         re.compile(r"\bcrc\b", re.I),
     ),
     (
+        "unpack_failed",
+        "zeker",
+        "SABnzbd meldt dat uitpakken mislukt is; de melding zelf noemt geen oorzaak",
+        re.compile(r"unpacking failed|unpack(ing)? error|error (while|during) unpacking|failed to unpack", re.I),
+    ),
+    (
         "client_failure",
         "zeker",
         "fout in SABnzbd-verwerking",
         re.compile(
-            r"unpacking failed|post-processing|script (returned|exit|failed)|invalid nzb|empty nzb|"
+            r"post-processing|script (returned|exit|failed)|invalid nzb|empty nzb|"
             r"nzb is empty|duplicate nzb|unwanted extension|aborted, (unwanted|duplicate)|"
             r"unable to (find|move|create)|permission denied|failed to (move|rename)",
             re.I,
@@ -140,25 +147,75 @@ def classify(
     if not msg and not stage_text:
         return None
     detail = redact(msg or stage_text)[:1000]
-    for haystack in (msg, stage_text):
-        if not haystack:
-            continue
-        for reason, certainty, evidence, pattern in RULES:
-            if pattern.search(haystack):
-                if reason == "incomplete" and _beyond_retention(posted_at, server_retention_days, now):
-                    return Classification(
-                        "no_retention",
-                        "zeker",
-                        "artikelen ontbreken en de post is ouder dan de retentie van elke "
-                        "ingeschakelde server",
-                        detail,
-                    )
-                return Classification(reason, certainty, evidence, detail)
-        if not msg:
-            break
+    hit = _first_rule(msg) if msg else None
+    if hit is not None and hit[0] in GENERIC and stage_text:
+        # "Unpacking failed, see logfile" says nothing about the cause; the stage log often does
+        specific = _first_rule(stage_text)
+        if specific is not None and specific[0] not in GENERIC:
+            hit = (specific[0], specific[1], f"{specific[2]} (uit het SABnzbd-verwerkingslog)")
+    if hit is None and stage_text:
+        hit = _first_rule(stage_text)
+    if hit is not None:
+        reason, certainty, evidence = hit
+        if reason == "incomplete" and _beyond_retention(posted_at, server_retention_days, now):
+            return Classification(
+                "no_retention",
+                "zeker",
+                "artikelen ontbreken en de post is ouder dan de retentie van elke ingeschakelde server",
+                detail,
+            )
+        return Classification(reason, certainty, evidence, detail)
     if not msg:  # stage log without failure message and without a known pattern: not a failure
         return None
     return Classification("unknown", "onbekend", "melding niet herkend", detail)
+
+
+GENERIC = {"unpack_failed", "client_failure"}
+
+
+def _first_rule(text: str) -> tuple[str, str, str] | None:
+    for reason, certainty, evidence, pattern in RULES:
+        if pattern.search(text):
+            return reason, certainty, evidence
+    return None
+
+
+def with_server_context(cls: Classification, problems: list[dict[str, Any]]) -> Classification:
+    """Relate an unspecific failure to SABnzbd server login/account problems that were active at that time.
+
+    Only for failures whose message doesn't name a cause (``unpack_failed``, ``incomplete``, ``unknown``):
+    the failure stays what SABnzbd reported, the server problem is added as the *likely* cause."""
+    if not problems or cls.reason not in ("unpack_failed", "incomplete", "unknown"):
+        return cls
+    from mso.features.usenet import serverstatus  # lazy: avoids an import cycle
+
+    parts = []
+    for p in problems[:6]:
+        name = serverstatus.short_name(p.get("displayname") or p["server"])
+        parts.append(f"{name}: {serverstatus.LABELS.get(p['status'], p['status']).lower()}")
+    servers = "; ".join(parts)
+    what = {
+        "unpack_failed": "Uitpakken mislukt",
+        "incomplete": "Artikelen ontbraken",
+        "unknown": "Download mislukt",
+    }[cls.reason]
+    evidence = (
+        f"{what} terwijl SABnzbd rond dat moment serverfouten meldde ({servers}). Waarschijnlijk konden "
+        "ontbrekende artikelen daardoor niet worden aangevuld; de SABnzbd-melding zelf noemt geen oorzaak."
+    )
+    certainty = cls.certainty if cls.reason == "incomplete" else "waarschijnlijk"
+    out = Classification(cls.reason, certainty, evidence, cls.detail)
+    expired = any(p["status"] == "account_expired" for p in problems)
+    out.likely_cause = {
+        "reason": "account_expired" if expired else "auth_failure",
+        "certainty": "waarschijnlijk",
+        "servers": [
+            {"server": p["server"], "name": serverstatus.short_name(p.get("displayname") or p["server"]),
+             "status": p["status"]}
+            for p in problems
+        ],
+    }
+    return out
 
 
 def _stage_text(stage_log: list[dict[str, Any]] | None) -> str:

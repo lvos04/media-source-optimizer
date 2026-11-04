@@ -29,7 +29,7 @@ export interface SystemMode { mode: OperatingMode; paused: boolean; [key: string
 
 export type HealthStatus = "healthy" | "degraded" | "offline";
 /** `GET /system/health` */
-export interface SystemHealth { status: HealthStatus; components: Array<{ name: string; status: HealthStatus | string; message?: string | null }> }
+export interface SystemHealth { status: HealthStatus; components: Array<{ name: string; label?: string | null; status: HealthStatus | string; message?: string | null }> }
 
 /** `GET /system/info` */
 export interface SystemInfo {
@@ -46,6 +46,7 @@ export interface Connector {
   id: ConnectorId; label: string; kind: string; url: string | null; enabled: boolean;
   secret_fields: SecretField[]; status: string | null; version: string | null;
   capabilities: string[] | Record<string, unknown> | null; last_checked_at: string | null; last_error: string | null;
+  options?: Record<string, unknown> | null;
 }
 
 /** `POST /connectors/{id}/test` */
@@ -86,7 +87,7 @@ export interface AuditPage { items: AuditEntry[]; next_before_id: number | strin
 export interface Backup { id: string | number; file: string; created_at: string; size_bytes: number | null; kind: string; includes_secrets: boolean }
 export interface BackupList { items: Backup[] }
 
-export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | (string & {});
+export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled" | (string & {});
 export interface Job {
   id: string | number; kind: string; status: JobStatus; attempts: number; max_attempts: number;
   created_at: string; updated_at: string | null; error: string | null; progress: number | null; summary: string | null;

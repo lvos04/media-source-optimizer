@@ -260,10 +260,13 @@ def test_private_torrent_dht_and_tracker_injection_refused(qb: Qb, operator: Any
 
 def test_upload_cap_never_above_line_share(qb: Qb, admin: Any, operator: Any) -> None:
     ingest()
-    set_settings(admin, line_up_mbit=40.0, upload_cap_pct=80)  # cap = 4 MB/s
-    cap = int(40 * 1_000_000 / 8 * 0.8)
-    r = operator.post("/api/v1/torrent/preferences/preview", json={"changes": {"up_limit": cap + 1}})
+    set_settings(admin, line_up_mbit=40.0, upload_cap_pct=80)  # cap = 4 MB/s, rounded down to whole KiB/s
+    cap = int(40 * 1_000_000 / 8 * 0.8) // 1024 * 1024
+    r = operator.post("/api/v1/torrent/preferences/preview", json={"changes": {"up_limit": cap + 1024}})
     assert r.status_code == 422 and "80%" in r.json()["detail"]
+    # a value inside the same KiB is rounded down (like qBittorrent does) and therefore allowed
+    r = operator.post("/api/v1/torrent/preferences/preview", json={"changes": {"up_limit": cap + 1000}})
+    assert r.status_code == 200 and r.json()["ops"][0]["after"] == cap
     assert (
         operator.post("/api/v1/torrent/preferences/preview", json={"changes": {"up_limit": 0}}).status_code
         == 422

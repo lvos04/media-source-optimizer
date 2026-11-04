@@ -9,8 +9,9 @@ import { api, errorMessage } from "@/lib/api/client";
 import type { CompareResult, MediaCategory } from "@/lib/api/search";
 import { useI18n } from "@/lib/i18n";
 
-function fmt(value: unknown, bytes: (n: number) => string, num: (n: number, d?: number) => string): string {
+function fmt(key: string, value: unknown, num: (n: number, d?: number) => string): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (key === "resolution" && typeof value === "number") return `${value}p`; // never "1.080"
   if (typeof value === "boolean") return value ? "ja" : "nee";
   if (Array.isArray(value)) return value.length ? value.map(String).join(", ") : "—";
   if (typeof value === "number") return num(value, value % 1 ? 2 : 0);
@@ -85,8 +86,14 @@ export function CompareDrawer({ tokens, category, onClose }: { tokens: string[];
               <table className="table table--compact">
                 <thead>
                   <tr>
-                    <th scope="col" style={{ minWidth: 120 }}> </th>
-                    {data.candidates.map((c) => <th key={c.token} scope="col" style={{ minWidth: 150 }}><span className="cell-title" style={{ wordBreak: "break-all" }}>{c.title}</span></th>)}
+                    <th scope="col" style={{ minWidth: 120 }}><span className="sr-only">{t("zoeken.compareField")}</span></th>
+                    {data.candidates.map((c) => (
+                      // .table th is nowrap + fixed height: let long release names wrap instead of being cut off
+                      <th key={c.token} scope="col" title={c.title}
+                        style={{ minWidth: 160, maxWidth: 260, whiteSpace: "normal", height: "auto", paddingTop: 8, paddingBottom: 8, verticalAlign: "bottom" }}>
+                        <span className="cell-title" style={{ overflowWrap: "anywhere", display: "block", lineHeight: 1.35 }}>{c.title}</span>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -109,7 +116,7 @@ export function CompareDrawer({ tokens, category, onClose }: { tokens: string[];
                         <th scope="row">{f.label}{differs ? <span className="sr-only"> ({t("zoeken.compareDiffers")})</span> : null}</th>
                         {data.candidates.map((c) => (
                           <td key={c.token} className={f.key === "source_label" ? undefined : "mono"} style={{ fontSize: 12 }}>
-                            {f.key === "size_bytes" && typeof c.fields[f.key] === "number" ? bytes(c.fields[f.key] as number) : fmt(c.fields[f.key], bytes, num)}
+                            {f.key === "size_bytes" && typeof c.fields[f.key] === "number" ? bytes(c.fields[f.key] as number) : fmt(f.key, c.fields[f.key], num)}
                           </td>
                         ))}
                       </tr>

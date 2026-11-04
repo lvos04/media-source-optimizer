@@ -26,6 +26,8 @@ export interface TorrentRow {
   seeding_time_s: number | null; eta_s: number | null; eta_unreliable: boolean; realistic_eta_s: number | null;
   eta_reasons: string[]; diagnosis: TorrentFinding | null; findings_count: number; recheck_suggested: boolean;
   recheck_reason: string | null; obligation: Obligation | null; stalled_for_h: number | null; updated_at: string;
+  /** suspicious_payload finding (executable in a media download) when present, else null */
+  suspicious: TorrentFinding | null;
 }
 export interface TrackerRow {
   host: string | null; kind: string; status: string; msg: string; seeds: number | null; peers: number | null;
@@ -59,20 +61,28 @@ export interface TorrentOverview {
   findings: TorrentFinding[];
   diagnosis_counts: Record<string, number>;
   state_counts: Record<string, number>;
+  /** torrents with a suspicious_payload finding (primary or not) */
+  suspicious_count: number;
   mode: string; paused: boolean;
 }
 
 export interface PreferenceItem {
   key: string; label: string; kind: "int" | "rate" | "bool" | "float" | "string"; value: unknown;
   min: number | null; max: number | null; present: boolean;
+  /** "buiten_grens" = outside MSO's safe bounds; null = not judged (no bound known) */
+  bounds: "ok" | "buiten_grens" | null; target: number | null;
 }
+export interface PreferenceList { items: PreferenceItem[]; out_of_bounds: number; updated_at: string | null; stale: boolean }
+export interface PrefViolation { key: string; label: string; value: number; min: number | null; max: number | null; target: number }
 
 export interface TorrentPolicy {
   speed: {
     line_up_mbit: number; line_down_mbit: number; upload_cap_pct: number; max_upload_bps: number | null;
     current_up_limit: number | null; current_dl_limit: number | null; status: "ok" | "boven_grens" | "onbekend";
     max_connections_cap: number; max_connections_per_torrent_cap: number; current_max_connec: number | null;
-    current_max_connec_per_torrent: number | null;
+    current_max_connec_per_torrent: number | null; current_max_uploads: number | null;
+    current_max_uploads_per_torrent: number | null; max_uploads_cap: number; max_uploads_per_torrent_cap: number;
+    out_of_bounds: PrefViolation[];
   };
   queue: {
     queueing_enabled: boolean | null; max_active_downloads: number | null; max_active_uploads: number | null;
@@ -112,7 +122,7 @@ export interface ProposeResult { reason?: string; run?: TuningRun; change?: Chan
 export interface StorageReport {
   client: { available: boolean; updated_at: string | null; error: string | null };
   disk: { free: number; remaining_downloads: number; free_after_downloads: number; reserve: number; status: "ok" | "waarschuwing" | "kritiek" } | null;
-  categories: Array<{ category: string; media_category: string | null; torrents: number; bytes: number; seeding: number; downloading: number; private: number }>;
+  categories: Array<{ category: string; media_category: string | null; torrents: number; bytes: number; seeding: number; downloading: number; stopped: number; private: number }>;
   obligations: Array<Obligation & { hash: string; name: string; tracker: string | null; category: string | null; state: string | null }>;
   obligations_summary: { total: number; met: number; open: number; private_without_rule: number };
   media: { path: string; total: number; free: number; read_only: boolean; fstype: string | null; mountpoint: string | null; zfs_dataset: string | null } | null;

@@ -78,11 +78,48 @@ def test_wrong_password_is_auth_failed(admin: Any, operator: Any, nntp_factory: 
     assert operator.post("/api/v1/usenet/providers/prov/test").json()["status"] == "auth_failed"
 
 
-def test_missing_credentials(admin: Any, operator: Any, nntp_factory: Any) -> None:
+def test_missing_credentials_is_not_a_refused_login(admin: Any, operator: Any, db: Any, nntp_factory: Any) -> None:
     srv = nntp_factory()
-    _add(admin, "prov", srv.port, username=None, password=None)
+    created = _add(admin, "prov", srv.port, username=None, password=None)
+    assert created["status"] == "missing_credentials" and created["credentials_complete"] is False
+    assert created["health"]["status"] == "missing_credentials"
     res = operator.post("/api/v1/usenet/providers/prov/test").json()
-    assert res["status"] == "auth_failed" and "ontbreekt" in res["message"]
+    assert res["status"] == "missing_credentials" and res["tested"] is False
+    assert "Gebruikersnaam/wachtwoord" in res["message"] or "gebruikersnaam/wachtwoord" in res["message"]
+    assert res["provider"]["status"] == "missing_credentials"
+    assert srv.state.commands == []  # MSO never connected
+    assert db.scalar("SELECT count(*) FROM observations WHERE metric='nntp.check_ok'") == 0
+    # filling in credentials makes it testable again
+    r = admin.put("/api/v1/usenet/providers/prov", json={"username": USERNAME, "password": PASSWORD})
+    assert r.json()["status"] == "unknown" and r.json()["credentials_complete"] is True
+    assert operator.post("/api/v1/usenet/providers/prov/test").json()["status"] == "ok"
+    # clearing them again → missing, not auth_failed
+    r = admin.put("/api/v1/usenet/providers/prov", json={"password": ""})
+    assert r.json()["status"] == "missing_credentials"
+
+
+def test_periodic_checks_skip_providers_without_credentials(
+    app: Any, admin: Any, operator: Any, worker: Any, nntp_factory: Any
+) -> None:
+    from mso import jobs
+    from mso.features.usenet import providers
+
+    srv = nntp_factory(mode="expired")
+    _add(admin, "met", srv.port)
+    for slug in ("zonder1", "zonder2"):
+        _add(admin, slug, srv.port, username=None, password=None)
+    assert providers.due_for_check() == ["met"]
+    jobs.enqueue("usenet.provider_checks", {"slugs": ["met", "zonder1", "zonder2"]})
+    worker.drain()
+    rows = {r["slug"]: r for r in admin.get("/api/v1/usenet/providers").json()["items"]}
+    assert rows["met"]["status"] == "account_expired"
+    assert rows["zonder1"]["status"] == rows["zonder2"]["status"] == "missing_credentials"
+    # the Test button only touches the provider it belongs to
+    before = {s: r["last_check_at"] for s, r in rows.items()}
+    operator.post("/api/v1/usenet/providers/zonder1/test")
+    rows2 = {r["slug"]: r for r in admin.get("/api/v1/usenet/providers").json()["items"]}
+    assert {s: r["last_check_at"] for s, r in rows2.items()} == before
+    assert rows2["met"]["status"] == "account_expired" and rows2["zonder2"]["status"] == "missing_credentials"
 
 
 def test_unreachable(admin: Any, operator: Any) -> None:
@@ -215,4 +252,18 @@ def test_import_servers_from_sab(app: Any, serve: Any, admin: Any) -> None:
         ("eweka", "news.eweka.test", 20)
     ]
     assert items[0]["credentials"] == {"username": "leeg", "password": "leeg"}
+    assert items[0]["status"] == "missing_credentials"
+    # health comes from SABnzbd's own server status until MSO has credentials
+    assert items[0]["health"] == {
+        "status": "ok",
+        "detail": "SABnzbd meldt geen fouten voor deze server.",
+        "source": "sabnzbd",
+    }
+    assert "wachtwoorden" in r.json()["note"]
     assert admin.post("/api/v1/usenet/providers/import-sab").json()["items"] == []  # already linked
+    mock_app.state.sab.set_server_error("news.eweka.test", "Server 127.0.0.1 reported: 482 Account expired.")
+    admin.get("/api/v1/usenet/sab/servers")  # refreshes SABnzbd's server state
+    p = admin.get("/api/v1/usenet/providers").json()["items"][0]
+    assert p["health"]["status"] == "account_expired" and p["health"]["source"] == "sabnzbd"
+    assert p["sab_status"]["label"] == "Account verlopen"
+    assert p["status"] == "missing_credentials"  # MSO's own state is never "auth_failed" without a login

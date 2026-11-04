@@ -272,12 +272,24 @@ def path_map() -> list[tuple[str, str]]:
     return out
 
 
+KIB = 1024
+
+
+def kib_floor(bps: int) -> int:
+    """qBittorrent stores speed limits in whole KiB/s (it rounds a written byte value down to a multiple of
+    1024: 200000000 → 199999488). Every limit MSO computes is rounded the same way (down, so a cap is never
+    exceeded) so what is written equals what qBittorrent reports back."""
+    return (int(bps) // KIB) * KIB if bps > 0 else int(bps)
+
+
 def upload_cap_bps() -> int | None:
-    """Maximum allowed upload (bytes/s) = cap% of the declared line upload capacity; None when unknown."""
+    """Maximum allowed upload (bytes/s) = cap% of the declared line upload capacity, rounded down to whole
+    KiB/s (qBittorrent's unit); None when unknown."""
     up = float(get("line_up_mbit") or 0)
     if up <= 0:
         return None
-    return int(up * 1_000_000 / 8 * int(get("upload_cap_pct")) / 100)
+    cap = kib_floor(int(up * 1_000_000 / 8 * int(get("upload_cap_pct")) / 100))
+    return cap if cap > 0 else None
 
 
 def line_down_bps() -> int | None:

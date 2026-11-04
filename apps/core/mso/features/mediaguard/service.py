@@ -323,7 +323,13 @@ def cached_wanted(
     reason_code: str | None = None,
     page: int = 1,
     page_size: int = 50,
+    offset: int | None = None,
+    limit: int | None = None,
 ) -> dict[str, Any]:
+    """One page of the cached wanted list. ``offset``/``limit`` override ``page``/``page_size`` (used when
+    the recovery list merges manual items in front of the MediaGuard items)."""
+    off = (page - 1) * page_size if offset is None else max(0, offset)
+    lim = page_size if limit is None else max(0, limit)
     where, params = ["1=1"], []
     if media_category:
         where.append("media_category=%s")
@@ -337,13 +343,17 @@ def cached_wanted(
     db = get_db()
     sql_where = " WHERE " + " AND ".join(where)
     total = int(db.scalar("SELECT count(*) FROM mg_wanted_cache" + sql_where, params) or 0)
-    rows = db.fetchall(
-        "SELECT mg_id, instance_id, media_type, media_category, kind, reason, title, item_title, "
-        "season_number, episode_number, absolute_episode_number, air_date_utc, status, attempts, "
-        "last_searched_at, last_reason_code, fetched_at, expires_at FROM mg_wanted_cache"
-        + sql_where
-        + " ORDER BY (raw->>'priority')::int DESC NULLS LAST, mg_id LIMIT %s OFFSET %s",
-        [*params, page_size, (page - 1) * page_size],
+    rows = (
+        db.fetchall(
+            "SELECT mg_id, instance_id, media_type, media_category, kind, reason, title, item_title, "
+            "season_number, episode_number, absolute_episode_number, air_date_utc, status, attempts, "
+            "last_searched_at, last_reason_code, fetched_at, expires_at FROM mg_wanted_cache"
+            + sql_where
+            + " ORDER BY (raw->>'priority')::int DESC NULLS LAST, mg_id LIMIT %s OFFSET %s",
+            [*params, lim, off],
+        )
+        if lim
+        else []
     )
     now = _now()
     for r in rows:
@@ -445,6 +455,31 @@ def _live_mg_quota(c: mgc.MediaGuardClient, instance_id: str) -> dict[str, Any] 
     snap_put("quota", data, ttl_s=300)
     q = data.get(instance_id) if isinstance(data, dict) else None
     return q if isinstance(q, dict) else None
+
+
+def _refresh_quota_after_search(
+    c: mgc.MediaGuardClient, instance_id: str, *, before: dict[str, Any], issued: Any = None
+) -> None:
+    """After a successful search request the cached MediaGuard quota (read just before the request) is one
+    search behind. Re-read it (read-only GET; MediaGuard's own numbers win). Only if that read fails, count
+    the search locally in the snapshot so the UI does not keep showing the pre-request value."""
+    try:
+        if _live_mg_quota(c, instance_id) is not None:
+            return
+    except Exception as exc:  # best effort: the search itself was sent; never turn that into an error
+        LOGGER.info("MediaGuard-quotum na zoekverzoek niet opnieuw leesbaar: %s", redact(str(exc)))
+    if issued == 0:  # MediaGuard issued nothing (e.g. already queued): nothing was used
+        return
+    row = snap_get("quota")
+    data = dict(row["data"]) if row is not None and isinstance(row["data"], dict) else {}
+    q = dict(data.get(instance_id) or before)
+    for k in ("hour_used", "day_used"):
+        if isinstance(q.get(k), int):
+            q[k] += 1
+    if isinstance(q.get("remaining"), int):
+        q["remaining"] = max(0, q["remaining"] - 1)
+    data[instance_id] = q
+    snap_put("quota", data, ttl_s=300, etag=row["etag"] if row is not None else None)
 
 
 # ------------------------------------------------------------------ request search (the only write)
@@ -590,6 +625,7 @@ def request_search(mg_id: int, *, actor: str, trigger: str = "manual") -> dict[s
     }
     done = _finish(req_id, key, "sent", http_status=200, response=summary)
     db.execute("DELETE FROM mg_search_backoff WHERE mg_id=%s", (mg_id,))
+    _refresh_quota_after_search(c, item["instance_id"], before=mgq, issued=summary.get("issued"))
     audit(
         actor,
         "mediaguard.search_requested",

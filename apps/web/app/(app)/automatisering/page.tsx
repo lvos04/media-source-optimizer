@@ -14,6 +14,7 @@ import type { Risk } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
 import type { AutomationStatus } from "@/lib/api/insights";
 import { useI18n } from "@/lib/i18n";
+import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 
 const TABS = ["aanbevelingen", "wijzigingen", "automatisch", "ai"] as const;
@@ -27,6 +28,10 @@ export default function AutomationPage() {
   const [focusChange, setFocusChange] = useState<number | null>(null);
   const status = useResource<AutomationStatus>("/automation/status", undefined, 60_000);
   const { run, pending } = useAction();
+  const { mode, paused } = useMode();
+  const { reload: reloadStatus } = status;
+  // pause/resume or a mode switch anywhere (topbar, banner, Instellingen) → refresh the automation status
+  useEffect(() => { void reloadStatus(); }, [mode, paused, reloadStatus]);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("tab");
@@ -39,8 +44,9 @@ export default function AutomationPage() {
     window.history.replaceState(null, "", url.toString());
   };
   const s = status.data;
-  const runAllowed = can("operator") && !!s?.automation_allowed;
-  const runReason = !can("operator") ? t("automation.operatorOnly") : !s?.automation_allowed ? t("automation.runReason") : undefined;
+  const allowed = mode !== null ? mode === "manage" && !paused : !!s?.automation_allowed;
+  const runAllowed = can("operator") && allowed;
+  const runReason = !can("operator") ? t("automation.operatorOnly") : !allowed ? t("automation.runReason") : undefined;
 
   return (
     <>

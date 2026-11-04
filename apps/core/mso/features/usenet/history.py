@@ -9,6 +9,7 @@ upserted; the upsert itself is idempotent on (client, nzo_id).
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -19,7 +20,7 @@ from mso.connectors.sabnzbd import SabClient, SabError
 from mso.db import get_db
 from mso.domain import outcomes
 from mso.domain.categories import MEDIA_CATEGORIES
-from mso.features.usenet import failures, nzbs
+from mso.features.usenet import failures, nzbs, serverstatus
 from mso.security import redact
 
 LOGGER = logging.getLogger(__name__)
@@ -27,21 +28,64 @@ FINAL = {"Completed": "success", "Failed": "failed"}
 STATS_DAYS = 35
 
 
-def category_map() -> dict[str, str]:
-    out: dict[str, str] = {}
+NONE_VALUES = {"none", "geen", "-", ""}
+_ANIME = re.compile(r"anime", re.I)
+_TV = re.compile(r"(^|[^a-z])tv|series|serie\b|sonarr|shows?\b|episodes?|televis", re.I)
+_MOVIES = re.compile(r"movie|film|radarr|cinema", re.I)
+
+
+def category_map() -> dict[str, str | None]:
+    """Explicit mapping from ``usenet.category_map`` (``sab=media``; ``sab=none`` = explicitly no category)."""
+    out: dict[str, str | None] = {}
     for line in sr.get("usenet.category_map") or []:
         if "=" not in line:
             continue
         sab, media = (p.strip() for p in line.split("=", 1))
-        if sab and media in MEDIA_CATEGORIES:
+        if not sab:
+            continue
+        if media in MEDIA_CATEGORIES:
             out[sab.lower()] = media
+        elif media.lower() in NONE_VALUES:
+            out[sab.lower()] = None
     return out
 
 
-def media_category(sab_cat: str | None, mapping: dict[str, str] | None = None) -> str | None:
-    if not sab_cat:
+def auto_category(sab_cat: str | None) -> str | None:
+    """Name heuristic for SABnzbd categories without an explicit mapping (tv/series/sonarr → tv,
+    anime + tv/sonarr → tv-anime, movies/films/radarr → movies, anime + movies/radarr → movies-anime,
+    plain "anime" → tv-anime; ``*``/default and everything else → none)."""
+    name = (sab_cat or "").strip().lower()
+    if not name or name in ("*", "default", "standaard"):
         return None
-    return (mapping if mapping is not None else category_map()).get(sab_cat.lower())
+    if name in MEDIA_CATEGORIES:
+        return name
+    anime, tv, movies = bool(_ANIME.search(name)), bool(_TV.search(name)), bool(_MOVIES.search(name))
+    if anime and movies:
+        return "movies-anime"
+    if anime:
+        return "tv-anime"
+    if movies and not tv:
+        return "movies"
+    if tv and not movies:
+        return "tv"
+    return None
+
+
+def resolve_category(sab_cat: str | None, mapping: dict[str, str | None] | None = None) -> tuple[str | None, str]:
+    """→ (media category, source): source ``handmatig`` (explicit setting), ``automatisch`` (name heuristic)
+    or ``geen``."""
+    if not sab_cat:
+        return None, "geen"
+    mapping = category_map() if mapping is None else mapping
+    key = sab_cat.lower()
+    if key in mapping:
+        return mapping[key], "handmatig"
+    auto = auto_category(sab_cat)
+    return auto, "automatisch" if auto else "geen"
+
+
+def media_category(sab_cat: str | None, mapping: dict[str, str | None] | None = None) -> str | None:
+    return resolve_category(sab_cat, mapping)[0]
 
 
 def _state() -> dict[str, Any]:
@@ -50,7 +94,13 @@ def _state() -> dict[str, Any]:
     return dict(db.fetchone("SELECT * FROM usenet_ingest_state WHERE id=1"))
 
 
-def map_slot(slot: dict[str, Any], *, mapping: dict[str, str], retention: list[int] | None) -> dict[str, Any]:
+def map_slot(
+    slot: dict[str, Any],
+    *,
+    mapping: dict[str, str | None],
+    retention: list[int] | None,
+    server_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     status = FINAL.get(str(slot.get("status")), "active")
     nzo_id = str(slot.get("nzo_id"))
     known = nzbs.by_nzo(nzo_id)
@@ -69,8 +119,12 @@ def map_slot(slot: dict[str, Any], *, mapping: dict[str, str], retention: list[i
             server_retention_days=retention,
         )
         cls = cls or failures.Classification("unknown", "onbekend", "geen foutmelding van SABnzbd", "")
+        if server_events:
+            cls = failures.with_server_context(cls, serverstatus.problems_at(finished, server_events))
         reason, detail = cls.reason, cls.detail
         meta["classification"] = {"certainty": cls.certainty, "evidence": cls.evidence}
+        if cls.likely_cause:
+            meta["classification"]["likely_cause"] = cls.likely_cause
     elif slot.get("fail_message"):
         meta["sab_message"] = redact(str(slot["fail_message"]))[:300]
     cat = slot.get("category")
@@ -123,15 +177,21 @@ def ingest(*, force: bool = False) -> dict[str, Any]:
             or int(s.get("completed") or 0) > last_completed
         ]
         retention: list[int] | None = None
+        events: list[dict[str, Any]] = []
         if any(str(s.get("status")) == "Failed" for s in todo):
             try:
                 retention = [s["retention"] for s in client.servers() if s["enable"]]
             except SabError:
                 retention = None
+            try:  # SABnzbd's own server errors → likely cause of unspecific failures
+                serverstatus.refresh(client)
+            except SabError as exc:
+                LOGGER.info("SABnzbd-serverstatus niet beschikbaar: %s", exc)
+            events = serverstatus.load_events()
     mapping = category_map()
     new_failed: list[str] = []
     for slot in todo:
-        row = map_slot(slot, mapping=mapping, retention=retention)
+        row = map_slot(slot, mapping=mapping, retention=retention, server_events=events)
         before = db.fetchone(
             "SELECT status FROM download_outcomes WHERE client='sabnzbd' AND client_ref=%s",
             (row["client_ref"],),
@@ -257,6 +317,7 @@ def queue_view(limit: int = 100) -> dict[str, Any]:
                 "name": s.get("filename") or s.get("name"),
                 "category": s.get("cat"),
                 "media_category": media_category(s.get("cat"), mapping),
+                "category_source": resolve_category(s.get("cat"), mapping)[1],
                 "status": s.get("status"),
                 "percentage": _float(s.get("percentage")),
                 "size_mb": _float(s.get("mb")),
@@ -280,23 +341,35 @@ def history_view(limit: int = 50, failed_only: bool = False) -> dict[str, Any]:
     with SabClient.from_config() as client:
         hist = client.history(limit=limit, failed_only=failed_only) or {}
     mapping = category_map()
+    events = serverstatus.load_events()
     items = []
     for s in hist.get("slots") or []:
-        row = map_slot(s, mapping=mapping, retention=None)
+        row = map_slot(s, mapping=mapping, retention=None, server_events=events)
         known = nzbs.by_nzo(row["client_ref"])
+        cls = row["meta"].get("classification") or {}
+        cause = cls.get("likely_cause")
         items.append(
             {
                 "nzo_id": row["client_ref"],
                 "name": row["title"],
                 "category": row["client_category"],
                 "media_category": row["media_category"],
+                "category_source": resolve_category(row["client_category"], mapping)[1]
+                if row["media_category"] == media_category(row["client_category"], mapping)
+                else "nzb",
                 "status": row["status"],
                 "sab_status": s.get("status"),
                 "failure_reason": row["failure_reason"],
                 "failure_label": outcomes.FAILURE_REASONS.get(row["failure_reason"] or "", None),
                 "failure_detail": row["failure_detail"],
-                "certainty": (row["meta"].get("classification") or {}).get("certainty"),
-                "evidence": (row["meta"].get("classification") or {}).get("evidence"),
+                "certainty": cls.get("certainty"),
+                "evidence": cls.get("evidence"),
+                "likely_cause": {
+                    **cause,
+                    "label": outcomes.FAILURE_REASONS.get(cause["reason"], cause["reason"]),
+                }
+                if cause
+                else None,
                 "size_bytes": row["size_bytes"],
                 "finished_at": row["finished_at"],
                 "nzb_id": known["id"] if known else None,

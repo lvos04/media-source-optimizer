@@ -38,3 +38,11 @@
 
 /* long status chips inside key/value rows may wrap on narrow screens instead of being clipped */
 .dl dd .chip, .kv .chip { white-space: normal; height: auto; min-height: 22px; padding-block: 3px; max-width: 100%; }
+
+/* dialogs: always fully visible — vertically centred, capped to the (dynamic) viewport height, body scrolls inside.
+   The Modal renders in a portal on <body>, so the topbar's backdrop-filter can no longer clip it. */
+.overlay { overflow: hidden; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+.dialog { display: flex; flex-direction: column; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow: hidden; }
+.dialog-head, .dialog-foot { flex: none; }
+.dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.dialog--wide { width: min(880px, 100%); }

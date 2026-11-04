@@ -5,7 +5,8 @@ import {
   CircleCheck, CircleX, Info, Loader, LoaderCircle, Lock, Pause, TriangleAlert, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, useRef, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -203,22 +204,34 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <span className="kbd">{children}</span>;
 }
 
-/** Simple modal dialog with focus management (Esc closes, focus restored). */
-export function Modal({ open, onClose, title, children, footer, danger, icon: Icon, labelledBy, role = "dialog", description }: {
+const noopSubscribe = () => () => undefined;
+
+/**
+ * Simple modal dialog with focus management (Esc closes, focus restored).
+ * Rendered in a portal on `document.body`, so an ancestor with `backdrop-filter`/`transform` (the sticky topbar)
+ * can never become the containing block of the fixed overlay (which clipped dialogs opened from the topbar).
+ * Initial focus is set ONCE per opening; re-renders of the parent (polling, typing in a field inside the dialog,
+ * a new `onClose` identity on every render) never move focus again.
+ */
+export function Modal({ open, onClose, title, children, footer, danger, icon: Icon, labelledBy, role = "dialog", description, wide }: {
   open: boolean; onClose: () => void; title: ReactNode; children?: ReactNode; footer?: ReactNode; danger?: boolean; icon?: LucideIcon;
-  labelledBy?: string; role?: "dialog" | "alertdialog"; description?: ReactNode;
+  labelledBy?: string; role?: "dialog" | "alertdialog"; description?: ReactNode; wide?: boolean;
 }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
   const descId = useId();
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   useEffect(() => {
-    if (!open) return;
+    if (!open || !mounted) return;
     const previous = document.activeElement as HTMLElement | null;
     const node = ref.current;
     const focusables = () => Array.from(node?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])') ?? []);
-    (node?.querySelector<HTMLElement>("[data-autofocus]") ?? focusables()[0])?.focus();
+    // only when focus is not already inside the dialog (never steal focus from a field the user is typing in)
+    if (!node?.contains(document.activeElement)) (node?.querySelector<HTMLElement>("[data-autofocus]") ?? focusables()[0])?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+      if (e.key === "Escape") { e.stopPropagation(); onCloseRef.current(); }
       if (e.key === "Tab") {
         const items = focusables();
         if (!items.length) return;
@@ -232,11 +245,11 @@ export function Modal({ open, onClose, title, children, footer, danger, icon: Ic
       document.removeEventListener("keydown", onKey, true);
       previous?.focus?.();
     };
-  }, [onClose, open]);
-  if (!open) return null;
-  return (
-    <div className="overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <section ref={ref} className={cn("dialog", danger && "dialog--danger")} role={role} aria-modal="true" aria-labelledby={labelledBy ?? titleId} aria-describedby={description ? descId : undefined}>
+  }, [open, mounted]);
+  if (!open || !mounted) return null;
+  return createPortal(
+    <div className="overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onCloseRef.current(); }}>
+      <section ref={ref} className={cn("dialog", danger && "dialog--danger", wide && "dialog--wide")} role={role} aria-modal="true" aria-labelledby={labelledBy ?? titleId} aria-describedby={description ? descId : undefined}>
         <div className="dialog-head">
           {Icon ? <span className={cn("list-icon", danger ? "list-icon--danger" : "list-icon--accent")}><Icon className="ico" aria-hidden="true" /></span> : null}
           <div>
@@ -247,6 +260,7 @@ export function Modal({ open, onClose, title, children, footer, danger, icon: Ic
         {children ? <div className="dialog-body">{children}</div> : null}
         {footer ? <div className="dialog-foot">{footer}</div> : null}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }

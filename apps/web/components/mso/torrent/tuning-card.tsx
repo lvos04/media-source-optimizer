@@ -1,7 +1,7 @@
 "use client";
 
-import { FlaskConical, Hourglass, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { Check, FlaskConical, Hourglass, Play, Sparkles } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 import { Button, Card, InlineState, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
@@ -13,7 +13,9 @@ import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
 import type { MetricStats, ProposeResult, TuningList, TuningRun } from "@/lib/api/torrent";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useWriteGate } from "@/lib/mode";
 import { useSession } from "@/lib/session";
+import { CHANGE_STATUS } from "@/lib/status";
 
 const RUN_STATUS: Record<TuningRun["status"], { tone: Tone; key: MessageKey }> = {
   proposed: { tone: "info", key: "torrent.tuning.status.proposed" },
@@ -32,11 +34,94 @@ function MetricValue({ stats, unit }: { stats: Partial<MetricStats> | undefined;
   return <span>{v} <span className="t-3" style={{ fontSize: 11.5 }}>({t("torrent.tuning.samples", { n: num(stats.n ?? 0) })})</span></span>;
 }
 
-function OpenChange({ id, onChanged }: { id: number; onChanged: () => void }) {
-  const change = useResource<ChangeSet>(`/changes/${id}`);
+const LEGACY_IMPACT_LABEL: Record<string, MessageKey> = {
+  kind: "torrent.tuning.impact.kind",
+  metric: "torrent.tuning.impact.metric",
+  baseline: "torrent.tuning.impact.baseline",
+  evaluate_after_h: "torrent.tuning.impact.evaluation",
+};
+
+/** Readable "verwachte impact": flat label → text (current backend); older nested impacts are summarised. */
+function TuningImpact({ impact, unit }: { impact: unknown; unit: string | null }) {
+  const { t, num } = useI18n();
+  if (!impact || typeof impact !== "object" || Array.isArray(impact)) return null;
+  const entries = Object.entries(impact as Record<string, unknown>);
+  if (!entries.length) return null;
+  return (
+    <div>
+      <span className="eyebrow">{t("torrent.tuning.impact")}</span>
+      <dl className="kv" style={{ marginTop: 4, fontSize: 13 }}>
+        {entries.map(([k, v]) => {
+          let value: ReactNode;
+          if (v === null || v === undefined || v === "") value = "—";
+          else if (typeof v === "string") value = v;
+          else if (typeof v === "number") value = k === "evaluate_after_h" ? t("torrent.tuning.hours", { h: num(v, 1) }) : num(v, 2);
+          else if (typeof v === "object" && "median" in (v as object)) value = <MetricValue stats={v as Partial<MetricStats>} unit={unit} />;
+          else return null; // nested technical data is not shown here (it stays in the change log)
+          const label = LEGACY_IMPACT_LABEL[k] ? t(LEGACY_IMPACT_LABEL[k]) : k;
+          return <div key={k} style={{ display: "contents" }}><dt>{label}</dt><dd>{value}</dd></div>;
+        })}
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * The run's change set. Approve/apply are only offered while the change is open (preview/approved); after
+ * any outcome — including a failed apply — the change is re-read, so a failed change shows its final status
+ * and error instead of a stale "Toepassen" button. Rollback of an applied change uses the shared preview.
+ */
+function RunChange({ id, unit, onChanged }: { id: number; unit: string | null; onChanged: () => void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const gate = useWriteGate("operator");
+  const change = useResource<ChangeSet & { error?: string | null }>(`/changes/${id}`);
+  const [pending, setPending] = useState<"approve" | "apply" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (action: "approve" | "apply") => {
+    setPending(action);
+    setError(null);
+    try {
+      await api.post(`/changes/${encodeURIComponent(String(id))}/${action}`);
+      toast.push("success", t(action === "approve" ? "change.approved" : "change.applied"));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setPending(null);
+      await change.reload();
+      onChanged();
+    }
+  };
   return (
     <ResourceView resource={change} compact endpoint={`GET /api/v1/changes/${id}`}>
-      {(c) => <ChangePreview change={c} card={false} onChanged={() => { void change.reload(); onChanged(); }} />}
+      {(c) => {
+        const isOpen = c.status === "preview" || c.status === "approved";
+        const canApply = c.status === "approved" || (c.status === "preview" && c.risk !== "toestemming_nodig");
+        const st = CHANGE_STATUS[c.status] ?? CHANGE_STATUS.preview;
+        return (
+          <div className="stack-sm">
+            <ChangePreview change={{ ...c, impact: null }} card={false} actions={c.status === "applied"}
+              onChanged={() => { void change.reload(); onChanged(); }} />
+            <TuningImpact impact={c.impact} unit={unit} />
+            {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}
+            {isOpen ? (
+              <div className="row wrap">
+                {c.status === "preview" ? (
+                  <Button size="sm" icon={Check} pending={pending === "approve"} disabled={!gate.allowed || pending !== null}
+                    title={gate.reason} onClick={() => void run("approve")}>{t("action.approve")}</Button>
+                ) : null}
+                <Button size="sm" variant="primary" icon={Play} pending={pending === "apply"} disabled={!gate.allowed || !canApply || pending !== null}
+                  title={!gate.allowed ? gate.reason : canApply ? undefined : t("change.needsApproval")} onClick={() => void run("apply")}>{t("action.apply")}</Button>
+                {!gate.allowed && gate.reason ? <span className="hint" style={{ margin: 0 }}>{gate.reason}</span> : null}
+              </div>
+            ) : c.status !== "applied" ? (
+              <InlineState tone={st.tone === "danger" ? "danger" : "neutral"} role="status">
+                {t("torrent.tuning.changeFinal", { status: t(st.label) })}{c.error ? ` — ${c.error}` : ""}
+              </InlineState>
+            ) : null}
+          </div>
+        );
+      }}
     </ResourceView>
   );
 }
@@ -53,6 +138,11 @@ function RunRow({ run, onChanged }: { run: TuningRun; onChanged: () => void }) {
         <span className="evidence-source mono">{run.param}</span>
         <span className="grow" />
         {run.change_risk ? <RiskChip risk={run.change_risk} /> : null}
+        {!open && run.change_status && CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS] ? (
+          <StatusChip tone={CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS].tone}>
+            {t("torrent.tuning.changeStatus", { status: t(CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS].label) })}
+          </StatusChip>
+        ) : null}
       </div>
       <dl className="evidence-body">
         <dt>{t("torrent.tuning.change")}</dt><dd>{formatOpValue(run.before_value)} → {formatOpValue(run.after_value)} <span className="t-3">({t(`torrent.tuning.kind.${run.kind}` as MessageKey)})</span></dd>
@@ -65,7 +155,7 @@ function RunRow({ run, onChanged }: { run: TuningRun; onChanged: () => void }) {
         ) : <><dt>{t("torrent.tuning.window")}</dt><dd>{t("torrent.tuning.hours", { h: num(run.evaluate_after_h, 1) })}</dd></>}
         {run.note ? <><dt>{t("torrent.tuning.outcome")}</dt><dd>{run.note}</dd></> : null}
       </dl>
-      {open && run.change_id ? <div style={{ marginTop: 8 }}><OpenChange id={run.change_id} onChanged={onChanged} /></div> : null}
+      {open && run.change_id ? <div style={{ marginTop: 8 }}><RunChange id={run.change_id} unit={run.metric_unit} onChanged={onChanged} /></div> : null}
     </article>
   );
 }

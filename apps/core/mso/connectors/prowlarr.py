@@ -74,7 +74,9 @@ class ProwlarrClient:
         except UnsafeTarget as exc:
             raise ProwlarrError(f"Prowlarr-URL geweigerd: {exc}", "unavailable") from exc
         except httpx.TimeoutException as exc:
-            raise ProwlarrError("Prowlarr reageert niet binnen de time-out", "timeout") from exc
+            raise ProwlarrError(
+                f"Prowlarr reageert niet binnen {timeout or self.timeout:.0f} s (time-out)", "timeout"
+            ) from exc
         except httpx.HTTPError as exc:
             raise ProwlarrError(f"Prowlarr onbereikbaar: {type(exc).__name__}", "unavailable") from exc
         body: Any = None
@@ -265,10 +267,31 @@ def normalize_result(rec: dict[str, Any], *, private_ids: set[int] | None = None
         r.extra["magnet"] = magnet
     r.extra["indexer"] = rec.get("indexer")
     r.extra["upstream_cats"] = cats
-    flags = [str(f).lower() for f in rec.get("indexerFlags") or []]
-    if "freeleech" in flags:
-        r.freeleech = True
+    r.freeleech = freeleech_of(rec, r.private)
     return r
+
+
+def freeleech_of(rec: dict[str, Any], private: bool | None) -> bool | None:
+    """Freeleech only means something on a private (ratio) tracker. Prowlarr's Cardigann definitions give
+    public trackers ``downloadVolumeFactor: 0`` (and so the 'freeleech' flag) — that is not freeleech. So:
+    True only for a private indexer with an explicit ``downloadVolumeFactor == 0`` or freeleech flag; a
+    missing factor is never read as 0; public/unknown indexers → None."""
+    if private is not True or str(rec.get("protocol", "")).lower() != "torrent":
+        return None
+    flags = set()
+    for f in rec.get("indexerFlags") or []:
+        flags.add(str(f.get("name") if isinstance(f, dict) else f).strip().lower())
+    dvf = rec.get("downloadVolumeFactor")
+    factor: float | None
+    try:
+        factor = float(dvf) if dvf is not None and dvf != "" else None
+    except (TypeError, ValueError):
+        factor = None
+    if (factor is not None and factor == 0) or "freeleech" in flags:
+        return True
+    if factor is not None:
+        return False
+    return None
 
 
 # ------------------------------------------------------------------ connector test

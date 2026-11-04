@@ -31,6 +31,7 @@ STATUSES = (
     "timeout",
     "error",
     "unknown",
+    "missing_credentials",  # no username/password in MSO: never tested, never "auth_failed"
 )
 
 _EXPIRED = re.compile(r"expir|verlopen|inactive account|account (is )?(suspended|disabled)", re.I)

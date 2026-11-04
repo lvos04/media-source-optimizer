@@ -14,6 +14,7 @@ FAILURE_REASONS: dict[str, str] = {
     "no_retention": "Buiten retentie / artikelen verlopen",
     "incomplete": "Onvolledig (ontbrekende artikelen/blocks, repair faalde)",
     "client_failure": "Fout in downloadclient",
+    "unpack_failed": "Uitpakken mislukt",
     "import_failure": "Importfout (na download)",
     "auth_failure": "Authenticatie mislukt bij provider/tracker",
     "account_expired": "Account verlopen",

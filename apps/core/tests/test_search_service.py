@@ -212,6 +212,7 @@ def test_search_requires_input_and_role(client: Any, viewer: Any) -> None:
 
 def test_prowlarr_search_normalised_without_secrets(viewer: Any, operator: Any, serve: Any, db: Any) -> None:
     mock = mock_prowlarr.create_app(api_key=PROWLARR_KEY)
+    mock.state.data["health"] = []  # TorrentLeech healthy here (failing indexers: test_search_relevance)
     configure_prowlarr(serve(mock))
     operator.post("/api/v1/indexers/prowlarr/sync")
     r = viewer.get("/api/v1/search", params={"q": "Expanse", "category": "tv"})

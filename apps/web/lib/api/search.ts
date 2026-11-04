@@ -6,7 +6,7 @@ export type MediaCategory = "tv" | "tv-anime" | "movies" | "movies-anime";
 export type Protocol = "usenet" | "torrent";
 export type SourceStatus =
   | "ok" | "empty" | "timeout" | "error" | "category_error" | "skipped_cycle" | "skipped_scope"
-  | "rate_limited" | "backoff" | "auth_error";
+  | "rate_limited" | "backoff" | "auth_error" | "unavailable";
 
 export interface ParsedTitle {
   resolution: number | null; source: string | null; video_codec: string | null; hdr: string[];
@@ -29,6 +29,8 @@ export interface SearchItem {
 
 export interface SourceReport {
   source_id: string; label: string; status: SourceStatus; count: number; latency_ms: number | null; message: string;
+  /** Set on per-indexer rows under an aggregate (e.g. "prowlarr"). */
+  parent?: string | null;
 }
 
 export interface SearchResponse {
@@ -75,6 +77,12 @@ export interface IndexerSource {
   enabled: boolean; reliability: number | null;
   reliability_detail: { samples: number; ok: number; failed: number; false_positives: number; median_latency_ms: number | null; window_days: number } | null;
   untagged: boolean; is_mso: boolean; stats: SourceStats | null; updated_at: string;
+  /** tag = MediaGuard tag in Prowlarr; derived = from Prowlarr categories; default = no info; config = own indexer. */
+  scope_source?: "tag" | "derived" | "default" | "config";
+  /** false = no TV/Movies categories in Prowlarr: skipped in searches by default. */
+  library_relevant?: boolean | null; relevance_reason?: string | null;
+  prowlarr_health?: Array<{ kind: string; broken: boolean; message: string; source: string }>;
+  prowlarr_broken?: boolean;
   prowlarr?: { prowlarr_id: number; implementation: string | null; definition: string | null; privacy: string | null; tags: string[]; disabled_till: string | null; most_recent_failure: string | null; avg_response_ms: number | null; queries: number | null; grabs: number | null; failed_queries: number | null; anime_name: boolean };
   direct?: DirectIndexer;
 }
@@ -95,7 +103,7 @@ export interface ProwlarrConflict {
 export interface ProwlarrView {
   mediaguard_managed: boolean; tags: Array<{ id: number; label: string }>;
   applications: Array<{ id: number; name: string; implementation: string; syncLevel: string; tags: string[]; mediaguard: boolean }>;
-  indexers: Array<{ id: number; name: string; protocol: string; privacy: string; enable: boolean; tags: string[]; scopes: string[]; untagged: boolean; is_mso: boolean; anime_name: boolean }>;
+  indexers: Array<{ id: number; name: string; protocol: string; privacy: string; enable: boolean; tags: string[]; scopes: string[]; untagged: boolean; scope_source?: string; library_relevant?: boolean | null; is_mso: boolean; anime_name: boolean }>;
   conflicts: ProwlarrConflict[]; policy: string;
 }
 

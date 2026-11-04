@@ -31,7 +31,7 @@ export interface MgSyncState {
 
 export interface MgStatus {
   mode: MgMode; reason: string; configured: boolean; version: string | null; role: string | null;
-  auth_method: "user" | "token" | null; emergency_stop: boolean | null; reachable: boolean; latency_ms: number | null;
+  auth_method: "apikey" | "user" | "token" | null; emergency_stop: boolean | null; reachable: boolean; latency_ms: number | null;
   checked_at: string | null; warnings: string[]; error: string | null; capabilities: Record<string, boolean | null>;
   compat: CompatMatrix; last_sync: MgSyncState | null;
   search: { available: boolean; reason: string | null; auto_enabled: boolean; automation_allowed: boolean };

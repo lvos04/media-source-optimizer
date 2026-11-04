@@ -2,6 +2,17 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.2.0] — 2026-11-04
+
+### Toegevoegd
+- **MediaGuard-API-sleutels** als aanbevolen inlogmethode (header `X-Api-Key`, eigen rol, geen sessie of CSRF):
+  - nieuw veld bij de koppeling en keuze *API-sleutel* op het MediaGuard-scherm;
+  - rolcontrole via `/auth/me`;
+  - duidelijke melding bij een ongeldige of ingetrokken sleutel, of bij een MediaGuard zonder sleutels;
+  - `mgk_`-sleutels worden overal in logs gemaskeerd.
+- `docs/MEDIAGUARD_API_KEYS.md`: contract en kant-en-klare bouwprompt om API-sleutels aan MediaGuard toe te voegen.
+- Mock-MediaGuard ondersteunt API-sleutels (operator, viewer, ingetrokken, oude versie). Er zijn 8 nieuwe tests.
+
 ## [1.1.1] — 2026-11-04
 
 ### Gewijzigd

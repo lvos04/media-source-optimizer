@@ -32,7 +32,7 @@ export default function MediaGuardPage() {
 
   const probe = async () => { const r = await run<MgStatus>("probe", "post", "/mediaguard/probe", undefined, t("mg.probed")); if (r) status.setData(() => r); };
   const sync = async () => { if (await run("sync", "post", "/mediaguard/sync", undefined, t("mg.syncQueued"))) window.setTimeout(() => void status.reload(), 3000); };
-  const setMethod = async (method: "user" | "token") => {
+  const setMethod = async (method: "apikey" | "user" | "token") => {
     if (await run("method", "put", "/connectors/mediaguard", { options: { auth_method: method } }, t("mg.auth.saved"))) void probe();
   };
 
@@ -55,7 +55,7 @@ export default function MediaGuardPage() {
                 <dl className="kv">
                   <dt>{t("mg.version")}</dt><dd className="mono">{d.version ?? "—"}</dd>
                   <dt>{t("mg.role")}</dt><dd>{d.role ? <StatusChip tone={d.role === "operator" ? "success" : d.role === "admin" ? "warning" : "info"}>{d.role}</StatusChip> : "—"}</dd>
-                  <dt>{t("mg.authMethod")}</dt><dd>{d.auth_method === "token" ? t("mg.auth.token") : d.auth_method === "user" ? t("mg.auth.user") : "—"}</dd>
+                  <dt>{t("mg.authMethod")}</dt><dd>{d.auth_method === "apikey" ? t("mg.auth.apikey") : d.auth_method === "token" ? t("mg.auth.token") : d.auth_method === "user" ? t("mg.auth.user") : "—"}</dd>
                   <dt>{t("mg.reachable")}</dt><dd>{d.configured ? (d.reachable ? <StatusChip tone="success">{t("mg.yes")}</StatusChip> : <StatusChip tone="danger">{t("mg.no")}</StatusChip>) : t("mg.notConfiguredShort")}</dd>
                   <dt>{t("mg.emergency")}</dt><dd>{d.emergency_stop ? <StatusChip tone="danger" icon={ShieldAlert}>{t("mg.emergencyActive")}</StatusChip> : d.emergency_stop === false ? <StatusChip tone="success">{t("mg.emergencyOff")}</StatusChip> : "—"}</dd>
                   <dt>{t("mg.latency")}</dt><dd className="num">{d.latency_ms != null ? `${num(d.latency_ms)} ms` : "—"}</dd>
@@ -76,12 +76,14 @@ export default function MediaGuardPage() {
           <div className="stack">
             <p style={{ fontSize: 13 }}>{t("mg.auth.advice")}</p>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+              <li>{t("mg.auth.apikeyAdvice")}</li>
               <li>{t("mg.auth.operator")}</li>
               <li>{t("mg.auth.viewer")}</li>
               <li>{t("mg.auth.tokenWarn")}</li>
             </ul>
-            <Segmented<"user" | "token"> label={t("mg.authMethod")} value={s?.auth_method ?? "user"} onChange={(v) => void setMethod(v)}
+            <Segmented<"apikey" | "user" | "token"> label={t("mg.authMethod")} value={s?.auth_method ?? "apikey"} onChange={(v) => void setMethod(v)}
               options={[
+                { value: "apikey", label: t("mg.auth.apikey"), disabled: !isAdmin || pending === "method", title: isAdmin ? undefined : t("mg.needAdmin") },
                 { value: "user", label: t("mg.auth.user"), disabled: !isAdmin || pending === "method", title: isAdmin ? undefined : t("mg.needAdmin") },
                 { value: "token", label: t("mg.auth.token"), disabled: !isAdmin || pending === "method", title: isAdmin ? undefined : t("mg.needAdmin") },
               ]} />

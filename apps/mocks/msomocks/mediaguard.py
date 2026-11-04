@@ -38,6 +38,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 VERSION = "0.1.0"
 INTERNAL_TOKEN = "mock-internal-token-0123456789"
+# API keys (contract docs/MEDIAGUARD_API_KEYS.md): header X-Api-Key, sha256 stored, own role, revocable.
+API_KEYS = {  # key: (name, role)
+    "mgk_mockoperator0123456789abcdefghijklmnopqrstu": ("mso", "operator"),
+    "mgk_mockviewer0123456789abcdefghijklmnopqrstuvw": ("mso-lezen", "viewer"),
+    "mgk_mockrevoked0123456789abcdefghijklmnopqrstuv": ("oud", "revoked"),
+}
 USERS = {  # username: (password, role)
     "mso-operator": ("Operator-Wachtwoord1", "operator"),
     "mso-viewer": ("Viewer-Wachtwoord1", "viewer"),
@@ -472,6 +478,12 @@ def create_app(**faults: Any) -> FastAPI:
 
     # ------------------------------------------------------------------ auth (mediaguard/auth.py)
     def principal(request: Request) -> dict[str, Any]:
+        api_key = request.headers.get("X-Api-Key")
+        if api_key and not f.get("no_api_keys"):  # no_api_keys = older MediaGuard: header is ignored
+            hit = next((v for k, v in API_KEYS.items() if hmac.compare_digest(api_key, k)), None)
+            if hit is None or hit[1] == "revoked" or f.get("auth_fail"):
+                raise HTTPException(status_code=401, detail="Ongeldige of ingetrokken API-sleutel")
+            return {"username": f"apikey:{hit[0]}", "role": hit[1], "machine": True, "csrf": None}
         internal = request.headers.get("X-MediaGuard-Token")
         if internal and not f.get("auth_fail") and hmac.compare_digest(internal, INTERNAL_TOKEN):
             return {"username": "internal", "role": "admin", "machine": True, "csrf": None}

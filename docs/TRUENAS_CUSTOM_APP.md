@@ -7,7 +7,7 @@ geen YAML, geen databasewachtwoord, geen omgevingsvariabelen, geen tweede of der
 | Wat | Waarde |
 |---|---|
 | Image | `ghcr.io/lvos04/media-source-optimizer` |
-| Tag | `1.1.1` (altijd een vaste versie, nooit `latest`) |
+| Tag | `1.2.0` (altijd een vaste versie, nooit `latest`) |
 | Poort | `38081` → `38081` |
 | Opslag | één map (dataset) → `/appdata` |
 | Gebruiker | niets invullen: MSO regelt de rechten zelf |
@@ -45,7 +45,7 @@ submappen (`postgres`, `secrets`, `backups`, `work`) en verder niets.
 |---|---|---|
 | Application Name | | `media-source-optimizer` |
 | Image Configuration | Repository | `ghcr.io/lvos04/media-source-optimizer` |
-| | Tag | `1.1.1` |
+| | Tag | `1.2.0` |
 | | Pull Policy | *Pull the image if it is not already present on host* |
 | Container Configuration | Timezone | jouw tijdzone (bijv. `Europe/Amsterdam`) |
 | | Restart Policy | *Unless Stopped* |

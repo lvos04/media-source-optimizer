@@ -24,13 +24,18 @@ def start_mock(serve: Any, **faults: Any) -> tuple[Any, str]:
 
 
 def configure(
-    admin: Any, url: str, *, creds: tuple[str, str] | None = OPERATOR, token: str | None = None
+    admin: Any, url: str, *, creds: tuple[str, str] | None = OPERATOR, token: str | None = None,
+    api_key: str | None = None,
 ) -> None:
     from mso.connectors import mediaguard as mgc
 
     mgc.reset_sessions()
-    secrets: dict[str, Any] = {"username": None, "password": None, "internal_token": None}
+    secrets: dict[str, Any] = {"api_key": None, "username": None, "password": None, "internal_token": None}
     options: dict[str, Any] = {}
+    if api_key:
+        secrets["api_key"] = api_key
+        options["auth_method"] = "apikey"
+        creds = None
     if creds:
         secrets.update(username=creds[0], password=creds[1])
         options["auth_method"] = "user"

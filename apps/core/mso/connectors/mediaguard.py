@@ -5,7 +5,10 @@ MediaGuard web container on port 30080 which proxies ``/api/v1`` to core). It ne
 database, files, configuration or secrets, and never runs a second wanted/import agent.
 
 Authentication (least privilege first):
-- ``user`` (recommended): a dedicated MediaGuard user. Role ``operator`` allows "request search"; ``viewer``
+- ``apikey`` (recommended, MediaGuard with API keys): header ``X-Api-Key: mgk_…``. The key carries its own
+  role in MediaGuard (``viewer`` or ``operator``), needs no session or CSRF and can be revoked in MediaGuard.
+  Contract: docs/MEDIAGUARD_API_KEYS.md. An older MediaGuard without API keys answers 401 → clear message.
+- ``user``: a dedicated MediaGuard user. Role ``operator`` allows "request search"; ``viewer``
   is enough for read-only use. MSO logs in via ``POST /api/v1/auth/login`` and keeps the ``mg_session``
   cookie and CSRF token **in memory only**; on 401 it logs in again once.
 - ``token``: MediaGuard's internal ``X-MediaGuard-Token``. That principal is an *admin* machine user in
@@ -75,8 +78,10 @@ def reset_sessions() -> None:
 
 def auth_method(cfg: cb.ConnectorConfig) -> str:
     method = str((cfg.options or {}).get("auth_method") or "")
-    if method in ("user", "token"):
+    if method in ("apikey", "user", "token"):
         return method
+    if cfg.secrets.get("api_key"):
+        return "apikey"
     return "user" if cfg.secrets.get("username") else "token"
 
 
@@ -132,6 +137,11 @@ class MediaGuardClient:
         return sess
 
     def _auth_headers(self, *, mutating: bool, fresh: bool = False) -> dict[str, str]:
+        if self.method == "apikey":
+            key = self.cfg.secrets.get("api_key")
+            if not key:
+                raise MediaGuardError("auth_failed", "MediaGuard-API-sleutel ontbreekt")
+            return {"X-Api-Key": key}  # stateless: no session cookie, no CSRF
         if self.method == "token":
             token = self.cfg.secrets.get("internal_token")
             if not token:
@@ -195,6 +205,14 @@ class MediaGuardClient:
             return
         detail = self._detail(r)
         if r.status_code == 401:
+            if self.method == "apikey":
+                raise MediaGuardError(
+                    "auth_failed",
+                    "MediaGuard weigert de API-sleutel: ongeldig of ingetrokken, of deze MediaGuard-versie "
+                    "ondersteunt nog geen API-sleutels (zie docs/MEDIAGUARD_API_KEYS.md)",
+                    401,
+                    detail,
+                )
             raise MediaGuardError("auth_failed", "Niet (meer) ingelogd bij MediaGuard", 401, detail)
         if r.status_code == 403:
             raise MediaGuardError("forbidden", "MediaGuard-rol heeft onvoldoende rechten", 403, detail)
@@ -295,6 +313,15 @@ def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
         caps = _probe_routes(client)
         caps["openapi"] = False
     out["capabilities"] = caps
+    if out["auth_method"] == "apikey" and out["role"] == "admin":
+        out["warnings"].append(
+            "Deze MediaGuard-API-sleutel heeft rol 'admin'; maak een sleutel met rol 'operator' "
+            "(of 'viewer' voor alleen-lezen) — least privilege."
+        )
+    elif out["auth_method"] == "apikey" and out["role"] == "viewer":
+        out["warnings"].append(
+            "API-sleutel met rol 'viewer': alleen-lezen. 'Vraag MediaGuard opnieuw te zoeken' vereist 'operator'."
+        )
     if out["auth_method"] == "token":
         out["warnings"].append(
             "De interne MediaGuard-token geeft beheerdersrechten (admin) — ruimer dan MSO "
@@ -404,7 +431,8 @@ cb.register(
         kind="mediaguard",
         label="MediaGuard Ultimate",
         secret_fields=[
-            cb.SecretField("username", "MediaGuard-gebruikersnaam (aanbevolen: rol operator)", False),
+            cb.SecretField("api_key", "MediaGuard-API-sleutel (aanbevolen; sleutel met rol operator)", False),
+            cb.SecretField("username", "MediaGuard-gebruikersnaam (alternatief; rol operator)", False),
             cb.SecretField("password", "MediaGuard-wachtwoord", False),
             cb.SecretField("internal_token", "Interne token (X-MediaGuard-Token; admin-rechten)", False),
         ],

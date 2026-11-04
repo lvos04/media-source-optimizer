@@ -10,7 +10,8 @@
    - Prowlarr: API-sleutel (Settings → General).
    - SABnzbd: API-sleutel (Config → General).
    - qBittorrent: API-sleutel (≥ 5.2) of gebruikersnaam + wachtwoord.
-   - MediaGuard (optioneel): een eigen MediaGuard-gebruiker met rol *operator* (aanbevolen) of *viewer*.
+   - MediaGuard (optioneel): bij voorkeur een **API-sleutel** met rol *operator* (MediaGuard → Instellingen → API-sleutels;
+     zie `docs/MEDIAGUARD_API_KEYS.md`), anders een eigen MediaGuard-gebruiker met rol *operator* of *viewer*.
 4. **Modus**: laat **Alleen-lezen** staan tot je de adviezen hebt bekeken. In alleen-lezen schrijft MSO
    niets naar je diensten.
 5. Afronden. Achtergrondtaken halen nu historie, indexers en torrents op (eerste resultaten binnen enkele minuten).

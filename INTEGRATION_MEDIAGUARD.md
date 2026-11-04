@@ -20,10 +20,16 @@ aan het eind van de bouw bit-voor-bit ongewijzigd geverifieerd, zie `TEST_RESULT
 
 ## 2. Authenticatie richting MediaGuard
 
-Aanbevolen: maak in MediaGuard een **eigen gebruiker** voor MSO met rol `operator` (of `viewer` als je
-geen herzoeken via MSO wilt). MSO logt in via `POST /api/v1/auth/login`, houdt cookie `mg_session` + CSRF-token
-alleen in het geheugen en logt opnieuw in bij 401. Alternatief: `X-MediaGuard-Token` (interne token) — dat is
-een admin-principal in MediaGuard en dus breder dan nodig; de UI waarschuwt hiervoor.
+In volgorde van voorkeur:
+
+1. **API-sleutel** (aanbevolen, vanaf MSO 1.2.0): header `X-Api-Key: mgk_…`, met een eigen rol (`operator`, of `viewer`
+   voor alleen-lezen). Geen sessie of CSRF, in MediaGuard per sleutel in te trekken. MediaGuard moet hiervoor
+   API-sleutels ondersteunen: contract en bouwprompt in [docs/MEDIAGUARD_API_KEYS.md](docs/MEDIAGUARD_API_KEYS.md).
+   Een MediaGuard zonder die ondersteuning antwoordt 401; MSO meldt dat dan duidelijk.
+2. **Eigen gebruiker** met rol `operator`/`viewer`: MSO logt in via `POST /api/v1/auth/login`, houdt cookie
+   `mg_session` + CSRF-token alleen in het geheugen en logt opnieuw in bij 401.
+3. **`X-MediaGuard-Token`** (interne token): dat is een admin-principal in MediaGuard en dus breder dan nodig;
+   de UI waarschuwt hiervoor. Alleen als noodoplossing.
 
 ## 3. Compatibiliteitsmatrix
 

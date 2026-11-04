@@ -19,6 +19,7 @@ _REDACT_PATTERNS = [
                 r"nzbkey|passkey|session)(\"?\s*[=:]\s*\"?)([^\s&\"',;]+)"),
     re.compile(r"(?i)(https?://)([^/\s:@]+):([^/\s@]+)@"),  # credentials in URLs
     re.compile(r"(?i)\b(bearer\s+)([a-z0-9._\-]+)"),
+    re.compile(r"\b(mgk_)([A-Za-z0-9_\-]{8,})"),  # MediaGuard API keys, wherever they appear
 ]
 
 
@@ -28,6 +29,7 @@ def redact(text: str) -> str:
     out = _REDACT_PATTERNS[0].sub(lambda m: f"{m.group(1)}{m.group(2)}***", text)
     out = _REDACT_PATTERNS[1].sub(lambda m: f"{m.group(1)}***:***@", out)
     out = _REDACT_PATTERNS[2].sub(lambda m: f"{m.group(1)}***", out)
+    out = _REDACT_PATTERNS[3].sub(lambda m: f"{m.group(1)}***", out)
     return out
 
 

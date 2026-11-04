@@ -74,7 +74,7 @@ def test_report_scenario_servers_recommendations_and_proposal(
         "usenet.sab_server:news.newshosting.test",
     ]
     assert all(r["risk"] == "advies" and r["area"] == "usenet" for r in recs)
-    assert recs[0]["title"].startswith("Account verlopen bij example")
+    assert recs[0]["title"].startswith("Account verlopen bij Blok — ")
     assert "schakel de server uit in SABnzbd" in recs[0]["title"]
     # the priority suggestion never says "no change" while servers fail
     sug = viewer.get("/api/v1/usenet/recommendations").json()
@@ -146,7 +146,7 @@ def test_unpack_failed_related_to_server_problems(app: Any, db: Any, admin: Any,
         assert r["failure_reason"] == "unpack_failed"
         cls = r["meta"]["classification"]
         assert cls["certainty"] == "waarschijnlijk"
-        assert "serverfouten" in cls["evidence"] and "example: account verlopen" in cls["evidence"]
+        assert "serverfouten" in cls["evidence"] and "Blok: account verlopen" in cls["evidence"]
         assert cls["likely_cause"]["reason"] == "account_expired"
         assert r["failure_detail"] == "Unpacking failed, see logfile"  # original kept as detail
     h = viewer.get("/api/v1/usenet/sab/history").json()["items"][0]

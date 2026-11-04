@@ -69,7 +69,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
       </Card>
       <Card className="span-7" title={t("automation.log")} icon={ScrollText} flush>
         {s.log.length === 0 ? <StateView kind="empty" compact title={t("automation.logEmpty")} /> : (
-          <div className="list" style={{ maxHeight: 360, overflow: "auto" }}>
+          <div className="list" style={{ maxHeight: 360, overflow: "auto" }} tabIndex={0} role="region" aria-label="Automatiseringslog (scrollbaar)">
             {s.log.map((l) => (
               <div className="list-row" key={l.id}>
                 <div className="list-main"><div className="list-title" style={{ whiteSpace: "normal" }}>{l.message}</div><div className="list-sub mono">{l.kind}{l.area ? ` · ${l.area}` : ""}{l.change_id ? ` · #${l.change_id}` : ""} · {relative(l.ts)}</div></div>

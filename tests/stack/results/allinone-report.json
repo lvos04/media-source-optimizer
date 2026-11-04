@@ -27,12 +27,12 @@
   {
     "scenario": "6 netjes stoppen",
     "ok": true,
-    "detail": "0.5 s, exitcode 0"
+    "detail": "0.4 s, exitcode 0"
   },
   {
     "scenario": "9 geen geheimen in de log",
     "ok": true,
-    "detail": "7572 bytes log gecontroleerd"
+    "detail": "7660 bytes log gecontroleerd"
   },
   {
     "scenario": "7 --user 568 op map van 568 → gezond",

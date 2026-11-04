@@ -18,6 +18,20 @@ Zie [docs/HARDWARE_ACCEPTANCE.md](docs/HARDWARE_ACCEPTANCE.md).
 | Containerstack (gebouwde images + 7 mocks) smoke/e2e | **19 / 19 geslaagd** | `docs/test-evidence/stack-smoke-report.md` |
 | Playwright (15 schermen × donker/licht × 1440/390 + toetsenbord, alleen-lezen, login) | **68 / 68 geslaagd** | `docs/test-evidence/playwright.log`, `docs/screenshots/` (60 png) |
 
+## 0a. Aanvulling 1.3.0 — fixes uit de echte TrueNAS-test (5 nov 2026)
+
+De eerste echte test (Claude Cowork op de TrueNAS van de gebruiker, rapport 4 nov) vond 11 groepen problemen
+(P1–P11). Alle groepen zijn verwerkt. Het bevriezen van *Ontbrekend & herstel* (P6) kon niet worden nagespeeld; de
+pagina heeft nu paginering en een detaildialoog. Of dat het bevriezen oplost, moet op de echte installatie worden
+gecontroleerd. Herhaalde tests op de gebouwde images:
+- Backend: **383 / 383** geslaagd (`docs/test-evidence/pytest-junit.xml`).
+- Containerstack met mocks: **19 / 19** (`docs/test-evidence/stack-smoke-report.md`).
+- Playwright: **70 / 70**, inclusief de nieuwe dialoogtests (focus blijft in het invoerveld, dialoog past op 420 px
+  hoogte, deeplink naar Bedrijfsmodus). Axe vond nog 2 nieuwe toegankelijkheidsfouten (contrast van grijze rijen,
+  scrollbare lijst zonder focus); die zijn opgelost voordat deze 70/70 werd gehaald.
+- Alles-in-één image: **9 / 9**.
+Nog niet geverifieerd op echte hardware: zie §7 van het Cowork-rapport (TrueNAS-instellingen, Prowlarr-registratie, telefoon).
+
 ## 0. Aanvulling 1.1.0 — alles-in-één image (3 nov 2026)
 
 `tests/stack/allinone_test.py` tegen de gebouwde image: **9 / 9 scenario's geslaagd**

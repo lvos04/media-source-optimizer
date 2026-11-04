@@ -46,3 +46,6 @@
 .dialog-head, .dialog-foot { flex: none; }
 .dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .dialog--wide { width: min(880px, 100%); }
+
+/* non-library / inactive rows: muted via background + secondary text colour, never opacity (keeps ≥ 4.5:1 contrast) */
+tr[data-inactive="true"] > td { background: var(--mg-sunken); color: var(--mg-text-2); }

@@ -135,7 +135,7 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
             const scopeSrc = s.origin === "prowlarr" ? SCOPE_SOURCE[s.scope_source ?? (s.untagged ? "default" : "tag")] : undefined;
             const inactive = s.library_relevant === false || Boolean(s.prowlarr_broken);
             return (
-              <tr key={s.id} style={inactive ? { opacity: 0.62 } : undefined} data-inactive={inactive || undefined}>
+              <tr key={s.id} data-inactive={inactive || undefined}>
                 <td data-label={t("idx.col.indexer")}>
                   <div className="cell-title">{s.label}</div>
                   <div className="cell-sub row wrap" style={{ gap: 4 }}>

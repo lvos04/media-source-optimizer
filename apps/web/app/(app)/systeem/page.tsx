@@ -148,7 +148,7 @@ function BackupsCard() {
       </div>
       <ResourceView resource={backups} endpoint="GET /api/v1/backups" compact isEmpty={(r) => !r.items?.length} empty={<StateView kind="empty" compact title={t("system.noBackups")} />}>
         {(r) => (
-          <div className="list" style={{ maxHeight: 420, overflow: "auto" }}>{r.items.map((b) => (
+          <div className="list" style={{ maxHeight: 420, overflow: "auto" }} tabIndex={0} role="region" aria-label="Back-ups (scrollbaar)">{r.items.map((b) => (
             <div className="list-row" key={String(b.id)}>
               <div className="list-main">
                 <div className="list-title mono" title={b.file}>{b.file}</div>
@@ -206,7 +206,7 @@ function JobsCard({ num }: { num: (v: number | null | undefined, d?: number) => 
       </div>
       <ResourceView resource={jobs} endpoint="GET /api/v1/jobs" compact isEmpty={(r) => !r.items?.length} empty={<StateView kind="empty" compact title={t("jobs.empty")} />}>
         {(r) => (
-          <div className="list" style={{ maxHeight: 520, overflow: "auto" }}>{r.items.map((job) => {
+          <div className="list" style={{ maxHeight: 520, overflow: "auto" }} tabIndex={0} role="region" aria-label="Achtergrondtaken (scrollbaar)">{r.items.map((job) => {
             const cancellable = job.status === "queued" || job.status === "running";
             const retryable = job.status === "failed" || job.status === "cancelled";
             return (

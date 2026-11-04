@@ -2,7 +2,15 @@
 
 export type ProviderStatus =
   | "ok" | "auth_failed" | "account_expired" | "rate_limited" | "block_exhausted" | "unreachable"
-  | "tls_error" | "timeout" | "error" | "unknown";
+  | "tls_error" | "timeout" | "error" | "unknown" | "missing_credentials"
+  // only from SABnzbd's own server status:
+  | "access_denied" | "sab_blocked" | "disabled";
+
+/** SABnzbd's own view of one of its servers (`mode=status` + `mode=warnings`). */
+export interface SabServerStatus {
+  status: ProviderStatus; label: string; explanation: string; message: string | null; message_at: string | null;
+  since: string | null; observed_at: string | null; active: boolean | null; source: "sabnzbd";
+}
 export type SecretStatus = "ingesteld" | "leeg";
 export type ConfidenceLevel = "high" | "medium" | "low" | "none";
 
@@ -14,14 +22,20 @@ export interface UsenetProvider {
   block_size_bytes: number | null; block_used_ratio: number | null; sab_server: string | null;
   enabled: boolean; notes: string; status: ProviderStatus; status_detail: string | null;
   last_check_at: string | null; last_ok_at: string | null; capabilities: string[];
-  credentials: { username: SecretStatus; password: SecretStatus }; updated_at: string;
+  credentials: { username: SecretStatus; password: SecretStatus }; credentials_complete: boolean;
+  sab_status: SabServerStatus | null;
+  /** Primary health: MSO's own check when it has credentials, otherwise SABnzbd's view. */
+  health: { status: ProviderStatus; detail: string | null; source: "mso" | "sabnzbd" };
+  updated_at: string;
 }
 export interface ProviderPreset { slug: string; label: string; kind: "unlimited" | "block"; host: string; port: number; ssl: boolean }
 /** `POST /usenet/providers/{slug}/test` */
 export interface ProviderTestResult {
   status: ProviderStatus; message: string; capabilities: string[]; latency_ms: number | null; code: number | null;
-  provider: UsenetProvider;
+  tested: boolean; provider: UsenetProvider;
 }
+/** `POST /usenet/providers/import-sab` */
+export interface ProviderImportResult { items: UsenetProvider[]; note: string | null }
 export interface ProviderInput {
   slug?: string; label?: string; kind?: "unlimited" | "block"; host?: string; port?: number; ssl?: boolean;
   connections?: number; retention_days?: number | null; block_size_gb?: number | null; sab_server?: string | null;
@@ -35,6 +49,7 @@ export interface SabServer {
   provider: { slug: string; label: string; kind: "unlimited" | "block"; status: ProviderStatus } | null;
   period: { bytes: number; articles_tried: number | null; articles_success: number | null; success_ratio: number | null };
   daily: Array<{ day: string; bytes: number }>; total_bytes: number | null;
+  sab_status: SabServerStatus | null; low_article_success: boolean;
 }
 export interface SabServerList { items: SabServer[]; period_days: number; last_stats_at: string | null }
 
@@ -66,16 +81,22 @@ export interface ArticleTest {
 
 /** `GET /usenet/recommendations` */
 export interface PriorityOp { path: string; label: string; before: number; after: number; reason?: string }
+export interface ServerIssue {
+  server: string; name: string; status: ProviderStatus; label: string; title: string; explanation: string;
+  message: string | null; source: "sabnzbd" | "mso"; risk: "advies";
+}
 export interface PrioritySuggestion {
   ops: PriorityOp[]; method: "current_order" | "explicit_test"; notes: string[];
-  insights: Array<{ slug: string; label: string; kind: "unique" | "fill"; text: string; confidence: ConfidenceLevel }>;
-  servers: Array<Omit<SabServer, "provider" | "period" | "daily" | "total_bytes"> & { provider: string | null }>;
+  insights: Array<{ slug: string; label: string; kind: "unique" | "fill" | "low_success"; text: string; confidence: ConfidenceLevel }>;
+  issues: ServerIssue[];
+  servers: Array<Omit<SabServer, "provider" | "period" | "daily" | "total_bytes" | "sab_status" | "low_article_success"> & { provider: string | null }>;
   risk: "toestemming_nodig"; period_days: number;
 }
 
 /** Downloads → Usenet */
+export type CategorySource = "handmatig" | "automatisch" | "geen" | "nzb";
 export interface SabQueueItem {
-  nzo_id: string; name: string; category: string | null; media_category: string | null; status: string;
+  nzo_id: string; name: string; category: string | null; media_category: string | null; category_source: CategorySource; status: string;
   percentage: number | null; size_mb: number | null; left_mb: number | null; timeleft: string | null; priority: string | null;
 }
 export interface SabQueue { items: SabQueueItem[]; status: string | null; paused: boolean; speed_kbps: number | null; left_mb: number | null; total: number; observed_at: string }
@@ -83,8 +104,18 @@ export interface SabHistoryItem {
   nzo_id: string; name: string; category: string | null; media_category: string | null;
   status: "active" | "success" | "failed"; sab_status: string; failure_reason: string | null; failure_label: string | null;
   failure_detail: string | null; certainty: "zeker" | "waarschijnlijk" | "onbekend" | null; evidence: string | null;
+  likely_cause: {
+    reason: string; label: string; certainty: "waarschijnlijk";
+    servers: Array<{ server: string; name: string; status: ProviderStatus }>;
+  } | null;
+  category_source: CategorySource;
   size_bytes: number | null; finished_at: string | null; nzb_id: number | null; testable: boolean;
 }
+/** `GET /usenet/sab/categories` (and `PUT /usenet/sab/category-map`) */
+export type MediaCategory = "tv" | "tv-anime" | "movies" | "movies-anime";
+export interface SabCategory { name: string; media_category: MediaCategory | null; source: "handmatig" | "automatisch" | "geen"; auto: MediaCategory | null }
+export interface SabCategories { items: SabCategory[]; mapping: Record<string, MediaCategory | null>; media_categories: MediaCategory[] }
+
 export interface SabHistory { items: SabHistoryItem[]; total: number; observed_at: string }
 
 /** `GET /usenet/headerindex` */

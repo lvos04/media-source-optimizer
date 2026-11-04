@@ -1,18 +1,20 @@
 "use client";
 
-import { CircleHelp, Gauge, KeyRound, PlugZap, ShieldAlert, Timer, Unplug } from "lucide-react";
+import { Ban, CircleHelp, Gauge, KeyRound, PlugZap, PowerOff, ShieldAlert, Timer, Unplug, UserRoundPen } from "lucide-react";
 
 import { StatusChip, type Tone } from "@/components/mg/primitives";
-import type { ConfidenceLevel, ProviderStatus } from "@/lib/api/usenet";
+import type { ConfidenceLevel, ProviderStatus, SabServerStatus } from "@/lib/api/usenet";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
 const STATUS_TONE: Record<ProviderStatus, Tone> = {
   ok: "success", auth_failed: "danger", account_expired: "danger", rate_limited: "warning", block_exhausted: "danger",
   unreachable: "danger", tls_error: "danger", timeout: "warning", error: "warning", unknown: "neutral",
+  missing_credentials: "warning", access_denied: "danger", sab_blocked: "warning", disabled: "neutral",
 };
 const STATUS_ICON: Partial<Record<ProviderStatus, typeof KeyRound>> = {
   auth_failed: KeyRound, account_expired: KeyRound, rate_limited: Gauge, block_exhausted: Gauge,
   unreachable: Unplug, tls_error: ShieldAlert, timeout: Timer, unknown: CircleHelp,
+  missing_credentials: UserRoundPen, access_denied: Ban, sab_blocked: Ban, disabled: PowerOff,
 };
 
 /** Provider status: colour + icon + text; detail (provider's own message) as tooltip. */
@@ -51,4 +53,27 @@ export function fileToBase64(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/** SABnzbd's own status for one of its servers: chip + Dutch explanation + SABnzbd's message + "bron: SABnzbd". */
+export function SabStatusCell({ st, compact = false }: { st: SabServerStatus | null; compact?: boolean }) {
+  const { t, relative } = useI18n();
+  if (!st) return <span className="t-3" style={{ fontSize: 12 }}>{t("usenet.prio.statusUnknown")}</span>;
+  const failing = STATUS_TONE[st.status in STATUS_TONE ? st.status : "error"] === "danger";
+  return (
+    <div className="stack-sm" style={{ gap: 2 }}>
+      <span className="row wrap" style={{ gap: 6 }}>
+        <ProviderStatusChip status={st.status} detail={st.message} />
+        <span className="t-3" style={{ fontSize: 11.5 }}>{t("usenet.prio.source")}</span>
+      </span>
+      {!compact && (failing || st.status !== "ok") ? (
+        <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal" }}>{st.explanation}</span>
+      ) : null}
+      {st.message ? (
+        <span className="t-3 mono" style={{ fontSize: 11.5, wordBreak: "break-word", whiteSpace: "normal" }}>
+          {st.message}{st.message_at ? ` · ${relative(st.message_at)}` : ""}
+        </span>
+      ) : null}
+    </div>
+  );
 }

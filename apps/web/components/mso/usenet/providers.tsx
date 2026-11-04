@@ -7,7 +7,7 @@ import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, Field, InlineState, Modal, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
-import { ProviderStatusChip, useRatio } from "@/components/mso/usenet/shared";
+import { ProviderStatusChip, SabStatusCell, useRatio } from "@/components/mso/usenet/shared";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
 import type { ProviderInput, ProviderPreset, ProviderTestResult, SabServerList, UsenetProvider } from "@/lib/api/usenet";
@@ -28,7 +28,8 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
     try {
       const res = await api.post<ProviderTestResult>(`/usenet/providers/${encodeURIComponent(p.slug)}/test`);
       setMessage(res.status === "ok" ? t("usenet.providers.testOk") : res.message);
-      toast.push(res.status === "ok" ? "success" : "danger", `${p.label}: ${t(`usenet.status.${res.status}` as MessageKey)}`, res.status === "ok" ? undefined : res.message);
+      const tone = res.status === "ok" ? "success" : !res.tested ? "info" : "danger";
+      toast.push(tone, `${p.label}: ${t(`usenet.status.${res.status}` as MessageKey)}`, res.status === "ok" ? undefined : res.message);
       onChanged();
     } catch (e) {
       toast.push("danger", errorMessage(e));
@@ -42,11 +43,17 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
       title={p.label}
       icon={Server}
       sub={t(p.kind === "block" ? "usenet.providers.kind.block" : "usenet.providers.kind.unlimited")}
-      actions={<ProviderStatusChip status={p.status} detail={p.status_detail} />}
+      actions={
+        <span className="row" style={{ gap: 6 }}>
+          <ProviderStatusChip status={p.health.status} detail={p.health.detail} />
+          <span className="t-3" style={{ fontSize: 11.5 }}>{t(`usenet.providers.source.${p.health.source}` as MessageKey)}</span>
+        </span>
+      }
       footer={
         <div className="row wrap">
           <Button size="sm" icon={PlugZap} onClick={() => void test()} pending={testing}
-            disabled={!can("operator") || !p.enabled} title={!can("operator") ? t("usenet.operatorOnly") : !p.enabled ? t("usenet.providers.disabled") : undefined}>
+            disabled={!can("operator") || !p.enabled || !p.credentials_complete}
+            title={!can("operator") ? t("usenet.operatorOnly") : !p.enabled ? t("usenet.providers.disabled") : !p.credentials_complete ? t("usenet.providers.needsCredentials") : undefined}>
             {t("usenet.providers.test")}
           </Button>
           <Button size="sm" variant="ghost" icon={Pencil} onClick={onEdit} disabled={!can("admin")} title={can("admin") ? undefined : t("usenet.adminOnly")}>
@@ -57,10 +64,15 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
     >
       <div className="stack-sm">
         {!p.enabled ? <StatusChip tone="neutral">{t("usenet.providers.disabled")}</StatusChip> : null}
-        {p.status !== "ok" && p.status !== "unknown" && p.status_detail ? (
+        {!p.credentials_complete ? <InlineState tone="warning">{t("usenet.providers.credentialsHint")}</InlineState> : null}
+        {p.credentials_complete && p.status !== "ok" && p.status !== "unknown" && p.status !== "missing_credentials" && p.status_detail ? (
           <InlineState tone={p.status === "rate_limited" || p.status === "timeout" ? "warning" : "danger"}>{p.status_detail}</InlineState>
         ) : null}
         <dl className="kv">
+          <dt>{t("usenet.providers.sabStatus")}</dt>
+          <dd>{p.sab_server ? <SabStatusCell st={p.sab_status} /> : <span className="t-3">{t("usenet.providers.sabStatusNone")}</span>}</dd>
+          <dt>{t("usenet.providers.msoStatus")}</dt>
+          <dd><ProviderStatusChip status={p.status} detail={p.status_detail} /></dd>
           <dt>{t("usenet.providers.lastCheck")}</dt><dd>{relative(p.last_check_at)}</dd>
           <dt>{t("usenet.providers.lastOk")}</dt><dd>{relative(p.last_ok_at)}</dd>
           <dt>{t("usenet.providers.connections")}</dt>
@@ -70,8 +82,8 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
           <dt>{t("usenet.providers.sabServer")}</dt><dd className="mono">{p.sab_server ?? t("usenet.providers.notLinked")}</dd>
           <dt>{t("usenet.providers.credentials")}</dt>
           <dd>
-            <StatusChip tone={p.credentials.username === "ingesteld" && p.credentials.password === "ingesteld" ? "success" : "warning"}>
-              {p.credentials.username === "ingesteld" && p.credentials.password === "ingesteld" ? "ingesteld" : "leeg"}
+            <StatusChip tone={p.credentials_complete ? "success" : "warning"}>
+              {t(p.credentials_complete ? "usenet.providers.credentialsSet" : "usenet.providers.credentialsMissing")}
             </StatusChip>
           </dd>
         </dl>

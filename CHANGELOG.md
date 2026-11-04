@@ -2,6 +2,36 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.3.0] — 2026-11-05
+
+Verwerkt het testrapport van de eerste echte TrueNAS-test (Claude Cowork, 4 nov 2026).
+
+### Opgelost
+- **Bedrijfsmodus** omschakelbaar na de setup (Instellingen → Systeem → Bedrijfsmodus; de topbar-badge linkt erheen).
+  Pauzestatus overal live.
+- **Snelheidslimiet toepassen** mislukte door KiB-afronding van qBittorrent: limieten worden nu op hele KiB berekend
+  en gecontroleerd. Een mislukte wijziging toont geen "Toepassen" meer. Het automatische herstel staat apart in de audit.
+- **Verdachte torrents** (`.exe`, `.scr`, `.zipx`, dubbele extensies in media-downloads) krijgen een waarschuwing en
+  een advies, met de bron erbij. Er wordt niets verwijderd.
+- **Extreme qBittorrent-waarden** (verbindingen/uploadslots buiten de veilige grenzen) worden gemeld, met een
+  voorstel per parameter.
+- **SABnzbd-serverfouten** (inloggen geweigerd, account verlopen, toegang geweigerd) zijn zichtbaar per server, met
+  advies, en het prioriteitsadvies houdt er rekening mee.
+- **Providers zonder inloggegevens** krijgen de status "Gegevens ontbreken" in plaats van "Inloggen geweigerd".
+  Geen massale statuswijziging meer.
+- Uitpakfouten krijgen een Nederlandse oorzaak, met de waarschijnlijke serveroorzaak erbij.
+  SABnzbd-categorieën worden automatisch gekoppeld (aanpasbaar).
+- **Zoeken**: geen serie-afleveringen meer in filmcategorieën; de titel weegt zwaarder; jaar-match.
+  Indexers zonder series/films (XXX/Console/Books) tellen niet mee. Indexers die volgens Prowlarr niet werken worden
+  gemarkeerd en overgeslagen. Het bronrapport toont de status per indexer. Freeleech staat alleen nog bij expliciete
+  private trackers.
+- **Dialogen** blijven volledig in beeld; het bevestigingsveld verliest geen focus meer tijdens het typen.
+- Nederlandse statussen (Geslaagd/Bezig/Mislukt/Verstuurd/Gezond/Verstoord) in plaats van "Onbekend"/Engels.
+- De back-uplijst en verbindingskaarten verversen vanzelf; de impact van wijzigingen staat leesbaar.
+- **Ontbrekend & herstel** heeft paginering (50/100/200) en details in een dialoog. Het MediaGuard-quotum werkt na
+  een zoekverzoek direct bij.
+- MediaGuard: melding als naast de API-sleutel ook gebruikersnaam en wachtwoord zijn ingevuld, met een knop om die te wissen.
+
 ## [1.2.0] — 2026-11-04
 
 ### Toegevoegd

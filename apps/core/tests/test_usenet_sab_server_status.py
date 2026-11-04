@@ -68,7 +68,10 @@ def test_report_scenario_servers_recommendations_and_proposal(
     blk = by["block.example.test"]["sab_status"]
     assert blk["status"] == "account_expired" and "verlopen" in blk["explanation"]
     # one open advisory per failing server (shown on the overview)
-    recs = db.fetchall("SELECT * FROM recommendations WHERE status='open' ORDER BY dedupe_key")
+    recs = db.fetchall(
+        "SELECT * FROM recommendations WHERE status='open' AND dedupe_key LIKE 'usenet.sab_server:%%' "
+        "ORDER BY dedupe_key"
+    )
     assert [r["dedupe_key"] for r in recs] == [
         "usenet.sab_server:block.example.test",
         "usenet.sab_server:news.newshosting.test",
@@ -96,8 +99,9 @@ def test_report_scenario_servers_recommendations_and_proposal(
     sab.server_errors.clear()
     sab.warnings.clear()
     viewer.get("/api/v1/usenet/sab/servers")
-    assert db.scalar("SELECT count(*) FROM recommendations WHERE status='open'") == 0
-    assert db.scalar("SELECT count(*) FROM recommendations WHERE status='resolved'") == 2
+    q = "SELECT count(*) FROM recommendations WHERE dedupe_key LIKE 'usenet.sab_server:%%' AND status=%s"
+    assert db.scalar(q, ("open",)) == 0
+    assert db.scalar(q, ("resolved",)) == 2
 
 
 def test_warnings_only_old_sab(app: Any, db: Any, admin: Any, serve: Any) -> None:

@@ -19,6 +19,7 @@ const CERTAINTY_TONE: Record<string, Tone> = { zeker: "danger", waarschijnlijk: 
 function ReasonCell({ item }: { item: SabHistoryItem }) {
   const { t } = useI18n();
   if (item.status !== "failed") return <span className="t-3">—</span>;
+  const cause = item.likely_cause;
   return (
     <div className="stack-sm" style={{ gap: 2 }}>
       <span className="row wrap" style={{ gap: 6 }}>
@@ -27,8 +28,32 @@ function ReasonCell({ item }: { item: SabHistoryItem }) {
         </StatusChip>
         {item.certainty ? <span className="t-3" style={{ fontSize: 12 }}>{t(`usenet.dl.certainty.${item.certainty}` as MessageKey)}</span> : null}
       </span>
-      {item.failure_detail ? <span className="t-2 pre-wrap" style={{ fontSize: 12, wordBreak: "break-word" }}>{item.failure_detail}</span> : null}
+      {cause ? (
+        <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal" }} title={item.evidence ?? undefined}>
+          {t("usenet.dl.likelyCause", {
+            cause: `${cause.label.toLowerCase()} — ${t("usenet.dl.likelyCauseServers", { servers: cause.servers.map((s) => s.name).join(", ") })}`,
+          })}
+        </span>
+      ) : item.evidence ? (
+        <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal" }}>{item.evidence}</span>
+      ) : null}
+      {item.failure_detail ? (
+        <span className="t-3 pre-wrap" style={{ fontSize: 11.5, wordBreak: "break-word" }}>{t("usenet.dl.sabMessage", { message: item.failure_detail })}</span>
+      ) : null}
     </div>
+  );
+}
+
+function CategoryCell({ category, media, source }: { category: string | null; media: string | null; source: SabHistoryItem["category_source"] }) {
+  const { t } = useI18n();
+  return (
+    <>
+      {category === "*" ? t("usenet.dl.defaultCategory") : category ?? "—"}
+      <div className="t-3" style={{ fontSize: 12 }}>
+        {media ? t(`usenet.cat.media.${media}` as MessageKey) : t("usenet.dl.unmapped")}
+        {media && source !== "geen" ? ` · ${t(`usenet.dl.catSource.${source}` as MessageKey)}` : ""}
+      </div>
+    </>
   );
 }
 
@@ -75,8 +100,7 @@ export function UsenetDownloadsTab() {
                   <tr key={q.nzo_id}>
                     <td data-label={t("usenet.dl.name")} style={{ wordBreak: "break-word" }}>{q.name}</td>
                     <td data-label={t("usenet.dl.category")}>
-                      {q.category ?? "—"}
-                      <div className="t-3" style={{ fontSize: 12 }}>{q.media_category ?? t("usenet.dl.unmapped")}</div>
+                      <CategoryCell category={q.category} media={q.media_category} source={q.category_source} />
                     </td>
                     <td data-label={t("usenet.dl.status")}><StatusChip tone="accent" icon={null}>{q.status}</StatusChip></td>
                     <td data-label={t("usenet.dl.progress")} style={{ minWidth: 120 }}>
@@ -113,8 +137,7 @@ export function UsenetDownloadsTab() {
                       ) : null}
                     </td>
                     <td data-label={t("usenet.dl.category")}>
-                      {h.category ?? "—"}
-                      <div className="t-3" style={{ fontSize: 12 }}>{h.media_category ?? t("usenet.dl.unmapped")}</div>
+                      <CategoryCell category={h.category} media={h.media_category} source={h.category_source} />
                     </td>
                     <td data-label={t("usenet.dl.status")}>
                       <StatusChip tone={STATUS_TONE[h.status]} pending={h.status === "active"}>

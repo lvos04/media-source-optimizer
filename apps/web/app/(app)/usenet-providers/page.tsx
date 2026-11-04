@@ -7,12 +7,13 @@ import { Button, Card, PageHeader } from "@/components/mg/primitives";
 import { ResourceView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ArticleTestsCard, AvailabilityCard } from "@/components/mso/usenet/availability";
+import { CategoryMapCard } from "@/components/mso/usenet/categories";
 import { HeaderIndexCard } from "@/components/mso/usenet/header-index";
 import { PriorityCard } from "@/components/mso/usenet/priority";
 import { AddProviderButton, ProvidersSection } from "@/components/mso/usenet/providers";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
-import type { UsenetProvider } from "@/lib/api/usenet";
+import type { ProviderImportResult, UsenetProvider } from "@/lib/api/usenet";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
@@ -26,8 +27,9 @@ export default function UsenetProvidersPage() {
   const importSab = async () => {
     setBusy("import");
     try {
-      const res = await api.post<{ items: UsenetProvider[] }>("/usenet/providers/import-sab");
-      toast.push("success", t("usenet.providers.imported", { count: num(res.items.length) }));
+      const res = await api.post<ProviderImportResult>("/usenet/providers/import-sab");
+      if (res.items.length) toast.push("success", t("usenet.providers.imported", { count: num(res.items.length) }), res.note ?? undefined);
+      else toast.push("info", t("usenet.providers.importedNone"));
       await providers.reload();
     } catch (e) {
       toast.push("danger", errorMessage(e));
@@ -72,6 +74,7 @@ export default function UsenetProvidersPage() {
         <AvailabilityCard />
         <ArticleTestsCard />
         <PriorityCard />
+        <CategoryMapCard />
         <HeaderIndexCard providers={providers.data?.items ?? []} />
       </div>
     </>

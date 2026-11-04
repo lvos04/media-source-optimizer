@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, GitCompareArrows, Lightbulb } from "lucide-react";
+import { ArrowDownUp, GitCompareArrows, Lightbulb, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { DiffViewer } from "@/components/mg/domain";
@@ -9,7 +9,7 @@ import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview } from "@/components/mso/change-preview";
 import { RiskChip } from "@/components/mso/risk-chip";
-import { ConfidenceChip, ProviderStatusChip, useRatio } from "@/components/mso/usenet/shared";
+import { ConfidenceChip, ProviderStatusChip, SabStatusCell, useRatio } from "@/components/mso/usenet/shared";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -55,7 +55,7 @@ export function PriorityCard() {
           <table className="table table--stack">
             <thead>
               <tr>
-                <th>{t("usenet.prio.server")}</th><th>{t("usenet.prio.priority")}</th><th>{t("usenet.prio.enabled")}</th>
+                <th>{t("usenet.prio.server")}</th><th>{t("usenet.prio.status")}</th><th>{t("usenet.prio.priority")}</th><th>{t("usenet.prio.enabled")}</th>
                 <th>{t("usenet.prio.optional")}</th><th>{t("usenet.providers.connections")}</th>
                 <th>{t("usenet.prio.periodBytes", { days: d.period_days })}</th><th>{t("usenet.prio.successRatio")}</th>
               </tr>
@@ -68,6 +68,9 @@ export function PriorityCard() {
                     {s.provider ? <div className="row" style={{ gap: 6, marginTop: 2 }}><span className="t-3" style={{ fontSize: 12 }}>{s.provider.label}</span><ProviderStatusChip status={s.provider.status} /></div>
                       : <div className="t-3" style={{ fontSize: 12 }}>{t("usenet.providers.notLinked")}</div>}
                   </td>
+                  <td data-label={t("usenet.prio.status")} style={{ minWidth: 200, maxWidth: 340 }}>
+                    <SabStatusCell st={s.sab_status} />
+                  </td>
                   <td data-label={t("usenet.prio.priority")}>{num(s.priority)}</td>
                   <td data-label={t("usenet.prio.enabled")}>
                     <StatusChip tone={s.enable ? "success" : "neutral"}>{t(s.enable ? "usenet.prio.yes" : "usenet.prio.no")}</StatusChip>
@@ -77,6 +80,11 @@ export function PriorityCard() {
                   <td data-label={t("usenet.prio.periodBytes", { days: d.period_days })}>{bytes(s.period.bytes)}</td>
                   <td data-label={t("usenet.prio.successRatio")}>
                     {s.period.articles_tried ? `${ratio(s.period.success_ratio)} · ${num(s.period.articles_tried)}` : "—"}
+                    {s.low_article_success ? (
+                      <div style={{ marginTop: 2 }}>
+                        <StatusChip tone="warning" icon={TriangleAlert} title={t("usenet.prio.lowSuccessHint")}>{t("usenet.prio.lowSuccess")}</StatusChip>
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -92,18 +100,35 @@ export function PriorityCard() {
                 <span className="eyebrow">{t("usenet.prio.suggestion")}</span>
                 <RiskChip risk={sg.risk} />
               </div>
-              {sg.notes.map((n) => <InlineState key={n} tone="info">{n}</InlineState>)}
+              {sg.issues.length ? (
+                <div>
+                  <span className="eyebrow">{t("usenet.prio.issues")}</span>
+                  <ul className="list" style={{ marginTop: 4 }}>
+                    {sg.issues.map((i) => (
+                      <li key={i.server} className="list-row list-row--wrap">
+                        <ProviderStatusChip status={i.status} detail={i.message} />
+                        <div className="list-main">
+                          <div className="list-title" style={{ whiteSpace: "normal" }}>{i.title}</div>
+                          <div className="list-sub" style={{ whiteSpace: "normal" }}>{i.explanation}</div>
+                        </div>
+                        <RiskChip risk={i.risk} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {sg.notes.map((n, idx) => <InlineState key={n} tone={idx === 0 && sg.issues.length ? "danger" : "info"}>{n}</InlineState>)}
               {sg.ops.length ? (
                 <DiffViewer keyWidth={180} headers={[t("usenet.prio.server"), t("usenet.prio.now"), t("usenet.prio.suggestion")]}
                   rows={sg.ops.map((o) => ({ key: o.path, label: o.label, before: String(o.before), after: `${o.after}${o.reason ? ` — ${o.reason}` : ""}`, change: "changed" as const }))} />
-              ) : <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("usenet.prio.noOps")}</p>}
+              ) : <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t(sg.issues.length ? "usenet.prio.noOpsIssues" : "usenet.prio.noOps")}</p>}
               {sg.insights.length ? (
                 <div>
                   <span className="eyebrow">{t("usenet.prio.insights")}</span>
                   <ul className="list" style={{ marginTop: 4 }}>
                     {sg.insights.map((i) => (
                       <li key={`${i.slug}-${i.kind}`} className="list-row">
-                        <Lightbulb className="ico" aria-hidden="true" />
+                        {i.kind === "low_success" ? <TriangleAlert className="ico" aria-hidden="true" /> : <Lightbulb className="ico" aria-hidden="true" />}
                         <div className="list-main"><div className="list-sub" style={{ whiteSpace: "normal" }}>{i.text}</div></div>
                         <ConfidenceChip level={i.confidence} />
                       </li>

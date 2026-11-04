@@ -17,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["overzicht"])
 
 CLIENT_REASONS = {"client_failure", "disk_full", "import_failure"}
-PROVIDER_REASONS = {"no_retention", "incomplete", "auth_failure", "account_expired", "quota_exceeded"}
+PROVIDER_REASONS = {"no_retention", "incomplete", "unpack_failed", "auth_failure", "account_expired", "quota_exceeded"}
 
 
 def _age(db: Database, sql: str, params: Any = None) -> int | None:

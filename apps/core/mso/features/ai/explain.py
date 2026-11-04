@@ -12,6 +12,9 @@ from mso.db import Database, get_db
 from mso.domain.outcomes import FAILURE_REASONS
 
 ADVICE: dict[str, str] = {
+    "unpack_failed": "SABnzbd kon de download niet uitpakken; de melding noemt zelf geen oorzaak. Vaak ontbraken "
+    "artikelen (bijv. omdat servers het inloggen weigerden): controleer de serverstatus bij Usenet-providers en de "
+    "SABnzbd-log.",
     "no_indexer_hit": "Geen enkele bron vond een geschikte release. Controleer of de juiste categorieën en "
     "indexertags (normaal/anime) gekoppeld zijn en of er een bron met dit soort inhoud actief is.",
     "false_positive": "De gevonden release bleek verkeerde inhoud te bevatten. Overweeg de betrouwbaarheid "

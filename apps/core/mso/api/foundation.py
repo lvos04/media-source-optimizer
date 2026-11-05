@@ -131,6 +131,9 @@ def login(body: Credentials, request: Request, response: Response) -> dict[str, 
         "INSERT INTO login_attempts(username,remote,ok) VALUES (%s,%s,%s)", (body.username[:64], _remote(request), good)
     )
     if not good:
+        # security trail without secrets: who tried, from where (never the password)
+        audit(body.username[:64] or "?", "auth.login_failed", "Inloggen mislukt (onjuiste gegevens of uitgeschakeld)",
+              detail={"remote": _remote(request), "known_user": bool(row)})
         raise HTTPException(401, detail="Onjuiste gebruikersnaam of wachtwoord")
     token, csrf = create_session(db, row["id"])
     _set_cookie(response, token)

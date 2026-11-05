@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from mso import jobs
 from mso.audit import audit
 from mso.config import get_settings
-from mso.db import get_db, schema_version
+from mso.db import get_db, jsonb, schema_version
 from mso.settings_registry import get as setting
 
 LOGGER = logging.getLogger(__name__)
@@ -114,6 +114,8 @@ def restore_backup(backup_id: int, actor: str) -> dict:
     # safety net: dump the current state first so a restore itself can be undone
     pre = create_backup(kind="pre-restore", actor=actor)
     backups_rows = db.fetchall("SELECT * FROM backups")
+    # the audit trail is append-only evidence: entries written after the dump must survive the restore
+    audit_rows = db.fetchall("SELECT * FROM audit_log")
     args, env = _pg_env()
     cmd = [_bin("pg_restore"), *args, "-d", env["PGDATABASE"], "--clean", "--if-exists", "--no-owner",
            "--no-privileges", "--single-transaction", str(path)]
@@ -130,10 +132,24 @@ def restore_backup(backup_id: int, actor: str) -> dict:
                    (b["id"], b["file"], b["kind"], b["size_bytes"], b["sha256"], b["includes_secrets"],
                     b["schema_version"], b["created_at"]))
     db.execute("SELECT setval(pg_get_serial_sequence('backups','id'), (SELECT max(id) FROM backups))")
+    for a in audit_rows:
+        db.execute("INSERT INTO audit_log(id,ts,actor,action,target,summary,detail,change_id) "
+                   "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                   (a["id"], a["ts"], a["actor"], a["action"], a["target"], a["summary"], jsonb(a["detail"]),
+                    a["change_id"]))
+    db.execute("SELECT setval(pg_get_serial_sequence('audit_log','id'), (SELECT max(id) FROM audit_log))")
+    # jobs that were queued/running in the dump belong to the past (e.g. the backup job that produced this very
+    # dump): never re-run them after a restore
+    cancelled = db.execute(
+        "UPDATE jobs SET status='cancelled', locked_by=NULL, updated_at=now(), "
+        "summary=COALESCE(summary,'') || ' · geannuleerd door herstel van een back-up' "
+        "WHERE status IN ('queued','running')")
     for sec in kept_secrets:
         db.execute("INSERT INTO secrets(name,nonce,ciphertext,updated_at) VALUES (%s,%s,%s,%s) "
                    "ON CONFLICT (name) DO NOTHING", (sec["name"], sec["nonce"], sec["ciphertext"], sec["updated_at"]))
-    audit(actor, "backup.restored", f"Back-up {row['file']} hersteld", detail={"pre_restore_backup": pre["file"]})
+    audit(actor, "backup.restored", f"Back-up {row['file']} hersteld",
+          detail={"pre_restore_backup": pre["file"], "jobs_cancelled": cancelled,
+                  "audit_entries_kept": len(audit_rows)})
     return {"restored": row["file"], "pre_restore_backup": pre["file"]}
 
 

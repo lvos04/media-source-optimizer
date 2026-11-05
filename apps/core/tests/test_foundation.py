@@ -436,3 +436,24 @@ def test_backup_env_supports_unix_socket_url(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(get_settings(), "database_url", "postgresql://mso@/mso?host=/tmp/mso-pg")
     args, env = backups._pg_env()
     assert args[:2] == ["-h", "/tmp/mso-pg"] and env["PGDATABASE"] == "mso" and "-U" in args
+
+
+def test_restore_keeps_newer_audit_and_cancels_old_jobs(app: Any, db: Any, admin: Any) -> None:
+    from mso import backups
+    from mso import jobs as jobs_mod
+
+    jobs_mod.enqueue("test.never_rerun", {})  # queued at dump time
+    b = backups.create_backup(actor="test")
+    admin.put("/api/v1/settings", json={"values": {"backup.keep": 9}})  # audit entry AFTER the dump
+    backups.restore_backup(b["id"], "test")
+    actions = [r["action"] for r in db.fetchall("SELECT action FROM audit_log")]
+    assert "settings.updated" in actions and "backup.restored" in actions
+    assert db.scalar("SELECT status FROM jobs WHERE kind='test.never_rerun'") == "cancelled"
+
+
+def test_failed_login_is_audited_without_password(app: Any, admin: Any, db: Any) -> None:
+    c = TestClient(app)
+    c.post("/api/v1/auth/login", json={"username": "beheerder", "password": "Fout-Wachtwoord-123"})
+    row = db.fetchone("SELECT * FROM audit_log WHERE action='auth.login_failed' ORDER BY id DESC LIMIT 1")
+    assert row is not None and row["actor"] == "beheerder"
+    assert "Fout-Wachtwoord-123" not in str(row)

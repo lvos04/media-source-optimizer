@@ -69,7 +69,7 @@ x-core-volumes: &core-volumes
 
 services:
   init:
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.1}
     command: ["init"]
     user: "0:0"
     restart: "no"
@@ -119,7 +119,7 @@ services:
 
   migrate:
     <<: *common
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.1}
     command: ["migrate"]
     restart: "no"
     depends_on:
@@ -135,7 +135,7 @@ services:
 
   api:
     <<: *common
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.1}
     command: ["api"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -161,7 +161,7 @@ services:
 
   worker:
     <<: *common
-    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.0}
+    image: ${MSO_CORE_IMAGE:-ghcr.io/lvos04/media-source-optimizer-core:1.3.1}
     command: ["worker"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -183,7 +183,7 @@ services:
 
   web:
     <<: *common
-    image: ${MSO_WEB_IMAGE:-ghcr.io/lvos04/media-source-optimizer-web:1.3.0}
+    image: ${MSO_WEB_IMAGE:-ghcr.io/lvos04/media-source-optimizer-web:1.3.1}
     depends_on:
       api: {condition: service_healthy}
     environment:

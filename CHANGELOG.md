@@ -2,6 +2,28 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.3.1] — 2026-11-05
+
+Verwerkt de hertest op de echte TrueNAS (Claude Cowork, 5 nov 2026: 25 geslaagd, 1 mislukt).
+
+### Opgelost
+- **Registreren in Prowlarr**: MSO controleert per type (Newznab/Torznab) of er eigen bronnen achter het endpoint
+  zitten. Zonder eigen bronnen weigert MSO met uitleg in plaats van een HTTP 400 van Prowlarr; met eigen bronnen
+  beantwoordt het de testzoekopdracht van Prowlarr met echte resultaten.
+  - De registratie gebruikt de generieke Newznab/Torznab-template (niet langer de AnimeTosho-preset) en geen `forceSave`.
+  - Het voorbeeld toont een Nederlandse samenvatting.
+- **Back-up terugzetten** bewaart auditregels van na de back-up. Openstaande taken uit de back-up worden geannuleerd
+  (geen extra "Handmatige" back-up meer na een herstel).
+- **Mislukte inlogpogingen** staan in de audit (zonder wachtwoord).
+- **Usenet**: verouderde MSO-tests (vooral die zonder inloggegevens) overschrijven de actuele SABnzbd-status niet
+  meer; geen onterecht "Inloggen geweigerd bij eweka" meer.
+- **Automatisering**: een foutmelding van het ene voorstel verschijnt niet meer bij een ander.
+- **MediaGuard-wachtlijst**: grote lijsten (8000+) worden in rondes gesynchroniseerd en verdwenen items opgeruimd.
+  Het overzicht en Ontbrekend & herstel tonen duidelijk wat er gesynchroniseerd is en wanneer.
+- Indexerstatus is eenduidig. De zekerheidsscore toont waarop hij is gebaseerd.
+- Laatste Engelse resten vertaald ("run", "Group", "degraded", "discarded").
+- In Alleen-lezen wordt uitgelegd dat zoekverzoeken (via MediaGuard of handmatig versturen) wel kunnen.
+
 ## [1.3.0] — 2026-11-05
 
 Verwerkt het testrapport van de eerste echte TrueNAS-test (Claude Cowork, 4 nov 2026).

@@ -51,7 +51,7 @@ RUN --mount=type=secret,id=ca_bundle,required=false \
 
 # ---------------------------------------------------------------- runtime
 FROM ${PYTHON_IMAGE}
-ARG VERSION=1.3.0
+ARG VERSION=1.3.1
 LABEL org.opencontainers.image.title="media-source-optimizer" \
       org.opencontainers.image.description="Media Source Optimizer — alles-in-één (database, API, worker, web)" \
       org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer" \

@@ -1,7 +1,8 @@
 """Change-set applier ``qbittorrent``.
 
 Paths
-- ``pref:<key>``                    qBittorrent preference (only keys in ``policy.ALLOWED_PREFS``)
+- ``pref:<key>``                    qBittorrent preference (only keys in ``policy.ALLOWED_PREFS``);
+                                    ``pref:excluded_file_names`` reads back normalised (trimmed lines, no blanks)
 - ``transfer:alt_speed``            alternative speed limits on/off
 - ``torrent:<hash>:up_limit``       per-torrent upload limit (bytes/s, 0 = none)
 - ``torrent:<hash>:dl_limit``       per-torrent download limit
@@ -99,6 +100,9 @@ def build() -> Applier:
                 raise ValueError("cross-seed-kandidaat bestaat niet")
             return "toegevoegd_gepauzeerd" if adapter().has_torrent(row["candidate_hash"]) else "afwezig"
         value = adapter().read_value(path)
+        if path == "pref:excluded_file_names" and value is not None:
+            # qBittorrent keeps a list (one glob per line); compare the normalised text
+            return policy.join_patterns(policy.split_patterns(value))
         if path in written and policy.rate_matches(written[path], value):
             return written[path]  # same limit, rounded by qBittorrent to whole KiB/s
         return value

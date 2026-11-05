@@ -15,6 +15,11 @@ paused)
 - Guardrail runs (e.g. capping upload to the safe share of the line) are never evaluated or rolled back: they
   are policy bounds, not optimisations. When several guardrails are violated at once, ONE bundle change brings
   them all to their bound (``toestemming_nodig``, no measurement window, rolled back as a whole).
+- Autopilot (``state.autopilot()`` / ``automation.autopilot.enabled('torrent')``): guardrails (single or bundle) are
+  reversible policy bounds → ``automatisch_veilig`` and applied at once (impact "beleidsgrens", no measurement); an
+  older ``toestemming_nodig`` guardrail proposal still waiting is replaced. Per-value tuning steps are then applied
+  automatically too (even with ``torrent.autotune_enabled`` off), with evaluation + automatic rollback as usual.
+  Outside Autopilot nothing changes.
 - Evaluation has ONE path: the automation engine (``automation.evaluate``) calls the evaluator registered here
   for target ``qbittorrent`` (``evaluate_change``). It records the verdict on the tuning run and in the change's
   impact; rolling back (automatically or as a proposal) is done only by the engine, so never twice.
@@ -289,6 +294,8 @@ def open_run() -> dict[str, Any] | None:
 def propose(actor: str = "system") -> dict[str, Any]:
     """Create at most one proposal. Returns {run, change} or {reason}."""
     db = get_db()
+    if _autopilot():
+        _replace_waiting_guardrail()
     if open_run():
         return {"reason": "Er loopt al een tuningstap; eerst die evalueren."}
     last = db.fetchone(
@@ -342,6 +349,35 @@ def propose(actor: str = "system") -> dict[str, Any]:
     }
 
 
+def _autopilot() -> bool:
+    """Strictly Autopilot mode (not paused): only then are guardrails applied without approval."""
+    return state.autopilot()
+
+
+def _replace_waiting_guardrail() -> None:
+    """Autopilot: a guardrail proposal from before Autopilot (``toestemming_nodig``, still waiting) is discarded
+    so a fresh ``automatisch_veilig`` one can be applied at once."""
+    for r in get_db().fetchall(
+        "SELECT r.id, c.id AS cid FROM torrent_tuning_runs r JOIN change_sets c ON c.id=r.change_id "
+        "WHERE r.status='proposed' AND r.kind='guardrail' AND c.status='preview' AND c.risk='toestemming_nodig'"
+    ):
+        changes.discard(r["cid"], "automatisering")
+    sync_runs()
+
+
+def _auto_apply(change_id: int) -> str:
+    if _autopilot():  # through the shared Autopilot helper (automation log, hourly cap)
+        from mso.features.torrent.autopilot import apply_auto
+
+        auto, reason = apply_auto(change_id)
+        return auto or f"niet automatisch toegepast: {reason}"
+    try:
+        changes.apply(change_id, "autotune", automatic=True)
+        return "toegepast"
+    except HTTPException as exc:
+        return f"niet automatisch toegepast: {exc.detail}"
+
+
 KIND_LABEL = {"guardrail": "beleidsgrens", "tuning": "tuning", "disk_io": "schijf-I/O"}
 BUNDLE_PARAM = "bundle:guardrails"
 NO_MEASUREMENT = "beleidsgrens, geen meting"
@@ -354,13 +390,15 @@ def _fmt_value(v: Any) -> str:
 def _create_bundle(cands: list[dict[str, Any]], actor: str) -> dict[str, Any]:
     """ONE change that brings every out-of-bounds guardrail value to its bound at once."""
     db = get_db()
+    auto_mode = _autopilot()
+    risk = "automatisch_veilig" if auto_mode else "toestemming_nodig"
     ops = [{"path": c["param"], "label": c["label"], "before": c["before"], "after": c["after"]} for c in cands]
     summary = ", ".join(f"{c['label']} {_fmt_value(c['before'])} → {c['after']}" for c in cands)
     ch = changes.create(
         "qbittorrent",
         f"Veilige grenzen: {len(cands)} qBittorrent-instellingen in één keer terug binnen de grens",
         ops,
-        risk="toestemming_nodig",
+        risk=risk,
         explanation="Meerdere instellingen staan buiten de veilige grens: "
         + summary
         + ". Zulke extreme waarden kosten geheugen en CPU, overbelasten router/NAT-tabel en VPN, en leveren geen "
@@ -372,6 +410,7 @@ def _create_bundle(cands: list[dict[str, Any]], actor: str) -> dict[str, Any]:
             "Instellingen": [f"{c['label']}: {_fmt_value(c['before'])} → {c['after']}" for c in cands],
             "Evaluatie": "geen meting: een beleidsgrens blijft staan",
             "Terugdraaien": "als geheel (alle waarden terug naar de huidige stand)",
+            **({"Automatisch": "ja, Autopilot (terug te draaien, binnen het beleid)"} if auto_mode else {}),
         },
         source="tuning",
         actor=actor,
@@ -397,13 +436,14 @@ def _create_bundle(cands: list[dict[str, Any]], actor: str) -> dict[str, Any]:
         f"Bundelvoorstel veilige grenzen: {summary}",
         target="qbittorrent",
         change_id=ch["id"],
-        detail={"risk": "toestemming_nodig", "params": [c["param"] for c in cands]},
+        detail={"risk": risk, "params": [c["param"] for c in cands]},
     )
+    auto = _auto_apply(ch["id"]) if auto_mode else None
     sync_runs()
     return {
         "run": run_view(get_db().fetchone("SELECT * FROM torrent_tuning_runs WHERE id=%s", (run["id"],))),
         "change": changes.get(ch["id"]),
-        "auto": None,
+        "auto": auto,
         "bundle": True,
     }
 
@@ -446,6 +486,9 @@ def _impact(c: dict[str, Any], baseline: dict[str, Any], eval_h: float) -> dict[
 def _create_run(c: dict[str, Any], baseline: dict[str, Any], actor: str) -> dict[str, Any]:
     db = get_db()
     guard = c["kind"] == "guardrail"
+    auto_mode = _autopilot()
+    if guard and auto_mode:
+        c = {**c, "risk": "automatisch_veilig"}  # a policy bound is reversible: Autopilot applies it at once
     eval_h = 0.0 if guard else _jittered_eval_hours()
     meta = METRICS[c["metric"]]
     ch = changes.create(
@@ -494,12 +537,10 @@ def _create_run(c: dict[str, Any], baseline: dict[str, Any], actor: str) -> dict
         detail={"risk": c["risk"], "metric": c["metric"]},
     )
     auto = None
-    if ts.get("autotune_enabled") and state.automation_allowed() and c["risk"] == "automatisch_veilig":
-        try:
-            changes.apply(ch["id"], "autotune", automatic=True)
-            auto = "toegepast"
-        except HTTPException as exc:
-            auto = f"niet automatisch toegepast: {exc.detail}"
+    if c["risk"] == "automatisch_veilig" and (
+        auto_mode or (ts.get("autotune_enabled") and state.automation_allowed())
+    ):
+        auto = _auto_apply(ch["id"])
     sync_runs()
     return {
         "run": run_view(get_db().fetchone("SELECT * FROM torrent_tuning_runs WHERE id=%s", (run["id"],))),
@@ -595,7 +636,9 @@ def evaluate_change(change: dict[str, Any]) -> dict[str, Any]:
         paths = [str(op.get("path") or "") for op in change.get("ops") or []]
         if any(x in p for p in paths for x in ONE_SHOT):
             return _not_measured("eenmalige actie, geen meting")
-        if any(cleanup.is_cleanup_path(p) for p in paths):
+        if any(cleanup.is_cleanup_path(p) for p in paths) or any(
+            p.startswith("pref:excluded_file_names") for p in paths
+        ):
             return _not_measured(NO_MEASUREMENT)
         return ev.generic_evaluator(change)  # manual preference change: generic torrent measures
     if run["kind"] == "guardrail" or run["param"] == BUNDLE_PARAM:

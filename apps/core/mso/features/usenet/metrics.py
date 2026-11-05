@@ -135,13 +135,99 @@ def provider_contribution(period_days: int) -> list[dict[str, Any]]:
                     "articles_success": success if ps else None,
                     "success_ratio": round(success / tried, 4) if tried else None,
                 },
+                "availability": _availability(checked, available, tried, success),
+                "has_credentials": providers.has_credentials(p["slug"]),
             }
         )
     return out
 
 
+PASSIVE_LABEL = "passief uit SABnzbd"
+
+
+def _availability(checked: int, available: int, tried: int, success: int) -> dict[str, Any]:
+    """The one availability figure shown per row: MSO's own STAT sample when there is one, otherwise SABnzbd's own
+    per-server article counters (passive; depends on server priority)."""
+    if checked:
+        return {"ratio": round(available / checked, 4), "source": "stat", "label": "STAT-steekproef",
+                "articles": checked}
+    if tried:
+        return {"ratio": round(success / tried, 4), "source": "passive", "label": PASSIVE_LABEL, "articles": tried}
+    return {"ratio": None, "source": None, "label": None, "articles": 0}
+
+
+def _sab_servers_without_provider(period_days: int, linked: set[str]) -> list[dict[str, Any]]:
+    """SABnzbd servers no MSO provider is linked to, from SABnzbd's own per-server statistics (passive)."""
+    db = get_db()
+    day0 = date.today() - timedelta(days=period_days)
+    names = {
+        r["server"]: r["displayname"] for r in db.fetchall("SELECT server, displayname FROM usenet_sab_servers")
+    }
+    stats = {
+        r["server"]: r
+        for r in db.fetchall(
+            "SELECT server, sum(bytes) AS bytes, sum(articles_tried) AS tried, sum(articles_success) AS success "
+            "FROM usenet_server_stats WHERE day > %s GROUP BY server",
+            (day0,),
+        )
+    }
+    out = []
+    for server in sorted((set(names) | set(stats)) - linked):
+        ps = stats.get(server)
+        tried = int(ps["tried"] or 0) if ps and ps["tried"] is not None else 0
+        success = int(ps["success"] or 0) if ps and ps["success"] is not None else 0
+        label = names.get(server) or server
+        out.append(
+            {
+                "source_id": f"sabnzbd:{server}",
+                "label": label,
+                "slug": None,
+                "kind": "sab_server",
+                "articles_checked": 0,
+                "available": 0,
+                "unique_available": None,
+                "compared_articles": 0,
+                "bytes_downloaded": int(ps["bytes"] or 0) if ps else None,
+                "failures_by_reason": {"article_missing_passive": tried - success} if tried > success else {},
+                "coverage": 0.0,
+                "confidence": "low" if tried else "none",
+                "method": "passive" if ps else "none",
+                "nzbs_tested": 0,
+                "passive": {
+                    "server": server,
+                    "articles_tried": tried if ps else None,
+                    "articles_success": success if ps else None,
+                    "success_ratio": round(success / tried, 4) if tried else None,
+                },
+                "availability": _availability(0, 0, tried, success),
+                "has_credentials": False,
+            }
+        )
+    return out
+
+
+def _ensure_passive_stats() -> None:
+    """No SABnzbd statistics stored yet (fresh install): read them once now so the table is never empty."""
+    db = get_db()
+    if db.scalar("SELECT 1 FROM usenet_server_stats LIMIT 1"):
+        return
+    try:
+        from mso.connectors import base as cb
+
+        if not cb.is_configured("sabnzbd"):
+            return
+        from mso.features.usenet import history
+
+        history.snapshot_server_stats()
+    except Exception:  # SABnzbd unreachable: the table shows what there is
+        return
+
+
 def overview(period_days: int) -> dict[str, Any]:
+    _ensure_passive_stats()
     items = provider_contribution(period_days)
+    linked = {p["sab_server"] for p in providers.list_rows() if p.get("sab_server")}
+    items += _sab_servers_without_provider(period_days, linked)
     db = get_db()
     tests = int(
         db.scalar(
@@ -151,10 +237,22 @@ def overview(period_days: int) -> dict[str, Any]:
         )
         or 0
     )
+    missing = [i["label"] for i in items if i["slug"] and not i["has_credentials"]]
+    passive_only = sum(1 for i in items if i["availability"]["source"] == "passive")
     return {
         "period_days": period_days,
         "items": items,
         "tests": tests,
+        "sources": {"stat": sum(1 for i in items if i["availability"]["source"] == "stat"), "passive": passive_only},
+        # one gentle hint, never a blocker: without credentials MSO can't run its own STAT sample
+        "credentials_hint": {
+            "providers": missing,
+            "text": "Inloggegevens toevoegen voor betere meting: met inloggegevens controleert MSO zelf of jouw "
+            "aangevraagde artikelen bij elke provider aanwezig zijn (STAT-steekproef). Tot dan toont MSO "
+            "SABnzbd's eigen tellers (passief).",
+        }
+        if missing
+        else None,
         "notes": [
             "Alleen gemeten op artikelen die jij echt hebt aangevraagd; geen garantie voor andere releases.",
             "Uniek beschikbaar = in dezelfde test bij precies één van de vergeleken providers aanwezig.",

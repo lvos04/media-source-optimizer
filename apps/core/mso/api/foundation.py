@@ -269,18 +269,23 @@ _MODE_NL = {"read_only": "Alleen-lezen", "manage": "Beheermodus", "autopilot": "
 
 @router.get("/system/mode")
 def get_mode(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
-    return {"mode": state.mode(), "paused": state.paused()}
+    return {"mode": state.mode(), "paused": state.paused(), "autopilot": state.autopilot(),
+            "automation_allowed": state.automation_allowed()}
 
 
 @router.put("/system/mode")
 def put_mode(body: ModeBody, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
     old = state.mode()
     state.set_state("mode", body.mode)
+    unpaused = body.mode == "autopilot" and state.paused()
+    if unpaused:  # Autopilot = set it and forget it: switching it on also lifts a pause
+        state.set_state("paused", False)
     audit(
         p.actor,
         "system.mode",
-        f"Bedrijfsmodus: {_MODE_NL.get(old, old)} → {_MODE_NL.get(body.mode, body.mode)}",
-        detail={"old": old, "new": body.mode},
+        f"Bedrijfsmodus: {_MODE_NL.get(old, old)} → {_MODE_NL.get(body.mode, body.mode)}"
+        + (" (pauze opgeheven)" if unpaused else ""),
+        detail={"old": old, "new": body.mode, "unpaused": unpaused},
     )
     return get_mode(p)
 

@@ -67,7 +67,7 @@ export interface TorrentOverview {
 }
 
 export interface PreferenceItem {
-  key: string; label: string; kind: "int" | "rate" | "bool" | "float" | "string"; value: unknown;
+  key: string; label: string; kind: "int" | "rate" | "bool" | "float" | "string" | "patterns"; value: unknown;
   min: number | null; max: number | null; present: boolean;
   /** "buiten_grens" = outside MSO's safe bounds; null = not judged (no bound known) */
   bounds: "ok" | "buiten_grens" | null; target: number | null;
@@ -122,6 +122,17 @@ export interface ProposeResult { reason?: string; run?: TuningRun; change?: Chan
 /** GET /torrent/suspicious — suspicious torrents of the last scan + the open cleanup proposal. */
 export interface SuspiciousTorrent { hash: string; name: string; category: string | null; tracker_host: string | null; size: number | null; files: string[] }
 export interface SuspiciousList { items: SuspiciousTorrent[]; open_change: ChangeSet | null }
+
+/** GET /torrent/prevention — "Uitvoerbare bestanden nooit downloaden" (qBittorrent ≥ 4.6 excluded file names). */
+export interface PreventionStatus {
+  supported: boolean; enabled: boolean; active: boolean; patterns: string[]; missing: string[]; user_patterns: string[];
+  version: string | null; updated_at: string | null; recommended: string[]; message: string; autopilot: boolean;
+  open_change: ChangeSet | null;
+  last_change: { id: number; status: string; title: string; applied_at: string | null; applied_by: string | null } | null;
+  suppressed: string | null;
+}
+/** POST /torrent/prevention/preview — the change (applied at once in Autopilot: `auto` = "toegepast"). */
+export type PreventionPreview = ChangeSet & { auto: string | null };
 
 export interface StorageReport {
   client: { available: boolean; updated_at: string | null; error: string | null };

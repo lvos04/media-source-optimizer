@@ -9,6 +9,7 @@ import Link from "next/link";
 import { KpiCard, Timeline } from "@/components/mg/domain";
 import { Card, LinkButton, PageHeader, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
+import { AutopilotCard, WaitingCard } from "@/components/mso/automation/autopilot-summary";
 import { RiskChip } from "@/components/mso/risk-chip";
 import type { Risk } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -34,7 +35,7 @@ export default function OverviewPage() {
     <>
       <PageHeader
         title={t("overview.title")}
-        sub={t("overview.sub", { date: date(new Date()), mode: shownMode ? t(shownMode === "manage" ? "mode.manage" : "mode.read_only") : "—" })}
+        sub={t("overview.sub", { date: date(new Date()), mode: shownMode ? t(`mode.${shownMode}`) : "—" })}
         actions={<LinkButton href="/automatisering" icon={Lightbulb}>{t("nav.automation")}</LinkButton>}
       />
       {ov.error && !o ? (
@@ -62,6 +63,8 @@ export default function OverviewPage() {
           </section>
 
           <div className="grid" style={{ marginTop: 16 }}>
+            <AutopilotCard />
+            <WaitingCard />
             {o ? (
               <>
                 <FailureLocations o={o} />

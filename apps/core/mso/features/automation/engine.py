@@ -6,14 +6,12 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import HTTPException
-
 from mso import changes, jobs, state
 from mso import settings_registry as sr
 from mso.audit import audit
 from mso.db import Database, get_db, jsonb
 from mso.domain.outcomes import recommend
-from mso.features.automation import AREAS, TARGET_AREA
+from mso.features.automation import TARGET_AREA, autopilot
 from mso.features.automation import evaluators as ev_mod
 from mso.features.automation.evaluators import EVALUATORS, OUTCOME, OUTCOME_LABEL
 from mso.security import redact
@@ -34,9 +32,8 @@ def change_area(ch: dict[str, Any], db: Database | None = None) -> str | None:
 
 
 def area_enabled(area: str | None) -> bool:
-    if area not in AREAS:
-        return False
-    return bool(sr.get(f"automation.{area}.auto_apply_safe"))
+    """Area on for automatic application: Autopilot (every area) or the area's own toggle."""
+    return autopilot.area_on(area)
 
 
 def _log(
@@ -47,20 +44,11 @@ def _log(
     area: str | None = None,
     db: Database | None = None,
 ) -> None:
-    (db or get_db()).execute(
-        "INSERT INTO automation_log(kind,change_id,area,result,message) VALUES (%s,%s,%s,%s,%s)",
-        (kind, change_id, area, result, redact(message)[:1000]),
-    )
+    autopilot.log(kind, result, message, change_id, area, db)
 
 
 def applied_last_hour(db: Database | None = None) -> int:
-    return int(
-        (db or get_db()).scalar(
-            "SELECT count(*) FROM automation_log WHERE kind='apply' AND result='applied' "
-            "AND ts > now() - interval '1 hour'"
-        )
-        or 0
-    )
+    return autopilot.applied_last_hour(db)
 
 
 def pending_safe(db: Database | None = None) -> list[dict[str, Any]]:
@@ -73,6 +61,8 @@ def pending_safe(db: Database | None = None) -> list[dict[str, Any]]:
 
 
 def apply_safe(db: Database | None = None) -> dict[str, Any]:
+    """Apply pending 'automatisch veilig' changes of switched-on areas (all areas in Autopilot). Changes with a
+    ``destructive`` (switch-off, reversible) op only in Autopilot; ``irreversible`` never (changes.apply)."""
     db = db or get_db()
     if not state.automation_allowed():
         reason = "alleen-lezen modus" if state.mode() == "read_only" else "automatisering gepauzeerd"
@@ -83,7 +73,7 @@ def apply_safe(db: Database | None = None) -> dict[str, Any]:
     applied, skipped, failed = [], [], []
     for ch in pending_safe(db):
         area = change_area(ch, db)
-        if not area_enabled(area):
+        if autopilot.why_not(ch, area) is not None:
             skipped.append(ch["id"])
             continue
         if budget <= 0:
@@ -97,41 +87,16 @@ def apply_safe(db: Database | None = None) -> dict[str, Any]:
             )
             skipped.append(ch["id"])
             continue
-        try:
-            changes.apply(ch["id"], ACTOR, automatic=True, db=db)
-        except HTTPException as exc:
+        ok, _err = autopilot.apply_one(ch, area, db)
+        if not ok:
             failed.append(ch["id"])
-            _log("apply", "failed", f"'{ch['title']}': {exc.detail}", ch["id"], area, db)
-            audit(
-                ACTOR,
-                "automation.apply_failed",
-                f"Automatisch toepassen mislukt: {ch['title']}",
-                target=ch["target"],
-                change_id=ch["id"],
-                detail={"error": str(exc.detail), "area": area},
-            )
             continue
         budget -= 1
         applied.append(ch["id"])
-        db.execute(
-            "UPDATE recommendations SET status='accepted', updated_at=now() WHERE change_id=%s "
-            "AND status='open'",
-            (ch["id"],),
-        )
-        _log("apply", "applied", f"Automatisch toegepast: {ch['title']}", ch["id"], area, db)
-        audit(
-            ACTOR,
-            "automation.applied",
-            f"Automatisch veilig toegepast: {ch['title']}",
-            target=ch["target"],
-            change_id=ch["id"],
-            detail={"area": area},
-        )
     _log(
         "run", "done", f"{len(applied)} toegepast, {len(skipped)} overgeslagen, {len(failed)} mislukt", db=db
     )
     return {"applied": applied, "skipped": skipped, "failed": failed}
-
 
 
 def _set_evaluation(change_id: int, evaluation: dict[str, Any], db: Database) -> None:
@@ -175,6 +140,8 @@ def auto_rollback_setting(ch: dict[str, Any]) -> tuple[bool, str]:
     module defines it); every other target follows ``automation.auto_rollback``."""
     if ch.get("target") == "qbittorrent" and "torrent.autotune_auto_rollback" in sr.REGISTRY:
         return bool(sr.get("torrent.autotune_auto_rollback")), "torrent.autotune_auto_rollback"
+    if state.autopilot():
+        return True, "autopilot"
     return bool(sr.get("automation.auto_rollback")), "automation.auto_rollback"
 
 
@@ -293,7 +260,8 @@ def evaluate_due(db: Database | None = None) -> dict[str, Any]:
                     "action": "teruggedraaid",
                     "reason": reason,
                     "setting": setting_key,
-                    "message": f"Slechter gemeten; automatisch teruggedraaid ({setting_key} staat aan).",
+                    "message": "Slechter gemeten; automatisch teruggedraaid (Autopilot)." if setting_key == "autopilot"
+                    else f"Slechter gemeten; automatisch teruggedraaid ({setting_key} staat aan).",
                 }
                 _set_evaluation(ch["id"], record, db)
                 audit(
@@ -358,6 +326,15 @@ def evaluation_view(ch: dict[str, Any], db: Database | None = None) -> dict[str,
     out["applicable"] = not not_evaluable(ch)
     out["evaluation"] = imp.get("evaluation")
     out["interim"] = None
+    if out["evaluation"] is None and ch["status"] == "rolled_back":
+        out["evaluation"] = {
+            "result": "niet_van_toepassing",
+            "label": "n.v.t. (teruggedraaid)",
+            "action": "teruggedraaid",
+            "rolled_back": True,
+            "message": "Deze wijziging is teruggedraaid voordat de meetperiode om was; er valt niets meer te meten.",
+            "measures": [],
+        }
     if out["evaluation"] is None and ch["status"] == "applied":
         if not out["applicable"]:
             out["evaluation"] = {

@@ -32,6 +32,8 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
   // live mode/pause state (same source as the topbar chip and pause button) — the status resource may lag behind
   const { mode, paused } = useMode();
   const s = status.data;
+  // Autopilot (mode, not paused or paused): the per-area toggles do not apply — every area is on via Autopilot
+  const autopilotMode = (mode ?? s?.mode) === "autopilot";
   if (!s) return <Card className="span-12"><StateView kind={status.error ? "error" : "loading"} compact /></Card>;
   const toggle = async (area: string, on: boolean) => {
     const res = await run<AutomationStatus>(`t-${area}`, "put", "/automation/toggles", { areas: { [area]: on } }, t("automation.toggleSaved"));
@@ -41,6 +43,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
     <>
       <Card className="span-7" title={t("automation.areas")} icon={Bot} flush>
         <p className="hint" style={{ margin: 0, padding: "12px 16px 4px" }}>{t("automation.areasHint", { age: num(s.max_age_h), cap: num(s.max_per_hour) })}</p>
+        {autopilotMode ? <div style={{ padding: "8px 16px 4px" }}><InlineState tone="info" icon={Bot}>{t("mode.section.autoHintAutopilot")}</InlineState></div> : null}
         <div className="list">
           {s.areas.map((a) => (
             <div className="list-row" key={a.area}>
@@ -48,10 +51,14 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
                 <div className="list-title">{a.label}</div>
                 <div className="list-sub">{a.pending_safe_changes ? t("automation.pending", { count: num(a.pending_safe_changes) }) : <span className="mono">{a.setting_key}</span>}</div>
               </div>
-              <StatusChip tone={a.auto_apply_safe ? "success" : "neutral"}>{a.auto_apply_safe ? t("automation.on") : t("automation.off")}</StatusChip>
-              <span title={isAdmin ? undefined : t("automation.adminOnly")}>
-                <Switch checked={a.auto_apply_safe} label={a.label} disabled={!isAdmin || pending === `t-${a.area}`} onChange={(v) => void toggle(a.area, v)} />
-              </span>
+              {autopilotMode ? (
+                <StatusChip tone="accent" icon={Bot} title={t("automation.viaAutopilotTitle")}>{t("mode.section.autoViaAutopilot")}</StatusChip>
+              ) : <>
+                <StatusChip tone={a.auto_apply_safe ? "success" : "neutral"}>{a.auto_apply_safe ? t("automation.on") : t("automation.off")}</StatusChip>
+                <span title={isAdmin ? undefined : t("automation.adminOnly")}>
+                  <Switch checked={a.auto_apply_safe} label={a.label} disabled={!isAdmin || pending === `t-${a.area}`} onChange={(v) => void toggle(a.area, v)} />
+                </span>
+              </>}
             </div>
           ))}
         </div>
@@ -61,12 +68,13 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
           {(() => {
             const liveMode = mode ?? s.mode;
             const livePaused = mode === null ? s.paused : paused;
+            if (liveMode === "autopilot" && !livePaused) return <InlineState tone="success" icon={Bot}>{t("automation.allowedAutopilot")}</InlineState>;
             if (liveMode === "manage" && !livePaused) return <InlineState tone="success">{t("automation.allowed")}</InlineState>;
-            return <InlineState tone="warning">{liveMode !== "manage" ? t("automation.notAllowedReadOnly") : t("automation.notAllowedPaused")}</InlineState>;
+            return <InlineState tone="warning">{liveMode === "read_only" ? t("automation.notAllowedReadOnly") : t("automation.notAllowedPaused")}</InlineState>;
           })()}
           <dl className="kv">
             <dt>{t("automation.appliedLastHour")}</dt><dd>{num(s.applied_last_hour)} / {num(s.max_per_hour)}</dd>
-            <dt>{t("automation.autoRollback")}</dt><dd><StatusChip tone={s.auto_rollback ? "success" : "neutral"}>{s.auto_rollback ? t("automation.on") : t("automation.off")}</StatusChip></dd>
+            <dt>{t("automation.autoRollback")}</dt><dd><StatusChip tone={s.auto_rollback ? "success" : "neutral"}>{s.auto_rollback ? (autopilotMode && !s.auto_rollback_setting ? t("mode.section.autoViaAutopilot") : t("automation.on")) : t("automation.off")}</StatusChip></dd>
             <dt>{t("automation.evaluators")}</dt>
             <dd>
               {s.evaluators.map((e) => EVALUATOR_LABEL[e] ?? e).join(" · ")}

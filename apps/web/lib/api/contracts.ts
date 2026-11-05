@@ -23,9 +23,10 @@ export interface UserRow {
 }
 
 // ---------------------------------------------------------------- system
-export type OperatingMode = "read_only" | "manage";
+/** `autopilot` = set it and forget it: like `manage`, plus MSO applies every reversible change itself (never deletes). */
+export type OperatingMode = "read_only" | "manage" | "autopilot";
 /** `GET /system/mode` */
-export interface SystemMode { mode: OperatingMode; paused: boolean; [key: string]: unknown }
+export interface SystemMode { mode: OperatingMode; paused: boolean; autopilot?: boolean; automation_allowed?: boolean; [key: string]: unknown }
 
 export type HealthStatus = "healthy" | "degraded" | "offline";
 /** `GET /system/health` */

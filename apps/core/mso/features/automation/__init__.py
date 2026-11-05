@@ -44,7 +44,8 @@ for _area, _label in AREAS.items():
         category="automatisering",
         risk="automatisch_veilig",
         help="Alleen wijzigingen met risicoklasse 'automatisch veilig' worden zonder bevestiging toegepast, "
-        "en alleen in beheermodus zonder pauze. Advies en 'toestemming nodig' nooit.",
+        "en alleen in beheermodus zonder pauze. Advies en 'toestemming nodig' nooit. In Autopilot staat dit "
+        "voor elk onderdeel aan.",
     )
 sr.define(
     "automation.max_age_h",
@@ -61,11 +62,12 @@ sr.define(
     "automation.max_per_hour",
     "Maximaal aantal automatische wijzigingen per uur",
     "int",
-    5,
+    20,
     min=1,
-    max=60,
+    max=120,
     category="automatisering",
-    help="Globale limiet over alle onderdelen samen.",
+    help="Globale limiet over alle onderdelen samen (ook in Autopilot). Wat boven de limiet valt, volgt in "
+    "een volgende ronde.",
 )
 sr.define(
     "automation.auto_rollback",
@@ -75,9 +77,10 @@ sr.define(
     category="automatisering",
     risk="automatisch_veilig",
     help="Als de controle na een wijziging 'slechter' meet, wordt de wijziging automatisch teruggedraaid "
-    "(alleen in beheermodus zonder pauze, met een auditregel). Voor qBittorrent geldt ook "
-    "'torrent.autotune_auto_rollback'. Verwijderen/uitschakelen wordt nooit geëvalueerd of automatisch "
-    "teruggedraaid, en een terugdraai die zelf iets zou uitschakelen wordt alleen voorgesteld.",
+    "(alleen in beheermodus zonder pauze, met een auditregel). In Autopilot staat dit altijd aan. "
+    "Voor qBittorrent geldt ook 'torrent.autotune_auto_rollback'. Verwijderen/uitschakelen wordt nooit "
+    "geëvalueerd of automatisch teruggedraaid, en een terugdraai die zelf iets zou "
+    "uitschakelen wordt alleen voorgesteld.",
 )
 sr.define(
     "automation.evaluation_hours",

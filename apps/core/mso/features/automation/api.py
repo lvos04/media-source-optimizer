@@ -12,13 +12,13 @@ from mso import settings_registry as sr
 from mso.audit import audit
 from mso.auth import Principal, require
 from mso.db import get_db
-from mso.features.automation import AREAS, EVALUATORS, engine
+from mso.features.automation import AREAS, EVALUATORS, autopilot, engine
 
 router = APIRouter(prefix="/api/v1/automation", tags=["automatisering"])
 RISK_EXPLANATION = {
     "advies": "Alleen uitleg of suggestie; er verandert niets tot jij zelf iets doet.",
     "automatisch_veilig": "Kleine, omkeerbare wijziging die automatisch mag worden toegepast als je dat per "
-    "onderdeel aanzet (alleen in beheermodus, met limiet en evaluatie).",
+    "onderdeel aanzet of Autopilot gebruikt (met limiet, controle en automatisch terugdraaien).",
     "toestemming_nodig": "Wijziging met mogelijk merkbaar effect; een beheerder moet eerst goedkeuren.",
 }
 
@@ -171,6 +171,8 @@ def status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
             "area": a,
             "label": label,
             "auto_apply_safe": bool(sr.get(f"automation.{a}.auto_apply_safe")),
+            "effective": autopilot.area_on(a),
+            "via_autopilot": state.autopilot(),
             "setting_key": f"automation.{a}.auto_apply_safe",
             "pending_safe_changes": per_area.get(a, 0),
         }
@@ -185,11 +187,13 @@ def status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     return {
         "mode": state.mode(),
         "paused": state.paused(),
+        "autopilot": state.autopilot(),
         "automation_allowed": state.automation_allowed(),
         "areas": areas,
         "max_per_hour": int(sr.get("automation.max_per_hour")),
         "max_age_h": int(sr.get("automation.max_age_h")),
-        "auto_rollback": bool(sr.get("automation.auto_rollback")),
+        "auto_rollback": bool(sr.get("automation.auto_rollback")) or state.autopilot(),
+        "auto_rollback_setting": bool(sr.get("automation.auto_rollback")),
         "applied_last_hour": engine.applied_last_hour(db),
         "evaluators": sorted(EVALUATORS),
         "evaluator_fallback": True,
@@ -266,3 +270,87 @@ def evaluation_one(change_id: int, _: Principal = Depends(require("viewer"))) ->
     if not ch.get("applied_at"):
         raise HTTPException(409, detail="Deze wijziging is nog niet toegepast")
     return engine.evaluation_view(ch)
+
+
+# ------------------------------------------------------------------ automatische taken (Systeem)
+SCHEDULE_LABELS: dict[str, tuple[str, str]] = {
+    "automation.apply_safe": ("Veilige wijzigingen automatisch toepassen", "Automatisering"),
+    "automation.evaluate": ("Controle na wijzigingen (met automatisch terugdraaien)", "Automatisering"),
+    "backup.create": ("Dagelijkse back-up", "Systeem"),
+    "costs.import_services": ("Diensten importeren in Kosten", "Kosten"),
+    "costs.renewal_reminders": ("Herinneringen voor verlengingen", "Kosten"),
+    "prowlarr.sync": ("Indexers synchroniseren met Prowlarr", "Indexers"),
+    "indexers.health": ("Indexers controleren", "Indexers"),
+    "indexers.reliability": ("Betrouwbaarheid indexers herberekenen", "Indexers"),
+    "usenet.sab_ingest": ("SABnzbd-geschiedenis inlezen", "Usenet"),
+    "usenet.sab_stats": ("SABnzbd-statistieken inlezen", "Usenet"),
+    "usenet.sab_server_status": ("Status Usenet-servers in SABnzbd", "Usenet"),
+    "usenet.provider_checks": ("Usenet-providers controleren", "Usenet"),
+    "usenet.headerindex_run": ("Header-index bijwerken", "Usenet"),
+    "mediaguard.sync": ("MediaGuard synchroniseren", "MediaGuard"),
+    "recovery.analyze": ("Ontbrekend & herstel analyseren", "Herstel"),
+    "torrent.ingest": ("qBittorrent-torrents inlezen", "Torrent"),
+    "torrent.tune": ("qBittorrent afstemmen", "Torrent"),
+    "torrent.tune_evaluate": ("qBittorrent-afstemming controleren", "Torrent"),
+}
+
+
+def _schedule_enabled(sched: Any) -> tuple[bool, str | None]:
+    try:
+        on = bool(sched.enabled())
+    except Exception:
+        return False, "Controle of deze taak mag draaien gaf een fout"
+    if on:
+        return True, None
+    if sched.kind == "backup.create":
+        return False, "Dagelijkse back-up staat uit (Instellingen → Systeem)"
+    if sched.kind == "automation.apply_safe":
+        return False, "Alleen in beheermodus of Autopilot zonder pauze"
+    return False, "Wacht op koppeling of staat uit in de instellingen"
+
+
+@router.get("/schedules")
+def schedules(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Every periodic job (``jobs.every``): whether it runs by itself now, last run and next planned run."""
+    import time
+    from datetime import UTC, datetime
+
+    db = get_db()
+    last_rows = db.fetchall(
+        "SELECT DISTINCT ON (kind) kind, status, updated_at, error, summary, created_by FROM jobs "
+        "WHERE status IN ('done','failed','running','cancelled') ORDER BY kind, updated_at DESC")
+    last = {r["kind"]: r for r in last_rows}
+    fails = {r["kind"]: int(r["n"]) for r in db.fetchall(
+        "SELECT kind, count(*) AS n FROM jobs WHERE status='failed' AND updated_at > now() - interval '24 hours' "
+        "GROUP BY kind")}
+    now = int(time.time())
+    seen: set[str] = set()
+    items = []
+    for sched in jobs.SCHEDULES:
+        if sched.kind in seen:
+            continue
+        seen.add(sched.kind)
+        enabled, reason = _schedule_enabled(sched)
+        lr = last.get(sched.kind)
+        label, area = SCHEDULE_LABELS.get(sched.kind, (sched.kind, "Overig"))
+        if not enabled:
+            status_ = "uit"
+        elif lr is None:
+            status_ = "nog_niet"
+        elif lr["status"] == "failed":
+            status_ = "mislukt"
+        elif lr["status"] == "running":
+            status_ = "bezig"
+        else:
+            status_ = "ok"
+        items.append({
+            "kind": sched.kind, "label": label, "area": area, "every_s": sched.every_s, "enabled": enabled,
+            "reason": reason, "status": status_,
+            "last_run_at": lr["updated_at"] if lr else None, "last_status": lr["status"] if lr else None,
+            "last_error": lr["error"] if lr else None, "last_summary": lr["summary"] if lr else None,
+            "failed_24h": fails.get(sched.kind, 0),
+            "next_run_at": datetime.fromtimestamp((now // sched.every_s + 1) * sched.every_s, UTC)
+            if enabled else None,
+        })
+    items.sort(key=lambda i: (i["area"], i["label"]))
+    return {"items": items, "worker_hint": "Taken draaien vanzelf in de worker; je hoeft niets aan te klikken."}

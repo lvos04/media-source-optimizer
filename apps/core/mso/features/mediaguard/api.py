@@ -120,7 +120,8 @@ def get_reasons(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
 
 @router.get("/quota")
 def get_quota(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
-    return service.quota_overview()
+    """MSO quota + MediaGuard's backfill quota per instance (re-read from MediaGuard when older than 2 min)."""
+    return service.quota_overview(fresh=True)
 
 
 @router.post("/wanted/{mg_id}/search")

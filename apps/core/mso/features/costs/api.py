@@ -109,7 +109,8 @@ def list_services(
         LOGGER.warning("Automatisch importeren van diensten mislukt: %s", type(exc).__name__)
     rows = get_db().fetchall(
         "SELECT s.*, src.label AS source_label FROM services s "
-        "LEFT JOIN sources src ON src.id=s.source_id ORDER BY s.price_missing DESC, s.active DESC, s.label"
+        "LEFT JOIN sources src ON src.id=s.source_id "
+        "ORDER BY s.price_missing DESC, (s.billing = 'free') ASC, s.active DESC, s.label"
     )
     pd = _period(period_days)
     metrics = analysis.service_metrics(rows, pd)
@@ -119,8 +120,11 @@ def list_services(
         item["monthly"] = analysis.monthly_cost(r)
         item["kind_label"] = KIND_LABELS.get(r["kind"], r["kind"])
         item["metrics"] = metrics.get(r["id"])
+        item["free"] = r["billing"] == "free"
         items.append(item)
-    return {"items": items, "period_days": pd, "price_missing": sum(1 for r in rows if r["price_missing"])}
+    return {"items": items, "period_days": pd, "price_missing": sum(1 for r in rows if r["price_missing"]),
+            "free": sum(1 for r in rows if r["billing"] == "free"),
+            "paid": sum(1 for r in rows if r["billing"] != "free")}
 
 
 @router.post("/services/import")

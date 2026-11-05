@@ -146,3 +146,15 @@ sr.define(
     "beheermodus, met 'Automatisch veilig toepassen: Ontbrekend & herstel' aan, binnen de limieten per uur). "
     "Versturen kan niet worden teruggedraaid.",
 )
+sr.define(
+    "recovery.autopilot_fallback",
+    "In Autopilot: mislukte downloads zelf afhandelen",
+    "bool",
+    True,
+    category=CAT,
+    risk="automatisch_veilig",
+    help="Alleen in Autopilot. MediaGuard-items: MSO vraagt MediaGuard opnieuw te zoeken via de eigen route "
+    "(binnen de MSO- en MediaGuard-quota; MediaGuard blijft eigenaar, MSO verstuurt niets zelf). Zelfstandige "
+    "items: MSO verstuurt de beste vervanger automatisch (binnen 'Handmatige verzendingen per uur'). "
+    "Serverproblemen: SABnzbd probeert de download opnieuw zodra de kapotte servers uit staan.",
+)

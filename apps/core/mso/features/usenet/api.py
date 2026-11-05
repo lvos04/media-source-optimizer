@@ -19,7 +19,17 @@ from mso.connectors.sabnzbd import SabClient, SabError
 from mso.db import get_db
 from mso.domain import outcomes
 from mso.domain.categories import MEDIA_CATEGORIES
-from mso.features.usenet import articles, history, metrics, nzbs, providers, recommend, serverstatus
+from mso.features.usenet import (
+    articles,
+    autoheal,
+    history,
+    metrics,
+    nzbs,
+    providers,
+    recommend,
+    retry,
+    serverstatus,
+)
 from mso.features.usenet.headerindex import engine as hi
 from mso.security import limiter
 
@@ -139,6 +149,7 @@ def sab_servers(
     ):
         daily.setdefault(r["server"], []).append({"day": r["day"], "bytes": r["bytes"]})
     totals = history.server_totals()
+    heal = autoheal.rows()
     items = []
     for s in sorted(servers, key=lambda s: (s["priority"], s["name"])):
         st = stats.get(s["name"])
@@ -177,6 +188,7 @@ def sab_servers(
                 },
                 "daily": daily.get(s["name"], []),
                 "total_bytes": totals.get(s["name"]),
+                "autopilot": autoheal.public_row(heal.get(s["name"])),
             }
         )
     return {
@@ -480,6 +492,42 @@ def propose_priority(
 def propose_disable_failing(p: Principal = Depends(require("admin"))) -> dict[str, Any]:
     """One change set (toestemming_nodig) that switches off every failing, enabled SABnzbd server."""
     return _sab(lambda: recommend.propose_disable(p.actor))
+
+
+# ------------------------------------------------------------------ Autopilot: servers off/on, retries
+@router.get("/autopilot")
+def autopilot_overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Automatic server off/on state per SABnzbd server + retried failed downloads (no SABnzbd call)."""
+    return {**autoheal.overview(), "retry": retry.overview()}
+
+
+@router.post("/autopilot/run")
+def autopilot_run(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """Run the Autopilot pass now (refresh SABnzbd's server status first). Writes only in Autopilot; otherwise it
+    watches and (re)creates the retry proposal."""
+    _limit("usenet-autopilot", p.actor, 6)
+    _sab(serverstatus.refresh)
+    return _sab(autoheal.run)
+
+
+@router.post("/sab/servers/{server}/retry")
+def sab_server_retry(server: str, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """'Opnieuw proberen': switch a (failing/switched-off) SABnzbd server on again and watch it. Requires
+    beheermodus; reversible (rollback switches it off again); in Autopilot it goes off again when the error
+    returns."""
+    _limit("usenet-server-retry", p.actor, 10)
+    return _sab(lambda: autoheal.retry_server(server, p.actor))
+
+
+@router.post("/retries/propose")
+def retries_propose(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """(Re)create the bundle "N mislukte downloads opnieuw proberen" now (applied right away in Autopilot)."""
+    _limit("usenet-retry-propose", p.actor, 10)
+    _sab(serverstatus.refresh)
+    res = _sab(lambda: retry.propose(actor=p.actor))
+    return {k: v for k, v in res.items() if k != "change"} | (
+        {"change_id": res["change"]["id"], "change_status": res["change"]["status"]} if res.get("change") else {}
+    )
 
 
 @router.get("/stat-budget")

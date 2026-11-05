@@ -246,6 +246,17 @@ class SabClient:
             "set_config", {"section": "servers", "keyword": name, **{k: int(v) for k, v in fields.items()}}
         )
 
+    def retry(self, nzo_id: str) -> str:
+        """Retry a failed job from the history (``mode=retry&value=<nzo_id>``). Returns the nzo_id of the job
+        that is back in the queue (SABnzbd may assign a new one). Only used via the ``sabnzbd_retry`` applier."""
+        if not nzo_id or len(nzo_id) > 200:
+            raise SabError("ongeldig nzo_id", "invalid")
+        body = self._call("retry", {"value": nzo_id})
+        if not isinstance(body, dict) or body.get("status") is False:
+            raise SabError("SABnzbd kon de download niet opnieuw proberen", "api")
+        new = body.get("nzo_id") or (body.get("nzo_ids") or [None])[0]
+        return str(new or nzo_id)
+
     # ------------------------------------------------------------------ direct user actions
     def add_url(
         self,
@@ -401,6 +412,37 @@ def _applier() -> changes.Applier:
 
 
 changes.register_applier(CONNECTOR_ID, _applier)
+
+# ------------------------------------------------------------------ retry applier (failed downloads)
+RETRY_TARGET = "sabnzbd_retry"
+RETRY_BEFORE, RETRY_AFTER = "mislukt", "opnieuw in wachtrij"
+
+
+def _retry_applier() -> changes.Applier:
+    """``retry/<nzo_id>``: ``mislukt`` → ``opnieuw in wachtrij``. Write = ``mode=retry``; read-back looks the job up
+    in SABnzbd's queue (also under the new nzo_id SABnzbd reported). The op is ``one_way``: a retried download
+    cannot be "un-retried" (MSO never deletes downloads)."""
+    from mso.features.usenet import retry as rt  # lazy: the feature module keeps the retry history
+
+    client = SabClient.from_config()
+
+    def read(path: str) -> Any:
+        return rt.read_state(client, rt.parse_path(path))
+
+    def write(path: str, value: Any) -> None:
+        if value != RETRY_AFTER:
+            raise SabError("een opnieuw geprobeerde download kan niet worden teruggezet", "invalid")
+        rt.do_retry(client, rt.parse_path(path))
+
+    def validate(path: str, value: Any) -> None:
+        rt.parse_path(path)
+        if value not in (RETRY_BEFORE, RETRY_AFTER):
+            raise ValueError("waarde moet 'opnieuw in wachtrij' zijn")
+
+    return changes.Applier(read=read, write=write, validate=validate)
+
+
+changes.register_applier(RETRY_TARGET, _retry_applier)
 
 
 # ------------------------------------------------------------------ connector test

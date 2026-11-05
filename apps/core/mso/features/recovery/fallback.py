@@ -14,6 +14,20 @@ When a download fails (``download_outcomes.status='failed'``, usenet or torrent)
    ``download_send`` applier. Default risk ``toestemming_nodig`` (op marked ``irreversible``); only with
    ``recovery.auto_send_fallback`` on it is ``automatisch_veilig`` so Automatisering may apply it.
 
+Autopilot (1.5.0, ``state.autopilot()`` and ``recovery.autopilot_fallback``):
+
+- server-related SABnzbd failures (a login/account problem was active) are not a release problem: status
+  ``retry`` — :mod:`mso.features.usenet.retry` lets SABnzbd retry the same job once the failing servers are off. A
+  job MSO retried that fails *again* with healthy servers is treated as release-specific;
+- MediaGuard-owned items (connected): MSO asks MediaGuard to search again via its official route
+  (:func:`mediaguard.service.request_search`, ``trigger='auto'``) within MSO's and MediaGuard's quota and the
+  idempotency window — MediaGuard stays the owner, MSO never sends directly (status ``mg_requested``);
+- standalone items: the best fallback is sent automatically (op ``one_way``, ``automatisch_veilig``, via
+  :func:`mso.features.usenet.autoapply.propose_and_apply`) within ``herstel.manual_sends_per_hour``;
+- items MediaGuard no longer wants are skipped silently (counted, not shown as a problem).
+Skipped/retry rows are re-evaluated when a SABnzbd server changes state (:func:`reevaluate`) or when the
+download failed again.
+
 Applying goes through :func:`actions.send` — the same server-side quality gate, ``herstel.manual_sends_per_hour``
 quota, per-item backoff, idempotency key and audit as a manual send. The applier's read-back checks that the
 client really has the download (SABnzbd queue/history nzo_id, qBittorrent infohash). Sending cannot be undone:
@@ -31,7 +45,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from mso import changes
+from mso import changes, state
 from mso import settings_registry as sr
 from mso.audit import audit
 from mso.db import get_db, jsonb
@@ -57,6 +71,10 @@ NOT_RELEASE_CAUSES = {
     "import_failure",
     "no_indexer_hit",
 }
+# when MSO retried a job and it failed again, these still say nothing about the release
+NEVER_RELEASE = {"disk_full", "import_failure", "no_indexer_hit"}
+NOT_WANTED_PREFIX = "Niet (meer) gezocht in MediaGuard"
+AUTOPILOT_ACTOR = "autopilot:herstel"
 _PATH_RE = re.compile(r"^send:(?P<ref>(?:mg|manual):\d+):(?P<key>(?:nzb|mid|btih|btmh|guid):.+)$")
 
 
@@ -379,8 +397,14 @@ def pick_candidate(res: dict[str, Any], failed_key: str | None, failed_title: st
     return None
 
 
+def autopilot_on() -> bool:
+    """Autopilot handles failed downloads by itself (``recovery.autopilot_fallback``, default on)."""
+    return state.autopilot() and bool(sr.get("recovery.autopilot_fallback"))
+
+
 def propose(o: dict[str, Any], media_ref: str, cand: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]:
-    auto = bool(sr.get("recovery.auto_send_fallback"))
+    pilot = autopilot_on() and media_ref.startswith("manual:")
+    auto = bool(sr.get("recovery.auto_send_fallback")) or pilot
     t = res["target"]
     client = "sabnzbd" if cand["protocol"] == "usenet" else "qbittorrent"
     label = CLIENT_LABEL[client]
@@ -436,18 +460,32 @@ def propose(o: dict[str, Any], media_ref: str, cand: dict[str, Any], res: dict[s
         ),
         "Terugdraaien": undo,
     }
-    ch = changes.create(
-        TARGET,
-        f"Versturen naar {label}: {cand['title']}",
-        [op],
-        risk="automatisch_veilig" if auto else "toestemming_nodig",
-        explanation=explanation,
-        impact=impact,
-        source="recovery",
-        actor=ACTOR,
-        dedupe_key=f"fallback:{media_ref}",
-        evaluate_after_h=24,
-    )
+    if pilot:  # Autopilot: create + apply right away (one_way, within the send quota checked by the applier)
+        from mso.features.usenet import autoapply
+
+        ch = autoapply.propose_and_apply(
+            TARGET,
+            f"Versturen naar {label}: {cand['title']}",
+            [op],
+            explanation=explanation,
+            impact=impact,
+            dedupe_key=f"fallback:{media_ref}",
+            evaluate_after_h=24,
+            area="recovery",
+        )
+    else:
+        ch = changes.create(
+            TARGET,
+            f"Versturen naar {label}: {cand['title']}",
+            [op],
+            risk="automatisch_veilig" if auto else "toestemming_nodig",
+            explanation=explanation,
+            impact=impact,
+            source="recovery",
+            actor=ACTOR,
+            dedupe_key=f"fallback:{media_ref}",
+            evaluate_after_h=24,
+        )
     recommend(
         "recovery",
         f"Mislukte download vervangen: {t['title']}",
@@ -520,10 +558,78 @@ def _blacklist_failed(o: dict[str, Any], media_ref: str | None) -> None:
     )
 
 
-def handle_outcome(o: dict[str, Any], *, connected: bool, allow_connected_send: bool) -> str:
+def _retry_status(o: dict[str, Any], events: list[dict[str, Any]] | None) -> str | None:
+    if o.get("protocol") != "usenet" or o.get("client") != "sabnzbd":
+        return None
+    try:
+        from mso.features.usenet import retry
+    except ImportError:  # Usenet module disabled
+        return None
+    try:
+        return retry.status_for(o, events)
+    except Exception:  # pragma: no cover - defensive: never block the fallback on this
+        LOGGER.debug("retry-status onbekend", exc_info=True)
+        return None
+
+
+def _mg_search(o: dict[str, Any], media_ref: str, mapping: str | None) -> str:
+    """Autopilot, MediaGuard-owned item: ask MediaGuard to search again (official route, quotas, idempotent)."""
+    from mso.features.mediaguard import service as mg
+
+    try:
+        res = mg.request_search(int(media_ref[3:]), actor=AUTOPILOT_ACTOR, trigger="auto")
+    except HTTPException as exc:
+        if exc.status_code == 404:  # MediaGuard no longer has the item: nothing to do, not a problem
+            _record(o, "skipped", media_ref=media_ref, mapping=mapping, reason=f"{NOT_WANTED_PREFIX}: {exc.detail}",
+                    detail={"silent": True, "kind": "not_wanted", "recheck": True})
+            return "not_wanted"
+        if exc.status_code == 429:  # MSO/MediaGuard quota or backoff: try again later
+            _record(o, "waiting", media_ref=media_ref, mapping=mapping, next_at=_now() + timedelta(hours=1),
+                    reason=f"Zoekverzoek aan MediaGuard wacht: {exc.detail}", detail={"recheck": True})
+            return "waiting"
+        _record(o, "skipped", media_ref=media_ref, mapping=mapping,
+                reason=f"Zoekverzoek aan MediaGuard niet mogelijk: {exc.detail}", detail={"recheck": True})
+        return "skipped"
+    req = res.get("request") or {}
+    _record(
+        o,
+        "mg_requested",
+        media_ref=media_ref,
+        mapping=mapping,
+        reason=("MediaGuard zoekt opnieuw (automatisch, via de eigen MediaGuard-route)"
+                + (" — al aangevraagd binnen het idempotentievenster" if res.get("duplicate") else "")),
+        detail={"request_id": req.get("id"), "duplicate": bool(res.get("duplicate")), "autopilot": True},
+    )
+    return "mg_requested"
+
+
+def handle_outcome(
+    o: dict[str, Any],
+    *,
+    connected: bool,
+    allow_connected_send: bool,
+    events: list[dict[str, Any]] | None = None,
+) -> str:
     """Process one failed outcome. Returns the recorded status ('searched' marks an indexer search)."""
     reason_code = o.get("failure_reason") or ""
-    if reason_code in NOT_RELEASE_CAUSES:
+    rs = _retry_status(o, events)
+    if rs in ("candidate", "retried"):
+        _record(
+            o,
+            "retry",
+            reason=(
+                "Mislukt door een serverprobleem (inloggen/account) in SABnzbd; een andere release lost dit niet op. "
+                + (
+                    "MSO laat SABnzbd deze download opnieuw proberen."
+                    if rs == "retried"
+                    else "MSO laat SABnzbd deze download opnieuw proberen zodra de kapotte servers uit staan."
+                )
+            ),
+            detail={"server_related": True, "recheck": True},
+        )
+        return "retry"
+    failed_again = rs == "failed_again"
+    if reason_code in NOT_RELEASE_CAUSES and not (failed_again and reason_code not in NEVER_RELEASE):
         _record(
             o,
             "skipped",
@@ -531,13 +637,19 @@ def handle_outcome(o: dict[str, Any], *, connected: bool, allow_connected_send: 
                 f"Oorzaak: {FAILURE_REASONS.get(reason_code, reason_code)}. Een andere release lost dit niet op; los "
                 "eerst de oorzaak bij de downloadclient/provider op."
             ),
+            detail={"recheck": True},
         )
         return "skipped"
     media_ref, mapping, why = map_outcome(o, connected=connected)
     _blacklist_failed(o, media_ref)
     if media_ref is None:
+        if why and why.startswith(NOT_WANTED_PREFIX):
+            _record(o, "skipped", reason=why, detail={"silent": True, "kind": "not_wanted", "recheck": True})
+            return "not_wanted"
         _record(o, "skipped", reason=why)
         return "skipped"
+    if media_ref.startswith("mg:") and connected and autopilot_on():
+        return _mg_search(o, media_ref, mapping)
     if media_ref.startswith("mg:") and connected and not allow_connected_send:
         _record(
             o,
@@ -546,8 +658,10 @@ def handle_outcome(o: dict[str, Any], *, connected: bool, allow_connected_send: 
             mapping=mapping,
             reason=(
                 "MediaGuard is gekoppeld en eigenaar van dit item. Zet 'Handmatig versturen ook bij "
-                "MediaGuard-koppeling' aan voor een voorstel, of gebruik 'Vraag MediaGuard opnieuw te zoeken'."
+                "MediaGuard-koppeling' aan voor een voorstel, of gebruik 'Vraag MediaGuard opnieuw te zoeken'. "
+                "In Autopilot vraagt MSO MediaGuard dit zelf."
             ),
+            detail={"recheck": True},
         )
         return "skipped"
     ok, until = blacklist.media_allowed(media_ref)
@@ -646,17 +760,20 @@ def process_failed() -> dict[str, Any]:
         "SELECT o.* FROM download_outcomes o LEFT JOIN recovery_fallbacks f ON f.outcome_id=o.id "
         "WHERE o.status='failed' AND o.protocol IN ('usenet','torrent') "
         "AND COALESCE(o.finished_at, o.observed_at) > now() - make_interval(hours => %s) "
-        "AND (f.id IS NULL OR (f.status='waiting' AND f.next_attempt_at <= now())) "
+        "AND (f.id IS NULL OR (f.status='waiting' AND f.next_attempt_at <= now()) "
+        "     OR (f.status IN ('skipped','retry') AND f.detail->>'recheck'='true' "
+        "         AND COALESCE(o.finished_at, o.observed_at) > f.updated_at)) "
         "ORDER BY o.id LIMIT 200",
         (MAX_AGE_H,),
     )
+    events = _server_events()
     counts: dict[str, int] = {}
     for o in rows:
         if budget <= 0:
             counts["deferred"] = counts.get("deferred", 0) + 1
             continue
         try:
-            res = handle_outcome(dict(o), connected=connected, allow_connected_send=allow)
+            res = handle_outcome(dict(o), connected=connected, allow_connected_send=allow, events=events)
         except candidates.SearchUnavailable:
             counts["search_unavailable"] = 1
             break
@@ -665,6 +782,43 @@ def process_failed() -> dict[str, Any]:
         counts[res] = counts.get(res, 0) + 1
     sync_statuses()
     return counts
+
+
+def _server_events() -> list[dict[str, Any]] | None:
+    try:
+        from mso.features.usenet import serverstatus
+    except ImportError:
+        return None
+    try:
+        return serverstatus.load_events()
+    except Exception:  # pragma: no cover
+        return None
+
+
+def reevaluate() -> int:
+    """A SABnzbd server changed state (switched off/on, recovered): look again at failed downloads that were skipped
+    or are waiting for a retry (only the recent ones the job still processes)."""
+    return get_db().execute(
+        "UPDATE recovery_fallbacks f SET status='waiting', next_attempt_at=now(), updated_at=now() "
+        "FROM download_outcomes o WHERE o.id=f.outcome_id AND f.status IN ('skipped','retry') "
+        "AND f.detail->>'recheck'='true' "
+        "AND COALESCE(o.finished_at, o.observed_at) > now() - make_interval(hours => %s)",
+        (MAX_AGE_H,),
+    )
+
+
+def summary() -> dict[str, Any]:
+    """Counts per status; silently skipped items (MediaGuard no longer wants them) separately."""
+    db = get_db()
+    by_status = {
+        r["status"]: int(r["n"])
+        for r in db.fetchall(
+            "SELECT status, count(*) AS n FROM recovery_fallbacks WHERE COALESCE(detail->>'silent','') <> 'true' "
+            "GROUP BY status"
+        )
+    }
+    silent = int(db.scalar("SELECT count(*) FROM recovery_fallbacks WHERE detail->>'silent'='true'") or 0)
+    return {"by_status": by_status, "not_wanted": silent, "autopilot": autopilot_on()}
 
 
 def sync_statuses() -> None:
@@ -678,11 +832,13 @@ def sync_statuses() -> None:
     )
 
 
-def list_fallbacks(limit: int = 100) -> list[dict[str, Any]]:
+def list_fallbacks(limit: int = 100, *, include_silent: bool = False) -> list[dict[str, Any]]:
     sync_statuses()
     rows = get_db().fetchall(
         "SELECT f.*, c.status AS change_status, c.risk AS change_risk FROM recovery_fallbacks f "
-        "LEFT JOIN change_sets c ON c.id=f.change_id ORDER BY f.id DESC LIMIT %s",
+        "LEFT JOIN change_sets c ON c.id=f.change_id "
+        + ("" if include_silent else "WHERE COALESCE(f.detail->>'silent','') <> 'true' ")
+        + "ORDER BY f.id DESC LIMIT %s",
         (limit,),
     )
     return [

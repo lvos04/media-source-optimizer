@@ -328,15 +328,20 @@ def get_sends(
 # ------------------------------------------------------------------ failed downloads → fallback proposals
 @router.get("/fallbacks")
 def get_fallbacks(
-    limit: int = Query(100, ge=1, le=500), _: Principal = Depends(require("viewer"))
+    limit: int = Query(100, ge=1, le=500),
+    include_silent: bool = False,
+    _: Principal = Depends(require("viewer")),
 ) -> dict[str, Any]:
-    """Failed downloads the analysis job looked at: mapping, skip reason, linked change set."""
+    """Failed downloads the analysis job looked at: mapping, skip reason, linked change set. Items MediaGuard no
+    longer wants are only counted (``summary.not_wanted``) unless ``include_silent``."""
     from mso import settings_registry as sr
     from mso.features.mediaguard import service as mg
 
     return {
-        "items": fallback.list_fallbacks(limit),
+        "items": fallback.list_fallbacks(limit, include_silent=include_silent),
+        "summary": fallback.summary(),
         "settings": {
+            "autopilot_fallback": bool(sr.get("recovery.autopilot_fallback")),
             "fallback_on_failure": bool(sr.get("recovery.fallback_on_failure")),
             "auto_send_fallback": bool(sr.get("recovery.auto_send_fallback")),
             "allow_manual_send_connected": bool(sr.get("herstel.allow_manual_send_connected")),

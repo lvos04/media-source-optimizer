@@ -31,10 +31,34 @@ def candidates(db: Database | None = None) -> list[dict[str, Any]]:
     )
 
 
+# kinds that cost money (and therefore ask for a price); a public/free torrent indexer does not
+PAID_KINDS = ("usenet_provider", "block_account", "nzb_indexer")
+
+
+def is_free_source(kind: str, private: bool | None) -> bool:
+    """Public torrent indexers are free; private torrent indexers, NZB indexers, Usenet providers and block
+    accounts are paid (a price is asked)."""
+    return kind == "torrent_indexer" and not private
+
+
+def reclassify_free(actor: str = "systeem", db: Database | None = None) -> int:
+    """Services imported earlier as 'prijs ontbreekt' whose source is a public torrent indexer become 'gratis'.
+    Only untouched imports (price still missing, amount 0); anything the user entered stays as it is."""
+    db = db or get_db()
+    rows = db.fetchall(
+        "UPDATE services s SET billing='free', price_missing=false, updated_at=now() FROM sources src "
+        "WHERE src.id = s.source_id AND s.origin='import' AND s.price_missing AND s.amount_cents = 0 "
+        "AND s.kind='torrent_indexer' AND src.kind='torrent_indexer' AND NOT src.private RETURNING s.label")
+    if rows:
+        audit(actor, "costs.services_free", f"{len(rows)} publieke torrent-indexer(s) als gratis gemarkeerd",
+              target="costs", detail={"services": [r["label"] for r in rows]})
+    return len(rows)
+
+
 def _row_for(src: dict[str, Any]) -> dict[str, Any]:
     meta = src.get("meta") or {}
     kind = src["kind"]
-    public_torrent = kind == "torrent_indexer" and not src.get("private")
+    public_torrent = is_free_source(kind, src.get("private"))
     origin = {"prowlarr": "Prowlarr", "sabnzbd": "SABnzbd", "mso": "Usenet-providers"}.get(
         src.get("origin"), src.get("origin") or "MSO"
     )
@@ -86,6 +110,7 @@ def import_services(actor: str = "systeem", *, include_sab: bool = False,
                     db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
     sab_created = _sab_servers_to_providers(actor) if include_sab else 0
+    made_free = reclassify_free(actor, db)
     created = []
     for src in candidates(db):
         row = _row_for(src)
@@ -105,7 +130,7 @@ def import_services(actor: str = "systeem", *, include_sab: bool = False,
             target="costs",
             detail={"services": [f"{c['label']} ({c['kind']})" for c in created]},
         )
-    return {"created": created, "sab_providers_created": sab_created}
+    return {"created": created, "sab_providers_created": sab_created, "made_free": made_free}
 
 
 def remember_skip(service: dict[str, Any], actor: str, db: Database | None = None) -> None:

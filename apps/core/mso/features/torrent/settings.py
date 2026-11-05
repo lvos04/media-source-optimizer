@@ -149,7 +149,7 @@ sr.define(
     category=CAT,
     risk="automatisch_veilig",
     help="Alleen kleine, begrensde wijzigingen ('automatisch veilig'), één tegelijk, alleen in beheermodus "
-    "en niet gepauzeerd. Standaard uit.",
+    "en niet gepauzeerd. Standaard uit. In Autopilot tunet MSO altijd (met meting en automatisch terugdraaien).",
 )
 sr.define(
     "torrent.autotune_auto_rollback",
@@ -159,6 +159,18 @@ sr.define(
     category=CAT,
     risk="automatisch_veilig",
     help="Alleen als automatisering is toegestaan (beheermodus, niet gepauzeerd).",
+)
+sr.define(
+    "torrent.autopilot_remedies_per_hour",
+    "Autopilot: herstelacties per uur",
+    "int",
+    6,
+    category=CAT,
+    min=0,
+    max=30,
+    risk="automatisch_veilig",
+    help="Alleen in Autopilot: maximaal zoveel veilige herstelacties per uur (opnieuw aankondigen bij een "
+    "trackerfout, recheck bij ontbrekende bestanden van een gestopte torrent). 0 = uit. MSO verwijdert nooit.",
 )
 sr.define(
     "torrent.evaluation_hours",

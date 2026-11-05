@@ -77,7 +77,7 @@ def test_disable_failing_one_approval_verified_reversible_audited(
         changes.apply(ch["id"], "systeem", automatic=True)
         raise AssertionError("destructive change applied automatically")
     except HTTPException as exc:
-        assert exc.status_code == 409 and "nooit automatisch" in exc.detail
+        assert exc.status_code == 409 and ("nooit automatisch" in exc.detail or "Autopilot" in exc.detail)
 
     # apply → verified by reading SABnzbd's config back
     r = operator.post(f"/api/v1/changes/{ch['id']}/apply")

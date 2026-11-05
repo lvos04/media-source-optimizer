@@ -43,6 +43,10 @@ export function PreferencesCard() {
     if (p.kind === "bool") return p.value ? t("torrent.on") : t("torrent.off");
     if (p.kind === "rate") return Number(p.value) === 0 ? t("torrent.unlimited") : rate(Number(p.value));
     if (p.kind === "int" && typeof p.value === "number" && p.value < 0) return t("torrent.unlimited");
+    if (p.kind === "patterns") {
+      const lines = String(p.value ?? "").split("\n").map((x) => x.trim()).filter(Boolean);
+      return <span className="mono" style={{ fontSize: 12 }}>{lines.length ? lines.join("  ") : "—"}</span>;
+    }
     if (typeof p.value === "number") return num(p.value, 2);
     return <span className="mono">{String(p.value ?? "—")}</span>;
   };

@@ -18,7 +18,8 @@ import { useSession } from "@/lib/session";
  * Malware cleanup: suspicious torrents of the last scan and ONE button that creates the cleanup proposal
  *   "Opruimvoorstel maken" → POST /api/v1/torrent/suspicious/cleanup-preview (operator)
  * The proposal (toestemming_nodig) opens in the standard change dialog: approve → apply (beheermodus). When a
- * proposal is already open it is shown instead of creating a new one. Renders nothing when nothing is suspicious.
+ * proposal is already open it is shown instead of creating a new one (MSO's torrent.autopilot job keeps one open
+ * proposal up to date by itself; it is never applied without approval). Renders nothing when nothing is suspicious.
  * `compact` = banner only (Downloads → Torrent); otherwise a full card with the list (Torrentclient).
  */
 export function SuspiciousCleanup({ compact = false, onChanged }: { compact?: boolean; onChanged?: () => void }) {
@@ -55,7 +56,7 @@ export function SuspiciousCleanup({ compact = false, onChanged }: { compact?: bo
         <Button size="sm" variant="danger" icon={Trash2} pending={pending} disabled={!isOperator || !d.items.length}
           title={!isOperator ? t("torrent.operatorOnly") : undefined} onClick={() => void create()}>{t("torrent.cleanup.create")}</Button>
       )}
-      <span className="hint" style={{ margin: 0 }}>{t("torrent.cleanup.hint")}</span>
+      <span className="hint" style={{ margin: 0 }}>{t(d.open_change ? "torrent.cleanup.autoHint" : "torrent.cleanup.hint")}</span>
     </div>
   );
 

@@ -160,7 +160,7 @@ def status(*, refresh: bool = False) -> dict[str, Any]:
             "auto_enabled": bool(sr.get("mediaguard.auto_search_requests")),
             "automation_allowed": state.automation_allowed(),
         },
-        "quota": quota_overview(),
+        "quota": quota_overview(fresh=True),
     }
 
 
@@ -487,7 +487,35 @@ def _mso_counts() -> tuple[int, int]:
     return hour, day
 
 
-def quota_overview() -> dict[str, Any]:
+QUOTA_MAX_AGE_S = 120
+
+
+def refresh_quota(*, force: bool = False) -> bool:
+    """Re-read MediaGuard's backfill quota (read-only GET) when the cached copy is older than
+    :data:`QUOTA_MAX_AGE_S`. MediaGuard's quota rolls per hour, so the copy stored by the last sync (often the moment
+    MediaGuard's own backfill had just used it up: "0 over") must not be shown for an hour. Never raises."""
+    if not configured():
+        return False
+    row = snap_get("quota")
+    if row is not None and not force and (_now() - row["fetched_at"]).total_seconds() < QUOTA_MAX_AGE_S:
+        return False
+    p = snap_data("probe") or {}
+    if not p.get("auth_ok") or not (p.get("capabilities") or {}).get("backfill_quota"):
+        return False
+    try:
+        data = client().get(f"{API}/wanted/backfill/quota")
+    except Exception as exc:  # unreachable/auth: keep the cached copy (its age is shown)
+        LOGGER.info("MediaGuard-quotum niet ververst: %s", redact(str(exc))[:200])
+        return False
+    if not isinstance(data, dict):
+        return False
+    snap_put("quota", data, ttl_s=300)
+    return True
+
+
+def quota_overview(*, fresh: bool = False) -> dict[str, Any]:
+    if fresh:
+        refresh_quota()
     hour, day = _mso_counts()
     hmax, dmax = (
         int(sr.get("mediaguard.search_quota_per_hour")),
@@ -505,6 +533,7 @@ def quota_overview() -> dict[str, Any]:
         "reserve": int(sr.get("mediaguard.quota_reserve")),
         "mediaguard": row["data"] if row is not None else None,
         "mediaguard_fetched_at": row["fetched_at"] if row is not None else None,
+        "mediaguard_stale": bool(row is not None and (_now() - row["fetched_at"]).total_seconds() > 300),
     }
 
 
@@ -585,7 +614,11 @@ def _finish(
 
 def request_search(mg_id: int, *, actor: str, trigger: str = "manual") -> dict[str, Any]:
     """Ask MediaGuard to search one wanted item via its official route. Raises HTTPException (Dutch)."""
-    if trigger == "auto" and not (sr.get("mediaguard.auto_search_requests") and state.automation_allowed()):
+    # automatic requests: with the opt-in setting (beheermodus, not paused) or in Autopilot (failed downloads of
+    # MediaGuard-owned items, see recovery.fallback) — always within MSO's and MediaGuard's quota
+    if trigger == "auto" and not (
+        state.autopilot() or (sr.get("mediaguard.auto_search_requests") and state.automation_allowed())
+    ):
         raise HTTPException(
             409, detail="Automatische zoekverzoeken staan uit of automatisering is niet toegestaan"
         )

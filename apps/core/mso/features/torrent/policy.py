@@ -62,6 +62,9 @@ ALLOWED_PREFS: dict[str, dict[str, Any]] = {
     "lsd": {"label": "Lokale peer-ontdekking (LSD)", "kind": "bool"},
     "add_trackers_enabled": {"label": "Automatisch trackers toevoegen", "kind": "bool"},
     "add_trackers": {"label": "Automatisch toe te voegen trackers", "kind": "string"},
+    # qBittorrent ≥ 4.6: files matching these globs are never downloaded (priority 0 when the torrent is added)
+    "excluded_file_names_enabled": {"label": "Bestandsnamen uitsluiten actief", "kind": "bool"},
+    "excluded_file_names": {"label": "Uitgesloten bestandsnamen", "kind": "patterns"},
 }
 PATH_RE = re.compile(
     r"^(pref:[a-z_]+|transfer:alt_speed|torrent:[0-9a-f]{32,64}:(up_limit|dl_limit|share_limits|"
@@ -75,6 +78,53 @@ KIB_TOLERANCE = 1024  # qBittorrent keeps speed limits in whole KiB/s
 
 class PolicyError(ValueError):
     pass
+
+
+# ------------------------------------------------------------------ excluded file names (prevention)
+# names a pattern in ``excluded_file_names`` must never match: excluding these would stop media downloads
+# (qBittorrent matches every path component, so release and season folder names count too)
+MEDIA_PROBES = (
+    "Show.S01E01.1080p.WEB.h264-GRP.mkv", "Movie.2024.2160p.UHD.BluRay.x265-GRP.mp4", "movie.avi",
+    "movie.m2ts", "movie.ts", "movie.webm", "movie.wmv", "movie.mov", "movie.m4v",
+    "Show.S01E01.1080p.WEB.h264-GRP", "Show.S01.1080p.BluRay.x264-GRP", "Season 01",
+)
+MAX_PATTERNS = 200
+
+
+def split_patterns(value: Any) -> list[str]:
+    """``excluded_file_names`` as qBittorrent keeps it: one glob per line, trimmed, no empty lines."""
+    if isinstance(value, list | tuple):
+        raw = [str(x) for x in value]
+    else:
+        raw = str(value or "").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    for line in raw:
+        line = line.strip()
+        if line and line not in out:
+            out.append(line)
+    return out
+
+
+def join_patterns(patterns: list[str]) -> str:
+    return "\n".join(patterns)
+
+
+def _validate_patterns(value: Any) -> None:
+    import fnmatch
+
+    if not isinstance(value, str):
+        raise PolicyError("verwacht tekst (één patroon per regel)")
+    pats = split_patterns(value)
+    if len(pats) > MAX_PATTERNS:
+        raise PolicyError(f"maximaal {MAX_PATTERNS} patronen")
+    for pat in pats:
+        if len(pat) > 120:
+            raise PolicyError(f"patroon te lang: {pat[:40]}…")
+        hit = next((n for n in MEDIA_PROBES if fnmatch.fnmatch(n.lower(), pat.lower())), None)
+        if hit:
+            raise PolicyError(
+                f"patroon '{pat}' zou ook mediabestanden of -mappen uitsluiten (bijv. '{hit}'); geweigerd"
+            )
 
 
 def is_rate_path(path: str) -> bool:
@@ -290,6 +340,9 @@ def _validate_pref(key: str, value: Any) -> None:
         raise PolicyError("verwacht een geheel getal")
     if k == "float" and (isinstance(value, bool) or not isinstance(value, int | float)):
         raise PolicyError("verwacht een getal")
+    if k == "patterns":
+        _validate_patterns(value)
+        return
     if "min" in meta and value < meta["min"]:
         raise PolicyError(f"minimaal {meta['min']}")
     if "max" in meta and value > meta["max"]:

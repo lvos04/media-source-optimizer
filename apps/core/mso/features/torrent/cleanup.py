@@ -417,6 +417,32 @@ def build_ops(
     return ops
 
 
+def unique_match_names(matches: list[dict[str, Any]]) -> list[str]:
+    """Each suspicious file name once (a single-file torrent is flagged both by its name and by its file)."""
+    out: list[str] = []
+    for m in matches or []:
+        n = str(m.get("name") or "")[-120:]
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
+REGRAB_NOTE = (
+    "Sonarr kan deze releases opnieuw grijpen; de preventie-instelling 'Uitvoerbare bestanden nooit downloaden' "
+    "voorkomt dat de bestanden opnieuw binnenkomen"
+)
+MG_COMPLETED_MISSING = (
+    "MediaGuard heeft (nog) geen route om een afgeronde release in Sonarr/Radarr als mislukt te markeren "
+    "(blocklist); zie docs/dev/MEDIAGUARD_BLOCKLIST_REQUEST.md"
+)
+
+
+def _regrab_note() -> str:
+    from mso.features.torrent.autopilot import prevention_note
+
+    return REGRAB_NOTE + prevention_note() + "."
+
+
 def impact_rows(items: list[dict[str, Any]], *, block_note: str) -> dict[str, Any]:
     return {
         "Soort": "malware opruimen (torrent + bestanden verwijderen)",
@@ -428,8 +454,9 @@ def impact_rows(items: list[dict[str, Any]], *, block_note: str) -> dict[str, An
         "Torrents": [
             {
                 "Naam": it["name"][:200],
-                "Verdacht bestand": ", ".join(m["name"][-120:] for m in it["matches"][:5])
-                + (f" (+{len(it['matches']) - 5})" if len(it["matches"]) > 5 else ""),
+                "Verdacht bestand": ", ".join(unique_match_names(it["matches"])[:5])
+                + (f" (+{len(unique_match_names(it['matches'])) - 5})"
+                   if len(unique_match_names(it["matches"])) > 5 else ""),
                 "Tracker": it.get("tracker") or "onbekend",
                 "Categorie": it.get("category") or "geen",
                 "Grootte": _size(it.get("info") or {}),
@@ -450,7 +477,9 @@ def _tracker_hosts(hashes: list[str]) -> dict[str, str | None]:
 EXPLANATION = (
     "Deze torrents zijn media-downloads met een programma, script of snelkoppeling (bijv. .exe, .scr) in plaats "
     "van video: vrijwel zeker nep-releases met malware. Na jouw goedkeuring verwijdert MSO ze uit qBittorrent "
-    "MÉT hun bestanden en blokkeert de release zodat hij niet opnieuw wordt binnengehaald. "
+    "MÉT hun bestanden en zet de release op de MSO-blacklist (en op de Sonarr/Radarr-blocklist via MediaGuard "
+    "als hij nog in een wachtrij staat; zie 'Blokkeren'). MSO houdt dit voorstel automatisch actueel, maar voert "
+    "het nooit zelf uit. "
     + IRREVERSIBLE_LINE
     + ". Gezonde torrents en je mediabibliotheek worden nooit aangeraakt."
 )
@@ -512,15 +541,18 @@ def preview(hashes: list[str] | None, actor: str) -> dict[str, Any]:
         except Exception as exc:  # MediaGuard down: MSO blacklist still applies
             mg_ok, mg_why = False, f"MediaGuard niet bereikbaar ({redact(str(exc))[:120]})"
     if mg_ok:
+        rest = len(items) - len(mg_blocks)
         block_note = (
             f"MSO-blacklist (permanent) voor alle {len(items)}; Sonarr/Radarr-blocklist via MediaGuard voor "
-            f"{len(mg_blocks)} die in de wachtrij staan" + ("" if len(mg_blocks) == len(items) else
-                                                            " (de rest staat niet meer in een wachtrij)")
+            f"{len(mg_blocks)} die in de wachtrij staan"
+            + ("." if not rest else
+               f". De overige {rest} zijn al afgerond en staan niet meer in een wachtrij: {MG_COMPLETED_MISSING}. "
+               + _regrab_note())
         )
     else:
         block_note = (
             f"MSO-blacklist (permanent): MSO zoekt/verstuurt deze releases nooit meer. Sonarr/Radarr-blocklist "
-            f"niet mogelijk: {mg_why}. Zie docs/dev/MEDIAGUARD_BLOCKLIST_REQUEST.md."
+            f"niet mogelijk: {mg_why}. " + _regrab_note()
         )
     n = len(items)
     title = (
@@ -563,8 +595,9 @@ def proposed_change_for(x: dict[str, Any], actor: str = "system") -> dict[str, A
         "explanation": EXPLANATION,
         "impact": impact_rows(
             [item],
-            block_note="MSO-blacklist (permanent). Voor ook een Sonarr/Radarr-blocklist via MediaGuard: gebruik "
-            "'Opruimvoorstel maken' op Torrentclient.",
+            block_note="MSO-blacklist (permanent). Voor ook een Sonarr/Radarr-blocklist via MediaGuard (alleen "
+            "voor releases die nog in de wachtrij staan): gebruik het opruimvoorstel op Torrentclient. "
+            + REGRAB_NOTE + ".",
         ),
         "dedupe_key": f"torrent-cleanup:{token}",
     }

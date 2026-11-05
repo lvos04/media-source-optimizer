@@ -2,7 +2,8 @@
 
 Implements: version, queue, history (incl. fail_message, stage_log, last_history_update conditional polling),
 server_stats (per-server daily bytes + articles_tried/articles_success), get_config&section=servers,
-set_config&section=servers, status/fullstatus (per-server ``servererror``/``serveractive``), warnings
+set_config&section=servers, retry (failed history job back into the queue),
+status/fullstatus (per-server ``servererror``/``serveractive``), warnings
 (``[{text, type, time}]``), get_cats, addurl, addfile (multipart parsed without extra dependencies).
 
 Faults (``create_app(**faults)`` / ``--fault key=value``):
@@ -18,6 +19,8 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
                           Failed", thundernews "502 Access Denied", xsnews "482 Account expired", eweka works. Only
                           in SABnzbd's warning list (``servererror`` already cleared, as SABnzbd does after its
                           retry pause) — the case where the 1.3.1 connector test showed no failing servers.
+- ``retry_new_id=1``      ``mode=retry`` gives the retried job a new nzo_id (as newer SABnzbd versions can)
+- ``retry_noop=1``        ``mode=retry`` answers ``status: true`` but nothing reaches the queue (verification)
 - ``status_mode=fullstatus|none``  only answer the old ``fullstatus`` mode / neither (old SABnzbd)
 Tests can reach the live state through ``app.state.sab`` (a ``SabState``).
 """
@@ -174,6 +177,7 @@ class SabState:
         self.server_errors: dict[str, str] = {}
         self.server_inactive: set[str] = set()
         self.warnings: list[dict[str, Any]] = []
+        self.retried: list[str] = []  # nzo_ids for which mode=retry was called
 
     def set_server_error(self, name: str, text: str, *, warn: bool = True, at: int | None = None) -> None:
         self.server_errors[name] = text
@@ -261,6 +265,8 @@ def create_app(**faults: Any) -> FastAPI:
     ignore_set = str(faults.get("ignore_set_config", "0")) in ("1", "true")
     broken = str(faults.get("broken_mode", ""))
     status_mode = str(faults.get("status_mode", "status"))
+    retry_new_id = str(faults.get("retry_new_id", "0")) in ("1", "true")
+    retry_noop = str(faults.get("retry_noop", "0")) in ("1", "true")
     if str(faults.get("server_errors", "")) == "report":
         state.set_server_error(
             "news.newshosting.test", "Server news.newshosting.test reported: 502 Authentication Failed"
@@ -366,6 +372,31 @@ def create_app(**faults: Any) -> FastAPI:
                         if field in params:
                             srv[field] = int(params[field])
                 return ok({"config": {"servers": [dict(srv)]}})
+            if mode == "retry":
+                nzo = params.get("value", "")
+                slot = next((h for h in state.history if h["nzo_id"] == nzo and h["status"] == "Failed"), None)
+                if slot is None:
+                    return ok({"status": False, "error": "No such item"})
+                state.retried.append(nzo)
+                if retry_noop:
+                    return ok({"status": True, "nzo_id": nzo})
+                state.history.remove(slot)
+                state.last_history_update += 1
+                new_id = f"SABnzbd_nzo_{next(state.counter)}" if retry_new_id else nzo
+                state.queue.append(
+                    {
+                        "nzo_id": new_id,
+                        "filename": slot["name"],
+                        "cat": slot["category"],
+                        "status": "Queued",
+                        "percentage": "0",
+                        "mb": "1024.0",
+                        "mbleft": "1024.0",
+                        "timeleft": "0:05:00",
+                        "priority": "Normal",
+                    }
+                )
+                return ok({"status": True, "nzo_id": new_id})
             if mode == "get_cats":
                 return ok({"categories": CATEGORIES})
             if mode in ("addurl", "addfile"):

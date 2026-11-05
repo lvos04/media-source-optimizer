@@ -21,6 +21,7 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``username``/``password`` (default admin/adminadmin), ``api_key`` (only accepted when version ≥ 5.2)
 - ``auth_fail=1`` → every login fails; ``session_ttl=N`` → a SID expires after N authenticated requests (403)
 - ``firewalled=1``, ``free_space=<bytes>``, ``interface=<name>`` (bound interface), ``scenario=empty|full``
+- ``excluded_file_names=<globs>`` initial "exclude file names" list (preference exists only for version ≥ 4.6)
 
 Like real qBittorrent, speed limits (``setPreferences`` up/dl/alt limits, ``setUploadLimit``/
 ``setDownloadLimit``) are stored in whole KiB/s: written values are rounded down to a multiple of 1024.
@@ -249,6 +250,10 @@ class QbState:
             "mail_notification_password": "mailgeheim",
             "save_path": "/data/torrents",
         }
+        if _vt(self.version) >= (4, 6):
+            # qBittorrent ≥ 4.6: files matching these globs (one per line) are never downloaded
+            self.prefs["excluded_file_names_enabled"] = False
+            self.prefs["excluded_file_names"] = str(faults.get("excluded_file_names", ""))
         self.server_state: dict[str, Any] = {
             "connection_status": "firewalled"
             if str(faults.get("firewalled", "")).lower() in {"1", "true"}
@@ -577,7 +582,10 @@ def create_app(**faults: Any) -> FastAPI:
             return forbidden()
         f = await form(request)
         for k, v in json.loads(f.get("json") or "{}").items():
-            if k in qb.prefs:
+            if k == "excluded_file_names" and k in qb.prefs:
+                # kept as a list by qBittorrent: trimmed lines, empty ones dropped, joined by "\n" on read
+                qb.prefs[k] = "\n".join(x.strip() for x in str(v).split("\n") if x.strip())
+            elif k in qb.prefs:
                 qb.prefs[k] = _kib(v) if k in RATE_PREFS else v
         qb._recompute()
         return PlainTextResponse("")

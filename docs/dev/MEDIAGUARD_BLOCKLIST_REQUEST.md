@@ -1,51 +1,91 @@
-# Release blokkeren in Sonarr/Radarr bij malware-opruimen (MSO 1.4.0)
+# Release blokkeren in Sonarr/Radarr bij malware-opruimen
 
-## Bevinding (MediaGuard `main`, commit `aec9e64`, 5 nov 2026, alleen gelezen)
+## Bevinding 1.5.0 (MediaGuard `main`, commit `9bed266`, 5 nov 2026, alleen gelezen)
 
-MediaGuard heeft al een geschikte route:
+Testrapport ronde 4, P1: het opruimvoorstel blokkeerde in Sonarr/Radarr 0 van de 41 nep-releases, omdat MSO alleen
+items kan blokkeren die nog in de *arr-wachtrij staan, en deze 41 waren al afgerond.
 
-| Route | Rol | Werking |
-|---|---|---|
-| `GET /api/v1/instances` | viewer | lijst Sonarr/Radarr-instanties (`id`, `name`, `archived`) |
-| `GET /api/v1/instances/{id}/queue?page=&page_size=` | viewer | wachtrij van de *arr (records met `id` en `downloadId` = infohash in hoofdletters) |
-| `DELETE /api/v1/instances/{id}/queue/{queue_id}?remove_from_client=false&blocklist=true` | operator | roept in de fork `DELETE /api/v3/queue/{id}?removeFromClient=false&blocklist=true` aan: de release komt op de blocklist, de download blijft staan, MediaGuard schrijft een auditregel (`queue.remove`) |
+MediaGuard heeft **geen** route die een afgerond grab-record als mislukt markeert of een release op de blocklist zet:
 
-## Wat MSO doet
+| Route in MediaGuard | Bruikbaar? |
+|---|---|
+| `GET /api/v1/instances/{id}/history?page=&page_size=&event_type=&episode_id=&series_id=&movie_id=` (viewer) | alleen lezen; **geen** filter op `downloadId` |
+| `DELETE /api/v1/instances/{id}/queue/{queue_id}?remove_from_client=false&blocklist=true` (operator) | ja, maar alleen zolang het item in de wachtrij staat (MSO gebruikt dit al) |
+| `POST history/failed/{historyId}` naar Sonarr/Radarr | wordt **alleen intern** aangeroepen (`downloads/failures.py`), niet als API-route aangeboden |
+| `POST /api/v1/instances/{id}/commands` | alleen een vaste lijst UI-commando's; geen blocklist |
 
-Het opruimvoorstel ("Alle N verdachte torrents opruimen") heeft per torrent, in deze volgorde:
+Gevolg in MSO 1.5.0:
 
-1. **Blokkeren in Sonarr/Radarr via MediaGuard** (`arrblock:…`), alleen als de torrent nog in een wachtrij staat:
-   MSO zoekt het wachtrij-item op `downloadId` en roept de DELETE-route hierboven aan met
-   `remove_from_client=false&blocklist=true`. Controle achteraf: het item staat niet meer in de wachtrij.
-2. **MSO-blacklist** (`blacklist:…`, altijd): de infohash (`btih:`/`btmh:`) komt ~permanent op de blacklist van
-   *Ontbrekend & herstel*, zodat MSO deze release nooit meer zoekt of verstuurt.
-3. **Verwijderen mét bestanden** in qBittorrent (`torrents/delete … deleteFiles=true`).
+- Voor releases die nog in de wachtrij staan blijft de bestaande blokkade via MediaGuard werken.
+- Voor afgeronde releases zegt het voorbeeld van het opruimvoorstel (kopje *Blokkeren*) nu letterlijk:
+  "Sonarr kan deze releases opnieuw grijpen; de preventie-instelling 'Uitvoerbare bestanden nooit downloaden'
+  voorkomt dat de bestanden opnieuw binnenkomen" — met erbij of die instelling aan staat.
+- De preventie-instelling (qBittorrent ≥ 4.6, `excluded_file_names`) wordt in Autopilot automatisch aangezet; daarmee
+  komt het `.exe`/`.scr`-bestand van een opnieuw gegrepen nep-release nooit op schijf. MSO's eigen blacklist voorkomt
+  daarnaast dat MSO de release zelf ooit nog zoekt of verstuurt.
 
-Blokkeren gebeurt dus vóór verwijderen; anders verdwijnt het wachtrij-item en kan de *arr de release niet meer
-op de blocklist zetten.
+Zodra MediaGuard de route hieronder heeft, voegt MSO één strikt begrensde regel toe aan `ALLOWED_WRITES`
+(`mso/connectors/mediaguard.py`), een rij in `features/mediaguard/compat.py`, en een `arrblock`-variant voor
+afgeronde releases in `features/torrent/cleanup.py`.
 
-## Wat nog nodig is (alleen aan MSO-kant)
+## Opdracht voor de MediaGuard-sessie (klaar om te plakken)
 
-`mso/connectors/mediaguard.py` laat bewust alleen login en "zoek opnieuw" toe (`ALLOWED_WRITES`). Zolang de
-blokkeerroute daar niet in staat, laat MSO stap 1 weg en zegt het voorbeeld dat expliciet ("Sonarr/Radarr-blocklist
-niet mogelijk: … staat de blokkeerroute nog niet toe"). Toe te voegen regel:
+> **Opdracht voor MediaGuard Ultimate — "afgeronde release als mislukt markeren (blocklist)"**
+>
+> Context: Media Source Optimizer (MSO) ruimt nep-releases met malware op (bijv. `Serie S01E01 1080p WEB-GRP.exe`).
+> Die zijn door Sonarr/Radarr al gegrepen en afgerond, dus ze staan niet meer in de wachtrij en de bestaande route
+> `DELETE /api/v1/instances/{id}/queue/{queue_id}?blocklist=true` helpt niet. Sonarr grijpt ze daardoor opnieuw.
+>
+> Voeg in `apps/core/mediaguard/instances/manage.py` (router `/instances/{instance_id}`) deze route toe:
+>
+> `POST /api/v1/instances/{instance_id}/history/failed`
+>
+> - **Rol:** `operator` (`Depends(require_operator)`); `viewer` krijgt 403. Werkt met API-sleutels (`X-Api-Key`,
+>   rol operator) en met sessie + CSRF zoals de andere operator-routes. `require_instance(ctx, instance_id,
+>   mutable=True)` (gearchiveerde instantie → zelfde fout als bij `queue_remove`).
+> - **Body (Pydantic, extra velden verboden):** `{"download_id": str, "reason": str}`.
+>   `download_id`: infohash, 40 of 64 hex-tekens (hoofd-/kleine letters toegestaan, vergelijk hoofdletterongevoelig),
+>   of een SABnzbd `nzo_id` (`^SABnzbd_nzo_[A-Za-z0-9_]+$`); anders 422. `reason`: max. 300 tekens.
+> - **Werking:**
+>   1. Zoek in de historie van de instantie het **grab**-record (`eventType` = `grabbed`) met dat `downloadId`
+>      (Sonarr/Radarr: `GET /api/v3/history?downloadId=<id>&eventType=1`, of pagineer `history` en filter;
+>      hoofdletterongevoelig). Meerdere grabs → de nieuwste.
+>   2. Geen grab-record → `404` met Nederlandse `detail`: "Geen grab-record met dit downloadId in deze instantie".
+>   3. Anders `POST /api/v3/history/failed/{historyId}` (markeert als mislukt → release op de blocklist; de *arr
+>      zoekt daarna opnieuw volgens zijn eigen instellingen). Raak nooit bestanden aan; geen `removeFromClient`.
+>   4. Idempotent: is er voor dit `downloadId` al een `downloadFailed`-record, antwoord `200` met
+>      `{"blocked": true, "history_id": …, "already": true}` zonder opnieuw te posten.
+> - **Antwoord:** `200 {"blocked": true, "history_id": <int>, "already": false, "title": "<releasetitel>"}`.
+>   Fouten van de *arr via `arr_call` (502 met Nederlandse `detail`).
+> - **Audit:** `_audit(ctx, principal, "history.failed", instance_id, "history", history_id,
+>   new={"download_id": <id>, "reason": <reason>})` — geen geheimen (geen API-sleutels, geen URL's met passkeys).
+> - **Noodstop:** bij actieve noodstop `409` ("MediaGuard-noodstop is actief"), net als andere schrijvende acties.
+> - **OpenAPI:** de route moet in `/api/v1/openapi.json` staan (MSO detecteert routes daarmee).
+> - **Docs:** voeg de route toe aan `docs/MEDIAGUARD_API_KEYS.md` onder "Wat MSO aanroept".
+> - **Tests** (`apps/core/tests/`, met de nep-*arr):
+>   1. grab gevonden → `history/failed/{id}` precies één keer aangeroepen, antwoord `blocked: true`, auditregel
+>      `history.failed` zonder geheimen;
+>   2. tweede aanroep → `already: true`, geen tweede POST;
+>   3. geen grab-record → 404 met Nederlandse detail, niets gepost;
+>   4. rol viewer (sessie én API-sleutel) → 403, niets gepost;
+>   5. ongeldig `download_id` → 422;
+>   6. gearchiveerde instantie / noodstop → weigering, niets gepost.
 
-```python
-("DELETE", re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$")),
-```
+## Wat MSO daarna doet (1.5.x, na de MediaGuard-route)
 
-De MediaGuard-koppeling heeft daarvoor rol **operator** nodig (API-sleutel met rol operator volstaat).
-In `docs/MEDIAGUARD_API_KEYS.md` staat onder "Wat MSO aanroept" dan ook deze route.
+- `mso/connectors/mediaguard.py` `ALLOWED_WRITES`: alleen
+  `("POST", re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/history/failed$"))`, met in `request()` een body-controle
+  (precies de sleutels `download_id` + `reason`, `download_id` = infohash) — net zo streng als de bestaande
+  DELETE-wachtrijregel (`blocklist=true&remove_from_client=false`).
+- `apps/core/tests/test_recovery_blacklist.py`: vastgepinde whitelist bijwerken; `features/mediaguard/compat.py`: rij
+  voor de nieuwe route (operator, optioneel).
+- Opruimvoorstel: per afgeronde release een op `arrblock-hist:<token>:<hash>` (irreversibel, vóór het verwijderen),
+  controle achteraf via de historie (`downloadFailed` aanwezig).
 
-## Optionele uitbreiding in MediaGuard (niet nodig voor 1.4.0)
+## Eerdere bevinding (1.4.0)
 
-Staat een nep-release niet meer in de wachtrij (bijv. al door de *arr afgehandeld), dan kan MSO hem nu niet in
-Sonarr/Radarr blokkeren. Een route die dat wel kan zou helpen:
-
-> **Opdracht voor MediaGuard Ultimate:** voeg `POST /api/v1/instances/{id}/blocklist/release` toe (rol operator,
-> audit `blocklist.add`). Payload `{"download_id": "<infohash>", "reason": "<tekst>"}`. Werking: zoek in de
-> historie van de instantie (`GET /api/v3/history?downloadId=…`) het grab-record en roep
-> `POST /api/v3/history/failed/{historyId}` aan (markeert als mislukt → blocklist, zoekt eventueel opnieuw volgens
-> de instellingen van de *arr). Antwoord `{"blocked": true, "history_id": …}`; `404` met Nederlandse `detail` als
-> er geen grab-record is. Nooit bestanden verwijderen (`removeFromClient` blijft uit). Voeg tests toe voor: gevonden,
-> niet gevonden, viewer-rol geweigerd, audit zonder geheimen.
+`DELETE /api/v1/instances/{id}/queue/{queue_id}?remove_from_client=false&blocklist=true` (operator) roept in de *arr
+`DELETE /api/v3/queue/{id}?removeFromClient=false&blocklist=true` aan: release op de blocklist, download blijft
+staan, auditregel `queue.remove`. MSO gebruikt deze route sinds 1.4.0 voor releases die nog in de wachtrij staan
+(op `arrblock:<token>:<hash>`, vóór het verwijderen), via de whitelist-regel
+`("DELETE", re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$"))`.

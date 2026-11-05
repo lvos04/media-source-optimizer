@@ -4,7 +4,7 @@ import { CalendarClock, CircleHelp, Coins, DownloadCloud, Layers, Pencil, Plus, 
 import { useState } from "react";
 
 import { DangerDialog, KpiCard, Timeline } from "@/components/mg/domain";
-import { Button, Card, InlineState, PageHeader, StatusChip } from "@/components/mg/primitives";
+import { Button, Card, InlineState, PageHeader, StatusChip, Switch } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { PriceInline } from "@/components/mso/costs/price-inline";
@@ -14,7 +14,7 @@ import { billingLabel, kindLabel, ServiceEditor } from "@/components/mso/costs/s
 import { SimulationPanel } from "@/components/mso/costs/simulation-panel";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
-import type { CostSummary, Service, ServiceMetrics } from "@/lib/api/insights";
+import type { CostSummary, Service, ServiceList, ServiceMetrics } from "@/lib/api/insights";
 import { useI18n, type Formatters } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
@@ -50,7 +50,11 @@ export default function CostsPage() {
   const toast = useToast();
   const isAdmin = can("admin");
   const [period, setPeriod] = useState<Period>("30");
-  const services = useResource<{ items: Service[]; price_missing?: number }>("/costs/services", { period_days: Number(period) });
+  const services = useResource<ServiceList>("/costs/services", { period_days: Number(period) });
+  // public torrent indexers are free and never ask for a price: hidden unless the user wants to see them
+  const [showFree, setShowFree] = useState(false);
+  const freeCount = services.data?.items.filter((x) => x.billing === "free").length ?? 0;
+  const shown = (items: Service[]) => (showFree ? items : items.filter((x) => x.billing !== "free"));
   const summary = useResource<CostSummary>("/costs/summary");
   const [importing, setImporting] = useState(false);
   const runImport = async () => {
@@ -112,13 +116,16 @@ export default function CostsPage() {
         <KpiCard label={t("costs.kpi.nextRenewal")} icon={CalendarClock} unavailable={!s}
           value={next ? date(next.date) : "—"} meta={next ? `${next.label} · ${t("costs.renewalIn", { days: num(next.days_left), amount: money(next.amount_cents / 100, next.currency) })}` : t("costs.kpi.noRenewal")} />
         <KpiCard label={t("costs.kpi.services")} icon={Layers} unavailable={!services.data}
-          value={num(services.data?.items.length ?? 0)} meta={services.data ? `${num(services.data.items.filter((x) => !x.active).length)} × ${t("costs.inactive").toLowerCase()}` : null} />
+          value={num((services.data?.items.length ?? 0) - freeCount)}
+          meta={services.data ? t("costs.kpi.servicesMeta", { paid: num(services.data.items.length - freeCount), free: num(freeCount), inactive: num(services.data.items.filter((x) => !x.active).length) }) : null} />
       </section>
 
       <div className="grid" style={{ marginTop: 16 }}>
-        <Card className="span-12" title={t("costs.services")} icon={Coins} flush>
-          <ResourceView resource={services} endpoint="GET /api/v1/costs/services" isEmpty={(d) => d.items.length === 0}
-            empty={<StateView kind="empty" title={t("costs.noServices")} body={t("costs.noServicesBody")}
+        <Card className="span-12" title={t("costs.services")} icon={Coins} flush
+          actions={freeCount ? <label className="row" style={{ gap: 8, fontSize: 12.5 }}><Switch checked={showFree} label={t("costs.showFree")} onChange={setShowFree} /><span>{t("costs.showFree")} ({num(freeCount)})</span></label> : undefined}>
+          {freeCount && !showFree ? <p className="hint" style={{ margin: 0, padding: "10px 16px 0" }}>{t("costs.freeHidden", { count: num(freeCount) })}</p> : null}
+          <ResourceView resource={services} endpoint="GET /api/v1/costs/services" isEmpty={(d) => shown(d.items).length === 0}
+            empty={services.data?.items.length ? <StateView kind="empty" title={t("costs.noPaidServices")} body={t("costs.noPaidServicesBody")} /> : <StateView kind="empty" title={t("costs.noServices")} body={t("costs.noServicesBody")}
               action={<Button variant="primary" icon={Plus} disabled={!isAdmin} title={isAdmin ? undefined : t("costs.adminOnly")} onClick={() => setEditing({ service: null })}>{t("costs.addService")}</Button>} />}>
             {(d) => (
               <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
@@ -128,7 +135,7 @@ export default function CostsPage() {
                     <th>{t("costs.col.ratio")}</th><th>{t("costs.col.unique")}</th>
                     <th>{t("costs.col.renewal")}</th><th>{t("costs.col.source")}</th><th>{t("costs.col.backbone")}</th><th><span className="sr-only">{t("costs.col.actions")}</span></th>
                   </tr></thead>
-                  <tbody>{d.items.map((x) => (
+                  <tbody>{shown(d.items).map((x) => (
                     <tr key={x.id} aria-selected={selected?.id === x.id}>
                       <td className="cell-primary">
                         <div>{x.label}</div>

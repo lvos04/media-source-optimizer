@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { Button, Card, PageHeader, Tabs } from "@/components/mg/primitives";
 import { AiCard } from "@/components/mso/automation/ai-card";
+import { WeeklyDigest } from "@/components/mso/automation/autopilot-summary";
 import { ChangesPanel } from "@/components/mso/automation/changes-panel";
 import { EvaluationsPanel } from "@/components/mso/automation/evaluation-view";
 import { RecommendationsList } from "@/components/mso/automation/recommendations-list";
@@ -18,7 +19,7 @@ import { useI18n } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 
-const TABS = ["aanbevelingen", "wijzigingen", "controle", "automatisch", "ai"] as const;
+const TABS = ["aanbevelingen", "wijzigingen", "controle", "samenvatting", "automatisch", "ai"] as const;
 type Tab = (typeof TABS)[number];
 const RISKS: Risk[] = ["advies", "automatisch_veilig", "toestemming_nodig"];
 
@@ -35,8 +36,12 @@ export default function AutomationPage() {
   useEffect(() => { void reloadStatus(); }, [mode, paused, reloadStatus]);
 
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("tab");
     if (q && (TABS as readonly string[]).includes(q)) setTab(q as Tab);
+    // deep link from "Wat MSO deed" / "Wacht op jou": ?tab=wijzigingen&change=<id>
+    const change = Number(params.get("change"));
+    if (Number.isInteger(change) && change > 0) setFocusChange(change);
   }, []);
   const select = (v: Tab) => {
     setTab(v);
@@ -45,7 +50,7 @@ export default function AutomationPage() {
     window.history.replaceState(null, "", url.toString());
   };
   const s = status.data;
-  const allowed = mode !== null ? mode === "manage" && !paused : !!s?.automation_allowed;
+  const allowed = mode !== null ? (mode === "manage" || mode === "autopilot") && !paused : !!s?.automation_allowed;
   const runAllowed = can("operator") && allowed;
   const runReason = !can("operator") ? t("automation.operatorOnly") : !allowed ? t("automation.runReason") : undefined;
 
@@ -71,11 +76,13 @@ export default function AutomationPage() {
           { value: "aanbevelingen", label: t("automation.tab.recommendations") },
           { value: "wijzigingen", label: t("automation.tab.changes") },
           { value: "controle", label: t("automation.tab.evaluations") },
+          { value: "samenvatting", label: t("automation.tab.summary") },
           { value: "automatisch", label: t("automation.tab.automation") },
           { value: "ai", label: t("automation.tab.ai") },
         ]} />
       </div>
       <div className="grid" style={{ marginTop: 16 }}>
+        {tab === "samenvatting" ? <WeeklyDigest /> : null}
         {tab === "aanbevelingen" ? <RecommendationsList onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
         {tab === "wijzigingen" ? <ChangesPanel focusId={focusChange} /> : null}
         {tab === "controle" ? <EvaluationsPanel onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}

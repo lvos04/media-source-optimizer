@@ -73,6 +73,18 @@ export function EvaluationSummary({ item }: { item: ChangeEvaluation }) {
   const { dateTime, relative } = useI18n();
   const ev: StoredEvaluation | null = item.evaluation ?? item.interim;
   const interim = !item.evaluation && !!item.interim;
+  // rolled back before it was measured: nothing left to measure (backend sends rolled_back; older backends send nothing)
+  if (item.status === "rolled_back" && (!ev || ev.rolled_back)) {
+    return (
+      <div className="stack-sm">
+        <div className="row wrap" style={{ gap: 8 }}>
+          <StatusChip tone="neutral">n.v.t. (teruggedraaid)</StatusChip>
+          {item.rolled_back_at ? <span className="t-3" style={{ fontSize: 12 }}>teruggedraaid {relative(item.rolled_back_at)}</span> : null}
+        </div>
+        <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{ev?.message ?? "Deze wijziging is teruggedraaid voordat de meetperiode om was; er valt niets meer te meten."}</p>
+      </div>
+    );
+  }
   if (!ev) return <InlineState tone="neutral">Nog niet gemeten.</InlineState>;
   return (
     <div className="stack-sm">

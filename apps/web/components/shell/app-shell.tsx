@@ -4,7 +4,7 @@
 "use client";
 
 import {
-  CircleCheck, Eye, LogOut, Menu, Monitor, Moon, PauseCircle, PlayCircle, Search, ShieldCheck, Sun, X,
+  Bot, CircleCheck, Eye, LogOut, Menu, Monitor, Moon, PauseCircle, PlayCircle, Search, ShieldCheck, Sun, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -262,15 +262,19 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
   );
 }
 
-/** Operating mode chip: "Alleen-lezen" / "Beheermodus" from GET /system/mode. */
+/** Operating mode chip: "Alleen-lezen" / "Beheermodus" / "Autopilot" (accent tone) from GET /system/mode. */
 function ModeChip() {
   const { t } = useI18n();
-  const { mode, error } = useMode();
+  const { mode, paused, error } = useMode();
   const label = mode ? t(`mode.${mode}`) : error ? t("mode.unknown") : "—";
-  const title = mode === "manage" ? t("mode.chipTitleManage") : mode === "read_only" ? t("mode.chipTitleReadOnly") : t("mode.unknownReason");
+  const title = mode === "autopilot" ? (paused ? t("mode.chipTitleAutopilotPaused") : t("mode.chipTitleAutopilot"))
+    : mode === "manage" ? t("mode.chipTitleManage") : mode === "read_only" ? t("mode.chipTitleReadOnly") : t("mode.unknownReason");
+  const auto = mode === "autopilot";
   return (
-    <Link className={cn("top-pill mode-pill", mode === "manage" && "top-pill--warning")} href="/instellingen?tab=systeem#modus" title={`${title} ${t("mode.chipChange")}`} aria-label={`${label} — ${t("mode.chipChange")}`} data-testid="mode-chip" data-mode={mode ?? "unknown"}>
-      {mode === "manage" ? <ShieldCheck className="ico ico-sm" aria-hidden="true" /> : <Eye className="ico ico-sm" aria-hidden="true" />}
+    <Link className={cn("top-pill mode-pill", mode === "manage" && "top-pill--warning")} href="/instellingen?tab=systeem#modus" title={`${title} ${t("mode.chipChange")}`} aria-label={`${label} — ${t("mode.chipChange")}`} data-testid="mode-chip" data-mode={mode ?? "unknown"}
+      style={auto ? { borderColor: "var(--mg-accent)", background: "var(--mg-accent-tint)" } : undefined}>
+      {auto ? <Bot className="ico ico-sm" aria-hidden="true" style={{ color: "var(--mg-accent)" }} />
+        : mode === "manage" ? <ShieldCheck className="ico ico-sm" aria-hidden="true" /> : <Eye className="ico ico-sm" aria-hidden="true" />}
       <strong>{label}</strong>
     </Link>
   );

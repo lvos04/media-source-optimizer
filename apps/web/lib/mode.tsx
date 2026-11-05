@@ -12,6 +12,8 @@ export interface ModeValue {
   /** null while loading or when the backend is unreachable */
   mode: OperatingMode | null;
   readOnly: boolean;
+  /** Autopilot active (mode `autopilot` and not paused). */
+  autopilot: boolean;
   paused: boolean;
   loading: boolean;
   error: ApiError | null;
@@ -35,7 +37,8 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ModeValue>(() => ({
     mode: res.data?.mode ?? null,
     // unknown mode is treated as read-only: never enable a mutation we cannot vouch for
-    readOnly: res.data?.mode !== "manage",
+    readOnly: res.data?.mode !== "manage" && res.data?.mode !== "autopilot",
+    autopilot: res.data?.mode === "autopilot" && !res.data?.paused,
     paused: Boolean(res.data?.paused),
     loading: res.loading,
     error: res.error,
@@ -47,7 +50,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   return <ModeContext.Provider value={value}>{children}</ModeContext.Provider>;
 }
 
-/** Operating mode (`read_only` | `manage`) + automation pause state. Must be used inside the AppShell. */
+/** Operating mode (`read_only` | `manage` | `autopilot`) + automation pause state. Must be used inside the AppShell. */
 export function useMode(): ModeValue {
   const value = useContext(ModeContext);
   if (!value) throw new Error("useMode outside ModeProvider (AppShell)");
@@ -58,7 +61,7 @@ export interface WriteGate { allowed: boolean; reason: string | undefined }
 
 /**
  * Can the current user perform a mutation that changes external systems?
- * `requireManage` (default true): also requires operating mode `manage`.
+ * `requireManage` (default true): also requires operating mode `manage` or `autopilot`.
  * Use `reason` as the disabled button's `title` so a disabled button always explains itself.
  *
  *   const gate = useWriteGate("operator");

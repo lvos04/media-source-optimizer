@@ -268,3 +268,94 @@ sr.define(
     category=CAT,
     help="CPU/tijdbudget per ronde.",
 )
+
+# ------------------------------------------------------------------ Autopilot (1.5.0)
+sr.define(
+    "usenet.auto_disable_after_h",
+    "Kapotte server automatisch uitschakelen na",
+    "int",
+    6,
+    min=1,
+    max=168,
+    unit="uur",
+    category=CAT,
+    risk="automatisch_veilig",
+    help="Alleen in Autopilot: een SABnzbd-server met een duidelijk accountprobleem (inloggen geweigerd, toegang "
+    "geweigerd, blok op) wordt na zoveel uur automatisch uitgeschakeld; 'account verlopen' meteen. Nooit de "
+    "laatste ingeschakelde server. Terug te draaien; MSO probeert de server later zelf opnieuw.",
+)
+sr.define(
+    "usenet.auto_probe_interval_h",
+    "Uitgeschakelde server opnieuw proberen na",
+    "int",
+    24,
+    min=6,
+    max=168,
+    unit="uur",
+    category=CAT,
+    help="Alleen in Autopilot: MSO zet een automatisch uitgeschakelde server na zoveel uur als proef weer aan. "
+    "Keert de fout terug, dan gaat hij weer uit en verdubbelt de wachttijd (backoff).",
+)
+sr.define(
+    "usenet.auto_probe_max_interval_h",
+    "Maximale wachttijd tussen proeven",
+    "int",
+    168,
+    min=24,
+    max=720,
+    unit="uur",
+    category=CAT,
+    advanced=True,
+)
+sr.define(
+    "usenet.auto_probe_max",
+    "Maximaal aantal mislukte proeven",
+    "int",
+    5,
+    min=1,
+    max=20,
+    category=CAT,
+    advanced=True,
+    help="Daarna probeert MSO de server niet meer zelf; 'Opnieuw proberen' op de pagina Usenet-providers blijft "
+    "beschikbaar.",
+)
+sr.define(
+    "usenet.probe_watch_h",
+    "Proef geslaagd na foutvrije periode van",
+    "int",
+    2,
+    min=1,
+    max=48,
+    unit="uur",
+    category=CAT,
+    advanced=True,
+)
+sr.define(
+    "usenet.retry_failed_downloads",
+    "Mislukte downloads door serverproblemen opnieuw proberen",
+    "bool",
+    True,
+    category=CAT,
+    risk="automatisch_veilig",
+    help="Downloads die mislukten terwijl een server faalde, laat MSO SABnzbd opnieuw proberen zodra de kapotte "
+    "servers uit staan en er minstens één werkende server is. In Autopilot automatisch; anders één voorstel "
+    "'N mislukte downloads opnieuw proberen'. Eén keer per download.",
+)
+sr.define(
+    "usenet.retry_per_hour", "Max. opnieuw geprobeerde downloads per uur", "int", 20, min=1, max=500, category=CAT
+)
+sr.define(
+    "usenet.retry_per_day", "Max. opnieuw geprobeerde downloads per dag", "int", 100, min=1, max=2000, category=CAT
+)
+sr.define(
+    "usenet.retry_max_age_days",
+    "Mislukte downloads opnieuw proberen tot",
+    "int",
+    14,
+    min=1,
+    max=90,
+    unit="dagen",
+    category=CAT,
+    advanced=True,
+    help="Oudere mislukte downloads in de SABnzbd-geschiedenis worden niet meer automatisch opnieuw geprobeerd.",
+)

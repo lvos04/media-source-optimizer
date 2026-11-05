@@ -1,5 +1,5 @@
 // API types for Slice E: overview, costs, automation, AI advisor (backend: apps/core/mso/features/{overview,costs,automation,ai}).
-import type { ChangeSet, Risk } from "@/lib/api/contracts";
+import type { ChangeSet, OperatingMode, Risk } from "@/lib/api/contracts";
 
 // ------------------------------------------------------------------ overview  GET /overview
 export interface Unavailable { available: boolean; reason?: string | null }
@@ -9,7 +9,7 @@ export interface OverviewConnector {
 }
 export interface FailureLocation { kind: "source" | "provider" | "client"; id: string; label: string; count: number; reasons: Record<string, number> }
 export interface Overview {
-  mode: "read_only" | "manage"; paused: boolean; automation_allowed: boolean;
+  mode: OperatingMode; paused: boolean; automation_allowed: boolean;
   health: { status: "healthy" | "degraded" | "offline" | "unknown"; issues: string[] };
   connectors: Unavailable & { items: OverviewConnector[]; counts: Record<string, number> };
   downloads: Unavailable & { active: { usenet: number; torrent: number }; total_active?: number; stale_s: number | null };
@@ -44,8 +44,12 @@ export interface Service {
   /** `import` = added automatically from a provider/indexer source; `price_missing` until the user fills in a price. */
   origin?: "manual" | "import"; price_missing?: boolean;
   metrics?: ServiceMetrics | null;
+  /** billing === "free" (public torrent indexers are imported as free and never ask for a price). */
+  free?: boolean;
 }
-export type ServiceInput = Omit<Service, "id" | "source_label" | "kind_label" | "monthly" | "origin" | "price_missing" | "metrics">;
+export type ServiceInput = Omit<Service, "id" | "source_label" | "kind_label" | "monthly" | "origin" | "price_missing" | "metrics" | "free">;
+/** `GET /costs/services` */
+export interface ServiceList { items: Service[]; period_days: number; price_missing: number; free?: number; paid?: number }
 /** Retrospective ratios over the period (entered cost ÷ observed successes); never a savings promise. */
 export interface ServiceMetrics {
   period_days: number; linked: boolean; available: boolean; reason?: string;
@@ -101,9 +105,12 @@ export interface Recommendation {
   can_create_change: boolean;
 }
 export interface AutomationStatus {
-  mode: "read_only" | "manage"; paused: boolean; automation_allowed: boolean;
-  areas: Array<{ area: string; label: string; auto_apply_safe: boolean; setting_key: string; pending_safe_changes: number }>;
-  max_per_hour: number; max_age_h: number; auto_rollback: boolean; applied_last_hour: number; evaluators: string[];
+  mode: OperatingMode; paused: boolean; automation_allowed: boolean;
+  /** Autopilot active (mode autopilot, not paused): every area is on, regardless of its own toggle. */
+  autopilot?: boolean;
+  areas: Array<{ area: string; label: string; auto_apply_safe: boolean; setting_key: string; pending_safe_changes: number; effective?: boolean; via_autopilot?: boolean }>;
+  /** Effective (true in Autopilot); `auto_rollback_setting` is the stored setting itself. */
+  max_per_hour: number; max_age_h: number; auto_rollback: boolean; auto_rollback_setting?: boolean; applied_last_hour: number; evaluators: string[];
   evaluator_fallback?: boolean;
   evaluation?: { hours: number; hysteresis_pct: number; min_samples: number; torrent_auto_rollback: boolean | null };
   risk_explanation: Record<Risk, string>;
@@ -132,6 +139,8 @@ export interface StoredEvaluation {
   /** Current vocabulary (EvaluationOutcome) or legacy values from before 1.4.0 (keep/rollback/unknown/niet_beschikbaar). */
   result: string; label?: string; at?: string; message?: string; action?: string; reason?: string; setting?: string;
   evaluator?: string; measures?: EvaluationMeasure[];
+  /** Set when the change was rolled back before it was measured ("n.v.t. (teruggedraaid)"). */
+  rolled_back?: boolean;
 }
 export interface ChangeEvaluation {
   id: number; target: string; title: string; risk: Risk; status: string; applied_at: string | null; applied_by: string | null;
@@ -150,3 +159,34 @@ export function localizeAuditSummary(summary: string | null | undefined): string
   if (!summary) return summary ?? null;
   return summary.replace(/(:\s*)([a-z_]+)(?=\s*(?:\(|$|[.,;]))/g, (m, sep: string, word: string) => (AUDIT_STATUS_NL[word] ? `${sep}${AUDIT_STATUS_NL[word]}` : m));
 }
+
+// ------------------------------------------------------------------ autopilot  GET /overview/autopilot?days=1|7
+export type AutopilotCategoryKey = "applied" | "switched_off" | "rolled_back" | "servers" | "retries" | "searches" | "prepared" | "evaluated" | "syncs" | "failed" | "other";
+export interface AutopilotItem {
+  id: number; ts: string; category: AutopilotCategoryKey; action: string; summary: string; target: string | null;
+  change_id: number | null; actor: string; link: string;
+}
+export interface AutopilotCategory {
+  key: AutopilotCategoryKey; label: string; link: string; tone: "success" | "warning" | "info" | "neutral" | "danger";
+  count: number; examples: AutopilotItem[];
+}
+export interface WaitingItem {
+  id: number | string; title: string; target: string; risk: Risk; status: string; created_at: string;
+  kind: "goedkeuren" | "toepassen" | "bekijken"; reason: string; deletes: boolean; ops: number; link: string;
+}
+export interface AutopilotSummary {
+  days: number; since: string; generated_at: string; mode: OperatingMode; paused: boolean; autopilot: boolean; automation_allowed: boolean;
+  total: number; categories: AutopilotCategory[]; items: AutopilotItem[];
+  by_day: Array<{ date: string; total: number; categories: Partial<Record<AutopilotCategoryKey, number>>; items: AutopilotItem[] }>;
+  syncs: { jobs: Array<{ kind: string; done: number; failed: number }>; failed: number };
+  waiting: { count: number; items: WaitingItem[] };
+}
+
+// ------------------------------------------------------------------ automatische taken  GET /automation/schedules
+export interface ScheduleItem {
+  kind: string; label: string; area: string; every_s: number; enabled: boolean; reason: string | null;
+  status: "ok" | "mislukt" | "bezig" | "nog_niet" | "uit";
+  last_run_at: string | null; last_status: string | null; last_error: string | null; last_summary: string | null;
+  failed_24h: number; next_run_at: string | null;
+}
+export interface ScheduleList { items: ScheduleItem[]; worker_hint: string }

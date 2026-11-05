@@ -10,6 +10,7 @@ import { ConnectorList } from "@/components/mso/connector-form";
 import { SuspiciousCleanup } from "@/components/mso/torrent/cleanup-card";
 import { BottleneckCard, ClientCard, ConnectivityCard } from "@/components/mso/torrent/client-cards";
 import { PolicyCards, PreferencesCard } from "@/components/mso/torrent/policy-cards";
+import { PreventionCard } from "@/components/mso/torrent/prevention-card";
 import { RulesEditor } from "@/components/mso/torrent/rules-editor";
 import { TuningCard } from "@/components/mso/torrent/tuning-card";
 import { UnavailableState } from "@/components/mso/unavailable-state";
@@ -58,6 +59,7 @@ export default function TorrentClientPage() {
         ) : (
           <div className="grid">
             <SuspiciousCleanup onChanged={() => void overview.reload()} />
+            <PreventionCard />
             <ClientCard data={d} />
             <ConnectivityCard data={d} />
             <BottleneckCard data={d} />

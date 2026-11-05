@@ -531,7 +531,11 @@ def load_events(days: int = 120) -> list[dict[str, Any]]:
 # ------------------------------------------------------------------ job
 @jobs.handler("usenet.sab_server_status")
 def _job(ctx: jobs.JobContext) -> dict[str, Any]:
-    return refresh()
+    res = refresh()
+    from mso.features.usenet import autoheal  # lazy: autoheal imports this module
+
+    res["autopilot"] = autoheal.run()
+    return res
 
 
 def _sab_configured() -> bool:

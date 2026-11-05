@@ -17,6 +17,7 @@ from mso.auth import Principal, require
 from mso.connectors import base as cb
 from mso.db import get_db
 from mso.features.torrent import applier as _applier  # noqa: F401  (registers the qbittorrent applier)
+from mso.features.torrent import autopilot as torrent_autopilot
 from mso.features.torrent import cleanup, crossseed, diagnostics, ingest, policy, storage, tuning
 from mso.features.torrent import settings as ts
 from mso.features.torrent.adapters import ADAPTERS
@@ -317,7 +318,7 @@ def suspicious_list(_: Principal = Depends(require("viewer"))) -> dict[str, Any]
                 "category": r["category"],
                 "tracker_host": r["tracker_host"],
                 "size": v["size"],
-                "files": [m.get("name") for m in (sus.get("evidence") or {}).get("matches") or []][:5],
+                "files": cleanup.unique_match_names((sus.get("evidence") or {}).get("matches") or [])[:5],
             }
         )
     open_change = db.fetchone(
@@ -353,6 +354,22 @@ def suspicious_cleanup_preview(
         detail={"torrents": sum(1 for o in ch["ops"] if str(o["path"]).startswith("torrent:"))},
     )
     return ch
+
+
+# ------------------------------------------------------------------ prevention (excluded file names)
+@router.get("/prevention")
+def prevention(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Status of 'Uitvoerbare bestanden nooit downloaden' (qBittorrent ≥ 4.6 excluded file names)."""
+    return torrent_autopilot.prevention_status()
+
+
+@router.post("/prevention/preview")
+def prevention_preview(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """Create (or return the open) prevention change; in Autopilot it is applied at once (reversible)."""
+    res = torrent_autopilot.ensure_prevention(p.actor, manual=True)
+    if "change" not in res:
+        raise HTTPException(409, detail=res.get("reason") or "Geen voorstel nodig")
+    return {**res["change"], "auto": res.get("auto")}
 
 
 # ------------------------------------------------------------------ preferences / policy

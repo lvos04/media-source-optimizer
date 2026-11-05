@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
+import { SchedulesCard } from "@/components/mso/automation/schedules-card";
 import { useShell } from "@/components/shell/app-shell";
 import { useToast } from "@/components/mg/toast";
 import { useAction } from "@/lib/api/actions";
@@ -72,6 +73,7 @@ export default function SystemPage() {
           </ResourceView>
         </Card>
 
+        <SchedulesCard />
         <BackupsCard />
         <JobsCard num={num} />
       </div>

@@ -104,7 +104,7 @@ def setup_admin(body: Credentials, request: Request, response: Response) -> dict
 
 
 class SetupComplete(BaseModel):
-    mode: str | None = Field(default=None, pattern=r"^(read_only|manage)$")
+    mode: str | None = Field(default=None, pattern=r"^(read_only|manage|autopilot)$")
 
 
 @router.post("/setup/complete")
@@ -261,10 +261,10 @@ def put_settings(body: SettingsPut, p: Principal = Depends(require("admin"))) ->
 
 # ------------------------------------------------------------------ system
 class ModeBody(BaseModel):
-    mode: str = Field(pattern=r"^(read_only|manage)$")
+    mode: str = Field(pattern=r"^(read_only|manage|autopilot)$")
 
 
-_MODE_NL = {"read_only": "Alleen-lezen", "manage": "Beheermodus"}
+_MODE_NL = {"read_only": "Alleen-lezen", "manage": "Beheermodus", "autopilot": "Autopilot"}
 
 
 @router.get("/system/mode")

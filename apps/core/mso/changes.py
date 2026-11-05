@@ -59,8 +59,12 @@ def create(target: str, title: str, ops: list[dict[str, Any]], *, risk: str, exp
     automatically, whatever mode or automation setting is active."""
     if risk not in RISKS:
         raise ValueError(f"onbekend risico {risk}")
-    if any(op.get("destructive") or op.get("irreversible") for op in ops) and risk != "toestemming_nodig":
-        raise ValueError("verwijderen/uitschakelen vereist risico 'toestemming_nodig'")
+    # deleting / not undoable → always explicit approval; switching off (destructive but reversible) may be
+    # 'automatisch_veilig' only for autopilot use (apply() checks the mode)
+    if any(op.get("irreversible") for op in ops) and risk != "toestemming_nodig":
+        raise ValueError("verwijderen (niet terug te draaien) vereist risico 'toestemming_nodig'")
+    if any(op.get("destructive") for op in ops) and risk == "advies":
+        raise ValueError("uitschakelen kan niet als advies worden toegepast")
     if not ops:
         raise ValueError("lege wijziging")
     for op in ops:
@@ -135,8 +139,10 @@ def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = 
     if ch["risk"] == "toestemming_nodig" and ch["status"] != "approved":
         raise HTTPException(409, detail="Deze wijziging vereist eerst goedkeuring door een beheerder")
     if automatic:
-        if any(op.get("destructive") or op.get("irreversible") for op in ch["ops"]):
-            raise HTTPException(409, detail="Verwijderen of uitschakelen wordt nooit automatisch toegepast")
+        if any(op.get("irreversible") for op in ch["ops"]):
+            raise HTTPException(409, detail="Verwijderen wordt nooit automatisch toegepast")
+        if any(op.get("destructive") for op in ch["ops"]) and not state.autopilot():
+            raise HTTPException(409, detail="Uitschakelen gebeurt alleen automatisch in Autopilot")
         if ch["risk"] != "automatisch_veilig":
             raise HTTPException(409, detail="Alleen 'automatisch veilig' mag zonder gebruiker worden toegepast")
         if not state.automation_allowed():

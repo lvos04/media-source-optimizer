@@ -75,7 +75,7 @@ def pending_safe(db: Database | None = None) -> list[dict[str, Any]]:
 def apply_safe(db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
     if not state.automation_allowed():
-        reason = "alleen-lezen modus" if state.mode() != "manage" else "automatisering gepauzeerd"
+        reason = "alleen-lezen modus" if state.mode() == "read_only" else "automatisering gepauzeerd"
         _log("run", "skipped", f"Niet uitgevoerd: {reason}", db=db)
         return {"applied": 0, "skipped": "not_allowed", "reason": reason}
     cap = int(sr.get("automation.max_per_hour"))

@@ -1,4 +1,11 @@
-"""Operating mode (read_only | manage), automation pause flag, setup completion."""
+"""Operating mode (read_only | manage | autopilot), automation pause flag, setup completion.
+
+- read_only: nothing is written to external systems (default).
+- manage: a person may apply approved changes; automation only for areas switched on.
+- autopilot ("set it and forget it"): like manage, plus MSO applies every reversible, policy-bounded change by
+  itself (tuning, switching failing servers off, retries, fallback searches) with checks and auto-rollback.
+  Deleting (irreversible) is NEVER automatic in any mode: it always needs one approval.
+"""
 
 from __future__ import annotations
 
@@ -30,11 +37,16 @@ def paused() -> bool:
 
 def require_manage_mode() -> None:
     """External writes are only allowed in beheermodus (manage). Read-only is the default."""
-    if mode() != "manage":
+    if mode() not in ("manage", "autopilot"):
         raise HTTPException(409, detail="De app staat in alleen-lezen modus; schakel beheermodus in om "
                                         "wijzigingen toe te passen")
 
 
 def automation_allowed() -> bool:
     """Automatic (unattended) safe changes: only in manage mode and when not paused."""
-    return mode() == "manage" and not paused()
+    return mode() in ("manage", "autopilot") and not paused()
+
+
+def autopilot() -> bool:
+    """Set-it-and-forget-it: reversible changes (incl. switching things off) may be applied unattended."""
+    return mode() == "autopilot" and not paused()

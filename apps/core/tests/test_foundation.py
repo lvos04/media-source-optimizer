@@ -462,8 +462,9 @@ def test_failed_login_is_audited_without_password(app: Any, admin: Any, db: Any)
 def test_destructive_ops_need_permission_never_automatic_and_irreversible_not_rolled_back(
         admin: Any, fake: FakeSystem, manage_mode: None) -> None:
     from fastapi import HTTPException
-    with pytest.raises(ValueError):
-        changes.create("fake", "Weg", [{"path": "speed", "after": 0, "destructive": True}], risk="automatisch_veilig")
+    with pytest.raises(ValueError):  # deleting is never automatic-safe
+        changes.create("fake", "Weg", [{"path": "speed", "after": 0, "destructive": True, "irreversible": True}],
+                       risk="automatisch_veilig")
     ch = changes.create("fake", "Weg", [{"path": "speed", "before": 100, "after": 0, "destructive": True,
                                          "irreversible": True}], risk="toestemming_nodig")
     with pytest.raises(HTTPException):
@@ -473,6 +474,23 @@ def test_destructive_ops_need_permission_never_automatic_and_irreversible_not_ro
     assert admin.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 200
     r = admin.post(f"/api/v1/changes/{ch['id']}/rollback")
     assert r.status_code == 409 and "niet terug te draaien" in r.json()["detail"]
+
+
+def test_switch_off_automatic_only_in_autopilot_and_delete_never(admin: Any, fake: FakeSystem) -> None:
+    from fastapi import HTTPException
+    off = changes.create("fake", "Uit", [{"path": "conns", "before": 50, "after": 0, "destructive": True}],
+                         risk="automatisch_veilig")
+    state.set_state("mode", "manage")
+    with pytest.raises(HTTPException):
+        changes.apply(off["id"], "auto", automatic=True)
+    assert admin.put("/api/v1/system/mode", json={"mode": "autopilot"}).status_code == 200
+    assert changes.apply(off["id"], "auto", automatic=True)["status"] == "applied"
+    assert changes.rollback(off["id"], "auto")["status"] == "rolled_back"
+    gone = changes.create("fake", "Weg", [{"path": "speed", "after": 0, "destructive": True, "irreversible": True}],
+                          risk="toestemming_nodig")
+    admin.post(f"/api/v1/changes/{gone['id']}/approve")
+    with pytest.raises(HTTPException):  # even approved + autopilot: never by automation
+        changes.apply(gone["id"], "auto", automatic=True)
 
 
 def test_one_way_ops_allowed_automatically_but_not_rolled_back(admin: Any, fake: FakeSystem,

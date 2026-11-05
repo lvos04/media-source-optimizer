@@ -77,8 +77,13 @@ voorbeeld → (goedkeuring) → toepassen → terugdraaien. Afwijkingsdetectie v
 overschrijft die intussen door een ander systeem (bijv. MediaGuard's eigen Prowlarr-reconcile) is gewijzigd.
 Mislukt een deel, dan wordt de rest automatisch hersteld. Zie `test_change_*`.
 
+Verwijderen of uitschakelen (op-vlaggen `destructive`/`irreversible`) kan alleen in een wijziging met risico
+`toestemming_nodig` en wordt nooit automatisch toegepast (`test_destructive_ops_need_permission_never_automatic…`).
+De enige verwijderroute is de opruiming van verdachte (uitvoerbare) torrents. Die controleert bij toepassen opnieuw
+of elke torrent nog aanwezig, nog verdacht en precies dezelfde is als in het voorbeeld (`test_torrent_cleanup.py`).
+
 Vergrendelde integriteitsgrenzen (niet uitschakelbaar, `test_locked_integrity_settings_cannot_change`):
-nooit bestanden verwijderen; nooit seedende data herschrijven; geen publieke trackers/DHT op private
+nooit zelfstandig bestanden verwijderen; nooit seedende data herschrijven; geen publieke trackers/DHT op private
 torrents; nooit automatisch abonnementen opzeggen; MediaGuard-kwaliteitseisen zijn leidend.
 
 ## 9. Melden van kwetsbaarheden

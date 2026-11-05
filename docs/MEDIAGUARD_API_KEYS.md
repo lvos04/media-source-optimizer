@@ -18,7 +18,7 @@ MediaGuard-repository geeft.
 | Opslag in MediaGuard | Alleen de SHA-256-hash en de eerste 8 tekens (voor herkenning) staan in de database. De volledige sleutel wordt **één keer** getoond bij het aanmaken. |
 | Beheer | Alleen `admin`, via Instellingen → API-sleutels: aanmaken (naam + rol, optioneel vervaldatum), lijst (naam, rol, prefix, aangemaakt, laatst gebruikt, verloopt), intrekken. |
 | Audit | Aanmaken, intrekken en elke geweigerde sleutel worden gelogd. Gebruik door een sleutel staat in de audit als actor `apikey:<naam>`. De sleutel zelf komt nooit in logs. |
-| Wat MSO aanroept | Alleen GET-routes (`/health`, `/auth/me`, `/status`, `/openapi.json`, `/wanted…`, `/policy/effective`) en `POST /api/v1/wanted/{id}/search` (rol operator). Zie `INTEGRATION_MEDIAGUARD.md` §3. |
+| Wat MSO aanroept | GET-routes (`/health`, `/auth/me`, `/status`, `/openapi.json`, `/wanted…`, `/policy/effective`, `/instances/{id}/queue`), `POST /api/v1/wanted/{id}/search` (rol operator) en, alleen bij een goedgekeurde malware-opruiming, `DELETE /api/v1/instances/{id}/queue/{qid}?blocklist=true&remove_from_client=false` (rol operator). Zie `INTEGRATION_MEDIAGUARD.md` §3. |
 
 ### Wat MSO al doet (versie 1.2.0)
 

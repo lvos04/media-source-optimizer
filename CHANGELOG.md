@@ -2,6 +2,51 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.4.0] — 2026-11-05
+
+Van melden naar oplossen. Elk probleem wordt een voorstel dat je met één goedkeuring uitvoert en dat MSO na het
+toepassen controleert bij de bron.
+
+### Harde grenzen
+- Verwijderen of uitschakelen kan alleen als voorstel met **Toestemming nodig**: voorbeeld → goedkeuren → toepassen →
+  controle → audit. Het wordt **nooit** automatisch toegepast. Wat niet terug te draaien is, staat zo in het voorbeeld en
+  wordt bij terugdraaien overgeslagen.
+- De vergrendelde regel heet nu "Nooit **zelfstandig** bestanden verwijderen". De enige uitzondering zijn verdachte
+  downloads na expliciete goedkeuring.
+
+### Nieuw
+- **Malware opruimen** per torrent of als bundel:
+  - de release op de blokkeerlijst van Sonarr/Radarr via MediaGuard (`DELETE …/queue/{id}`, alleen met
+    `blocklist=true&remove_from_client=false`, alleen binnen deze opruiming);
+  - de release op MSO's eigen blokkeerlijst;
+  - torrent + bestanden verwijderen in qBittorrent, met controle.
+  Wijzigt de lijst tussen voorbeeld en toepassen, dan weigert MSO de hele bundel.
+- **Kapotte Usenet-servers uitzetten** met één goedkeuring (terug te draaien). Herinneringen bij verlopen accounts of
+  aanhoudende fouten. De faaloorzaak noemt per server de werkelijke status.
+- **Mislukte download → andere kandidaat**: voorstel *Versturen naar SABnzbd/qBittorrent* met de beste kandidaat die aan
+  de MediaGuard-eisen voldoet. De mislukte release gaat op de blokkeerlijst. Automatisch versturen kan als opt-in
+  (standaard uit).
+- **Tuning**: één bundelvoorstel brengt alle extreme qBittorrent-waarden naar de veilige grens. Daarna volgt tuning per
+  waarde met meting.
+- **Controle na een wijziging** (evaluators):
+  - gemeten wordt faalratio, tijd tot voltooiing en downloadsnelheid;
+  - uitkomst beter/gelijk/slechter/onvoldoende per wijziging;
+  - automatisch terugdraaien bij verslechtering (`change.auto_rolled_back`).
+- **Beschikbaarheid**: automatische STAT-steekproef na elke verstuurde NZB, binnen een dag- en maandbudget.
+  Inloggegevens per provider worden eenmalig gevraagd.
+- **Eigen bron**: de header-index levert RSS-items en NZB's via het Newznab-endpoint. Met een eigen bron (header-index,
+  Spotweb of directe indexer) accepteert Prowlarr MSO als indexer.
+- **Kosten**: providers en indexers worden automatisch als dienst overgenomen. Per dienst zie je de kosten per geslaagde
+  GB en per geslaagde download, plus het unieke aandeel.
+
+### Opgelost (testrapport 1.3.1)
+- Trage Prowlarr: één automatische herhaalpoging met een ruimere time-out, een knop "opnieuw proberen", maximaal 2
+  gelijktijdige zoekopdrachten, en samenvoegen van dubbele zoekopdrachten.
+- De SABnzbd-verbindingstest toont weer "x server(s) melden fouten".
+- Betrouwbaarheid wordt als percentage getoond (was "1 %").
+- Wachtrijstatussen van SABnzbd en de audit-samenvattingen zijn in het Nederlands.
+- De blokken bij Torrentclient verversen direct na toepassen of terugdraaien.
+
 ## [1.3.1] — 2026-11-05
 
 Verwerkt de hertest op de echte TrueNAS (Claude Cowork, 5 nov 2026: 25 geslaagd, 1 mislukt).

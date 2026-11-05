@@ -50,7 +50,9 @@ GET-probing als OpenAPI niet beschikbaar is). In de UI: **MediaGuard-koppeling �
 | `/api/v1/wanted/{id}` | GET | viewer | detail |
 | `/api/v1/wanted/{id}/diagnosis?cached=true` | GET | viewer | alleen gecachte diagnose (geen nieuwe interactieve diagnose) |
 | `/api/v1/policy/effective` | GET | viewer | kwaliteitseisen → `QualityRequirements` |
-| `/api/v1/wanted/{id}/search` | POST | operator | **enige schrijfactie**: herzoek via de officiële route |
+| `/api/v1/wanted/{id}/search` | POST | operator | herzoek via de officiële route |
+| `/api/v1/instances/{id}/queue` | GET | viewer | wachtrij-item van een verdachte torrent opzoeken (1.4.0) |
+| `/api/v1/instances/{id}/queue/{queue_id}` | DELETE | operator | **alleen** met `blocklist=true&remove_from_client=false`, en alleen binnen een goedgekeurde malware-opruiming: release op de blokkeerlijst van Sonarr/Radarr. De client weigert elke andere parametercombinatie vóór er netwerkverkeer is. |
 
 Bewust **nooit** gebruikt: `retry-relaxed` (versoepelt kwaliteit), `wanted/actions`, `ignore`/`unignore`/
 `keep-monitoring`, `backfill-plan`, interactieve diagnose, hooks, instances/bibliotheek. De MSO-client weigert
@@ -79,7 +81,8 @@ aparte categorie `mso-<categorie>` zodat er niets automatisch in de bibliotheek 
 
 ## 6. AV1- en seedveiligheid
 
-MSO herschrijft, verplaatst, hernoemt of verwijdert nooit bestanden. Met een optionele read-only mediamount
+MSO herschrijft, verplaatst of hernoemt nooit bestanden en verwijdert nooit zelfstandig iets. De enige uitzondering
+is een door jou goedgekeurde opruiming van verdachte (uitvoerbare) torrents, en die raakt de bibliotheek niet. Met een optionele read-only mediamount
 rapporteert MSO hardlinks (`st_nlink > 1`) tussen seedende torrents en bibliotheek ("MediaGuard AV1 mag dit niet
 herschrijven"), conform `docs/AV1_SAFETY_DIFF.md` D2 van MediaGuard. Er is geen schrijfpad naar die mount.
 

@@ -143,7 +143,9 @@ export function DiffViewer({ rows, headers, keyWidth = 120 }: {
 }) {
   return (
     <div className="diff" style={{ gridTemplateColumns: `${keyWidth}px 1fr 1fr` }} role="table" aria-label={headers.join(" / ")}>
-      {headers.map((h) => <div key={h} className="diff-head" role="columnheader">{h}</div>)}
+      <div style={{ display: "contents" }} role="row">
+        {headers.map((h) => <div key={h} className="diff-head" role="columnheader">{h}</div>)}
+      </div>
       {rows.map((r) => {
         const changed = r.change && r.change !== "same";
         return (

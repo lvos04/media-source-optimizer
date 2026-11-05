@@ -51,10 +51,16 @@ def create(target: str, title: str, ops: list[dict[str, Any]], *, risk: str, exp
            impact: dict[str, Any] | None = None, source: str = "user", actor: str = "system",
            dedupe_key: str | None = None, evaluate_after_h: float | None = None,
            db: Database | None = None) -> dict[str, Any]:
-    """Create a change set in ``preview``. ``ops``: [{path, label, before, after}]. Idempotent on
-    ``dedupe_key`` while an open (preview/approved) change with that key exists."""
+    """Create a change set in ``preview``. ``ops``: [{path, label, before, after, destructive?, irreversible?}].
+    Idempotent on ``dedupe_key`` while an open (preview/approved) change with that key exists.
+
+    Hard rule: an op that removes or disables something (``destructive``) or cannot be undone (``irreversible``)
+    is only allowed in a ``toestemming_nodig`` change: preview → explicit approval → apply. It can never be applied
+    automatically, whatever mode or automation setting is active."""
     if risk not in RISKS:
         raise ValueError(f"onbekend risico {risk}")
+    if any(op.get("destructive") or op.get("irreversible") for op in ops) and risk != "toestemming_nodig":
+        raise ValueError("verwijderen/uitschakelen vereist risico 'toestemming_nodig'")
     if not ops:
         raise ValueError("lege wijziging")
     for op in ops:
@@ -129,6 +135,8 @@ def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = 
     if ch["risk"] == "toestemming_nodig" and ch["status"] != "approved":
         raise HTTPException(409, detail="Deze wijziging vereist eerst goedkeuring door een beheerder")
     if automatic:
+        if any(op.get("destructive") or op.get("irreversible") for op in ch["ops"]):
+            raise HTTPException(409, detail="Verwijderen of uitschakelen wordt nooit automatisch toegepast")
         if ch["risk"] != "automatisch_veilig":
             raise HTTPException(409, detail="Alleen 'automatisch veilig' mag zonder gebruiker worden toegepast")
         if not state.automation_allowed():
@@ -207,8 +215,14 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
     applier = APPLIERS[ch["target"]]()
     ops = [dict(op) for op in ch["ops"]]
     errors = []
+    reversible = [op for op in ops if op.get("result") == "toegepast" and not op.get("irreversible")]
+    if not reversible:
+        raise HTTPException(409, detail="Deze wijziging is niet terug te draaien (bijv. verwijderde bestanden)")
     for op in reversed(ops):
         if op.get("result") != "toegepast":
+            continue
+        if op.get("irreversible"):
+            op["result"] = "niet_terug_te_draaien"
             continue
         try:
             applier.write(op["path"], op["observed_before"])

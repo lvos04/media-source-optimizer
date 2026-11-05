@@ -164,12 +164,14 @@ define(
 )
 define(
     "integrity.never_delete_files",
-    "Nooit bestanden verwijderen",
+    "Nooit zelfstandig bestanden verwijderen",
     "bool",
     True,
     locked=True,
     category="integriteit",
-    help="De app verwijdert, hernoemt of verplaatst nooit media- of seedbestanden.",
+    help="MSO verwijdert, hernoemt of verplaatst nooit uit zichzelf media- of seedbestanden. Enige uitzondering: "
+    "verdachte (uitvoerbare) downloads, en alleen via een voorstel dat een beheerder expliciet goedkeurt; "
+    "nooit automatisch.",
 )
 define(
     "integrity.never_rewrite_seeding",

@@ -457,3 +457,19 @@ def test_failed_login_is_audited_without_password(app: Any, admin: Any, db: Any)
     row = db.fetchone("SELECT * FROM audit_log WHERE action='auth.login_failed' ORDER BY id DESC LIMIT 1")
     assert row is not None and row["actor"] == "beheerder"
     assert "Fout-Wachtwoord-123" not in str(row)
+
+
+def test_destructive_ops_need_permission_never_automatic_and_irreversible_not_rolled_back(
+        admin: Any, fake: FakeSystem, manage_mode: None) -> None:
+    from fastapi import HTTPException
+    with pytest.raises(ValueError):
+        changes.create("fake", "Weg", [{"path": "speed", "after": 0, "destructive": True}], risk="automatisch_veilig")
+    ch = changes.create("fake", "Weg", [{"path": "speed", "before": 100, "after": 0, "destructive": True,
+                                         "irreversible": True}], risk="toestemming_nodig")
+    with pytest.raises(HTTPException):
+        changes.apply(ch["id"], "auto", automatic=True)
+    assert admin.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 409  # not approved yet
+    admin.post(f"/api/v1/changes/{ch['id']}/approve")
+    assert admin.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 200
+    r = admin.post(f"/api/v1/changes/{ch['id']}/rollback")
+    assert r.status_code == 409 and "niet terug te draaien" in r.json()["detail"]

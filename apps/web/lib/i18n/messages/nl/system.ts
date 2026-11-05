@@ -55,6 +55,8 @@ export const messages = {
   "system.component.appdata": "Opslag appdata",
   "system.component.work": "Werkmap",
   "system.sched.title": "Automatische taken",
+  "system.sched.autopilotUsenet": "Laatste Autopilot-ronde Usenet",
+  "system.sched.autopilotTorrent": "Laatste Autopilot-ronde torrents",
   "system.sched.sub": "Synchronisaties, imports, controles en back-ups die MSO vanzelf uitvoert",
   "system.sched.empty": "Geen periodieke taken geregistreerd",
   "system.sched.task": "Taak",

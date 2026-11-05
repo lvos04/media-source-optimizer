@@ -86,3 +86,35 @@ def test_schedules_listed_with_status(viewer: Any, db: Any) -> None:
     db.execute("UPDATE jobs SET status='failed', error='boem' WHERE idempotency_key='k1'")
     item = {i["kind"]: i for i in viewer.get("/api/v1/automation/schedules").json()["items"]}["costs.import_services"]
     assert item["status"] == "mislukt" and item["failed_24h"] == 1 and item["last_error"] == "boem"
+
+
+def test_usenet_and_torrent_autopilot_actions(viewer: Any, db: Any, fake: dict[str, Any]) -> None:
+    from mso.features.automation import TARGET_AREA, autopilot
+
+    assert TARGET_AREA["sabnzbd_retry"] == "usenet" and TARGET_AREA["download_send"] == "recovery"
+    state.set_state("mode", "autopilot")
+    for a in ("usenet.server_probe_failed", "usenet.server_recovered", "usenet.server_kept_last",
+              "usenet.server_retry"):
+        audit("automatisering", a, f"{a} xsnews", target="sabnzbd")
+    audit("automatisering", "sabnzbd.retry", "Mislukte download opnieuw geprobeerd in SABnzbd", target="sabnzbd")
+    audit("automatisering", "sabnzbd.retry", "Mislukte download opnieuw geprobeerd in SABnzbd", target="sabnzbd")
+    audit("automatisering", "change.applied", "Toegepast: retry-bundel", target="sabnzbd_retry",
+          detail={"automatic": True})  # bundle itself: not counted twice
+    rem = autopilot.propose_and_apply("fake_ov", "Recheck", [{"path": "conns", "before": 10, "after": 11}],
+                                      explanation="", impact=None, dedupe_key="r", area="torrent")
+    audit("autopilot", "torrent.autopilot_remedy", "Autopilot recheck: x", target="qbittorrent", change_id=rem["id"])
+    clean = autopilot.propose_and_apply("fake_ov", "Opruimen", [{"path": "file", "after": None, "destructive": True,
+                                                                  "irreversible": True}],
+                                        explanation="", impact=None, dedupe_key="c", area="torrent")
+    audit("autopilot", "torrent.cleanup_proposed", "Opruimvoorstel klaargezet", target="qbittorrent",
+          change_id=clean["id"])
+    audit("autopilot", "torrent.cleanup_refreshed", "Opruimvoorstel ververst", target="qbittorrent",
+          change_id=clean["id"])
+    audit("beheerder", "mediaguard.search_requested", "MediaGuard (automatisch)", detail={"trigger": "auto"})
+    db.execute("INSERT INTO users(username,password_hash,role) VALUES ('beheerder','x','admin') "
+               "ON CONFLICT DO NOTHING")
+    cats = {c["key"]: c["count"] for c in viewer.get("/api/v1/overview/autopilot").json()["categories"]}
+    assert cats["servers"] == 4 and cats["retries"] == 2 and cats["remedies"] == 1
+    assert cats["prepared"] == 1 and cats["searches"] == 1 and "applied" not in cats and "failed" not in cats
+    sched = viewer.get("/api/v1/automation/schedules").json()
+    assert "usenet" in sched["autopilot_runs"] and "torrent" in sched["autopilot_runs"]

@@ -27,6 +27,7 @@ CATEGORIES: dict[str, tuple[str, str, str]] = {
     "rolled_back": ("Automatisch teruggedraaid na controle", "/automatisering?tab=controle", "warning"),
     "servers": ("Usenet-servers gecontroleerd of omgeschakeld", "/usenet-providers", "info"),
     "retries": ("Downloads opnieuw geprobeerd", "/downloads", "info"),
+    "remedies": ("Vastgelopen torrents hersteld (opnieuw aankondigen of controleren)", "/torrentclient", "info"),
     "searches": ("Zoekopdrachten en vervangers verstuurd", "/ontbrekend", "info"),
     "prepared": ("Voor jou klaargezet (wacht op goedkeuring)", "/automatisering?tab=wijzigingen", "warning"),
     "evaluated": ("Wijzigingen gecontroleerd", "/automatisering?tab=controle", "neutral"),
@@ -39,7 +40,8 @@ ORDER = list(CATEGORIES)
 # periodic jobs whose runs are counted under "syncs" (from the job table, not the audit log)
 SYNC_JOB_PREFIXES = ("costs.import_services", "prowlarr.sync", "usenet.sab_ingest", "usenet.sab_stats",
                      "usenet.sab_server_status", "usenet.provider_checks", "mediaguard.sync", "torrent.ingest",
-                     "torrent.storage", "indexers.", "backup.create", "recovery.analyze", "usenet.headerindex")
+                     "torrent.storage", "indexers.", "backup.create", "recovery.analyze", "usenet.headerindex",
+                     "torrent.autopilot")
 # audit actions that are noise here (duplicates of another row, or human-only)
 SKIP_ACTIONS = {"automation.applied", "automation.run_requested", "automation.toggle", "settings.updated",
                 "system.mode", "system.paused", "system.resumed", "change.approved", "change.discarded",
@@ -57,6 +59,14 @@ def classify(row: dict[str, Any], change: dict[str, Any] | None = None) -> str |
     detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
     if action in SKIP_ACTIONS:
         return None
+    if action.startswith("usenet.server_"):  # probe failed / recovered / kept last / retried server
+        return "servers"
+    if action == "sabnzbd.retry":
+        return "retries"
+    if action == "torrent.autopilot_remedy":
+        return "remedies"
+    if action in ("torrent.cleanup_proposed", "torrent.cleanup_refreshed"):
+        return "prepared"
     if action in ("change.auto_rolled_back", "change.auto_restored"):
         return "rolled_back"
     if action == "change.applied":
@@ -64,6 +74,8 @@ def classify(row: dict[str, Any], change: dict[str, Any] | None = None) -> str |
         if any(op.get("destructive") for op in ops):
             return "switched_off"
         target = str(row.get("target") or "")
+        if target == "sabnzbd_retry":
+            return None  # every retried download has its own 'sabnzbd.retry' row
         if target in ("download_send",):
             return "searches"
         return "applied"
@@ -96,14 +108,15 @@ def _automatic_rows(db: Database, since: datetime) -> list[dict[str, Any]]:
         "SELECT a.id, a.ts, a.actor, a.action, a.target, a.summary, a.detail, a.change_id, "
         "c.ops AS change_ops, c.status AS change_status FROM audit_log a "
         "LEFT JOIN change_sets c ON c.id = a.change_id "
-        "WHERE a.ts >= %s AND (a.actor NOT IN (SELECT username FROM users) OR a.detail->>'automatic' = 'true') "
+        "WHERE a.ts >= %s AND (a.actor NOT IN (SELECT username FROM users) OR a.detail->>'automatic' = 'true' "
+        "OR a.detail->>'trigger' = 'auto') "
         "ORDER BY a.ts DESC LIMIT 5000",
         (since,),
     )
 
 
 def _link(cat: str, row: dict[str, Any]) -> str:
-    if row.get("change_id") and cat in ("applied", "switched_off", "prepared", "rolled_back"):
+    if row.get("change_id") and cat in ("applied", "switched_off", "prepared", "rolled_back", "remedies"):
         tab = "controle" if cat in ("applied", "rolled_back") else "wijzigingen"
         return f"/automatisering?tab={tab}&change={row['change_id']}"
     return CATEGORIES[cat][1]
@@ -122,10 +135,23 @@ def summary(days: int, db: Database | None = None) -> dict[str, Any]:
         d = ts.astimezone(UTC).date().isoformat()
         return per_day.setdefault(d, {"date": d, "total": 0, "categories": {}, "items": []})
 
+    # one change can have a specific row (remedy, cleanup proposal) and a generic one (change.applied/created):
+    # rows are newest first and the specific row is written after the generic one, so it wins
+    specific_changes: set[int] = set()
     for r in _automatic_rows(db, since):
         cat = classify(dict(r), {"ops": r["change_ops"]} if r["change_ops"] is not None else None)
         if cat is None:
             continue
+        cid = r["change_id"]
+        if cid is not None:
+            if r["action"] in ("change.applied", "change.created") and cid in specific_changes:
+                continue
+            if not str(r["action"]).startswith("change."):
+                if cat == "prepared" and cid in specific_changes:
+                    continue  # refreshed cleanup proposal: count once
+                specific_changes.add(cid)
+            elif cat == "prepared":
+                specific_changes.add(cid)
         item = {"id": r["id"], "ts": r["ts"], "category": cat, "action": r["action"], "summary": r["summary"],
                 "target": r["target"], "change_id": r["change_id"], "actor": r["actor"], "link": _link(cat, r)}
         counts[cat] += 1

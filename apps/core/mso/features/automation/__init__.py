@@ -26,6 +26,7 @@ AREAS: dict[str, str] = {
 # change_sets.target -> area (a linked recommendation's area wins; impact.area as fallback)
 TARGET_AREA: dict[str, str] = {
     "sabnzbd": "usenet",
+    "sabnzbd_retry": "usenet",
     "nntp": "usenet",
     "qbittorrent": "torrent",
     "transmission": "torrent",

@@ -56,6 +56,14 @@ export function SchedulesCard() {
           </div>
         )}
       </ResourceView>
+      {res.data?.autopilot_runs ? (
+        <dl className="kv" style={{ padding: "12px 16px 0", margin: 0 }} data-testid="autopilot-runs">
+          <dt>{t("system.sched.autopilotUsenet")}</dt>
+          <dd>{res.data.autopilot_runs.usenet.at ? `${relative(res.data.autopilot_runs.usenet.at)} · ${res.data.autopilot_runs.usenet.summary ?? ""}` : t("system.sched.notYet")}</dd>
+          <dt>{t("system.sched.autopilotTorrent")}</dt>
+          <dd>{res.data.autopilot_runs.torrent.at ? `${relative(res.data.autopilot_runs.torrent.at)}${res.data.autopilot_runs.torrent.summary ? ` · ${res.data.autopilot_runs.torrent.summary}` : ""}` : t("system.sched.notYet")}</dd>
+        </dl>
+      ) : null}
       <p className="hint" style={{ margin: 0, padding: "8px 16px 12px" }}>{t("system.sched.hint")}</p>
     </Card>
   );

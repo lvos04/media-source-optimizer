@@ -2,7 +2,7 @@
 
 import {
   ArrowRight, Bot, CalendarDays, CircleX, Eye, Hand, History, type LucideIcon, Power, RefreshCw, RotateCcw, Search, Server,
-  SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow,
+  SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow, Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -17,7 +17,7 @@ import { useMode } from "@/lib/mode";
 
 const ENDPOINT = "GET /api/v1/overview/autopilot";
 const ICON: Record<AutopilotCategoryKey, LucideIcon> = {
-  applied: SlidersHorizontal, switched_off: Power, rolled_back: Undo2, servers: Server, retries: RotateCcw, searches: Search,
+  applied: SlidersHorizontal, switched_off: Power, rolled_back: Undo2, servers: Server, retries: RotateCcw, remedies: Wrench, searches: Search,
   prepared: Hand, evaluated: Sparkles, syncs: RefreshCw, failed: CircleX, other: Workflow,
 };
 const ICON_TONE: Record<AutopilotCategory["tone"], string> = {

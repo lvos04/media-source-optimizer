@@ -284,12 +284,13 @@ SCHEDULE_LABELS: dict[str, tuple[str, str]] = {
     "indexers.reliability": ("Betrouwbaarheid indexers herberekenen", "Indexers"),
     "usenet.sab_ingest": ("SABnzbd-geschiedenis inlezen", "Usenet"),
     "usenet.sab_stats": ("SABnzbd-statistieken inlezen", "Usenet"),
-    "usenet.sab_server_status": ("Status Usenet-servers in SABnzbd", "Usenet"),
+    "usenet.sab_server_status": ("Status Usenet-servers + Autopilot (servers uit/aan, opnieuw proberen)", "Usenet"),
     "usenet.provider_checks": ("Usenet-providers controleren", "Usenet"),
     "usenet.headerindex_run": ("Header-index bijwerken", "Usenet"),
     "mediaguard.sync": ("MediaGuard synchroniseren", "MediaGuard"),
     "recovery.analyze": ("Ontbrekend & herstel analyseren", "Herstel"),
     "torrent.ingest": ("qBittorrent-torrents inlezen", "Torrent"),
+    "torrent.autopilot": ("Autopilot torrents (preventie, herstel, opruimvoorstel klaarzetten)", "Torrent"),
     "torrent.tune": ("qBittorrent afstemmen", "Torrent"),
     "torrent.tune_evaluate": ("qBittorrent-afstemming controleren", "Torrent"),
 }
@@ -353,4 +354,33 @@ def schedules(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
             if enabled else None,
         })
     items.sort(key=lambda i: (i["area"], i["label"]))
-    return {"items": items, "worker_hint": "Taken draaien vanzelf in de worker; je hoeft niets aan te klikken."}
+    usenet_last = state.get_state("usenet.autopilot_last_run", None)
+    autopilot_runs = {
+        "usenet": {"at": usenet_last.get("at") if isinstance(usenet_last, dict) else None,
+                   "summary": _usenet_pass_summary(usenet_last)},
+        "torrent": {"at": last["torrent.autopilot"]["updated_at"] if "torrent.autopilot" in last else None,
+                    "summary": last["torrent.autopilot"]["summary"] if "torrent.autopilot" in last else None},
+    }
+    return {"items": items, "autopilot_runs": autopilot_runs,
+            "worker_hint": "Taken draaien vanzelf in de worker; je hoeft niets aan te klikken."}
+
+
+def _usenet_pass_summary(out: Any) -> str | None:
+    """Plain-Dutch line for the last Usenet autopilot pass (state ``usenet.autopilot_last_run``)."""
+    if not isinstance(out, dict):
+        return None
+    srv = out.get("servers") if isinstance(out.get("servers"), dict) else {}
+    if srv.get("error"):
+        return f"Servers: fout ({str(srv['error'])[:120]})"
+    parts = []
+    for key, label in (("switched_off", "uitgeschakeld"), ("recovered", "werkt weer"),
+                       ("probe_failed", "proef mislukt"), ("pending", "wacht")):
+        n = len(srv.get(key) or [])
+        if n:
+            parts.append(f"{n} {label}")
+    retry = out.get("retry") if isinstance(out.get("retry"), dict) else {}
+    if retry.get("error"):
+        parts.append("opnieuw proberen: fout")
+    elif retry.get("change_id"):
+        parts.append("opnieuw proberen klaargezet/toegepast")
+    return ", ".join(parts) or "Niets te doen"

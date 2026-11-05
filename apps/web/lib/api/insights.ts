@@ -161,7 +161,7 @@ export function localizeAuditSummary(summary: string | null | undefined): string
 }
 
 // ------------------------------------------------------------------ autopilot  GET /overview/autopilot?days=1|7
-export type AutopilotCategoryKey = "applied" | "switched_off" | "rolled_back" | "servers" | "retries" | "searches" | "prepared" | "evaluated" | "syncs" | "failed" | "other";
+export type AutopilotCategoryKey = "applied" | "switched_off" | "rolled_back" | "servers" | "retries" | "remedies" | "searches" | "prepared" | "evaluated" | "syncs" | "failed" | "other";
 export interface AutopilotItem {
   id: number; ts: string; category: AutopilotCategoryKey; action: string; summary: string; target: string | null;
   change_id: number | null; actor: string; link: string;
@@ -189,4 +189,8 @@ export interface ScheduleItem {
   last_run_at: string | null; last_status: string | null; last_error: string | null; last_summary: string | null;
   failed_24h: number; next_run_at: string | null;
 }
-export interface ScheduleList { items: ScheduleItem[]; worker_hint: string }
+export interface ScheduleList {
+  items: ScheduleItem[]; worker_hint: string;
+  /** Last Autopilot passes: Usenet (after each server-status refresh) and the torrent.autopilot job. */
+  autopilot_runs?: { usenet: { at: string | null; summary: string | null }; torrent: { at: string | null; summary: string | null } };
+}

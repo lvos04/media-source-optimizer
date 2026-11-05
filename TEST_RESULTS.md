@@ -18,6 +18,28 @@ Zie [docs/HARDWARE_ACCEPTANCE.md](docs/HARDWARE_ACCEPTANCE.md).
 | Containerstack (gebouwde images + 7 mocks) smoke/e2e | **19 / 19 geslaagd** | `docs/test-evidence/stack-smoke-report.md` |
 | Playwright (15 schermen × donker/licht × 1440/390 + toetsenbord, alleen-lezen, login) | **68 / 68 geslaagd** | `docs/test-evidence/playwright.log`, `docs/screenshots/` (60 png) |
 
+## 0d. Aanvulling 1.5.0 — Autopilot (5 nov 2026)
+
+Autopilot-regels getest met mocks:
+- uitschakelen gebeurt alleen automatisch in Autopilot; verwijderen nooit, ook niet goedgekeurd (`test_foundation.py`,
+  `test_autopilot.py`);
+- preventie in qBittorrent: je eigen patronen samengevoegd, terugdraaien, controle, video en mappen nooit geraakt
+  (`test_torrent_autopilot.py`);
+- automatisch servers uit, met bewaking van de laatste server en proef-heraanzet met backoff
+  (`test_usenet_autopilot_servers.py`);
+- mislukte downloads opnieuw proberen, begrensd (`test_usenet_retry.py`);
+- MediaGuard-zoekverzoeken binnen de quota (`test_recovery_autopilot.py`);
+- samenvatting en "Wacht op jou" (`test_overview_autopilot.py`), gratis bronnen (`test_costs_free.py`).
+
+Resultaten op de gebouwde images: backend **502 / 502**, containerstack **19 / 19**, Playwright **70 / 70**, alles-in-één
+**9 / 9**. Axe vond één nieuwe fout (de kolomkoppen van DiffViewer stonden niet in een rij); die is opgelost voordat
+deze 70/70 werd gehaald.
+
+Niet tegen de echte diensten geverifieerd:
+- `excluded_file_names` op qBittorrent 5.3;
+- `mode=retry` op SABnzbd 5.1.3;
+- de automatische zoekverzoeken naar MediaGuard 0.3.7.
+
 ## 0c. Aanvulling 1.4.0 — van melden naar oplossen (5 nov 2026)
 
 Nieuwe voorstellen hebben elk tests met mocks. Gecontroleerd wordt: het voorbeeld klopt, Alleen-lezen blokkeert,

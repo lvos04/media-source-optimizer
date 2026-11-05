@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any, Literal
 
@@ -14,10 +15,12 @@ from mso.audit import audit
 from mso.auth import Principal, require
 from mso.db import get_db
 from mso.domain.outcomes import recommend
-from mso.features.costs import analysis
+from mso.features.costs import analysis, imports
 
+LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/costs", tags=["kosten"])
 KINDS = ("usenet_provider", "block_account", "nzb_indexer", "torrent_indexer", "tracker", "vpn", "other")
+BILLING_LABELS = {"monthly": "per maand", "yearly": "per jaar", "block": "per blok", "free": "gratis"}
 KIND_LABELS = {
     "usenet_provider": "Usenet-provider",
     "block_account": "Blockaccount",
@@ -96,18 +99,74 @@ COLS = (
 
 
 @router.get("/services")
-def list_services(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+def list_services(
+    period_days: int | None = Query(None, ge=7, le=365), _: Principal = Depends(require("viewer"))
+) -> dict[str, Any]:
+    # new providers/indexers become services right away (idempotent, MSO database only, audited when it adds any)
+    try:
+        imports.import_services("systeem")
+    except Exception as exc:  # never break the list
+        LOGGER.warning("Automatisch importeren van diensten mislukt: %s", type(exc).__name__)
     rows = get_db().fetchall(
         "SELECT s.*, src.label AS source_label FROM services s "
-        "LEFT JOIN sources src ON src.id=s.source_id ORDER BY s.active DESC, s.label"
+        "LEFT JOIN sources src ON src.id=s.source_id ORDER BY s.price_missing DESC, s.active DESC, s.label"
     )
+    pd = _period(period_days)
+    metrics = analysis.service_metrics(rows, pd)
     items = []
     for r in rows:
         item = analysis.serialise_service(r)
         item["monthly"] = analysis.monthly_cost(r)
         item["kind_label"] = KIND_LABELS.get(r["kind"], r["kind"])
+        item["metrics"] = metrics.get(r["id"])
         items.append(item)
-    return {"items": items}
+    return {"items": items, "period_days": pd, "price_missing": sum(1 for r in rows if r["price_missing"])}
+
+
+@router.post("/services/import")
+def import_services(p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+    """Explicit import (also asks the Usenet engine to link SABnzbd servers it has not imported yet)."""
+    res = imports.import_services(p.actor, include_sab=True)
+    return {"created": len(res["created"]), "items": res["created"],
+            "sab_providers_created": res["sab_providers_created"]}
+
+
+class PriceBody(BaseModel):
+    billing: Literal["monthly", "yearly", "block", "free"]
+    amount_cents: int = Field(0, ge=0, le=100_000_00)
+    currency: str | None = Field(None, min_length=3, max_length=3)
+    renewal_date: date | None = None
+    block_size_gb: float | None = Field(None, gt=0, le=1_000_000)
+
+
+@router.patch("/services/{service_id}/price")
+def set_price(service_id: int, body: PriceBody, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+    """Inline edit: price, period (billing) and renewal date only."""
+    before = _get(service_id)
+    size = body.block_size_gb if body.block_size_gb is not None else before.get("block_size_gb")
+    if body.billing == "block" and not size:
+        raise HTTPException(422, detail="Een blockaccount heeft een blokgrootte (GB) nodig")
+    currency = (body.currency or before["currency"]).upper()
+    get_db().execute(
+        "UPDATE services SET billing=%s, amount_cents=%s, currency=%s, renewal_date=%s, block_size_gb=%s, "
+        "price_missing=false, updated_at=now() WHERE id=%s",
+        (body.billing, body.amount_cents, currency, body.renewal_date, size, service_id),
+    )
+    audit(
+        p.actor,
+        "costs.service_price_set",
+        f"Prijs ingevuld: {before['label']} ({body.amount_cents / 100:.2f} {currency}, "
+        f"{BILLING_LABELS[body.billing]})",
+        target=f"service:{service_id}",
+        detail={
+            "voor": {"billing": before["billing"], "amount_cents": before["amount_cents"],
+                     "renewal_date": str(before.get("renewal_date"))},
+            "na": {"billing": body.billing, "amount_cents": body.amount_cents,
+                   "renewal_date": str(body.renewal_date)},
+        },
+    )
+    s = _get(service_id)
+    return analysis.serialise_service(s) | {"monthly": analysis.monthly_cost(s)}
 
 
 @router.get("/sources")
@@ -146,7 +205,8 @@ def update_service(
     before = _get(service_id)
     data = _validate(body)
     get_db().execute(
-        f"UPDATE services SET {', '.join(c + '=%s' for c in COLS)}, updated_at=now() WHERE id=%s",
+        f"UPDATE services SET {', '.join(c + '=%s' for c in COLS)}, price_missing=false, updated_at=now() "
+        "WHERE id=%s",
         [data[c] for c in COLS] + [service_id],
     )
     changed = {
@@ -167,6 +227,7 @@ def update_service(
 @router.delete("/services/{service_id}")
 def delete_service(service_id: int, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
     s = _get(service_id)
+    imports.remember_skip(s, p.actor)
     get_db().execute("DELETE FROM services WHERE id=%s", (service_id,))
     audit(
         p.actor,
@@ -278,6 +339,15 @@ def create_renewal_reminders() -> int:
         )
         n += 1
     return n
+
+
+@jobs.handler("costs.import_services")
+def _job_import(ctx: jobs.JobContext) -> dict[str, Any]:
+    res = imports.import_services("systeem", include_sab=True, db=ctx.db)
+    return {"created": len(res["created"]), "sab_providers_created": res["sab_providers_created"]}
+
+
+jobs.every("costs.import_services", 3600)
 
 
 @jobs.handler("costs.renewal_reminders")

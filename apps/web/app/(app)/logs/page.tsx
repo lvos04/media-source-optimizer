@@ -10,6 +10,7 @@ import { ErrorState, StateView } from "@/components/mg/states";
 import { api, ApiError } from "@/lib/api/client";
 import type { AuditEntry, AuditPage } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
+import { localizeAuditSummary } from "@/lib/api/insights";
 import { useI18n } from "@/lib/i18n";
 
 const LIMITS = [50, 100, 200];
@@ -104,7 +105,7 @@ function AuditView() {
                             <td data-label={t("logs.who")} className="mono">{r.actor ?? t("logs.system")}</td>
                             <td data-label={t("logs.what")}><span className="tag">{r.action}</span></td>
                             <td data-label={t("logs.target")} className="mono" style={{ maxWidth: 240, overflowWrap: "anywhere" }}>{r.target ?? "—"}{r.change_id !== null && r.change_id !== undefined ? <div className="cell-sub">{t("logs.change")} #{String(r.change_id)}</div> : null}</td>
-                            <td data-label={t("logs.summary")}>{r.summary ?? "—"}</td>
+                            <td data-label={t("logs.summary")}>{localizeAuditSummary(r.summary) ?? "—"}</td>
                             <td><Button size="sm" variant="ghost" onClick={() => setSelected(r)}>{t("action.details")}</Button></td>
                           </tr>
                         ))}
@@ -120,12 +121,12 @@ function AuditView() {
       </Card>
 
       <Modal open={Boolean(selected)} onClose={() => setSelected(null)} icon={History} title={selected ? t("logs.detailTitle", { id: String(selected.id) }) : ""}
-        description={selected?.summary ?? undefined} footer={<Button onClick={() => setSelected(null)}>{t("action.close")}</Button>}>
+        description={localizeAuditSummary(selected?.summary) ?? undefined} footer={<Button onClick={() => setSelected(null)}>{t("action.close")}</Button>}>
         {selected ? (
           <div className="stack">
             <Timeline items={[
               { title: <><span className="tag">{selected.action}</span> {selected.target ? <span className="mono">{selected.target}</span> : null}</>, meta: `${dateTime(selected.ts)} · ${selected.actor ?? t("logs.system")}`, tone: "accent" },
-              ...related.slice(0, 8).map((r) => ({ title: <><span className="tag">{r.action}</span> {r.summary ?? ""}</>, meta: `${dateTime(r.ts)} · ${r.actor ?? t("logs.system")}`, tone: "neutral" as const })),
+              ...related.slice(0, 8).map((r) => ({ title: <><span className="tag">{r.action}</span> {localizeAuditSummary(r.summary) ?? ""}</>, meta: `${dateTime(r.ts)} · ${r.actor ?? t("logs.system")}`, tone: "neutral" as const })),
             ]} />
             {related.length ? <p className="hint" style={{ margin: 0 }}>{t("logs.related")} — {t("logs.relatedHint")}</p> : null}
             <div><span className="eyebrow">{t("logs.detail")}</span><div style={{ marginTop: 6 }}><DetailValue value={selected.detail} /></div></div>

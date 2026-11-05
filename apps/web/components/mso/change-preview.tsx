@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, GitCompareArrows, Play, Undo2 } from "lucide-react";
+import { Ban, Check, GitCompareArrows, OctagonAlert, Play, Undo2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { DangerDialog, DiffViewer } from "@/components/mg/domain";
@@ -8,7 +8,7 @@ import { Button, Card, InlineState, StatusChip } from "@/components/mg/primitive
 import { useToast } from "@/components/mg/toast";
 import { RiskChip } from "@/components/mso/risk-chip";
 import { api, errorMessage } from "@/lib/api/client";
-import type { ChangeSet } from "@/lib/api/contracts";
+import type { ChangeOp, ChangeSet } from "@/lib/api/contracts";
 import { useI18n } from "@/lib/i18n";
 import { useWriteGate } from "@/lib/mode";
 import { CHANGE_STATUS } from "@/lib/status";
@@ -83,11 +83,35 @@ function ImpactRows({ entries, depth }: { entries: Array<[string, unknown]>; dep
   );
 }
 
+/** Keys shown elsewhere: `_technical` in a collapsed block, `evaluation` by the automation panel. */
+const HIDDEN_IMPACT_KEYS = new Set(["_technical", "evaluation"]);
+
+function splitImpact(impact: unknown): { visible: unknown; technical: unknown } {
+  if (!impact || typeof impact !== "object" || Array.isArray(impact)) return { visible: impact, technical: undefined };
+  const rec = impact as Record<string, unknown>;
+  const visibleEntries = Object.entries(rec).filter(([k]) => !HIDDEN_IMPACT_KEYS.has(k));
+  return { visible: visibleEntries.length ? Object.fromEntries(visibleEntries) : null, technical: rec._technical };
+}
+
 function Impact({ impact }: { impact: unknown }) {
   if (impact === null || impact === undefined || impact === "") return null;
   if (typeof impact === "string" || typeof impact === "number") return <p style={{ margin: 0, fontSize: 13 }}>{String(impact)}</p>;
   if (Array.isArray(impact)) return <div style={{ fontSize: 13 }}><ImpactValue value={impact} /></div>;
   if (typeof impact === "object") return <ImpactRows entries={Object.entries(impact as Record<string, unknown>)} depth={1} />;
+  return null;
+}
+
+/** Op with the hard-rule flags from `mso/changes.py` (removing/disabling, not reversible) and its apply result. */
+type FlaggedOp = ChangeOp & { destructive?: boolean; irreversible?: boolean; result?: string };
+
+const OP_RESULT: Record<string, string> = {
+  toegepast: "toegepast", al_ingesteld: "was al zo", teruggedraaid: "teruggedraaid", niet_terug_te_draaien: "niet teruggedraaid (onomkeerbaar)",
+};
+
+function OpMarker({ op }: { op: FlaggedOp }) {
+  const { t } = useI18n();
+  if (op.irreversible) return <StatusChip tone="danger" icon={OctagonAlert}>{t("change.irreversible")}</StatusChip>;
+  if (op.destructive) return <StatusChip tone="danger" icon={Ban}>{t("change.disables")}</StatusChip>;
   return null;
 }
 
@@ -138,7 +162,14 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
 
   const canApprove = change.status === "preview";
   const canApply = change.status === "approved" || (change.status === "preview" && change.risk !== "toestemming_nodig");
-  const canRollback = change.status === "applied";
+  const ops = change.ops as FlaggedOp[];
+  const dangerous = ops.filter((op) => op.destructive || op.irreversible);
+  const irreversibleCount = ops.filter((op) => op.irreversible).length;
+  // rollback only restores ops that were written and are reversible (backend: changes.rollback)
+  const reversible = ops.filter((op) => !op.irreversible && (op.result === undefined || op.result === "toegepast"));
+  const canRollback = change.status === "applied" && reversible.length > 0;
+  const rollbackBlocked = change.status === "applied" && reversible.length === 0;
+  const { visible: visibleImpact, technical } = splitImpact(change.impact);
   const final = change.status === "rolled_back" || change.status === "failed";
   const reason = (ok: boolean, why: string) => (!gate.allowed ? gate.reason : ok ? undefined : why);
 
@@ -157,7 +188,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
             keyWidth={180}
             rows={change.ops.map((op, i) => ({
               key: `${op.path}-${i}`,
-              label: <>{op.label}<span className="change-ops-path">{op.path}</span></>,
+              label: <>{op.label}<span className="change-ops-path">{op.path}</span>{(op as FlaggedOp).destructive || (op as FlaggedOp).irreversible ? <span style={{ display: "block", marginTop: 4 }}><OpMarker op={op as FlaggedOp} /></span> : null}{(op as FlaggedOp).result && OP_RESULT[(op as FlaggedOp).result as string] ? <span className="t-3" style={{ display: "block", fontSize: 11.5 }}>{OP_RESULT[(op as FlaggedOp).result as string]}</span> : null}</>,
               before: formatOpValue(op.before),
               after: formatOpValue(op.after),
               change: JSON.stringify(op.before) === JSON.stringify(op.after) ? "same" : op.before === null || op.before === undefined ? "added" : op.after === null || op.after === undefined ? "removed" : "changed",
@@ -165,7 +196,21 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
           />
         </div>
       ) : <InlineState tone="neutral">{t("change.noOps")}</InlineState>}
-      {change.impact !== null && change.impact !== undefined && change.impact !== "" ? <div><span className="eyebrow">{t("change.impact")}</span><div style={{ marginTop: 4 }}><Impact impact={change.impact} /></div></div> : null}
+      {visibleImpact !== null && visibleImpact !== undefined && visibleImpact !== "" ? <div><span className="eyebrow">{t("change.impact")}</span><div style={{ marginTop: 4 }}><Impact impact={visibleImpact} /></div></div> : null}
+      {technical !== undefined && technical !== null ? (
+        <details data-testid="change-technical">
+          <summary className="t-2" style={{ cursor: "pointer", fontSize: 12.5 }}>{t("change.technical")}</summary>
+          <div style={{ marginTop: 6, fontSize: 12.5 }}><Impact impact={technical} /></div>
+        </details>
+      ) : null}
+      {dangerous.length && (change.status === "preview" || change.status === "approved") ? (
+        <InlineState tone="danger" icon={OctagonAlert} role="status">
+          <strong>{t("change.dangerTitle", { count: String(dangerous.length) })}</strong>{" "}
+          {irreversibleCount ? t("change.dangerIrreversible", { count: String(irreversibleCount) }) : t("change.dangerReversible")}{" "}
+          {t("change.dangerNeverAuto")}
+        </InlineState>
+      ) : null}
+      {rollbackBlocked ? <InlineState tone="neutral" icon={OctagonAlert}>{t("change.rollbackImpossible")}</InlineState> : null}
       {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}
       {actions && !final ? (
         <div className="row wrap">
@@ -176,7 +221,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
             <Button size="sm" variant="primary" icon={Play} pending={pending === "apply"} disabled={!gate.allowed || !canApply || pending !== null} title={reason(canApply, t("change.needsApproval"))} onClick={() => void run("apply")}>{t("action.apply")}</Button>
           ) : null}
           {change.status === "applied" ? (
-            <Button size="sm" variant="danger" icon={Undo2} pending={pending === "rollback"} disabled={!gate.allowed || !canRollback || pending !== null} title={reason(canRollback, t("change.notApplied"))} onClick={() => setConfirmRollback(true)}>{t("action.rollback")}</Button>
+            <Button size="sm" variant="danger" icon={Undo2} pending={pending === "rollback"} disabled={!gate.allowed || !canRollback || pending !== null} title={reason(canRollback, rollbackBlocked ? t("change.rollbackImpossible") : t("change.notApplied"))} onClick={() => setConfirmRollback(true)}>{t("action.rollback")}</Button>
           ) : null}
           {!gate.allowed && gate.reason ? <span className="hint" style={{ margin: 0 }}>{gate.reason}</span> : null}
         </div>

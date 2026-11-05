@@ -1,13 +1,14 @@
 "use client";
 
-import { Copy, Eye, KeyRound, RefreshCw, Rss, Upload } from "lucide-react";
+import { Copy, Eye, KeyRound, Plus, RefreshCw, Rss, Server, Upload } from "lucide-react";
 import { useState } from "react";
 
 import { DangerDialog } from "@/components/mg/domain";
-import { Button, Card, InlineState, Modal, StatusChip } from "@/components/mg/primitives";
+import { Button, Card, InlineState, LinkButton, Modal, StatusChip } from "@/components/mg/primitives";
 import { ResourceView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview } from "@/components/mso/change-preview";
+import { DirectIndexerDialog } from "@/components/mso/indexers/direct-dialog";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -54,6 +55,7 @@ export function EndpointPanel({ className, prowlarrConfigured }: { className?: s
   const [error, setError] = useState<string | null>(null);
   const [change, setChange] = useState<ChangeSet | null>(null);
   const [payloads, setPayloads] = useState<Partial<Record<RegistrationKind, Record<string, unknown>>> | null>(null);
+  const [adding, setAdding] = useState<"spotweb" | "newznab" | null>(null);
   const isAdmin = can("admin");
   // Per protocol: only register where MSO has own sources (Prowlarr's add-indexer test needs real results).
   const readiness = endpoint.data?.registration;
@@ -102,6 +104,18 @@ export function EndpointPanel({ className, prowlarrConfigured }: { className?: s
           <div className="stack">
             {!d.public_url_configured ? <InlineState tone="warning">{t("idx.endpoint.noPublic")}</InlineState> : null}
             {notReadyReason ? <InlineState tone="info">{notReadyReason}</InlineState> : null}
+            {readiness && !readiness.newznab.ready ? (
+              <div className="stack-sm" data-testid="endpoint-own-sources">
+                <span className="t-2" style={{ fontSize: 12.5 }}>{t("idx.endpoint.addOwnHelp")}</span>
+                <div className="row wrap" style={{ gap: 6 }}>
+                  <Button size="sm" variant="primary" icon={Plus} disabled={!isAdmin} title={!isAdmin ? t("idx.adminOnly") : undefined}
+                    onClick={() => setAdding("spotweb")}>{t("idx.endpoint.addSpotweb")}</Button>
+                  <Button size="sm" icon={Plus} disabled={!isAdmin} title={!isAdmin ? t("idx.adminOnly") : undefined}
+                    onClick={() => setAdding("newznab")}>{t("idx.endpoint.addDirect")}</Button>
+                  <LinkButton href="/usenet-providers" size="sm" icon={Server}>{t("idx.endpoint.headerIndexLink")}</LinkButton>
+                </div>
+              </div>
+            ) : null}
             <CopyField id="nz-url" label={t("idx.endpoint.newznab")} value={d.newznab_url} />
             <CopyField id="tz-url" label={t("idx.endpoint.torznab")} value={d.torznab_url} />
             <dl className="kv">
@@ -138,6 +152,10 @@ export function EndpointPanel({ className, prowlarrConfigured }: { className?: s
           </div>
         )}
       </ResourceView>
+      {adding ? (
+        <DirectIndexerDialog protocol="usenet" initialKind={adding} onClose={() => setAdding(null)}
+          onSaved={async () => { toast.push("success", t("idx.saved")); await endpoint.reload(); }} />
+      ) : null}
       <Modal open={Boolean(change)} onClose={() => { setChange(null); setPayloads(null); }} title={t("idx.registerTitle")} icon={Upload}>
         {change ? (
           <div className="stack">

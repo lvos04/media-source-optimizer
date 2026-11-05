@@ -476,6 +476,18 @@ def propose_priority(
     return _sab(lambda: recommend.propose(p.actor, ops, body.period_days))
 
 
+@router.post("/recommendations/disable-failing")
+def propose_disable_failing(p: Principal = Depends(require("admin"))) -> dict[str, Any]:
+    """One change set (toestemming_nodig) that switches off every failing, enabled SABnzbd server."""
+    return _sab(lambda: recommend.propose_disable(p.actor))
+
+
+@router.get("/stat-budget")
+def stat_budget(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Automatic STAT sample after sending: on/off, per-provider usage today/this month and the budgets."""
+    return articles.budget_view()
+
+
 # ------------------------------------------------------------------ header index
 @router.get("/headerindex")
 def headerindex_status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
@@ -558,5 +570,6 @@ def headerindex_search(
 ) -> dict[str, Any]:
     return {
         "items": [r.as_dict() for r in hi.search(q, limit=limit)],
-        "note": "Lage betrouwbaarheid: alleen onderwerpregels uit de eigen header-index, geen NZB.",
+        "note": "Lage betrouwbaarheid: alleen onderwerpregels uit de eigen header-index. De NZB wordt "
+        "opgebouwd uit de geïndexeerde berichtkoppen en kan onvolledig zijn.",
     }

@@ -23,6 +23,46 @@ sr.define(
     help="Maximale wachttijd per indexer/backend. Een time-out wordt apart gerapporteerd, niet als 'leeg'.",
 )
 sr.define(
+    "search.prowlarr_auto_retry",
+    "Prowlarr automatisch opnieuw proberen na time-out",
+    "bool",
+    True,
+    category="zoeken",
+    help="Eén extra poging met een ruimere time-out, alleen als de maximale zoekduur dat toelaat.",
+)
+sr.define(
+    "search.prowlarr_retry_timeout_s",
+    "Ruimere time-out voor Prowlarr",
+    "int",
+    45,
+    min=5,
+    max=180,
+    unit="s",
+    category="zoeken",
+    help="Gebruikt bij automatisch opnieuw proberen en bij 'Opnieuw proberen (ruimere time-out)'.",
+)
+sr.define(
+    "search.time_budget_s",
+    "Maximale duur van een zoekopdracht",
+    "int",
+    35,
+    min=2,
+    max=180,
+    unit="s",
+    category="zoeken",
+    help="Binnen deze tijd mag Prowlarr na een time-out één keer opnieuw proberen met een ruimere time-out.",
+)
+sr.define(
+    "search.max_concurrent_per_user",
+    "Gelijktijdige zoekopdrachten per gebruiker",
+    "int",
+    2,
+    min=1,
+    max=10,
+    category="zoeken",
+    help="Een identieke zoekopdracht die al loopt wordt niet opnieuw gestart: je krijgt hetzelfde resultaat.",
+)
+sr.define(
     "search.prowlarr_skip_failing",
     "Prowlarr-indexers overslaan die volgens Prowlarr niet werken",
     "bool",

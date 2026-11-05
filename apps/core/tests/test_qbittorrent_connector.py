@@ -152,6 +152,19 @@ def test_add_torrent_and_categories(serve: Any) -> None:
     assert added[0]["skip_checking"] is False
 
 
-def test_client_has_no_delete_operation() -> None:
+def test_delete_only_via_cleanup_applier() -> None:
+    """The client has exactly one delete primitive and only the cleanup applier calls it (an approved,
+    re-checked malware cleanup change — see test_torrent_cleanup.py)."""
+    import pathlib
+
+    import mso
+
     names = [n.lower() for n in dir(QbitClient)]
-    assert not any("delete" in n or "remove" in n for n in names)
+    assert [n for n in names if "delete" in n or "remove" in n] == ["delete_with_files"]
+    root = pathlib.Path(mso.__file__).parent
+    callers = sorted(
+        str(p.relative_to(root))
+        for p in root.rglob("*.py")
+        if "delete_with_files(" in p.read_text(encoding="utf-8")
+    )
+    assert callers == ["connectors/qbittorrent.py", "features/torrent/adapters.py", "features/torrent/cleanup.py"]

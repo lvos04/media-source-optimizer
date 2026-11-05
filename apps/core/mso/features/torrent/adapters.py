@@ -12,7 +12,8 @@ Implemented: qBittorrent (WebAPI v2). Transmission (RPC) and Deluge (JSON-RPC vi
 here as *not implemented*: they appear in ``/api/v1/torrent/clients`` with ``implemented: false`` and no code
 path uses them. Adding one means implementing this protocol and registering it in ``ADAPTERS``.
 
-There is intentionally no ``delete``/``remove`` method in the protocol.
+The only removing primitive is ``delete_with_files`` and it is used exclusively by the cleanup applier for an
+approved malware-cleanup change (``features/torrent/cleanup.py``); nothing else in the engine calls it.
 """
 
 from __future__ import annotations
@@ -84,6 +85,8 @@ class TorrentClientAdapter(Protocol):
     def recheck(self, h: str) -> None: ...
     def reannounce(self, h: str) -> None: ...
     def has_torrent(self, h: str) -> bool: ...
+    def live_torrents(self) -> list[dict[str, Any]]: ...  # torrents/info rows (fresh, not the sync cache)
+    def delete_with_files(self, h: str) -> None: ...  # cleanup applier only
 
 
 SECRET_PREF_HINTS = (
@@ -267,6 +270,12 @@ class QbitAdapter:
 
     def has_torrent(self, h: str) -> bool:
         return self.qb.torrent(h) is not None
+
+    def live_torrents(self) -> list[dict[str, Any]]:
+        return list(self.qb.torrents() or [])
+
+    def delete_with_files(self, h: str) -> None:
+        self.qb.delete_with_files([h])
 
 
 @dataclass

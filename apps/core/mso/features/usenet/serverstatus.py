@@ -22,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from mso import jobs
+from mso import settings_registry as sr
 from mso.connectors import base as cb
 from mso.connectors.sabnzbd import SabClient, SabError
 from mso.db import get_db
@@ -335,11 +336,81 @@ def recommendation_text(state: dict[str, Any], labels: dict[str, str] | None = N
     return title, explanation
 
 
+def _reminder_days() -> int:
+    try:
+        return int(sr.get("usenet.server_error_reminder_days"))
+    except Exception:
+        return 3
+
+
+def reminder_text(state: dict[str, Any], days_failing: float, labels: dict[str, str] | None = None) -> tuple[str, str]:
+    name = display_name(state, labels)
+    if state["status"] == "account_expired":
+        title = f"Herinnering: account bij {name} is verlopen — verleng het abonnement of schakel de server uit"
+    else:
+        title = (
+            f"Herinnering: {name} geeft al {int(days_failing)} dag(en) fouten "
+            f"({LABELS.get(state['status'], state['status']).lower()})"
+        )
+    explanation = (
+        f"{explain(state['status'])} SABnzbd meldt dit sinds {int(days_failing)} dag(en)"
+        + (f": \"{state['message']}\"" if state.get("message") else "")
+        + ". Betaal je nog voor dit account, controleer dan of je het wilt verlengen of opzeggen (MSO zegt "
+        "nooit zelf iets op). Uitschakelen in SABnzbd kan met één goedkeuring via 'Voorstel: kapotte servers "
+        "uitschakelen' op de pagina Usenet-providers."
+    )
+    return title, explanation
+
+
 def _sync_recommendations(states: list[dict[str, Any]]) -> None:
     db = get_db()
+    # servers that no longer exist in SABnzbd: their advisories/reminders are resolved
+    db.execute(
+        "UPDATE recommendations SET status='resolved', updated_at=now() WHERE status='open' AND "
+        "(dedupe_key LIKE 'usenet.sab\\_server:%%' OR dedupe_key LIKE 'usenet.sab\\_server\\_reminder:%%') "
+        "AND NOT (split_part(dedupe_key, ':', 2) = ANY(%s))",
+        ([s["server"] for s in states],),
+    )
     labels = _provider_labels()
+    persisted = current()
+    now = datetime.now(UTC)
+    remind_after = timedelta(days=_reminder_days())
     for s in states:
         key = f"usenet.sab_server:{s['server']}"
+        rkey = f"usenet.sab_server_reminder:{s['server']}"
+        since = (persisted.get(s["server"]) or {}).get("since") or now
+        failing_for = now - since
+        if s["status"] in FAILING and s["enabled"] and (
+            s["status"] == "account_expired" or failing_for >= remind_after
+        ):
+            rtitle, rexpl = reminder_text(s, failing_for.total_seconds() / 86400, labels)
+            outcomes.recommend(
+                "usenet",
+                rtitle,
+                rexpl,
+                risk="advies",
+                subject=f"sabnzbd:{s['server']}",
+                impact="Herinnering: account/abonnement nakijken",
+                dedupe_key=rkey,
+                evidence={
+                    "server": s["server"],
+                    "status": s["status"],
+                    "since": since.isoformat(),
+                    "reminder_after_days": remind_after.days,
+                    "source": "sabnzbd",
+                },
+            )
+            db.execute(
+                "UPDATE recommendations SET status='open', updated_at=now() WHERE dedupe_key=%s "
+                "AND status='resolved'",
+                (rkey,),
+            )
+        else:
+            db.execute(
+                "UPDATE recommendations SET status='resolved', updated_at=now() WHERE dedupe_key=%s "
+                "AND status='open'",
+                (rkey,),
+            )
         if s["status"] in FAILING and s["enabled"]:
             title, explanation = recommendation_text(s, labels)
             outcomes.recommend(

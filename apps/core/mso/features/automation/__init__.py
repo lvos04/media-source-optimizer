@@ -4,7 +4,13 @@
 Other slices register evaluators with::
 
     from mso.features.automation import register_evaluator
-    register_evaluator("qbittorrent", lambda change: "keep" | "rollback" | "unknown")
+    from mso.features.automation.evaluators import compare, measure, evaluation, windows
+    register_evaluator("qbittorrent", fn)
+    # fn(change) -> evaluation([...]) | (verdict, details) | legacy 'keep'|'rollback'|'unknown'
+    # verdict: 'better'|'same'|'worse'|'insufficient'
+
+Targets without an own evaluator use ``evaluators.generic_evaluator`` (download outcomes of the target's
+protocol/client, torrent speed for torrent clients). See ``evaluators.py`` for the measures.
 """
 
 from mso import settings_registry as sr
@@ -67,8 +73,58 @@ sr.define(
     False,
     category="automatisering",
     risk="automatisch_veilig",
-    help="Alleen voor automatisch toegepaste wijzigingen en alleen als een evaluatie expliciet "
-    "'terugdraaien' concludeert. Anders verschijnt een voorstel om terug te draaien.",
+    help="Als de controle na een wijziging 'slechter' meet, wordt de wijziging automatisch teruggedraaid "
+    "(alleen in beheermodus zonder pauze, met een auditregel). Voor qBittorrent geldt ook "
+    "'torrent.autotune_auto_rollback'. Verwijderen/uitschakelen wordt nooit geëvalueerd of automatisch "
+    "teruggedraaid, en een terugdraai die zelf iets zou uitschakelen wordt alleen voorgesteld.",
+)
+sr.define(
+    "automation.evaluation_hours",
+    "Standaard meetperiode na een wijziging",
+    "int",
+    24,
+    min=1,
+    max=336,
+    unit="uur",
+    category="automatisering",
+    help="Voor toegepaste wijzigingen zonder eigen meetperiode. Daarna wordt vergeleken met de basislijn "
+    "(dezelfde periode vóór het toepassen).",
+)
+sr.define(
+    "automation.evaluation_hysteresis_pct",
+    "Hysterese bij evaluatie",
+    "float",
+    10.0,
+    min=1,
+    max=100,
+    unit="%",
+    category="automatisering",
+    help="Alleen een relatief verschil van minstens dit percentage telt als beter of slechter; kleiner is "
+    "'gelijk'.",
+)
+sr.define(
+    "automation.evaluation_min_samples",
+    "Minimaal aantal metingen per periode",
+    "int",
+    10,
+    min=1,
+    max=10000,
+    category="automatisering",
+    advanced=True,
+    help="Minder metingen in de basislijn of de meetperiode geeft 'onvoldoende data'; er wordt dan niets "
+    "teruggedraaid.",
+)
+sr.define(
+    "automation.evaluation_baseline_days",
+    "Maximale lengte basislijn",
+    "int",
+    7,
+    min=1,
+    max=60,
+    unit="dagen",
+    category="automatisering",
+    advanced=True,
+    help="De basislijn is even lang als de meetperiode, maar nooit langer dan dit.",
 )
 
 __all__ = ["AREAS", "EVALUATORS", "TARGET_AREA", "register_evaluator"]

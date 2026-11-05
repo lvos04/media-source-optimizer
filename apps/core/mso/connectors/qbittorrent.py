@@ -10,8 +10,10 @@ Auth
 Capabilities are derived from ``app/webapiVersion`` (and probing ``app/buildInfo``), so old versions keep
 working with reduced features (e.g. no ``inactiveSeedingTimeLimit``, no ``private`` field in torrents/info).
 
-There is deliberately **no delete operation** in this client: Media Source Optimizer never removes torrents or
-files (integrity rule ``integrity.never_delete_files``).
+Deleting: the only delete primitive is :meth:`QbitClient.delete_with_files`, and the only caller in MSO is the
+``qbittorrent`` change-set applier for an approved *malware cleanup* change (``features/torrent/cleanup.py``):
+``toestemming_nodig``, ops flagged ``destructive``/``irreversible``, and refused unless a fresh scan at apply time
+still flags exactly the previewed torrents as suspicious. Media files and seeding torrents are never removed.
 """
 
 from __future__ import annotations
@@ -384,6 +386,14 @@ class QbitClient:
     def queue_down(self, hashes: list[str]) -> None:
         self._post("torrents/decreasePrio", {"hashes": "|".join(hashes)})
 
+    def delete_with_files(self, hashes: list[str]) -> None:
+        """``POST torrents/delete`` with ``deleteFiles=true``. ONLY called by the cleanup applier after approval
+        (see module docstring); never with ``all`` and never with an empty list."""
+        clean = [h.lower() for h in hashes if h and all(c in "0123456789abcdefABCDEF" for c in h)]
+        if not clean or len(clean) != len(hashes):
+            raise ValueError("ongeldige torrent-hash voor verwijderen")
+        self._post("torrents/delete", {"hashes": "|".join(clean), "deleteFiles": "true"})
+
     def toggle_speed_limits_mode(self) -> None:
         self._post("transfer/toggleSpeedLimitsMode")
 
@@ -474,6 +484,6 @@ cb.register(
         optional=True,
         default_url="",
         description="Primaire torrentclient (WebAPI v2). API-sleutel waar ondersteund, anders veilige "
-        "sessie-login. MSO verwijdert nooit torrents of bestanden.",
+        "sessie-login. MSO verwijdert alleen verdachte torrents (malware) na expliciete goedkeuring.",
     )
 )

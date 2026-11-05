@@ -7,8 +7,9 @@ preview and again at apply):
 - Private torrents never get public trackers/DHT/PEX/LSD: there is no tracker-add path at all; enabling global
   DHT/PeX/LSD or the "automatically add trackers" preference is refused while any private torrent exists
   (add_trackers is refused always).
-- MSO never deletes torrents or files: any path or value that would remove (``max_ratio_act`` 1/3 = remove
-  (+files), any "delete"/"remove" path) is refused.
+- MSO never deletes torrents or files through this validator: any path or value that would remove
+  (``max_ratio_act`` 1/3 = remove (+files), any "delete"/"remove" path) is refused. The single exception is the
+  malware cleanup (``cleanup.py``), whose paths the applier validates separately against a fresh scan.
 - Seed obligations: share limits (per torrent or global) that would stop seeding before the obligation of a
   matching tracker/category rule is met are refused.
 - Upload cap never above ``torrent.upload_cap_pct`` of the declared line capacity (unlimited counts as above).

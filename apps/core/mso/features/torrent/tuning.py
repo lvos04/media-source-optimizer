@@ -9,9 +9,15 @@ keep/rollback.
 - Evaluation time = ``torrent.evaluation_hours`` ± jitter, clamped to 24–48 h.
 - Auto-apply only when ``torrent.autotune_enabled`` AND ``state.automation_allowed()`` (beheermodus, not
 paused)
-  AND the change is ``automatisch_veilig`` (small in-bounds step). Automatic rollback on degradation only when
-  automation is allowed (and ``torrent.autotune_auto_rollback``); otherwise a recommendation is created.
-- Guardrail runs (e.g. capping upload to the safe share of the line) are never auto-rolled back.
+  AND the change is ``automatisch_veilig`` (small in-bounds step). Automatic rollback on degradation (by the
+  automation engine) only when automation is allowed and ``torrent.autotune_auto_rollback``; otherwise the engine
+  creates a recommendation to roll back.
+- Guardrail runs (e.g. capping upload to the safe share of the line) are never evaluated or rolled back: they
+  are policy bounds, not optimisations. When several guardrails are violated at once, ONE bundle change brings
+  them all to their bound (``toestemming_nodig``, no measurement window, rolled back as a whole).
+- Evaluation has ONE path: the automation engine (``automation.evaluate``) calls the evaluator registered here
+  for target ``qbittorrent`` (``evaluate_change``). It records the verdict on the tuning run and in the change's
+  impact; rolling back (automatically or as a proposal) is done only by the engine, so never twice.
 """
 
 from __future__ import annotations
@@ -28,8 +34,8 @@ from mso import changes, jobs, state
 from mso.audit import audit
 from mso.connectors import base as cb
 from mso.db import get_db, jsonb
-from mso.domain import outcomes
-from mso.features.torrent import policy
+from mso.features.automation import register_evaluator
+from mso.features.torrent import cleanup, policy
 from mso.features.torrent import settings as ts
 
 LOGGER = logging.getLogger(__name__)
@@ -300,7 +306,20 @@ def propose(actor: str = "system") -> dict[str, Any]:
     torrents = [r["info"] for r in db.fetchall("SELECT info FROM torrent_state WHERE NOT removed")]
     min_n = int(ts.get("tuning_min_samples"))
     skipped = []
-    for c in candidates(snap, torrents):
+    cands = candidates(snap, torrents)
+    bundle = []
+    for c in cands:
+        if c["kind"] != "guardrail":
+            continue
+        try:
+            policy.validate(c["param"], c["after"])
+        except ValueError as exc:
+            skipped.append(f"{c['label']}: {exc}")
+            continue
+        bundle.append(c)
+    if len(bundle) >= 2 and not _frozen(BUNDLE_PARAM, "down"):
+        return _create_bundle(bundle, actor)
+    for c in cands:
         why_frozen = _frozen(c["param"], c["direction"])
         if why_frozen:
             skipped.append(f"{c['label']}: {why_frozen}")
@@ -324,6 +343,69 @@ def propose(actor: str = "system") -> dict[str, Any]:
 
 
 KIND_LABEL = {"guardrail": "beleidsgrens", "tuning": "tuning", "disk_io": "schijf-I/O"}
+BUNDLE_PARAM = "bundle:guardrails"
+NO_MEASUREMENT = "beleidsgrens, geen meting"
+
+
+def _fmt_value(v: Any) -> str:
+    return "onbeperkt" if isinstance(v, int) and not isinstance(v, bool) and v <= 0 else str(v)
+
+
+def _create_bundle(cands: list[dict[str, Any]], actor: str) -> dict[str, Any]:
+    """ONE change that brings every out-of-bounds guardrail value to its bound at once."""
+    db = get_db()
+    ops = [{"path": c["param"], "label": c["label"], "before": c["before"], "after": c["after"]} for c in cands]
+    summary = ", ".join(f"{c['label']} {_fmt_value(c['before'])} → {c['after']}" for c in cands)
+    ch = changes.create(
+        "qbittorrent",
+        f"Veilige grenzen: {len(cands)} qBittorrent-instellingen in één keer terug binnen de grens",
+        ops,
+        risk="toestemming_nodig",
+        explanation="Meerdere instellingen staan buiten de veilige grens: "
+        + summary
+        + ". Zulke extreme waarden kosten geheugen en CPU, overbelasten router/NAT-tabel en VPN, en leveren geen "
+        "snelheid op. Dit voorstel zet ze allemaal tegelijk op de grens. Het is een beleidsgrens: er volgt geen "
+        "meetperiode; terugdraaien zet alle waarden in één keer terug. Daarna gaat de gewone tuning per waarde "
+        "verder.",
+        impact={
+            "Soort": "beleidsgrens (bundel)",
+            "Instellingen": [f"{c['label']}: {_fmt_value(c['before'])} → {c['after']}" for c in cands],
+            "Evaluatie": "geen meting: een beleidsgrens blijft staan",
+            "Terugdraaien": "als geheel (alle waarden terug naar de huidige stand)",
+        },
+        source="tuning",
+        actor=actor,
+        dedupe_key=f"torrent-tuning:{BUNDLE_PARAM}",
+    )
+    run = db.fetchone(
+        "INSERT INTO torrent_tuning_runs(change_id, param, kind, direction, before_value, after_value, metric, "
+        "higher_is_better, baseline, reason, evaluate_after_h) VALUES (%s,%s,'guardrail','down',%s,%s,%s,true,"
+        "%s,%s,0) RETURNING *",
+        (
+            ch["id"],
+            BUNDLE_PARAM,
+            jsonb({c["param"]: c["before"] for c in cands}),
+            jsonb({c["param"]: c["after"] for c in cands}),
+            "torrent.dl_speed_active",
+            jsonb({}),
+            "Meerdere instellingen buiten de veilige grens: " + summary,
+        ),
+    )
+    audit(
+        actor,
+        "torrent.tuning_proposed",
+        f"Bundelvoorstel veilige grenzen: {summary}",
+        target="qbittorrent",
+        change_id=ch["id"],
+        detail={"risk": "toestemming_nodig", "params": [c["param"] for c in cands]},
+    )
+    sync_runs()
+    return {
+        "run": run_view(get_db().fetchone("SELECT * FROM torrent_tuning_runs WHERE id=%s", (run["id"],))),
+        "change": changes.get(ch["id"]),
+        "auto": None,
+        "bundle": True,
+    }
 
 
 def _fmt_metric(metric: str, value: float | None) -> str:
@@ -348,40 +430,41 @@ def _impact(c: dict[str, Any], baseline: dict[str, Any], eval_h: float) -> dict[
         if n
         else "nog geen metingen (een beleidsgrens heeft geen basislijn nodig)"
     )
+    if c["kind"] == "guardrail":
+        return {
+            "Soort": KIND_LABEL["guardrail"],
+            "Evaluatie": "geen meting: een beleidsgrens blijft staan",
+        }
     return {
         "Soort": KIND_LABEL.get(c["kind"], c["kind"]),
         "Gemeten maatstaf": f"{meta['label']} ({'hoger' if meta['higher'] else 'lager'} is beter)",
         "Basislijn": base,
-        "Evaluatie": f"na {eval_h:g} uur; "
-        + (
-            "een beleidsgrens blijft staan, ook bij verslechtering"
-            if c["kind"] == "guardrail"
-            else "bij verslechtering volgt terugdraaien"
-        ),
+        "Evaluatie": f"na {eval_h:g} uur (Automatisering); bij verslechtering volgt terugdraaien",
     }
 
 
 def _create_run(c: dict[str, Any], baseline: dict[str, Any], actor: str) -> dict[str, Any]:
     db = get_db()
-    eval_h = _jittered_eval_hours()
+    guard = c["kind"] == "guardrail"
+    eval_h = 0.0 if guard else _jittered_eval_hours()
     meta = METRICS[c["metric"]]
     ch = changes.create(
         "qbittorrent",
-        f"Tuning: {c['label']} {c['before']} → {c['after']}",
+        f"Tuning: {c['label']} {_fmt_value(c['before'])} → {c['after']}",
         [{"path": c["param"], "label": c["label"], "before": c["before"], "after": c["after"]}],
         risk=c["risk"],
         explanation=c["why"]
-        + f" Na {eval_h:g} uur wordt {meta['label'].lower()} vergeleken met de basislijn; "
         + (
-            "dit is een beleidsgrens en blijft ook bij verslechtering staan."
-            if c["kind"] == "guardrail"
-            else "bij verslechtering volgt terugdraaien."
+            " Dit is een beleidsgrens: er volgt geen meting en de waarde blijft staan."
+            if guard
+            else f" Na {eval_h:g} uur wordt {meta['label'].lower()} vergeleken met de basislijn; "
+            "bij verslechtering volgt terugdraaien."
         ),
         impact=_impact(c, baseline, eval_h),
         source="tuning",
         actor=actor,
         dedupe_key=f"torrent-tuning:{c['param']}",
-        evaluate_after_h=eval_h,
+        evaluate_after_h=None if guard else eval_h,
     )
     run = db.fetchone(
         "INSERT INTO torrent_tuning_runs(change_id, param, kind, direction, before_value, after_value, "
@@ -435,7 +518,13 @@ def sync_runs() -> None:
         (list(OPEN),),
     ):
         cs = r["cstatus"]
-        if r["status"] == "proposed" and cs == "applied":
+        if r["kind"] == "guardrail" and cs == "applied" and r["status"] in ("proposed", "evaluating"):
+            db.execute(
+                "UPDATE torrent_tuning_runs SET status='kept', applied_at=COALESCE(applied_at, %s), "
+                "evaluated_at=now(), note=%s WHERE id=%s",
+                (r["capplied"], NO_MEASUREMENT + ": waarde blijft staan", r["id"]),
+            )
+        elif r["status"] == "proposed" and cs == "applied":
             db.execute(
                 "UPDATE torrent_tuning_runs SET status='evaluating', applied_at=%s WHERE id=%s",
                 (r["capplied"], r["id"]),
@@ -452,79 +541,162 @@ def sync_runs() -> None:
                 "note=CASE WHEN note='' THEN 'handmatig teruggedraaid' ELSE note END WHERE id=%s",
                 (r["id"],),
             )
+    # a finished step (kept / no conclusion, e.g. a guardrail bundle) that a user rolled back later
+    db.execute(
+        "UPDATE torrent_tuning_runs r SET status='rolled_back', note=CASE WHEN r.note='' THEN "
+        "'handmatig teruggedraaid' ELSE r.note || ' · later teruggedraaid' END FROM change_sets c "
+        "WHERE c.id=r.change_id AND c.status='rolled_back' AND r.status IN ('kept','inconclusive')"
+    )
 
 
-def evaluate(now: datetime | None = None) -> list[dict[str, Any]]:
+VERDICT_RUN = {  # evaluator verdict → tuning run status / note prefix
+    "better": ("kept", "verbetering gemeten"),
+    "same": ("inconclusive", "geen meetbaar effect binnen de hysterese; wijziging blijft staan"),
+    "worse": ("degraded_pending", "verslechtering gemeten"),
+    "insufficient": ("inconclusive", "onvoldoende metingen; wijziging blijft staan, geen conclusie"),
+}
+ONE_SHOT = ("crossseed:", ":recheck", ":reannounce")
+
+
+def _not_measured(reason: str) -> dict[str, Any]:
+    return {
+        "verdict": "insufficient",
+        "measures": [],
+        "message": f"Niet geëvalueerd: {reason}.",
+        "auto_rollback": False,
+        "auto_rollback_reason": reason,
+    }
+
+
+def evaluate_change(change: dict[str, Any]) -> dict[str, Any]:
+    """Evaluator for target ``qbittorrent`` (registered with the automation engine — the ONE evaluation path).
+
+    Tuning steps: download speed of active torrents (the run's metric) and time to completion, baseline (the
+    run's stored baseline window) vs the window after applying (+1 h settle), with
+    ``torrent.tuning_hysteresis_pct``. Returns the engine's evaluation dict (verdict better|same|worse|
+    insufficient + measures); never rolls back itself — the engine does, once. Guardrails/bundles are not
+    measured ("beleidsgrens, geen meting"); deletions never reach an evaluator (the engine skips them)."""
+    from mso.features.automation import evaluators as ev
+
     sync_runs()
     db = get_db()
-    now = now or datetime.now(UTC)
+    run = db.fetchone(
+        "SELECT * FROM torrent_tuning_runs WHERE change_id=%s ORDER BY id DESC LIMIT 1", (change["id"],)
+    )
+    if run is None:
+        paths = [str(op.get("path") or "") for op in change.get("ops") or []]
+        if any(x in p for p in paths for x in ONE_SHOT):
+            return _not_measured("eenmalige actie, geen meting")
+        if any(cleanup.is_cleanup_path(p) for p in paths):
+            return _not_measured(NO_MEASUREMENT)
+        return ev.generic_evaluator(change)  # manual preference change: generic torrent measures
+    if run["kind"] == "guardrail" or run["param"] == BUNDLE_PARAM:
+        if run["status"] in OPEN:
+            db.execute(
+                "UPDATE torrent_tuning_runs SET status='kept', note=%s, evaluated_at=now() WHERE id=%s",
+                (NO_MEASUREMENT + ": waarde blijft staan", run["id"]),
+            )
+        return _not_measured(NO_MEASUREMENT)
+    applied_at = run["applied_at"] or change.get("applied_at")
+    if applied_at is None:
+        return _not_measured("wijziging is niet toegepast")
+    now = datetime.now(UTC)
     hyst = float(ts.get("tuning_hysteresis_pct"))
     min_n = int(ts.get("tuning_min_samples"))
-    done = []
-    for r in db.fetchall(
-        "SELECT * FROM torrent_tuning_runs WHERE status='evaluating' AND applied_at IS NOT NULL"
-    ):
-        due = r["applied_at"] + timedelta(hours=float(r["evaluate_after_h"]))
-        if due > now:
-            continue
-        after = metric_stats(r["metric"], r["applied_at"] + timedelta(hours=SETTLE_H), now)
-        cmp_ = compare(
-            r["baseline"],
-            after,
-            higher_is_better=r["higher_is_better"],
-            hysteresis_pct=hyst,
-            min_samples=min_n,
+    base = run["baseline"] or {}
+    try:
+        b_from = datetime.fromisoformat(base["from"])
+        b_to = datetime.fromisoformat(base["to"])
+    except (KeyError, TypeError, ValueError):
+        b_from, b_to = applied_at - timedelta(hours=float(ts.get("baseline_hours"))), applied_at
+    cur = (applied_at + timedelta(hours=SETTLE_H), now)
+    meta = METRICS.get(run["metric"], {"label": run["metric"], "unit": "", "higher": True})
+    primary = ev.measure(
+        run["metric"],
+        label=meta["label"],
+        unit=meta["unit"],
+        baseline=ev.observation_series(SUBJECT, run["metric"], b_from, b_to),
+        current=ev.observation_series(SUBJECT, run["metric"], *cur),
+        higher_is_better=bool(run["higher_is_better"]),
+        hysteresis_pct=hyst,
+        min_samples=min_n,
+        scope="qbittorrent",
+    )
+    completion = ev.measure(
+        "time_to_completion",
+        label="Tijd tot voltooiing (mediaan)",
+        unit="s",
+        baseline=ev.completion_series(applied_at - timedelta(hours=float(ts.get("baseline_hours"))), applied_at,
+                                      protocol="torrent", client="qbittorrent"),
+        current=ev.completion_series(*cur, protocol="torrent", client="qbittorrent"),
+        higher_is_better=False,
+        hysteresis_pct=hyst,
+        min_samples=COMPLETION_MIN_SAMPLES,
+        scope="qbittorrent",
+    )
+    # the run's own metric decides; time to completion only tips a neutral result to 'worse'
+    verdict = primary["verdict"]
+    if verdict == "same" and completion["verdict"] == "worse":
+        verdict = "worse"
+    status, note = VERDICT_RUN[verdict]
+    if verdict in ("better", "worse"):
+        note = f"{note}: {primary.get('why')}"
+    elif verdict == "insufficient":
+        note = f"{primary.get('why')}; wijziging blijft staan, geen conclusie"
+    result = {
+        "verdict": verdict,
+        "n": primary["current"]["n"],
+        "median": primary["current"]["value"],
+        "delta_pct": primary.get("delta_pct"),
+        "why": primary.get("why"),
+        "completion": {k: completion.get(k) for k in ("verdict", "delta_pct", "why")},
+    }
+    db.execute(
+        "UPDATE torrent_tuning_runs SET status=%s, result=%s, note=%s, evaluated_at=now() WHERE id=%s",
+        (status, jsonb(result), note, run["id"]),
+    )
+    audit(
+        "autotune",
+        "torrent.tuning_evaluated",
+        f"Tuning {run['param']}: {note}",
+        target="qbittorrent",
+        change_id=change["id"],
+        detail={"verdict": verdict, "delta_pct": primary.get("delta_pct")},
+    )
+    return ev.evaluation(
+        [primary, completion],
+        message=f"Tuningstap {run['param']}: {note}",
+        verdict=verdict,
+        windows={"baseline_from": b_from.isoformat(), "baseline_to": b_to.isoformat(),
+                 "current_from": cur[0].isoformat(), "current_to": cur[1].isoformat()},
+    )
+
+
+COMPLETION_MIN_SAMPLES = 3
+
+
+def evaluate() -> list[dict[str, Any]]:
+    """Evaluate due tuning steps now, through the automation engine (the one evaluation path)."""
+    from mso.features.automation import engine
+
+    sync_runs()
+    db = get_db()
+    due = [
+        r["id"]
+        for r in db.fetchall(
+            "SELECT r.id FROM torrent_tuning_runs r JOIN change_sets c ON c.id=r.change_id WHERE r.status="
+            "'evaluating' AND c.status='applied' AND c.evaluate_after IS NOT NULL AND c.evaluate_after <= now() "
+            "AND NOT (c.impact ? 'evaluation')"
         )
-        result = {**after, **cmp_}
-        status, note = "kept", ""
-        if cmp_["verdict"] == "worse":
-            if r["kind"] == "guardrail":
-                status, note = "kept", "verslechtering gemeten, maar dit is een beleidsgrens en blijft staan"
-            elif state.automation_allowed() and ts.get("autotune_auto_rollback"):
-                try:
-                    changes.rollback(r["change_id"], "autotune", f"verslechtering {cmp_['why']}")
-                    status, note = "rolled_back", "automatisch teruggedraaid: " + cmp_["why"]
-                except HTTPException as exc:
-                    status, note = "degraded_pending", f"terugdraaien mislukt: {exc.detail}"
-            else:
-                status, note = (
-                    "degraded_pending",
-                    "verslechtering gemeten; terugdraaien vereist een gebruiker "
-                    "(automatisering niet toegestaan)",
-                )
-            if status == "degraded_pending":
-                outcomes.recommend(
-                    "torrent",
-                    "Tuningstap terugdraaien",
-                    f"Na {r['param']} is {METRICS[r['metric']]['label'].lower()} verslechterd "
-                    f"({cmp_['why']}).",
-                    risk="toestemming_nodig",
-                    subject="qbittorrent",
-                    confidence=0.7,
-                    change_id=r["change_id"],
-                    dedupe_key=f"torrent-tuning-rollback:{r['id']}",
-                    evidence=result,
-                )
-        elif cmp_["verdict"] == "better":
-            note = "verbetering gemeten: " + cmp_["why"]
-        elif cmp_["verdict"] == "neutral":
-            status, note = "inconclusive", "geen meetbaar effect binnen de hysterese; wijziging blijft staan"
-        else:
-            status, note = "inconclusive", cmp_["why"] + "; wijziging blijft staan, geen conclusie"
-        db.execute(
-            "UPDATE torrent_tuning_runs SET status=%s, result=%s, note=%s, evaluated_at=now() WHERE id=%s",
-            (status, jsonb(result), note, r["id"]),
-        )
-        audit(
-            "autotune",
-            "torrent.tuning_evaluated",
-            f"Tuning {r['param']}: {status} ({note})",
-            target="qbittorrent",
-            change_id=r["change_id"],
-            detail={"verdict": cmp_["verdict"], "delta_pct": cmp_["delta_pct"]},
-        )
-        done.append({"id": r["id"], "status": status, "note": note})
-    return done
+    ]
+    if not due:
+        return []
+    engine.evaluate_due(db)
+    sync_runs()
+    return [
+        {"id": r["id"], "status": r["status"], "note": r["note"]}
+        for r in db.fetchall("SELECT * FROM torrent_tuning_runs WHERE id = ANY(%s) ORDER BY id", (due,))
+    ]
 
 
 def run_view(r: dict[str, Any]) -> dict[str, Any]:
@@ -560,7 +732,13 @@ def _tune_job(ctx: jobs.JobContext) -> dict[str, Any]:
 
 @jobs.handler("torrent.tune_evaluate")
 def _eval_job(ctx: jobs.JobContext) -> dict[str, Any]:
-    return {"evaluated": evaluate()}
+    # evaluation itself runs in the automation engine's job (``automation.evaluate``); this only follows the
+    # lifecycle of the linked change sets so a finished step frees the slot for the next proposal
+    sync_runs()
+    return {"synced": True}
+
+
+register_evaluator("qbittorrent", evaluate_change)
 
 
 jobs.every("torrent.tune", 3600, enabled=lambda: cb.is_configured("qbittorrent"))

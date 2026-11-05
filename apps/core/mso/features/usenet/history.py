@@ -366,7 +366,11 @@ def history_view(limit: int = 50, failed_only: bool = False) -> dict[str, Any]:
                 "evidence": cls.get("evidence"),
                 "likely_cause": {
                     **cause,
-                    "label": outcomes.FAILURE_REASONS.get(cause["reason"], cause["reason"]),
+                    "label": cause.get("label") or outcomes.FAILURE_REASONS.get(cause["reason"], cause["reason"]),
+                    "servers": [
+                        {**sv, "label": sv.get("label") or serverstatus.LABELS.get(sv["status"], sv["status"])}
+                        for sv in cause.get("servers") or []
+                    ],
                 }
                 if cause
                 else None,

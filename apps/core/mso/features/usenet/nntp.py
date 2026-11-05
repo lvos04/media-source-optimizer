@@ -115,6 +115,8 @@ class NNTPClient:
         self._sock: socket.socket | None = None
         self._file: Any = None
         self.bytes_received = 0
+        self.bytes_sent = 0
+        self.commands_sent = 0
         self.greeting: tuple[int, str] | None = None
         self.posting_allowed = False
 
@@ -208,8 +210,11 @@ class NNTPClient:
             raise NNTPError("error", "Geen verbinding")
         if "\r" in line or "\n" in line:
             raise NNTPError("error", "Ongeldig NNTP-commando")
+        data = line.encode("utf-8") + b"\r\n"
         try:
-            self._sock.sendall(line.encode("utf-8") + b"\r\n")
+            self._sock.sendall(data)
+            self.bytes_sent += len(data)
+            self.commands_sent += 1
         except TimeoutError:
             self.close()
             raise NNTPError("timeout", "Time-out bij verzenden naar provider") from None

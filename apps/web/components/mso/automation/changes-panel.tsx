@@ -5,22 +5,18 @@ import { useEffect, useState } from "react";
 
 import { Card, Segmented, StatusChip } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
+import { EvaluationSummary } from "@/components/mso/automation/evaluation-view";
 import { ChangePreview } from "@/components/mso/change-preview";
 import { RiskChip } from "@/components/mso/risk-chip";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
+import type { ChangeEvaluation } from "@/lib/api/insights";
 import { useI18n } from "@/lib/i18n";
-import { CHANGE_STATUS, EVALUATION_LABEL } from "@/lib/status";
+import { CHANGE_STATUS } from "@/lib/status";
 
 type Row = ChangeSet & { created_at: string; applied_at: string | null; evaluate_after: string | null };
 const FILTERS = { open: "preview,approved", applied: "applied", closed: "rolled_back,failed,discarded" } as const;
 type Filter = keyof typeof FILTERS;
-
-function evaluation(impact: unknown): { result: string; message?: string } | null {
-  if (!impact || typeof impact !== "object") return null;
-  const ev = (impact as Record<string, unknown>).evaluation;
-  return ev && typeof ev === "object" ? (ev as { result: string; message?: string }) : null;
-}
 
 /** Change sets list + ChangePreview (approve/apply/rollback via the shared component). */
 export function ChangesPanel({ focusId }: { focusId: number | null }) {
@@ -30,7 +26,8 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
   const [selected, setSelected] = useState<number | null>(focusId);
   useEffect(() => { if (focusId != null) setSelected(focusId); }, [focusId]);
   const detail = useResource<Row>(selected != null ? `/changes/${selected}` : null);
-  const ev = evaluation(detail.data?.impact);
+  const measured = detail.data && (detail.data.status === "applied" || detail.data.status === "rolled_back") && detail.data.applied_at;
+  const evaluation = useResource<ChangeEvaluation>(measured && selected != null ? `/automation/evaluations/${selected}` : null);
 
   return (
     <>
@@ -65,14 +62,13 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
         ) : (
           <>
             <ResourceView resource={detail} endpoint="GET /api/v1/changes/{id}" compact>
-              {(c) => <ChangePreview key={String(c.id)} change={c} onChanged={() => { void detail.reload(); void list.reload(); }} />}
+              {(c) => <ChangePreview key={String(c.id)} change={c} onChanged={() => { void detail.reload(); void list.reload(); void evaluation.reload(); }} />}
             </ResourceView>
-            {ev ? (
+            {measured ? (
               <Card title={t("automation.evaluation")}>
-                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                  <StatusChip tone={ev.result === "keep" ? "success" : ev.result === "rollback" ? "danger" : "neutral"}>{EVALUATION_LABEL[ev.result] ?? ev.result}</StatusChip>
-                  <span className="t-2" style={{ fontSize: 13 }}>{ev.message}</span>
-                </div>
+                <ResourceView resource={evaluation} endpoint="GET /api/v1/automation/evaluations/{id}" compact>
+                  {(e) => <EvaluationSummary item={e} />}
+                </ResourceView>
               </Card>
             ) : null}
           </>

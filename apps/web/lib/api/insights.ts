@@ -41,8 +41,19 @@ export interface Service {
   id: number; source_id: string | null; source_label: string | null; kind: ServiceKind; kind_label?: string; label: string;
   billing: Billing; amount_cents: number; currency: string; block_size_gb: number | null; block_used_gb: number | null;
   renewal_date: string | null; notes: string; active: boolean; backbone: string | null; monthly?: MonthlyCost;
+  /** `import` = added automatically from a provider/indexer source; `price_missing` until the user fills in a price. */
+  origin?: "manual" | "import"; price_missing?: boolean;
+  metrics?: ServiceMetrics | null;
 }
-export type ServiceInput = Omit<Service, "id" | "source_label" | "kind_label" | "monthly">;
+export type ServiceInput = Omit<Service, "id" | "source_label" | "kind_label" | "monthly" | "origin" | "price_missing" | "metrics">;
+/** Retrospective ratios over the period (entered cost ÷ observed successes); never a savings promise. */
+export interface ServiceMetrics {
+  period_days: number; linked: boolean; available: boolean; reason?: string;
+  successful_downloads?: number; successful_gb?: number; period_cost_cents?: number | null;
+  per_success_cents?: number | null; per_gb_cents?: number | null; cost_reason?: string; bytes_method?: string; coverage?: number | null;
+  unique?: { available: boolean; reason?: string; pct?: number; unique_articles?: number; compared_articles?: number; confidence?: string; note?: string };
+}
+export interface PriceInput { billing: Billing; amount_cents: number; currency?: string; renewal_date: string | null; block_size_gb?: number | null }
 export interface SourceOption { id: string; kind: string; label: string; origin: string; enabled: boolean }
 export interface Range { low: number; high: number; low_pct: number | null; high_pct: number | null }
 export interface Coverage { with_evidence: number; total: number; ratio: number | null }
@@ -76,7 +87,7 @@ export interface Scenario {
 }
 export interface ScenarioList { period_days: number; items: Scenario[]; disclaimers: string[]; available: boolean; reason: string | null }
 export interface CostSummary {
-  total: { monthly_cents: number; currency: string; mixed_currencies: boolean; services: number; unknown: Array<{ id: number; label: string; reason: string | null }>; by_kind: Record<string, number> };
+  total: { monthly_cents: number; currency: string; mixed_currencies: boolean; services: number; price_missing?: number; unknown: Array<{ id: number; label: string; reason: string | null }>; by_kind: Record<string, number> };
   renewals: Array<{ id: number; label: string; date: string; days_left: number; billing: Billing; amount_cents: number; currency: string }>;
   reminder_days: number; disclaimers: string[];
 }
@@ -93,6 +104,8 @@ export interface AutomationStatus {
   mode: "read_only" | "manage"; paused: boolean; automation_allowed: boolean;
   areas: Array<{ area: string; label: string; auto_apply_safe: boolean; setting_key: string; pending_safe_changes: number }>;
   max_per_hour: number; max_age_h: number; auto_rollback: boolean; applied_last_hour: number; evaluators: string[];
+  evaluator_fallback?: boolean;
+  evaluation?: { hours: number; hysteresis_pct: number; min_samples: number; torrent_auto_rollback: boolean | null };
   risk_explanation: Record<Risk, string>;
   log: Array<{ id: number; ts: string; kind: string; change_id: number | null; area: string | null; result: string; message: string }>;
   jobs: Array<{ kind: string; failed_24h: number; pending: number; last_update: string | null }>;
@@ -107,3 +120,33 @@ export interface AiStatus {
   remaining_cents: number;
 }
 export interface AiAdvice { mode: "ai" | "deterministic"; fallback_reason: string | null; title: string; text: string; recommendation_id: number; model: string | null }
+
+// ------------------------------------------------------------------ controle na een wijziging  GET /automation/evaluations
+export type EvaluationOutcome = "beter" | "gelijk" | "slechter" | "onvoldoende" | "niet_van_toepassing";
+export interface EvaluationMeasure {
+  key: string; label: string; unit: string; scope?: string; verdict: string; outcome?: string; stat?: "median" | "mean";
+  baseline: { n: number; value: number | null }; current: { n: number; value: number | null };
+  delta_pct: number | null; hysteresis_pct?: number; higher_is_better?: boolean; why?: string;
+}
+export interface StoredEvaluation {
+  /** Current vocabulary (EvaluationOutcome) or legacy values from before 1.4.0 (keep/rollback/unknown/niet_beschikbaar). */
+  result: string; label?: string; at?: string; message?: string; action?: string; reason?: string; setting?: string;
+  evaluator?: string; measures?: EvaluationMeasure[];
+}
+export interface ChangeEvaluation {
+  id: number; target: string; title: string; risk: Risk; status: string; applied_at: string | null; applied_by: string | null;
+  rolled_back_at: string | null; evaluate_at: string | null; applicable: boolean;
+  evaluation: StoredEvaluation | null; interim: StoredEvaluation | null; auto_rollback: { enabled: boolean; setting: string };
+}
+
+/** Audit summaries written before 1.4.0 (and by modules that still pass raw statuses) → Dutch labels. */
+const AUDIT_STATUS_NL: Record<string, string> = {
+  healthy: "Gezond", degraded: "Verstoord", offline: "Offline", auth_failed: "Inloggen geweigerd", unknown: "Onbekend",
+  error: "Fout", ok: "Gezond", unconfigured: "Niet ingesteld", missing_credentials: "Inloggegevens ontbreken",
+  inconclusive: "Onbeslist", kept: "Behouden", rolled_back: "Teruggedraaid", degraded_pending: "Verslechterd (wacht op besluit)",
+  discarded: "Verworpen", evaluating: "Wordt gemeten",
+};
+export function localizeAuditSummary(summary: string | null | undefined): string | null {
+  if (!summary) return summary ?? null;
+  return summary.replace(/(:\s*)([a-z_]+)(?=\s*(?:\(|$|[.,;]))/g, (m, sep: string, word: string) => (AUDIT_STATUS_NL[word] ? `${sep}${AUDIT_STATUS_NL[word]}` : m));
+}

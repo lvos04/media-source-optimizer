@@ -205,13 +205,28 @@ def with_server_context(cls: Classification, problems: list[dict[str, Any]]) -> 
     )
     certainty = cls.certainty if cls.reason == "incomplete" else "waarschijnlijk"
     out = Classification(cls.reason, certainty, evidence, cls.detail)
-    expired = any(p["status"] == "account_expired" for p in problems)
+    statuses = {p["status"] for p in problems}
+    # name the actual state per server; only call it "account verlopen" when that is what every server says
+    if statuses == {"account_expired"}:
+        reason, label = "account_expired", serverstatus.LABELS["account_expired"]
+    elif statuses == {"block_exhausted"}:
+        reason, label = "quota_exceeded", serverstatus.LABELS["block_exhausted"]
+    elif len(statuses) == 1:
+        only = next(iter(statuses))
+        reason, label = "auth_failure", serverstatus.LABELS.get(only, "Serverfout")
+    else:
+        reason, label = "auth_failure", "Inlog- of accountproblemen bij servers"
     out.likely_cause = {
-        "reason": "account_expired" if expired else "auth_failure",
+        "reason": reason,
+        "label": label,
         "certainty": "waarschijnlijk",
         "servers": [
-            {"server": p["server"], "name": serverstatus.short_name(p.get("displayname") or p["server"]),
-             "status": p["status"]}
+            {
+                "server": p["server"],
+                "name": serverstatus.short_name(p.get("displayname") or p["server"]),
+                "status": p["status"],
+                "label": serverstatus.LABELS.get(p["status"], p["status"]),
+            }
             for p in problems
         ],
     }

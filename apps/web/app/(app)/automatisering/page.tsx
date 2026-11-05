@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Button, Card, PageHeader, Tabs } from "@/components/mg/primitives";
 import { AiCard } from "@/components/mso/automation/ai-card";
 import { ChangesPanel } from "@/components/mso/automation/changes-panel";
+import { EvaluationsPanel } from "@/components/mso/automation/evaluation-view";
 import { RecommendationsList } from "@/components/mso/automation/recommendations-list";
 import { TogglesPanel } from "@/components/mso/automation/toggles-panel";
 import { RiskChip } from "@/components/mso/risk-chip";
@@ -17,7 +18,7 @@ import { useI18n } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 
-const TABS = ["aanbevelingen", "wijzigingen", "automatisch", "ai"] as const;
+const TABS = ["aanbevelingen", "wijzigingen", "controle", "automatisch", "ai"] as const;
 type Tab = (typeof TABS)[number];
 const RISKS: Risk[] = ["advies", "automatisch_veilig", "toestemming_nodig"];
 
@@ -69,6 +70,7 @@ export default function AutomationPage() {
         <Tabs label={t("nav.automation")} value={tab} onSelect={select} items={[
           { value: "aanbevelingen", label: t("automation.tab.recommendations") },
           { value: "wijzigingen", label: t("automation.tab.changes") },
+          { value: "controle", label: t("automation.tab.evaluations") },
           { value: "automatisch", label: t("automation.tab.automation") },
           { value: "ai", label: t("automation.tab.ai") },
         ]} />
@@ -76,6 +78,7 @@ export default function AutomationPage() {
       <div className="grid" style={{ marginTop: 16 }}>
         {tab === "aanbevelingen" ? <RecommendationsList onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
         {tab === "wijzigingen" ? <ChangesPanel focusId={focusChange} /> : null}
+        {tab === "controle" ? <EvaluationsPanel onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
         {tab === "automatisch" ? <TogglesPanel status={status} /> : null}
         {tab === "ai" ? <AiCard /> : null}
       </div>

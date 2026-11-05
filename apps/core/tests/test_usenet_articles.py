@@ -171,7 +171,7 @@ def test_failed_download_triggers_test_when_opted_in(
 
     mock_app = mock.create_app(api_key=SAB_KEY, scenario="empty")
     admin.put("/api/v1/connectors/sabnzbd", json={"url": serve(mock_app), "secrets": {"api_key": SAB_KEY}})
-    sr.put({"usenet.auto_test_failed": True}, "test")
+    sr.put({"usenet.auto_test_failed": True, "usenet.auto_sample_after_send": False}, "test")
     with SabClient.from_config() as c:
         nzo = c.add_nzb(make_nzb([f"seg{i}@mock" for i in range(1, 31)]), "x.nzb", category="tv")
     slot = _slot(1, "Show.Name.S01E07.1080p.WEB.H264-GRP", "tv", "missing", int(time.time()))

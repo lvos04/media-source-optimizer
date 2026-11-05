@@ -54,6 +54,7 @@ def search_api(
     sort: Literal["relevance", "age", "size", "seeders"] = "relevance",
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=5000),
+    slow: bool = Query(False, description="Opnieuw proberen met de ruimere Prowlarr-time-out"),
     p: Principal = Depends(require("viewer")),
 ) -> dict[str, Any]:
     ok, _ = limiter.hit("search", p.actor, 60, 60)
@@ -87,9 +88,16 @@ def search_api(
         languages=[x for x in (lang or []) if x in S.LANGS] or None,
     )
     try:
-        res = service.search(query, actor=p.actor, sort=sort)
+        res = service.search(
+            query, actor=p.actor, sort=sort, slow=slow,
+            per_actor_limit=int(S.get("search.max_concurrent_per_user", 2)),
+        )
     except origin.LoopRefused as exc:
         raise HTTPException(409, detail=f"{exc.code}: {exc.message}") from exc
+    except service.SearchBusy as exc:
+        raise HTTPException(429, detail=str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(504, detail=str(exc)) from exc
     return _result_view(res)
 
 

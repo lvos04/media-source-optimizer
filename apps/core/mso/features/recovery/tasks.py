@@ -5,7 +5,9 @@
 2. Manual sends are matched with their outcome: failure → per-item exponential backoff; success → reset.
 3. Recommendations (area ``recovery``): sources with repeated false positives, items with an accepted fallback
    candidate (action: ask MediaGuard to search / send manually in standalone).
-4. Optional (default off): bounded automatic candidate scan, and — only with
+4. Failed downloads → fallback candidate → change set "Versturen naar SABnzbd/qBittorrent"
+   (:mod:`fallback`, ``recovery.fallback_on_failure``).
+5. Optional (default off): bounded automatic candidate scan, and — only with
    ``mediaguard.auto_search_requests`` on AND ``state.automation_allowed()`` — automatic search requests to
    MediaGuard for items that have a candidate passing every MediaGuard requirement.
 """
@@ -21,7 +23,7 @@ from mso import jobs, state
 from mso import settings_registry as sr
 from mso.db import get_db
 from mso.domain.outcomes import recommend
-from mso.features.recovery import baseline, blacklist, candidates
+from mso.features.recovery import baseline, blacklist, candidates, fallback
 
 LOGGER = logging.getLogger(__name__)
 
@@ -174,7 +176,9 @@ def auto_search_requests() -> dict[str, Any]:
 @jobs.handler("recovery.analyze")
 def _job(ctx: jobs.JobContext) -> dict[str, Any]:
     out: dict[str, Any] = {"outcomes": process_outcomes()}
-    ctx.progress(0.3)
+    ctx.progress(0.2)
+    out["fallback"] = fallback.process_failed()
+    ctx.progress(0.4)
     out["auto_scan"] = auto_scan()
     ctx.progress(0.6)
     out["recommendations"] = make_recommendations()

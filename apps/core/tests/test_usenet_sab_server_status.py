@@ -151,12 +151,15 @@ def test_unpack_failed_related_to_server_problems(app: Any, db: Any, admin: Any,
         cls = r["meta"]["classification"]
         assert cls["certainty"] == "waarschijnlijk"
         assert "serverfouten" in cls["evidence"] and "Blok: account verlopen" in cls["evidence"]
-        assert cls["likely_cause"]["reason"] == "account_expired"
+        # mixed server states: named per server, not "account verlopen" for all
+        assert cls["likely_cause"]["reason"] == "auth_failure"
+        assert cls["likely_cause"]["label"] == "Inlog- of accountproblemen bij servers"
         assert r["failure_detail"] == "Unpacking failed, see logfile"  # original kept as detail
     h = viewer.get("/api/v1/usenet/sab/history").json()["items"][0]
     assert h["failure_label"] == "Uitpakken mislukt" and h["certainty"] == "waarschijnlijk"
-    assert h["likely_cause"]["label"] == "Account verlopen"
-    assert {s["server"] for s in h["likely_cause"]["servers"]} == {"news.newshosting.test", "block.example.test"}
+    assert h["likely_cause"]["label"] == "Inlog- of accountproblemen bij servers"
+    per_server = {s["server"]: s["label"] for s in h["likely_cause"]["servers"]}
+    assert per_server == {"news.newshosting.test": "Inloggen geweigerd", "block.example.test": "Account verlopen"}
     assert h["category"] == "*" and h["media_category"] is None
     assert sab is not None
 

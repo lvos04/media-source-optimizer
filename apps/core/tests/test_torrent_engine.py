@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -444,6 +445,27 @@ def _obs(db: Any, metric: str, value: float, hours_ago: float, n: int = 20) -> N
         )
 
 
+def _age(db: Any, hours: float) -> None:
+    """Simulate ``hours`` passing for the open tuning step: observations, the run (applied_at + baseline window)
+    and its change set (applied_at, evaluate_after) all move back in time."""
+    iv = f"{float(hours)} hours"
+    db.execute("UPDATE observations SET ts = ts - %s::interval", (iv,))
+    for r in db.fetchall("SELECT id, baseline FROM torrent_tuning_runs"):
+        b = dict(r["baseline"] or {})
+        for k in ("from", "to"):
+            if b.get(k):
+                b[k] = (datetime.fromisoformat(b[k]) - timedelta(hours=hours)).isoformat()
+        db.execute(
+            "UPDATE torrent_tuning_runs SET baseline=%s, applied_at = applied_at - %s::interval WHERE id=%s",
+            (json.dumps(b), iv, r["id"]),
+        )
+    db.execute(
+        "UPDATE change_sets SET applied_at = applied_at - %s::interval, evaluate_after = evaluate_after - "
+        "%s::interval, created_at = created_at - %s::interval",
+        (iv, iv, iv),
+    )
+
+
 def test_autotune_applies_one_change_and_rolls_back_on_degradation(
     qb: Qb, admin: Any, db: Any, manage_mode: None
 ) -> None:
@@ -463,14 +485,25 @@ def test_autotune_applies_one_change_and_rolls_back_on_degradation(
     assert tuning.propose("system")["reason"].startswith("Er loopt al")  # one change at a time
     # not yet due → nothing evaluated
     assert tuning.evaluate() == []
-    # simulate 49 h later with a clearly worse download speed
-    db.execute("UPDATE observations SET ts = ts - interval '60 hours'")
-    db.execute("UPDATE torrent_tuning_runs SET applied_at = now() - interval '49 hours'")
+    # simulate 49 h later with a clearly worse download speed; evaluation runs through the automation engine
+    # (the one evaluation path) with the evaluator registered for 'qbittorrent'
+    from mso.features.automation import EVALUATORS
+
+    assert EVALUATORS["qbittorrent"] is tuning.evaluate_change
+    _age(db, 49)
     _obs(db, "torrent.dl_speed_active", 1_000_000, 2)
     done = tuning.evaluate()
     assert done and done[0]["status"] == "rolled_back"
     assert qb.st.prefs["max_connec"] == 500
-    assert changes.get(run["change_id"])["status"] == "rolled_back"
+    ch = changes.get(run["change_id"])
+    assert ch["status"] == "rolled_back"
+    ev = ch["impact"]["evaluation"]
+    assert ev["result"] == "slechter" and ev["action"] == "teruggedraaid" and ev["evaluator"] == "qbittorrent"
+    assert any(m["key"] == "torrent.dl_speed_active" and m["verdict"] == "worse" for m in ev["measures"])
+    # exactly one rollback (no second evaluation path)
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='change.rolled_back' AND change_id=%s",
+                     (run["change_id"],)) == 1
+    assert tuning.evaluate() == []
     # anti-oscillation: the parameter is frozen after a rollback
     db.execute("UPDATE torrent_tuning_runs SET evaluated_at = now() - interval '2 days'")
     ingest()
@@ -497,14 +530,14 @@ def test_degradation_without_automation_only_recommends(
     assert r.status_code == 200 and qb.st.prefs["max_connec"] == 600
     state.set_state("paused", True)
     tuning.sync_runs()
-    db.execute("UPDATE observations SET ts = ts - interval '60 hours'")
-    db.execute("UPDATE torrent_tuning_runs SET applied_at = now() - interval '49 hours'")
+    _age(db, 49)
     _obs(db, "torrent.dl_speed_active", 1_000_000, 2)
     done = tuning.evaluate()
     assert done[0]["status"] == "degraded_pending"
     assert qb.st.prefs["max_connec"] == 600  # paused → no automatic rollback
     rec = db.fetchone("SELECT * FROM recommendations WHERE area='torrent'")
-    assert rec and rec["change_id"] == res["change"]["id"]
+    assert rec and rec["change_id"] == res["change"]["id"] and rec["risk"] == "toestemming_nodig"
+    assert changes.get(res["change"]["id"])["impact"]["evaluation"]["action"] == "voorgesteld"
 
 
 def test_tuning_hysteresis_and_insufficient_data() -> None:
@@ -725,7 +758,8 @@ def test_no_data_loss_endpoints_never_called(
     for _ in range(3):
         ingest()
     tuning.propose("system")
-    tuning.evaluate(datetime.now(UTC) + timedelta(hours=72))
+    _age(db, 72)
+    tuning.evaluate()
     destructive = [
         c
         for c in qb.st.calls

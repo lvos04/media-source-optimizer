@@ -12,7 +12,7 @@ import { ResourceView, StateView } from "@/components/mg/states";
 import { RiskChip } from "@/components/mso/risk-chip";
 import type { Risk } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
-import type { Overview } from "@/lib/api/insights";
+import { localizeAuditSummary, type Overview } from "@/lib/api/insights";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
 import { healthLabel, healthTone } from "@/lib/status";
@@ -242,7 +242,7 @@ function RecentAudit({ o }: { o: Overview }) {
       actions={<Link className="link-more" href="/logs">{t("overview.viewAll")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>}>
       {o.recent_audit.length === 0 ? <StateView kind="empty" compact /> : (
         <Timeline items={o.recent_audit.map((a) => ({
-          title: a.summary,
+          title: localizeAuditSummary(a.summary) ?? a.action,
           meta: <><span className="mono">{a.action}</span> · {a.actor} · {relative(a.ts)}</>,
           tone: a.action.includes("failed") ? "danger" : a.action.includes("applied") ? "success" : "neutral",
         }))} />

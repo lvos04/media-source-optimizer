@@ -3,7 +3,8 @@
 - P2: qBittorrent keeps speed limits in whole KiB/s (200000000 → 199999488); verify-after-write must not fail
   and auto-roll back a correct write; MSO proposes multiples of 1024.
 - P3: malware-like torrents ("... h264-GRACE.exe", "... x265-MeGusta.scr") are flagged, counted, recommended
-  (advies, dedupe per infohash) and blamed on their source — never deleted.
+  (dedupe per infohash, with a proposed cleanup change) and blamed on their source — deleted only by an approved
+  cleanup change (``test_torrent_cleanup.py``).
 - P8: extreme connection/upload-slot values are brought back within the caps by tuning (largest first).
 - Seeding counts: stopped complete torrents are not "seeding".
 """
@@ -92,7 +93,9 @@ def test_upload_limit_proposal_applies_without_verification_failure(
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "applied" and qb.st.prefs["up_limit"] == 199_999_488
     # readable impact: flat Dutch labels with plain strings (no nested JSON)
-    assert all(isinstance(v, str) for v in ch["impact"].values()) and "Basislijn" in ch["impact"]
+    assert all(isinstance(v, str) for v in ch["impact"].values())
+    assert ch["impact"]["Soort"] == "beleidsgrens" and "geen meting" in ch["impact"]["Evaluatie"]
+    assert ch["evaluate_after"] is None  # a guardrail has no measurement window
     # rollback restores the exact old value
     assert admin.post(f"/api/v1/changes/{ch['id']}/rollback").status_code == 200
     assert qb.st.prefs["up_limit"] == 0
@@ -169,16 +172,56 @@ def test_extreme_prefs_brought_back_within_caps(
     codes = {f["code"] for f in viewer.get("/api/v1/torrent/overview").json()["findings"]}
     assert "prefs_out_of_bounds" in codes
 
+    # several values outside the guardrails → ONE bundle change bringing all of them to the bound at once
     body = operator.post("/api/v1/torrent/tuning/propose").json()
-    assert "run" in body, body
+    assert "run" in body and body.get("bundle") is True, body
+    ch = body["change"]
+    assert body["run"]["param"] == "bundle:guardrails" and body["run"]["kind"] == "guardrail"
+    assert ch["risk"] == "toestemming_nodig" and ch["evaluate_after"] is None  # no measurement window
     # largest violation first: per torrent 100000 / cap 200 = 500× (vs 400×, 400×, 50×)
-    assert body["run"]["param"] == "pref:max_connec_per_torrent" and body["run"]["after_value"] == 200
-    assert body["run"]["kind"] == "guardrail" and body["change"]["risk"] == "toestemming_nodig"
-    assert "buiten de veilige grens" in body["run"]["reason"]
-    cid = body["change"]["id"]
+    assert [o["path"] for o in ch["ops"]] == [
+        "pref:max_connec_per_torrent", "pref:max_uploads", "pref:max_uploads_per_torrent", "pref:max_connec"
+    ]
+    assert {o["path"]: o["after"] for o in ch["ops"]} == {
+        "pref:max_connec_per_torrent": 200, "pref:max_connec": 1000, "pref:max_uploads": 500,
+        "pref:max_uploads_per_torrent": 100,
+    }
+    assert "buiten de veilige grens" in ch["explanation"] and "geen meting" in ch["impact"]["Evaluatie"]
+    cid = ch["id"]
+    # approval needed
+    assert admin.post(f"/api/v1/changes/{cid}/apply").status_code == 409
     assert admin.post(f"/api/v1/changes/{cid}/approve").status_code == 200
     assert admin.post(f"/api/v1/changes/{cid}/apply").status_code == 200
-    assert qb.st.prefs["max_connec_per_torrent"] == 200
+    assert (qb.st.prefs["max_connec"], qb.st.prefs["max_connec_per_torrent"], qb.st.prefs["max_uploads"],
+            qb.st.prefs["max_uploads_per_torrent"]) == (1000, 200, 500, 100)
+    # the guardrail step is finished at once (no evaluation), so per-value tuning can continue
+    runs = viewer.get("/api/v1/torrent/tuning").json()
+    assert runs["open_run"] is None and runs["items"][0]["status"] == "kept"
+    assert "geen meting" in runs["items"][0]["note"]
+    # the read-only blocks reflect the new values after the next refresh
+    ingest()
+    prefs = {p["key"]: p for p in viewer.get("/api/v1/torrent/preferences").json()["items"]}
+    assert all(prefs[k]["bounds"] == "ok" for k in ("max_connec", "max_connec_per_torrent", "max_uploads",
+                                                       "max_uploads_per_torrent"))
+    # the evaluator never measures a guardrail bundle
+    from mso.features.torrent import tuning
+
+    ev = tuning.evaluate_change(changes.get(cid))
+    assert ev["verdict"] == "insufficient" and "beleidsgrens, geen meting" in ev["message"]
+    assert ev["auto_rollback"] is False
+    # rollback as a whole
+    assert admin.post(f"/api/v1/changes/{cid}/rollback").status_code == 200
+    assert (qb.st.prefs["max_connec"], qb.st.prefs["max_connec_per_torrent"], qb.st.prefs["max_uploads"],
+            qb.st.prefs["max_uploads_per_torrent"]) == (50000, 100000, 200000, 40000)
+    assert viewer.get("/api/v1/torrent/tuning").json()["items"][0]["status"] == "rolled_back"
+
+
+def test_single_guardrail_stays_single_step(qb: Qb, operator: Any) -> None:
+    qb.st.prefs.update({"max_connec_per_torrent": 100000})
+    ingest()
+    body = operator.post("/api/v1/torrent/tuning/propose").json()
+    assert body["run"]["param"] == "pref:max_connec_per_torrent" and body["run"]["after_value"] == 200
+    assert not body.get("bundle") and body["change"]["risk"] == "toestemming_nodig"
 
 
 def test_unlimited_slots_count_as_violation(qb: Qb, operator: Any) -> None:
@@ -290,14 +333,18 @@ def test_suspicious_torrents_flagged_counted_recommended_never_deleted(
     ingest()
     assert len(qb.calls("torrents/files")) == files_calls
     recs = db.fetchall("SELECT * FROM recommendations WHERE dedupe_key LIKE 'torrent-suspicious:%'")
-    assert len(recs) == 3 and {r["risk"] for r in recs} == {"advies"} and {r["area"] for r in recs} == {"torrent"}
+    assert len(recs) == 3 and {r["area"] for r in recs} == {"torrent"}
+    # each recommendation proposes the (toestemming_nodig) cleanup change that accepting it creates
+    assert {r["risk"] for r in recs} == {"toestemming_nodig"}
+    assert all(r["evidence"]["proposed_change"]["risk"] == "toestemming_nodig" for r in recs)
     # removed by the user in qBittorrent → recommendation resolved
     del qb.st.torrents[hashes["exe"]]
     ingest()
     st = {r["dedupe_key"]: r["status"] for r in db.fetchall("SELECT dedupe_key, status FROM recommendations")}
     assert st["torrent-suspicious:btih:" + hashes["exe"]] == "resolved"
     assert st["torrent-suspicious:btih:" + hashes["scr"]] == "open"
-    assert not qb.calls("/delete") and not qb.calls("/stop") and not qb.calls("/pause")
+    # ingest/diagnosis never deletes anything: only an approved cleanup change does
+    assert not qb.calls("/delete") and not qb.st.deletes and not qb.calls("/stop") and not qb.calls("/pause")
 
 
 def test_file_checks_are_bounded_per_run(qb: Qb, monkeypatch: Any) -> None:

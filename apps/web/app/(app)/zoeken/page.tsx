@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Flag, GitCompareArrows, Search, Send } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Flag, GitCompareArrows, RotateCw, Search, Send } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { Confidence } from "@/components/mg/domain";
@@ -24,6 +24,8 @@ const PAGE = 50;
 interface Query {
   q?: string; category?: MediaCategory; protocol?: Protocol; season?: number; episode?: number; absolute?: number;
   imdb?: string; tvdb?: number; tmdb?: number; sort: Sort; limit: number; offset: number;
+  /** 1 = retry with the longer Prowlarr time-out ("Opnieuw proberen") */
+  slow?: number;
 }
 
 function int(v: string): number | undefined {
@@ -56,6 +58,10 @@ export default function SearchPage() {
 
   const params = useMemo(() => (query ? Object.fromEntries(Object.entries(query).filter(([, v]) => v !== undefined && v !== "")) : undefined), [query]);
   const res = useResource<SearchResponse>(query ? "/search" : null, params as Record<string, string | number> | undefined);
+  const prowlarrSlow = res.data?.sources.find((s) => s.source_id === "prowlarr" && s.status === "timeout") ?? null;
+  // "Opnieuw proberen" keeps the old result visible until the new one arrives: track that explicitly.
+  const [retryFrom, setRetryFrom] = useState<number | null>(null);
+  const retrying = retryFrom !== null && res.fetchedAt === retryFrom && !res.error;
 
   // topbar search navigates to /zoeken?q=…
   useEffect(() => {
@@ -157,6 +163,24 @@ export default function SearchPage() {
           <Card className="span-12"><StateView kind="empty" title={t("zoeken.idle.title")} body={t("zoeken.idle.body")} /></Card>
         ) : (
           <>
+            {prowlarrSlow ? (
+              <div className="span-12" data-testid="prowlarr-slow">
+                <InlineState tone="warning" icon={Clock} role="status">
+                  <span className="row wrap" style={{ gap: 8, justifyContent: "space-between", width: "100%" }}>
+                    <span>
+                      <strong>{t("zoeken.slow.title")}</strong>{" "}
+                      {retrying ? t("zoeken.slow.retrying") : query.slow ? t("zoeken.slow.stillSlow") : t("zoeken.slow.body")}
+                      {prowlarrSlow.message ? <span className="cell-sub" style={{ display: "block" }}>{prowlarrSlow.message}</span> : null}
+                    </span>
+                    {!query.slow || retrying ? (
+                      <Button size="sm" icon={RotateCw} pending={retrying} onClick={() => { setRetryFrom(res.fetchedAt); setQuery((cur) => (cur ? { ...cur, slow: 1 } : cur)); }}>
+                        {t("zoeken.slow.retry")}
+                      </Button>
+                    ) : null}
+                  </span>
+                </InlineState>
+              </div>
+            ) : null}
             <Card className="span-8" title={t("zoeken.results")} icon={Search} flush
               sub={res.data ? t("zoeken.resultsSub", { total: num(res.data.total) }) : undefined}
               actions={<Button size="sm" icon={GitCompareArrows} disabled={selected.length < 2} title={selected.length < 2 ? t("zoeken.compareHint") : undefined}

@@ -248,7 +248,7 @@ def test_prowlarr_search_normalised_without_secrets(viewer: Any, operator: Any, 
     ],
 )
 def test_prowlarr_failure_classification(viewer: Any, serve: Any, fault: str, status: str) -> None:
-    set_settings({"search.timeout_s": 2})
+    set_settings({"search.timeout_s": 2, "search.prowlarr_auto_retry": False})
     mock = mock_prowlarr.create_app(api_key=PROWLARR_KEY)
     configure_prowlarr(serve(mock))
     mock.state.faults[fault] = {"timeout": "3", "auth": "fail"}.get(fault, "1")

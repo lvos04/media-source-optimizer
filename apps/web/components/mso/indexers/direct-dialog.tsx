@@ -13,15 +13,16 @@ type Scope = "normal" | "anime";
 
 /** Add/edit a direct Newznab/Torznab/Spotweb indexer (admin). Test uses the unsaved values; the API key is
  * write-only (never shown again). */
-export function DirectIndexerDialog({ protocol, existing, onClose, onSaved }: {
-  protocol: Protocol; existing?: DirectIndexer | null; onClose: () => void; onSaved: () => void | Promise<void>;
+export function DirectIndexerDialog({ protocol, existing, initialKind, onClose, onSaved }: {
+  protocol: Protocol; existing?: DirectIndexer | null; initialKind?: Kind; onClose: () => void; onSaved: () => void | Promise<void>;
 }) {
   const { t, num } = useI18n();
   const kinds: Kind[] = protocol === "torrent" ? ["torznab"] : ["newznab", "spotweb"];
-  const [kind, setKind] = useState<Kind>(existing?.kind ?? kinds[0]);
-  const [label, setLabel] = useState(existing?.label ?? "");
+  const startKind: Kind = existing?.kind ?? (initialKind && kinds.includes(initialKind) ? initialKind : kinds[0]);
+  const [kind, setKind] = useState<Kind>(startKind);
+  const [label, setLabel] = useState(existing?.label ?? (startKind === "spotweb" && !existing ? "Spotweb" : ""));
   const [url, setUrl] = useState(existing?.url ?? "");
-  const [apiPath, setApiPath] = useState(existing?.api_path ?? "/api");
+  const [apiPath, setApiPath] = useState(existing?.api_path ?? (startKind === "spotweb" ? "/index.php?page=newznabapi" : "/api"));
   const [apiKey, setApiKey] = useState("");
   const [scopes, setScopes] = useState<Scope[]>(existing?.scopes ?? ["normal", "anime"]);
   const [priv, setPriv] = useState(existing?.private ?? protocol === "usenet");
@@ -91,6 +92,7 @@ export function DirectIndexerDialog({ protocol, existing, onClose, onSaved }: {
             </select>
           </Field>
         ) : null}
+        {kind === "spotweb" && !existing ? <InlineState tone="info">{t("idx.form.spotwebHint")}</InlineState> : null}
         <Field label={t("idx.form.label")} htmlFor="ix-label">
           <input id="ix-label" className="input" value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} />
         </Field>

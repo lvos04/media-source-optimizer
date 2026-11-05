@@ -16,7 +16,9 @@ const LOG_RESULT: Record<string, string> = {
   done: "Klaar", applied: "Toegepast", skipped: "Overgeslagen", rate_limited: "Limiet bereikt", failed: "Mislukt",
   keep: "Behouden", unknown: "Onbeslist", niet_beschikbaar: "Niet beschikbaar", rolled_back: "Teruggedraaid",
   rollback_proposed: "Terugdraaien voorgesteld", rollback_failed: "Terugdraaien mislukt",
+  beter: "Beter", gelijk: "Gelijk", slechter: "Slechter", onvoldoende: "Onvoldoende data", niet_van_toepassing: "Niet van toepassing",
 };
+const EVALUATOR_LABEL: Record<string, string> = { sabnzbd: "SABnzbd (faalratio, tijd tot voltooiing)", qbittorrent: "qBittorrent" };
 /** automation_log.kind (backend `features/automation/engine.py`) → Dutch. */
 const LOG_KIND: Record<string, string> = { run: "Ronde", apply: "Toepassen", evaluate: "Evaluatie" };
 const KNOWN_AREAS = new Set(["usenet", "torrent", "indexers", "recovery", "costs", "mediaguard", "automation"]);
@@ -66,7 +68,19 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
             <dt>{t("automation.appliedLastHour")}</dt><dd>{num(s.applied_last_hour)} / {num(s.max_per_hour)}</dd>
             <dt>{t("automation.autoRollback")}</dt><dd><StatusChip tone={s.auto_rollback ? "success" : "neutral"}>{s.auto_rollback ? t("automation.on") : t("automation.off")}</StatusChip></dd>
             <dt>{t("automation.evaluators")}</dt>
-            <dd>{s.evaluators.length ? <span className="mono">{s.evaluators.join(", ")}</span> : <span className="t-2">{t("automation.evaluatorsNone")}</span>}</dd>
+            <dd>
+              {s.evaluators.map((e) => EVALUATOR_LABEL[e] ?? e).join(" · ")}
+              {s.evaluator_fallback ? <div className="t-2" style={{ fontSize: 12.5 }}>{t("automation.evaluatorsFallback")}</div> : null}
+              {!s.evaluators.length && !s.evaluator_fallback ? <span className="t-2">{t("automation.evaluatorsNone")}</span> : null}
+            </dd>
+            {s.evaluation ? <>
+              <dt>{t("automation.evaluationRule")}</dt>
+              <dd>{t("automation.evaluationRuleValue", { hours: num(s.evaluation.hours), hyst: num(s.evaluation.hysteresis_pct), n: num(s.evaluation.min_samples) })}</dd>
+            </> : null}
+            {s.evaluation && s.evaluation.torrent_auto_rollback !== null ? <>
+              <dt>{t("automation.torrentAutoRollback")}</dt>
+              <dd><StatusChip tone={s.evaluation.torrent_auto_rollback ? "success" : "neutral"}>{s.evaluation.torrent_auto_rollback ? t("automation.on") : t("automation.off")}</StatusChip></dd>
+            </> : null}
           </dl>
         </div>
       </Card>
@@ -76,7 +90,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
             {s.log.map((l) => (
               <div className="list-row" key={l.id}>
                 <div className="list-main"><div className="list-title" style={{ whiteSpace: "normal" }}>{l.message}</div><div className="list-sub">{LOG_KIND[l.kind] ?? l.kind}{l.area ? ` · ${KNOWN_AREAS.has(l.area) ? t(`automation.area.${l.area}` as MessageKey) : l.area}` : ""}{l.change_id ? ` · #${l.change_id}` : ""} · {relative(l.ts)}</div></div>
-                <StatusChip tone={l.result === "applied" || l.result === "keep" || l.result === "done" ? "success" : l.result === "failed" || l.result.startsWith("roll") ? "danger" : l.result === "skipped" || l.result === "rate_limited" ? "warning" : "neutral"}>{LOG_RESULT[l.result] ?? l.result}</StatusChip>
+                <StatusChip tone={l.result === "applied" || l.result === "keep" || l.result === "done" || l.result === "beter" ? "success" : l.result === "failed" || l.result === "slechter" || l.result.startsWith("roll") ? "danger" : l.result === "onvoldoende" ? "warning" : l.result === "skipped" || l.result === "rate_limited" ? "warning" : "neutral"}>{LOG_RESULT[l.result] ?? l.result}</StatusChip>
               </div>
             ))}
           </div>

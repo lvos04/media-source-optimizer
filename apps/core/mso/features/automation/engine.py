@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -14,7 +14,8 @@ from mso.audit import audit
 from mso.db import Database, get_db, jsonb
 from mso.domain.outcomes import recommend
 from mso.features.automation import AREAS, TARGET_AREA
-from mso.features.automation.evaluators import EVALUATORS, RESULTS
+from mso.features.automation import evaluators as ev_mod
+from mso.features.automation.evaluators import EVALUATORS, OUTCOME, OUTCOME_LABEL
 from mso.security import redact
 
 LOGGER = logging.getLogger(__name__)
@@ -132,6 +133,7 @@ def apply_safe(db: Database | None = None) -> dict[str, Any]:
     return {"applied": applied, "skipped": skipped, "failed": failed}
 
 
+
 def _set_evaluation(change_id: int, evaluation: dict[str, Any], db: Database) -> None:
     db.execute(
         "UPDATE change_sets SET impact = impact || %s WHERE id=%s",
@@ -139,121 +141,244 @@ def _set_evaluation(change_id: int, evaluation: dict[str, Any], db: Database) ->
     )
 
 
+# ------------------------------------------------------------------ controle na een wijziging
+def not_evaluable(ch: dict[str, Any]) -> bool:
+    """Removing/disabling or irreversible changes are never evaluated nor rolled back automatically."""
+    return any(op.get("destructive") or op.get("irreversible") for op in (ch.get("ops") or []))
+
+
+def _rollback_disables(ch: dict[str, Any]) -> bool:
+    """A rollback that would itself switch something off (it enabled something: False → True) is a 'disable' and
+    therefore needs explicit approval — never automatic."""
+    for op in ch.get("ops") or []:
+        if op.get("result") != "toegepast":
+            continue
+        before = op.get("observed_before", op.get("before"))
+        if before is False and op.get("after") is True:
+            return True
+    return False
+
+
+def _no_auto_rollback(ch: dict[str, Any], ev: dict[str, Any]) -> str | None:
+    imp = ch.get("impact") if isinstance(ch.get("impact"), dict) else {}
+    if ev.get("auto_rollback") is False:
+        return str(ev.get("auto_rollback_reason") or "de evaluator sluit automatisch terugdraaien uit")
+    if imp.get("guardrail") or imp.get("_guardrail") or imp.get("kind") == "guardrail":
+        return "dit is een beleidsgrens; die blijft staan"
+    if _rollback_disables(ch):
+        return "terugdraaien zou iets uitschakelen; dat vereist altijd goedkeuring"
+    return None
+
+
+def auto_rollback_setting(ch: dict[str, Any]) -> tuple[bool, str]:
+    """qBittorrent targets follow ``torrent.autotune_auto_rollback`` (the more specific setting, when the torrent
+    module defines it); every other target follows ``automation.auto_rollback``."""
+    if ch.get("target") == "qbittorrent" and "torrent.autotune_auto_rollback" in sr.REGISTRY:
+        return bool(sr.get("torrent.autotune_auto_rollback")), "torrent.autotune_auto_rollback"
+    return bool(sr.get("automation.auto_rollback")), "automation.auto_rollback"
+
+
+def evaluator_for(target: str) -> tuple[str, Any]:
+    fn = EVALUATORS.get(target)
+    if fn is not None:
+        return target, fn
+    return "generiek", ev_mod.generic_evaluator
+
+
+def run_evaluator(ch: dict[str, Any], *, interim: bool = False) -> dict[str, Any]:
+    """Run (without storing) the evaluator for an applied change; always returns a normalised dict."""
+    name, fn = evaluator_for(ch["target"])
+    try:
+        out = ev_mod.normalise(fn(dict(ch) | ({"_interim": True} if interim else {})))
+    except Exception as exc:
+        out = {
+            "verdict": "insufficient",
+            "measures": [],
+            "message": f"Evaluator gaf een fout: {redact(str(exc))[:300]}",
+            "error": True,
+        }
+    out["evaluator"] = name
+    return out
+
+
+def _measures_line(measures: list[dict[str, Any]]) -> str:
+    parts = [f"{m.get('label', m.get('key'))}: {m.get('why')}" for m in measures if m.get("why")]
+    return "; ".join(parts)
+
+
 def evaluate_due(db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
+    default_h = int(sr.get("automation.evaluation_hours"))
     due = db.fetchall(
-        "SELECT * FROM change_sets WHERE status='applied' AND evaluate_after IS NOT NULL "
-        "AND evaluate_after <= now() AND NOT (impact ? 'evaluation') ORDER BY id LIMIT 50"
+        "SELECT * FROM change_sets WHERE status='applied' AND applied_at IS NOT NULL "
+        "AND NOT (impact ? 'evaluation') AND (ops @> '[{\"destructive\": true}]'::jsonb "
+        "OR ops @> '[{\"irreversible\": true}]'::jsonb "
+        "OR COALESCE(evaluate_after, applied_at + make_interval(hours => %s)) <= now()) ORDER BY id LIMIT 50",
+        (default_h,),
     )
-    counts = {"keep": 0, "rollback": 0, "unknown": 0, "niet_beschikbaar": 0}
+    counts = {k: 0 for k in ("beter", "gelijk", "slechter", "onvoldoende", "niet_van_toepassing")}
+    counts["rolled_back"] = 0
     for ch in due:
         now = datetime.now(UTC).isoformat()
         area = change_area(ch, db)
-        fn = EVALUATORS.get(ch["target"])
-        if fn is None:
+        if not_evaluable(ch):
             _set_evaluation(
                 ch["id"],
                 {
-                    "result": "niet_beschikbaar",
+                    "result": "niet_van_toepassing",
+                    "label": OUTCOME_LABEL["niet_van_toepassing"],
                     "at": now,
-                    "message": "Evaluatie niet beschikbaar voor dit systeem; niets "
-                    "teruggedraaid. Beoordeel het effect zelf.",
+                    "action": "geen",
+                    "message": "Verwijderen of uitschakelen wordt niet geëvalueerd en nooit automatisch "
+                    "teruggedraaid.",
+                    "measures": [],
                 },
                 db,
             )
-            _log("evaluate", "niet_beschikbaar", f"Geen evaluator voor '{ch['target']}'", ch["id"], area, db)
-            counts["niet_beschikbaar"] += 1
+            _log("evaluate", "niet_van_toepassing", f"Niet geëvalueerd: {ch['title']}", ch["id"], area, db)
+            counts["niet_van_toepassing"] += 1
             continue
-        try:
-            result = fn(dict(ch))
-        except Exception as exc:
-            result, msg = "unknown", f"Evaluator gaf een fout: {redact(str(exc))[:300]}"
-        else:
-            msg = ""
-        if result not in RESULTS:
-            result, msg = "unknown", f"Onbekende evaluatie-uitkomst '{result}'"
-        counts[result] += 1
-        if result == "keep":
-            _set_evaluation(
-                ch["id"],
-                {"result": "keep", "at": now, "message": "Effect positief of neutraal; wijziging blijft"},
-                db,
-            )
-            _log("evaluate", "keep", f"Behouden: {ch['title']}", ch["id"], area, db)
-        elif result == "unknown":
-            _set_evaluation(
-                ch["id"],
-                {
-                    "result": "unknown",
-                    "at": now,
-                    "message": msg or "Onvoldoende gegevens om het effect te beoordelen",
-                },
-                db,
-            )
-            _log("evaluate", "unknown", f"Onbeslist: {ch['title']} {msg}".strip(), ch["id"], area, db)
-        else:
-            auto = (
-                sr.get("automation.auto_rollback")
-                and ch.get("applied_by") == ACTOR
-                and state.automation_allowed()
-            )
-            if auto:
-                try:
-                    changes.rollback(ch["id"], ACTOR, reason="negatieve evaluatie", db=db)
-                    _set_evaluation(
-                        ch["id"],
-                        {
-                            "result": "rollback",
-                            "at": now,
-                            "action": "teruggedraaid",
-                            "message": "Negatief effect gemeten; automatisch teruggedraaid",
-                        },
-                        db,
-                    )
-                    _log("evaluate", "rolled_back", f"Teruggedraaid: {ch['title']}", ch["id"], area, db)
-                    continue
-                except Exception as exc:
-                    msg = (
-                        f"Automatisch terugdraaien mislukt: {redact(str(getattr(exc, 'detail', exc)))[:300]}"
-                    )
-            _set_evaluation(
-                ch["id"],
-                {
-                    "result": "rollback",
-                    "at": now,
-                    "action": "voorgesteld",
-                    "message": msg or "Negatief effect gemeten; terugdraaien voorgesteld",
-                },
-                db,
-            )
-            recommend(
-                area or "automation",
-                f"Terugdraaien aanbevolen: {ch['title']}",
-                "De evaluatie na het toepassen wijst op een negatief effect. Controleer en draai de "
-                "wijziging terug via Automatisering.",
-                risk="toestemming_nodig",
-                subject=ch["target"],
-                change_id=ch["id"],
-                dedupe_key=f"automation.rollback:{ch['id']}",
-                evidence={"change_id": ch["id"], "evaluation": "rollback"},
-                db=db,
-            )
-            _log(
-                "evaluate",
-                "rollback_proposed",
-                f"Terugdraaien voorgesteld: {ch['title']}",
-                ch["id"],
-                area,
-                db,
-            )
-            audit(
-                ACTOR,
-                "automation.rollback_proposed",
-                f"Terugdraaien voorgesteld: {ch['title']}",
-                target=ch["target"],
-                change_id=ch["id"],
-            )
+        ev = run_evaluator(ch)
+        outcome = OUTCOME[ev["verdict"]]
+        counts[outcome] += 1
+        detail_line = _measures_line(ev.get("measures") or [])
+        record: dict[str, Any] = {
+            "result": outcome,
+            "label": OUTCOME_LABEL[outcome],
+            "at": now,
+            "evaluator": ev["evaluator"],
+            "measures": ev.get("measures") or [],
+            "windows": ev.get("windows"),
+        }
+        if outcome in ("beter", "gelijk"):
+            record |= {
+                "action": "behouden",
+                "message": ev.get("message")
+                or ("Verbetering gemeten; wijziging blijft." if outcome == "beter"
+                    else "Geen meetbaar verschil binnen de hysterese; wijziging blijft."),
+            }
+            _set_evaluation(ch["id"], record, db)
+            _log("evaluate", outcome, f"{OUTCOME_LABEL[outcome]}: {ch['title']} {detail_line}".strip(),
+                 ch["id"], area, db)
+            continue
+        if outcome == "niet_van_toepassing":
+            record |= {"action": "geen", "message": ev.get("message") or "Deze wijziging wordt niet gemeten."}
+            _set_evaluation(ch["id"], record, db)
+            _log("evaluate", outcome, f"Niet geëvalueerd: {ch['title']}", ch["id"], area, db)
+            continue
+        if outcome == "onvoldoende":
+            record |= {
+                "action": "behouden",
+                "message": ev.get("message") or "Onvoldoende metingen om het effect te beoordelen; niets "
+                "teruggedraaid.",
+            }
+            _set_evaluation(ch["id"], record, db)
+            _log("evaluate", "onvoldoende", f"Onvoldoende data: {ch['title']} {detail_line}".strip(),
+                 ch["id"], area, db)
+            continue
+
+        # slechter
+        reason = "verslechtering gemeten" + (f": {detail_line}" if detail_line else "")
+        enabled, setting_key = auto_rollback_setting(ch)
+        blocker = _no_auto_rollback(ch, ev)
+        msg = ""
+        if enabled and blocker is None and state.automation_allowed():
+            try:
+                changes.rollback(ch["id"], ACTOR, reason=reason[:300], db=db)
+            except Exception as exc:
+                msg = f"Automatisch terugdraaien mislukt: {redact(str(getattr(exc, 'detail', exc)))[:300]}"
+                _log("evaluate", "rollback_failed", f"{msg} ({ch['title']})", ch["id"], area, db)
+            else:
+                record |= {
+                    "action": "teruggedraaid",
+                    "reason": reason,
+                    "setting": setting_key,
+                    "message": f"Slechter gemeten; automatisch teruggedraaid ({setting_key} staat aan).",
+                }
+                _set_evaluation(ch["id"], record, db)
+                audit(
+                    ACTOR,
+                    "change.auto_rolled_back",
+                    f"Automatisch teruggedraaid na controle: {ch['title']} — {reason}"[:500],
+                    target=ch["target"],
+                    change_id=ch["id"],
+                    detail={"reason": reason, "setting": setting_key, "measures": [
+                        {k: m.get(k) for k in ("key", "label", "baseline", "current", "delta_pct", "verdict")}
+                        for m in record["measures"]
+                    ]},
+                )
+                _log("evaluate", "rolled_back", f"Teruggedraaid: {ch['title']} — {reason}", ch["id"], area, db)
+                counts["rolled_back"] += 1
+                continue
+        if not msg:
+            if not enabled:
+                msg = f"Slechter gemeten; automatisch terugdraaien staat uit ({setting_key}). Terugdraaien voorgesteld."
+            elif blocker:
+                msg = f"Slechter gemeten; niet automatisch teruggedraaid: {blocker}. Terugdraaien voorgesteld."
+            else:
+                msg = "Slechter gemeten; automatisering is gepauzeerd of alleen-lezen. Terugdraaien voorgesteld."
+        record |= {"action": "voorgesteld", "reason": reason, "message": msg}
+        _set_evaluation(ch["id"], record, db)
+        recommend(
+            area or "automation",
+            f"Terugdraaien aanbevolen: {ch['title']}",
+            f"De controle na het toepassen meet een verslechtering ({detail_line or 'zie metingen'}). "
+            "Controleer en draai de wijziging terug via Automatisering.",
+            risk="toestemming_nodig",
+            subject=ch["target"],
+            change_id=ch["id"],
+            dedupe_key=f"automation.rollback:{ch['id']}",
+            evidence={"change_id": ch["id"], "evaluation": "slechter", "measures": record["measures"]},
+            db=db,
+        )
+        _log("evaluate", "rollback_proposed", f"Terugdraaien voorgesteld: {ch['title']}", ch["id"], area, db)
+        audit(
+            ACTOR,
+            "automation.rollback_proposed",
+            f"Terugdraaien voorgesteld: {ch['title']} — {reason}"[:500],
+            target=ch["target"],
+            change_id=ch["id"],
+        )
     return counts
+
+
+def evaluation_view(ch: dict[str, Any], db: Database | None = None) -> dict[str, Any]:
+    """Applied (or rolled back) change with its stored evaluation, or a live interim comparison."""
+    db = db or get_db()
+    imp = ch.get("impact") if isinstance(ch.get("impact"), dict) else {}
+    default_h = int(sr.get("automation.evaluation_hours"))
+    due = ch.get("evaluate_after")
+    if due is None and ch.get("applied_at"):
+        due = ch["applied_at"] + timedelta(hours=default_h)
+    out: dict[str, Any] = {
+        k: ch.get(k) for k in ("id", "target", "title", "risk", "status", "applied_at", "applied_by",
+                               "rolled_back_at")
+    }
+    out["evaluate_at"] = due
+    out["applicable"] = not not_evaluable(ch)
+    out["evaluation"] = imp.get("evaluation")
+    out["interim"] = None
+    if out["evaluation"] is None and ch["status"] == "applied":
+        if not out["applicable"]:
+            out["evaluation"] = {
+                "result": "niet_van_toepassing",
+                "label": OUTCOME_LABEL["niet_van_toepassing"],
+                "action": "geen",
+                "message": "Verwijderen of uitschakelen wordt niet geëvalueerd en nooit automatisch teruggedraaid.",
+                "measures": [],
+            }
+        else:
+            ev = run_evaluator(ch, interim=True)
+            out["interim"] = {
+                "result": OUTCOME[ev["verdict"]],
+                "label": OUTCOME_LABEL[OUTCOME[ev["verdict"]]],
+                "evaluator": ev["evaluator"],
+                "measures": ev.get("measures") or [],
+                "message": ev.get("message") or "",
+            }
+    enabled, key = auto_rollback_setting(ch)
+    out["auto_rollback"] = {"enabled": enabled, "setting": key}
+    return out
 
 
 @jobs.handler("automation.apply_safe")

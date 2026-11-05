@@ -12,7 +12,7 @@ from mso.audit import audit
 from mso.auth import Principal, require
 from mso.db import get_db, jsonb
 from mso.domain import categories
-from mso.features.recovery import actions, baseline, blacklist, candidates
+from mso.features.recovery import actions, baseline, blacklist, candidates, fallback
 from mso.features.recovery import tasks as _tasks  # noqa: F401  (registers job + schedule)
 
 router = APIRouter(prefix="/api/v1/recovery", tags=["recovery"])
@@ -323,6 +323,27 @@ def get_sends(
     limit: int = Query(100, ge=1, le=1000), _: Principal = Depends(require("viewer"))
 ) -> dict[str, Any]:
     return {"items": actions.sends(None, limit)}
+
+
+# ------------------------------------------------------------------ failed downloads → fallback proposals
+@router.get("/fallbacks")
+def get_fallbacks(
+    limit: int = Query(100, ge=1, le=500), _: Principal = Depends(require("viewer"))
+) -> dict[str, Any]:
+    """Failed downloads the analysis job looked at: mapping, skip reason, linked change set."""
+    from mso import settings_registry as sr
+    from mso.features.mediaguard import service as mg
+
+    return {
+        "items": fallback.list_fallbacks(limit),
+        "settings": {
+            "fallback_on_failure": bool(sr.get("recovery.fallback_on_failure")),
+            "auto_send_fallback": bool(sr.get("recovery.auto_send_fallback")),
+            "allow_manual_send_connected": bool(sr.get("herstel.allow_manual_send_connected")),
+            "searches_per_run": int(sr.get("recovery.fallback_searches_per_run")),
+        },
+        "mediaguard_mode": mg.mode(),
+    }
 
 
 # ------------------------------------------------------------------ blacklist

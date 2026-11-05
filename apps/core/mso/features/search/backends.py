@@ -13,12 +13,16 @@ leaf nodes in the origin graph (they never call Prowlarr or MSO back) unless ``e
 releases (an RSS-style listing). Prowlarr validates a newly added Newznab/Torznab indexer with exactly such a
 query, so MSO only offers to register itself in Prowlarr when at least one backend can answer it.
 ``active`` (optional) says whether the backend is switched on right now (e.g. an opt-in feature).
+``fetch`` (optional) ``fn(release_cache_row: dict) -> Fetched`` builds the NZB/.torrent for a cached result
+of this backend that has no download URL (e.g. an NZB assembled from the header index); used by
+``service.fetch_download`` (sending from MSO and grabs through the Newznab endpoint).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from mso.domain.release import NormalizedRelease
 from mso.features.search.models import SearchQuery, SourceError  # noqa: F401  (re-export)
@@ -38,6 +42,7 @@ class Backend:
     edges_to: tuple[str, ...] = ()  # origin-graph nodes this backend itself may query
     rss: bool = False  # answers a text-less query with the latest releases
     active: Callable[[], bool] | None = None  # None = always on
+    fetch: Callable[[dict[str, Any]], Any] | None = None  # cached row without download URL -> Fetched
 
     def is_active(self) -> bool:
         if self.active is None:
@@ -63,6 +68,7 @@ def register_backend(
     edges_to: tuple[str, ...] | list[str] = (),
     rss: bool = False,
     active: Callable[[], bool] | None = None,
+    fetch: Callable[[dict[str, Any]], Any] | None = None,
 ) -> Backend:
     sid = source_id or (name if ":" in name else f"{name}:default")
     b = Backend(
@@ -76,6 +82,7 @@ def register_backend(
         edges_to=tuple(edges_to),
         rss=rss,
         active=active,
+        fetch=fetch,
     )
     BACKENDS[name] = b
     return b

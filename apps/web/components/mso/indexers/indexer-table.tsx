@@ -3,7 +3,7 @@
 import { CircleSlash, Pencil, PlugZap, Repeat, Trash2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
-import { Confidence, DangerDialog } from "@/components/mg/domain";
+import { DangerDialog } from "@/components/mg/domain";
 import { Button, StatusChip, type Tone } from "@/components/mg/primitives";
 import { useToast } from "@/components/mg/toast";
 import { DirectIndexerDialog } from "@/components/mso/indexers/direct-dialog";
@@ -84,6 +84,13 @@ const SCOPE_SOURCE: Record<string, { label: MessageKey; help: MessageKey }> = {
   derived: { label: "idx.scopeSource.derived", help: "idx.scopeSource.derivedHelp" },
   default: { label: "idx.scopeSource.default", help: "idx.scopeSource.defaultHelp" },
 };
+
+/** Reliability is stored as 0..1; shown as a percentage with a bar (colour always with the number). */
+function Reliability({ value }: { value: number }) {
+  const { pct } = useI18n();
+  const color = value < 0.6 ? "var(--mg-danger)" : value < 0.85 ? "var(--mg-warning)" : "var(--mg-success)";
+  return <span className="confidence">{pct(value * 100)}<span className="bar"><span style={{ width: `${Math.round(value * 100)}%`, background: color }} /></span></span>;
+}
 
 export function IndexerTable({ items, protocol, reload }: { items: IndexerSource[]; protocol: Protocol; reload: () => void | Promise<void> }) {
   const { t, num } = useI18n();
@@ -171,7 +178,7 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
                 </td>
                 <td data-label={t("idx.col.status")}><StatusCell s={s} /></td>
                 <td data-label={t("idx.col.reliability")}>
-                  {s.reliability !== null ? <Confidence value={s.reliability} tone={s.reliability < 0.6 ? "danger" : s.reliability < 0.85 ? "warning" : "success"} />
+                  {s.reliability !== null ? <Reliability value={s.reliability} />
                     : <span className="t-3" style={{ fontSize: 12 }}>{t("idx.notEnoughData")}</span>}
                   {rel ? <div className="cell-sub">{t("idx.samples", { n: num(rel.samples), fp: num(rel.false_positives) })}</div> : null}
                 </td>

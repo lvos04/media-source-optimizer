@@ -9,7 +9,8 @@ Storage is accounted as row bytes (``pg_column_size``) × ``INDEX_FACTOR`` for i
 is reported separately (PostgreSQL reuses freed space after VACUUM but does not shrink the file).
 
 This index does NOT replace an indexer or a provider: it only sees subjects in a few groups for a short
-window, cannot build NZBs, and obfuscated posts are unrecognisable.
+window (NZBs built from it contain only the indexed articles and can be incomplete), and obfuscated posts are
+unrecognisable.
 """
 
 from __future__ import annotations
@@ -439,50 +440,77 @@ def status() -> dict[str, Any]:
 
 
 DISCLAIMER = (
-    "Een eigen header-index vervangt geen indexer of provider: hij ziet alleen onderwerpen in "
-    "de toegestane groepen binnen een korte periode, maakt geen NZB's en kan geobfusceerde "
-    "posts niet herkennen."
+    "Een eigen header-index is een kleine eigen bron en vervangt geen indexer of provider: hij ziet alleen "
+    "onderwerpen in de toegestane groepen binnen een korte periode, kan geobfusceerde posts niet herkennen, en "
+    "NZB's die MSO eruit opbouwt bevatten alleen de geïndexeerde artikelen (mogelijk onvolledig)."
 )
 
 
 # ------------------------------------------------------------------ search
-def search(q: str, *, limit: int = 50) -> list[NormalizedRelease]:
+def categories_for(parsed: Any) -> list[int]:
+    """Newznab categories derived from the parsed title only (headers carry no category). Episodic → TV,
+    a year without episode numbering → Movies, anime-style naming → TV/Anime; unknown → []."""
+    from mso.domain import categories as C
+    from mso.domain.release import is_episodic
+
+    res = parsed.resolution or 0
+    if parsed.anime_style:
+        return [C.TV_ANIME]
+    if is_episodic(parsed) or parsed.season is not None:
+        return [C.TV, C.TV_UHD if res >= 2160 else C.TV_HD if res >= 720 else C.TV_SD]
+    if parsed.year:
+        return [C.MOVIES, C.MOVIES_UHD if res >= 2160 else C.MOVIES_HD if res >= 720 else C.MOVIES_SD]
+    return []
+
+
+def search(q: str | None, *, limit: int = 50, offset: int = 0) -> list[NormalizedRelease]:
+    """Text search over non-obfuscated collections; an empty ``q`` returns the latest indexed, recognisable
+    releases (RSS-style listing, newest first). One result per collection (release name)."""
     if not enabled():
         return []
     tokens = [t for t in re.findall(r"[A-Za-z0-9]{2,}", q or "")][:6]
-    if not tokens:
+    if q and q.strip() and not tokens:
         return []
-    where = " AND ".join(["lower(release_name) LIKE %s"] * len(tokens))
-    params: list[Any] = [f"%{t.lower()}%" for t in tokens]
+    where = ["NOT obfuscated"]
+    params: list[Any] = []
+    for t in tokens:
+        where.append("lower(release_name) LIKE %s")
+        params.append(f"%{t.lower()}%")
+    having = "" if tokens else "HAVING bool_or(usable) "
     rows = get_db().fetchall(
-        "SELECT min(release_name) AS name, min(message_id) AS mid, min(grp) AS grp, sum(bytes) AS bytes, "
-        "count(*) AS articles, min(posted_at) AS posted FROM usenet_hi_headers "
-        f"WHERE NOT obfuscated AND {where} GROUP BY lower(release_name) ORDER BY min(posted_at) DESC NULLS "
-        f"LAST "
-        "LIMIT %s",
-        (*params, max(1, min(limit, 200))),
+        "SELECT lower(release_name) AS key, min(release_name) AS name, min(message_id) AS mid, "
+        "array_agg(DISTINCT grp) AS groups, sum(bytes) AS bytes, count(*) AS articles, "
+        "max(posted_at) AS posted, min(subject) AS subject FROM usenet_hi_headers "
+        f"WHERE {' AND '.join(where)} GROUP BY lower(release_name) {having}"
+        "ORDER BY max(coalesce(posted_at, inserted_at)) DESC NULLS LAST LIMIT %s OFFSET %s",
+        (*params, max(1, min(limit, 200)), max(0, offset)),
     )
     slug = str(sr.get(f"{HI}.provider"))
     out = []
     for r in rows:
         name = r["name"]
+        parsed = parse_title(name)
         out.append(
             NormalizedRelease(
                 protocol="usenet",
                 source_id=source_id(slug),
                 origin="header_index",
                 title=name,
-                guid="hi:" + hashlib.sha1(name.lower().encode(), usedforsecurity=False).hexdigest()[:20],
+                guid="hi:" + hashlib.sha1(r["key"].encode(), usedforsecurity=False).hexdigest()[:20],
                 message_id=r["mid"],
                 size_bytes=int(r["bytes"] or 0) or None,
                 publish_date=r["posted"],
+                categories=categories_for(parsed),
                 confidence=0.2,
                 ttl_s=600,
-                parsed=parse_title(name),
+                parsed=parsed,
                 extra={
                     "articles": int(r["articles"]),
-                    "group": r["grp"],
-                    "note": "Uit eigen header-index: geen NZB beschikbaar, alleen ter oriëntatie",
+                    "group": (r["groups"] or [None])[0],
+                    "groups": sorted(g for g in (r["groups"] or []) if g),
+                    "hi_collection": r["key"],
+                    "note": "Uit eigen header-index: NZB wordt opgebouwd uit de geïndexeerde berichtkoppen en kan "
+                    "onvolledig zijn",
                 },
             )
         )

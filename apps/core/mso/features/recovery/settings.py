@@ -112,3 +112,37 @@ sr.define(
     category=CAT,
     advanced=True,
 )
+sr.define(
+    "recovery.fallback_on_failure",
+    "Na mislukte download een vervanger zoeken",
+    "bool",
+    True,
+    category=CAT,
+    risk="advies",
+    help="Bij een mislukte download (SABnzbd/qBittorrent) zet MSO de release op de blacklist, zoekt een "
+    "vervanger die aan alle MediaGuard-eisen voldoet en maakt daar een wijzigingsvoorstel van. Verstuurt "
+    "zelf niets zonder goedkeuring.",
+)
+sr.define(
+    "recovery.fallback_searches_per_run",
+    "Zoekopdrachten per ronde (mislukte downloads)",
+    "int",
+    5,
+    min=1,
+    max=50,
+    category=CAT,
+    advanced=True,
+    help="Beperkt het aantal indexer-zoekopdrachten per analyse-ronde (elke 30 minuten).",
+)
+sr.define(
+    "recovery.auto_send_fallback",
+    "Vervanger automatisch versturen",
+    "bool",
+    False,
+    category=CAT,
+    risk="toestemming_nodig",
+    help="Standaard uit: elk voorstel 'Versturen naar SABnzbd/qBittorrent' vraagt goedkeuring. Aan: nieuwe "
+    "voorstellen krijgen risico 'automatisch veilig' en worden door Automatisering verstuurd (alleen in "
+    "beheermodus, met 'Automatisch veilig toepassen: Ontbrekend & herstel' aan, binnen de limieten per uur). "
+    "Versturen kan niet worden teruggedraaid.",
+)

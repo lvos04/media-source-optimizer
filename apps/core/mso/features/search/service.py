@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import secrets
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
@@ -64,6 +65,51 @@ MISMATCH_FLAGS = {
     "nummering_ontbreekt",
 }
 PROWLARR_FAILURE_SLACK_S = 5  # Prowlarr's mostRecentFailure may be stamped slightly before our request
+PROWLARR_PARALLEL = 2  # Prowlarr keeps working on a search after we gave up: never pile up more than this
+_PROWLARR_SLOTS = threading.BoundedSemaphore(PROWLARR_PARALLEL)
+
+
+class SearchBusy(Exception):
+    """The user already has the maximum number of (different) searches running."""
+
+
+@dataclass
+class _Flight:
+    """An in-flight search that identical requests wait for instead of starting their own (coalescing)."""
+
+    done: threading.Event = field(default_factory=threading.Event)
+    result: SearchResult | None = None
+    error: BaseException | None = None
+
+
+_FLIGHTS: dict[str, _Flight] = {}
+_ACTIVE_BY_ACTOR: dict[str, int] = {}
+_FLIGHT_LOCK = threading.Lock()
+
+
+@dataclass
+class _Timing:
+    """Time budget of one search. ``prowlarr_first`` = Prowlarr's first attempt; one automatic retry with a longer
+    time-out happens only when the remaining budget allows a strictly longer attempt."""
+
+    timeout: float
+    prowlarr_first: float
+    prowlarr_retry: float
+    budget: float
+    auto_retry: bool
+    started: float = field(default_factory=time.monotonic)
+
+    def remaining(self) -> float:
+        return self.budget - (time.monotonic() - self.started)
+
+
+def timing(*, slow: bool = False) -> _Timing:
+    timeout = float(S.get("search.timeout_s", 15))
+    retry = max(timeout, float(S.get("search.prowlarr_retry_timeout_s", 45)))
+    budget = max(timeout, float(S.get("search.time_budget_s", 35)))
+    if slow:  # user asked "opnieuw proberen" after a slow Prowlarr: one long attempt, no extra retry
+        return _Timing(timeout, retry, retry, max(budget, retry + 2), auto_retry=False)
+    return _Timing(timeout, timeout, retry, budget, auto_retry=bool(S.get("search.prowlarr_auto_retry", True)))
 
 
 @dataclass
@@ -108,7 +154,7 @@ def _scope_ok(query: SearchQuery, scopes: tuple[str, ...] | list[str]) -> bool:
 
 # ------------------------------------------------------------------ planning
 def _plan(
-    query: SearchQuery, trace: origin.Trace, allowed_kinds: set[str] | None
+    query: SearchQuery, trace: origin.Trace, allowed_kinds: set[str] | None, tm: _Timing | None = None
 ) -> tuple[list[_Task], list[SourceReport]]:
     from mso.features.indexers import registry
 
@@ -116,7 +162,8 @@ def _plan(
     sources = _source_rows()
     tasks: list[_Task] = []
     skipped: list[SourceReport] = []
-    timeout = float(S.get("search.timeout_s", 15))
+    tm = tm or timing()
+    timeout = tm.timeout
     per_source = int(S.get("search.per_source_limit", 100))
 
     # Prowlarr hub
@@ -247,8 +294,8 @@ def _plan(
                     mso_ids: set[int] = mso_ids,
                     detail: dict[str, Any] = detail,
                 ) -> list[NormalizedRelease]:
-                    return _search_prowlarr(
-                        query, trace, ids, privates, mso_ids, timeout, per_source, detail=detail
+                    return _prowlarr_with_retry(
+                        query, trace, ids, privates, mso_ids, tm, per_source, detail=detail
                     )
 
                 tasks.append(
@@ -309,6 +356,45 @@ def _plan(
             continue
         tasks.append(_Task(b.source_id, b.label, b.scopes, lambda b=b: b.fn(query), target=b.source_id))
     return tasks, skipped
+
+
+def _prowlarr_with_retry(
+    query: SearchQuery,
+    trace: origin.Trace,
+    ids: list[int] | None,
+    privates: set[int],
+    mso_ids: set[int],
+    tm: _Timing,
+    limit: int,
+    *,
+    detail: dict[str, Any],
+) -> list[NormalizedRelease]:
+    """At most ``PROWLARR_PARALLEL`` Prowlarr searches at once (a timed-out search keeps Prowlarr busy, so
+    firing more only makes every later search slower), then one attempt plus — when Prowlarr timed out and the
+    time budget allows a strictly longer attempt — one automatic retry with a longer time-out."""
+    wait_s = max(0.5, tm.remaining() - 2)
+    if not _PROWLARR_SLOTS.acquire(timeout=wait_s):
+        detail["busy"] = True
+        raise SourceError(
+            "timeout",
+            "Prowlarr is nog bezig met eerdere zoekopdrachten (die lopen in Prowlarr door na een time-out); "
+            "probeer het zo opnieuw",
+        )
+    try:
+        first = min(tm.prowlarr_first, max(2.0, tm.remaining() - 1))
+        detail["timeouts"] = [round(first)]
+        try:
+            return _search_prowlarr(query, trace, ids, privates, mso_ids, first, limit, detail=detail)
+        except SourceError as exc:
+            longer = min(tm.prowlarr_retry, tm.remaining() - 1)
+            if exc.status != "timeout" or not tm.auto_retry or longer <= first:
+                raise
+            detail["timeouts"].append(round(longer))
+            detail["retried"] = True
+            LOGGER.info("Prowlarr time-out na %.0f s; opnieuw met %.0f s", first, longer)
+            return _search_prowlarr(query, trace, ids, privates, mso_ids, longer, limit, detail=detail)
+    finally:
+        _PROWLARR_SLOTS.release()
 
 
 def _search_prowlarr(
@@ -774,6 +860,26 @@ def _order_reports(reports: list[SourceReport]) -> list[SourceReport]:
 
 
 # ------------------------------------------------------------------ main entry
+def _flight_key(
+    query: SearchQuery, allowed_kinds: set[str] | None, sort: str, slow: bool
+) -> str:
+    return "|".join(
+        [
+            query.fingerprint(),
+            query.kind,
+            query.media_category or "",
+            ",".join(sorted(query.protocols or [])),
+            ",".join(query.languages or []),
+            ",".join(str(c) for c in (query.newznab_cats or [])),
+            ",".join(sorted(allowed_kinds)) if allowed_kinds is not None else "*",
+            sort,
+            str(query.limit),
+            str(query.offset),
+            "slow" if slow else "",
+        ]
+    )
+
+
 def search(
     query: SearchQuery,
     *,
@@ -782,14 +888,73 @@ def search(
     origin_trace: origin.Trace | None = None,
     allowed_kinds: set[str] | None = None,
     sort: str = "relevance",
+    slow: bool = False,
+    per_actor_limit: int | None = None,
 ) -> SearchResult:
     """Fan out, merge and page. ``trace`` = origin nodes already visited before this node (anti-loop);
-    ``origin_trace`` is the full inbound trace from the Newznab server. Raises origin.LoopRefused."""
+    ``origin_trace`` is the full inbound trace from the Newznab server. Raises origin.LoopRefused.
+
+    Identical searches that are already running are coalesced: the caller waits for that result instead of
+    starting another fan-out (requests carrying an origin trace — Newznab/anti-loop — are never coalesced).
+    ``per_actor_limit``: at most that many *different* searches per actor at once (raises SearchBusy).
+    ``slow``: the user asked to retry after a slow Prowlarr — one attempt with the longer Prowlarr time-out."""
     if query.media_category and query.media_category not in C.CATEGORIES:
         raise ValueError(f"onbekende categorie {query.media_category}")
+    if origin_trace is not None or trace:
+        return _search(query, trace=trace, origin_trace=origin_trace, allowed_kinds=allowed_kinds, sort=sort,
+                       slow=slow)
+    key = _flight_key(query, allowed_kinds, sort, slow)
+    with _FLIGHT_LOCK:
+        flight = _FLIGHTS.get(key)
+        leader = flight is None
+        if leader:
+            if per_actor_limit is not None and _ACTIVE_BY_ACTOR.get(actor, 0) >= per_actor_limit:
+                raise SearchBusy(
+                    f"Je hebt al {per_actor_limit} zoekopdracht(en) lopen; wacht tot die klaar zijn"
+                )
+            flight = _FLIGHTS[key] = _Flight()
+            _ACTIVE_BY_ACTOR[actor] = _ACTIVE_BY_ACTOR.get(actor, 0) + 1
+    assert flight is not None
+    if not leader:
+        if not flight.done.wait(timeout=timing(slow=slow).budget + 30):
+            raise TimeoutError("Een gelijke zoekopdracht loopt nog; probeer het zo opnieuw")
+        if flight.error is not None:
+            raise flight.error
+        assert flight.result is not None
+        res = flight.result
+        return SearchResult(list(res.items), list(res.sources), res.trace_id, res.total, res.offset, res.limit,
+                            list(res.trace))
+    try:
+        flight.result = _search(query, trace=None, origin_trace=None, allowed_kinds=allowed_kinds, sort=sort,
+                                slow=slow)
+        return flight.result
+    except BaseException as exc:
+        flight.error = exc
+        raise
+    finally:
+        with _FLIGHT_LOCK:
+            _FLIGHTS.pop(key, None)
+            n = _ACTIVE_BY_ACTOR.get(actor, 1) - 1
+            if n > 0:
+                _ACTIVE_BY_ACTOR[actor] = n
+            else:
+                _ACTIVE_BY_ACTOR.pop(actor, None)
+        flight.done.set()
+
+
+def _search(
+    query: SearchQuery,
+    *,
+    trace: list[str] | None,
+    origin_trace: origin.Trace | None,
+    allowed_kinds: set[str] | None,
+    sort: str,
+    slow: bool,
+) -> SearchResult:
     tr = origin_trace or origin.start(trace)
-    tasks, reports = _plan(query, tr, allowed_kinds)
-    timeout = float(S.get("search.timeout_s", 15))
+    tm = timing(slow=slow)
+    tasks, reports = _plan(query, tr, allowed_kinds, tm)
+    timeout = tm.timeout
     results: dict[str, list[NormalizedRelease]] = {}
     by_task: dict[str, SourceReport] = {}
     if tasks:
@@ -799,7 +964,10 @@ def search(
         for t in tasks:
             started[t.source_id] = time.monotonic()
             futures[pool.submit(t.run)] = t
-        done, not_done = wait(futures, timeout=timeout + 5)
+        # Prowlarr may retry once within the budget; other sources are bounded by their own time-out.
+        has_prowlarr = any(t.source_id == "prowlarr" for t in tasks)
+        overall = max(timeout + 5, tm.remaining() + 2) if has_prowlarr else timeout + 5
+        done, not_done = wait(futures, timeout=overall)
         for fut, t in futures.items():
             latency = int((time.monotonic() - started[t.source_id]) * 1000)
             if fut in not_done:
@@ -808,7 +976,7 @@ def search(
                     t.label,
                     "timeout",
                     latency_ms=latency,
-                    message=f"Geen antwoord binnen {timeout:.0f} s",
+                    message=f"Geen antwoord binnen {latency / 1000:.0f} s",
                 )
                 continue
             try:
@@ -854,7 +1022,22 @@ def search(
     for t in tasks:
         rep = by_task[t.source_id]
         if t.source_id == "prowlarr":
-            rep.message = _slow_note(rep, timeout, sources, t.detail) + rep.message
+            note = _slow_note(rep, timeout, sources, t.detail)
+            rep.message = note + rep.message
+            tried = t.detail.get("timeouts") or []
+            if t.detail.get("retried"):
+                if rep.status == "timeout":
+                    rep.message = (
+                        f"Prowlarr reageert traag: geen antwoord binnen {tried[0]} s en ook niet na automatisch "
+                        f"opnieuw proberen met {tried[-1]} s. " + note
+                    ).strip()
+                else:
+                    rep.message = (
+                        f"Na automatisch opnieuw proberen met ruimere time-out ({tried[-1]} s; eerste poging "
+                        f"{tried[0]} s verliep). " + rep.message
+                    ).strip()
+            elif rep.status == "timeout" and not t.detail.get("busy") and tried:
+                rep.message = (f"Prowlarr reageert traag: geen antwoord binnen {tried[0]} s. " + note).strip()
         reports.append(rep)
         _record(rep)
         if t.source_id == "prowlarr" and rep.status in ("ok", "empty"):
@@ -899,6 +1082,12 @@ def fetch_download(token: str) -> Fetched:
     row = get_cached(token)
     if row is None:
         raise LookupError("Resultaat niet (meer) beschikbaar; zoek opnieuw")
+    if not row["download_url"] and not row["magnet"]:
+        from mso.features.search.backends import BACKENDS
+
+        for b in list(BACKENDS.values()):
+            if b.fetch is not None and b.source_id == row["source_id"]:
+                return b.fetch(dict(row))
     if row["download_url"]:
         url = fill_secret(row["download_url"], _source_secret(row["source_id"]))
         cap = MAX_NZB_BYTES if row["protocol"] == "usenet" else MAX_TORRENT_BYTES

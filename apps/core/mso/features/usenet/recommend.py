@@ -177,6 +177,7 @@ def suggestions(period_days: int = 30) -> dict[str, Any]:
                     + (" (volgens SABnzbd)" if sab_bad == status and own_bad != status else ""),
                 }
             )
+    disable_ops = [o for o in ops if o["path"].endswith("/enable") and o["after"] == 0]
     if issues:
         notes.insert(
             0,
@@ -245,6 +246,12 @@ def suggestions(period_days: int = 30) -> dict[str, Any]:
         "notes": notes,
         "insights": insights,
         "issues": issues,
+        # one-click proposal "Voorstel: N kapotte servers uitschakelen" (POST /recommendations/disable-failing)
+        "disable": {
+            "count": len(disable_ops),
+            "ops": disable_ops,
+            "servers": [o["path"].split("/", 1)[1].rsplit("/", 1)[0] for o in disable_ops],
+        },
         "servers": [
             {**s, "provider": next((p["slug"] for p in linked if p["sab_server"] == s["name"]), None)}
             for s in sorted(servers, key=lambda s: s["priority"])
@@ -311,10 +318,14 @@ def propose(actor: str, ops: list[dict[str, Any]] | None = None, period_days: in
     key = hashlib.sha256(
         json.dumps([(o["path"], o["after"]) for o in ops], sort_keys=True).encode()
     ).hexdigest()[:16]
+    if any(_is_disable(o) for o in ops):
+        explanation += (
+            " Servers uitschakelen (enable 1 → 0) vereist goedkeuring; terugdraaien zet ze weer aan."
+        )
     change = changes.create(
         "sabnzbd",
         "Usenet-serverprioriteiten aanpassen",
-        [{k: o[k] for k in ("path", "label", "before", "after")} for o in ops],
+        [_op(o) for o in ops],
         risk="toestemming_nodig",
         explanation=explanation,
         impact={
@@ -337,3 +348,73 @@ def propose(actor: str, ops: list[dict[str, Any]] | None = None, period_days: in
         evidence={"ops": [{"label": o["label"], "after": o["after"]} for o in ops]},
     )
     return change
+
+
+def _is_disable(op: dict[str, Any]) -> bool:
+    return str(op.get("path", "")).endswith("/enable") and op.get("after") == 0
+
+
+def _op(o: dict[str, Any]) -> dict[str, Any]:
+    """Change-set op; switching a server off is flagged ``destructive`` (approval required, never automatic)."""
+    out = {k: o[k] for k in ("path", "label", "before", "after")}
+    if _is_disable(o):
+        out["destructive"] = True
+    return out
+
+
+def propose_disable(actor: str) -> dict[str, Any]:
+    """One change set that switches off every enabled SABnzbd server that fails on login/account (expired,
+    login refused, access denied, block used up). Risk ``toestemming_nodig``: preview → approve → apply; each
+    write is verified by reading SABnzbd's config back; rollback sets ``enable`` back to 1."""
+    s = suggestions()
+    ops = s["disable"]["ops"]
+    if not ops:
+        raise HTTPException(409, detail="Geen kapotte, ingeschakelde SABnzbd-servers om uit te schakelen")
+    by_server = {i["server"]: i for i in s["issues"]}
+    lines = []
+    for o in ops:
+        server = o["path"].split("/", 1)[1].rsplit("/", 1)[0]
+        i = by_server.get(server) or {}
+        msg = f' (SABnzbd: "{i["message"]}")' if i.get("message") else ""
+        lines.append(f"{i.get('name') or server}: {(i.get('label') or o.get('reason') or 'faalt').lower()}{msg}")
+    n = len(ops)
+    title = f"{n} kapotte server{'s' if n != 1 else ''} uitschakelen in SABnzbd"
+    explanation = (
+        "Uitschakelen: " + "; ".join(lines) + ". Zolang deze servers aanstaan probeert SABnzbd ze bij elke "
+        "download, wat fouten en vertraging geeft en ontbrekende artikelen niet aanvult. MSO zet per server "
+        "'enable' van 1 op 0 in SABnzbd en leest daarna de SABnzbd-configuratie terug om te controleren dat de "
+        "server echt uit staat. Terugdraaien zet 'enable' weer op 1. Er wordt niets verwijderd en geen "
+        "abonnement opgezegd."
+    )
+    key = hashlib.sha256(json.dumps(sorted(o["path"] for o in ops)).encode()).hexdigest()[:16]
+    change = changes.create(
+        "sabnzbd",
+        title,
+        [_op(o) for o in ops],
+        risk="toestemming_nodig",
+        explanation=explanation,
+        impact={
+            "servers": [o["path"].split("/", 1)[1].rsplit("/", 1)[0] for o in ops],
+            "statuses": {i["server"]: i["status"] for i in s["issues"] if _is_disable_target(i, ops)},
+            "rollback": "enable weer op 1",
+            "reasons": [o.get("reason") for o in ops if o.get("reason")],
+        },
+        source="usenet.disable_failing",
+        actor=actor,
+        dedupe_key=f"usenet.disable_failing:{key}",
+    )
+    outcomes.recommend(
+        "usenet",
+        title,
+        explanation,
+        risk="toestemming_nodig",
+        subject="sabnzbd",
+        change_id=change["id"],
+        dedupe_key=f"usenet.disable_failing:{key}",
+        evidence={"servers": change["impact"].get("servers") if isinstance(change.get("impact"), dict) else None},
+    )
+    return change
+
+
+def _is_disable_target(issue: dict[str, Any], ops: list[dict[str, Any]]) -> bool:
+    return any(o["path"] == f"servers/{issue['server']}/enable" for o in ops)

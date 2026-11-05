@@ -106,6 +106,100 @@ sr.define(
     help="Onder deze dekking geeft MSO geen volgorde-advies op basis van beschikbaarheid.",
 )
 
+sr.define(
+    "usenet.server_error_reminder_days",
+    "Herinnering bij serverfouten na",
+    "int",
+    3,
+    min=1,
+    max=60,
+    unit="dagen",
+    category=CAT,
+    help="Meldt SABnzbd langer dan dit aantal dagen fouten voor een ingeschakelde server, dan maakt MSO een "
+    "herinnering (vernieuwen, inloggegevens controleren of uitschakelen). Bij 'Account verlopen' komt de "
+    "herinnering meteen.",
+)
+
+# ------------------------------------------------------------------ automatic availability sample after sending
+sr.define(
+    "usenet.auto_sample_after_send",
+    "Beschikbaarheid automatisch meten na versturen",
+    "bool",
+    True,
+    category=CAT,
+    help="Na elke NZB die MSO zelf naar SABnzbd stuurt controleert MSO een kleine steekproef van precies die "
+    "artikelen met STAT bij elke provider met inloggegevens in MSO: 1 verbinding per provider, binnen de "
+    "dag- en maandbudgetten hieronder. STAT downloadt geen artikelinhoud.",
+)
+sr.define(
+    "usenet.auto_sample_size",
+    "Artikelen per automatische steekproef",
+    "int",
+    25,
+    min=5,
+    max=200,
+    category=CAT,
+    help="Aantal message-id's per provider per verstuurde NZB (gespreid over alle bestanden).",
+)
+sr.define(
+    "usenet.stat_budget_daily_connections",
+    "STAT-budget: verbindingen per provider per dag",
+    "int",
+    24,
+    min=1,
+    max=1000,
+    category=CAT,
+    help="Alleen voor automatische steekproeven; expliciete tests tellen mee maar worden niet geblokkeerd.",
+)
+sr.define(
+    "usenet.stat_budget_daily_commands",
+    "STAT-budget: commando's per provider per dag",
+    "int",
+    1000,
+    min=10,
+    max=100000,
+    category=CAT,
+)
+sr.define(
+    "usenet.stat_budget_daily_kb",
+    "STAT-budget: dataverkeer per provider per dag",
+    "int",
+    512,
+    min=16,
+    max=102400,
+    unit="KB",
+    category=CAT,
+    help="STAT is klein (~100 bytes per commando en antwoord).",
+)
+sr.define(
+    "usenet.stat_budget_monthly_connections",
+    "STAT-budget: verbindingen per provider per maand",
+    "int",
+    300,
+    min=1,
+    max=20000,
+    category=CAT,
+)
+sr.define(
+    "usenet.stat_budget_monthly_commands",
+    "STAT-budget: commando's per provider per maand",
+    "int",
+    15000,
+    min=10,
+    max=2000000,
+    category=CAT,
+)
+sr.define(
+    "usenet.stat_budget_monthly_kb",
+    "STAT-budget: dataverkeer per provider per maand",
+    "int",
+    8192,
+    min=16,
+    max=2000000,
+    unit="KB",
+    category=CAT,
+)
+
 # ------------------------------------------------------------------ optional header index (opt-in)
 HI = "usenet.headerindex"
 sr.define(

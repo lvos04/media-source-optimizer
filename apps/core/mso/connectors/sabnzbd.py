@@ -437,25 +437,27 @@ def _test(cfg: cb.ConnectorConfig) -> cb.TestResult:
                 if exc.code == "auth":
                     return cb.TestResult(False, "auth_failed", str(exc), version=version)
                 modes[mode] = False
-        try:  # SABnzbd's own per-server errors (shown, not a connector failure)
-            from mso.features.usenet.serverstatus import classify_message
-
-            live = client.server_status()
-            if live is not None:
-                modes["status"] = True
-                info["servers_failing"] = sum(1 for s in live if s["error"] and classify_message(s["error"]))
-        except SabError:
-            modes["status"] = False
-        except ImportError:  # feature module disabled
-            pass
+        # SABnzbd's own per-server errors (shown, not a connector failure). Same evaluation as the
+        # Usenet-providers page: live ``servererror`` from mode=status AND SABnzbd's warning list. (1.3.1 only
+        # counted ``servererror``; SABnzbd clears that after its retry pause while the warnings still report
+        # "502 Authentication Failed"/"482 Account expired", so the test showed no failing servers.)
+        failing = _failing_servers(client, modes)
+        if failing is not None:
+            info["servers_failing"] = len(failing)
+            info["failing_servers"] = failing
         latency = int((time.monotonic() - start) * 1000)
     failed = [m for m, ok in modes.items() if not ok]
     caps = {"modes": modes, **info}
+    failing_note = (
+        f" · {info['servers_failing']} server(s) melden fouten (zie Usenet-providers)"
+        if info.get("servers_failing")
+        else ""
+    )
     if failed:
         return cb.TestResult(
             True,
             "degraded",
-            f"SABnzbd {version} bereikbaar; niet beschikbaar: {', '.join(failed)}",
+            f"SABnzbd {version} bereikbaar; niet beschikbaar: {', '.join(failed)}" + failing_note,
             version=version,
             capabilities=caps,
             latency_ms=latency,
@@ -464,15 +466,39 @@ def _test(cfg: cb.ConnectorConfig) -> cb.TestResult:
         True,
         "healthy",
         f"SABnzbd {version} · {info.get('servers', 0)} server(s), {info.get('categories', 0)} categorieën"
-        + (
-            f" · {info['servers_failing']} server(s) melden fouten (zie Usenet-providers)"
-            if info.get("servers_failing")
-            else ""
-        ),
+        + failing_note,
         version=version,
         capabilities=caps,
         latency_ms=latency,
     )
+
+
+def _failing_servers(client: SabClient, modes: dict[str, bool]) -> list[str] | None:
+    """Enabled servers SABnzbd currently reports as failing (status + warnings), or ``None`` when the feature
+    module is disabled / SABnzbd offers neither source."""
+    try:
+        from mso.features.usenet.serverstatus import FAILING, evaluate
+    except ImportError:  # feature module disabled
+        return None
+    try:
+        servers = client.servers()
+    except SabError:
+        return None
+    try:
+        live = client.server_status()
+        if live is not None:
+            modes["status"] = True
+    except SabError:
+        live = None
+        modes["status"] = False
+    try:
+        warns = client.warnings()
+    except SabError:
+        warns = []
+    if live is None and not warns:
+        return None
+    states = evaluate(servers, live, warns)
+    return sorted(st["displayname"] for st in states if st["enabled"] and st["status"] in FAILING)
 
 
 cb.register(

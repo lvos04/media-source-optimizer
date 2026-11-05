@@ -205,7 +205,9 @@ def _handle(request: Request, *, torznab: bool) -> Response:
         )
     except origin.LoopRefused as exc:
         return _err(900, f"{exc.code}: {exc.message}", 508, {"X-MSO-Refusal": exc.code})
-    items = [r for r in res.items if mc or _cat_match(r.categories, cats)]
+    # Filter on the categories the item is *advertised* with (xmlout): sources without Newznab categories (the
+    # header index: NNTP headers carry none) get them derived from the parsed title, as Prowlarr will see them.
+    items = [r for r in res.items if mc or _cat_match(xmlout.item_categories(r), cats)]
     base = _base_url(request)
     endpoint = "torznab" if torznab else "newznab"
     key = p.get("apikey") or ""

@@ -197,4 +197,14 @@ export const messages = {
 
   "settings.yes": "Ja",
   "settings.no": "Nee",
+
+  // ChangePreview: hard-rule markers (destructive / irreversible ops) and technical details
+  "change.irreversible": "Niet terug te draaien",
+  "change.disables": "Schakelt uit",
+  "change.technical": "Technische details",
+  "change.dangerTitle": "Let op: {count} onderdeel/onderdelen verwijdert of schakelt iets uit.",
+  "change.dangerIrreversible": "{count} daarvan kan niet worden teruggedraaid.",
+  "change.dangerReversible": "Terugdraaien kan daarna wel.",
+  "change.dangerNeverAuto": "Dit wordt nooit automatisch toegepast; alleen na goedkeuring en jouw klik op Toepassen.",
+  "change.rollbackImpossible": "Terugdraaien kan niet: deze wijziging bevat alleen onderdelen die niet terug te draaien zijn (bijv. verwijderde bestanden).",
 };

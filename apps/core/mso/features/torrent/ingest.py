@@ -254,7 +254,9 @@ def ingest(adapter: TorrentClientAdapter | None = None) -> dict[str, Any]:
         sus = next((x for x in diag["findings"] if x["code"] == "suspicious_payload"), None)
         if sus:
             suspicious.append({"hash": h, "release_key": release_key, "name": str(t.get("name") or h),
-                               "finding": sus, **source})
+                               "finding": sus, "info": {k: t.get(k) for k in (
+                                   "infohash_v1", "infohash_v2", "total_size", "size", "category")},
+                               **source})
         diag["stalled_for_h"] = None if stalled_for_h is None else round(stalled_for_h, 2)
         info = sanitize_info(t)
         infos.append(t)
@@ -473,8 +475,12 @@ SUSPICIOUS_KEY = "torrent-suspicious:"
 
 
 def _sync_suspicious_recommendations(suspicious: list[dict[str, Any]], db: Any) -> None:
-    """One ``advies`` recommendation per suspicious torrent (dedupe per infohash). Recommendations of torrents
-    that are gone or no longer flagged are marked resolved. Nothing is ever deleted or stopped by MSO."""
+    """One recommendation per suspicious torrent (dedupe per infohash) carrying ``evidence.proposed_change``: a
+    ``toestemming_nodig`` cleanup change (``cleanup.proposed_change_for``) that accepting it creates as preview.
+    Recommendations of torrents that are gone or no longer flagged are marked resolved. Nothing is deleted
+    without that change being approved and applied (and re-checked live by the applier)."""
+    from mso.features.torrent import cleanup
+
     keys = []
     for x in suspicious:
         key = SUSPICIOUS_KEY + x["release_key"]
@@ -494,7 +500,7 @@ def _sync_suspicious_recommendations(suspicious: list[dict[str, Any]], db: Any) 
             "torrent",
             f"Verdachte torrent verwijderen: {x['name'][:150]}",
             f["explanation"] + " " + (f["suggestion"] or ""),
-            risk="advies",
+            risk="toestemming_nodig",
             subject=f"tracker:{x['tracker']}" if x.get("tracker") else (x.get("indexer") or "qbittorrent"),
             impact="Voorkomt dat malware in je mediabibliotheek of op je netwerk belandt; blokkeren van de bron "
             "voorkomt herhaling." + (f" Herkomst: {src}." if src else ""),
@@ -505,6 +511,7 @@ def _sync_suspicious_recommendations(suspicious: list[dict[str, Any]], db: Any) 
                 "release_key": x["release_key"],
                 "matches": f["evidence"].get("matches"),
                 "source": {k: x.get(k) for k in ("tracker", "indexer", "comment_host", "category", "tags")},
+                "proposed_change": cleanup.proposed_change_for(x),
             },
             db=db,
         )

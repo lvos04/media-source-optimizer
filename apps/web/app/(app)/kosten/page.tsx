@@ -1,30 +1,70 @@
 "use client";
 
-import { CalendarClock, CircleHelp, Coins, Layers, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, CircleHelp, Coins, DownloadCloud, Layers, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { DangerDialog, KpiCard, Timeline } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, StatusChip } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
+import { PriceInline } from "@/components/mso/costs/price-inline";
 import { Scenarios } from "@/components/mso/costs/scenarios";
 import { PeriodPicker, ServiceAnalysis, type Period } from "@/components/mso/costs/service-analysis";
 import { billingLabel, kindLabel, ServiceEditor } from "@/components/mso/costs/service-editor";
 import { SimulationPanel } from "@/components/mso/costs/simulation-panel";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
-import type { CostSummary, Service } from "@/lib/api/insights";
-import { useI18n } from "@/lib/i18n";
+import type { CostSummary, Service, ServiceMetrics } from "@/lib/api/insights";
+import { useI18n, type Formatters } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
+/** Cost per successful GB / download (entered cost ÷ observed successes in the period). */
+function RatioCell({ m, currency, f }: { m: ServiceMetrics | null | undefined; currency: string; f: Formatters }) {
+  if (!m || !m.available) return <span className="t-3" title={m?.reason}>{m?.reason ?? "—"}</span>;
+  return (
+    <div className="stack-sm" style={{ gap: 2 }}>
+      <div>{m.per_gb_cents != null ? f.t("costs.perGbValue", { value: f.money(m.per_gb_cents / 100, currency) }) : <span className="t-3">{f.t("costs.perGbNone")}</span>}</div>
+      <div>{m.per_success_cents != null ? f.t("costs.perSuccessValue", { value: f.money(m.per_success_cents / 100, currency) }) : null}</div>
+      <div className="t-3" style={{ fontSize: 12 }}>{f.t("costs.successesValue", { n: f.num(m.successful_downloads ?? 0), gb: f.num(m.successful_gb ?? 0, 1) })}</div>
+      {m.cost_reason ? <div className="t-3" style={{ fontSize: 12 }}>{m.cost_reason}</div> : null}
+    </div>
+  );
+}
+
+function UniqueCell({ m, f }: { m: ServiceMetrics | null | undefined; f: Formatters }) {
+  const u = m?.unique;
+  if (!u) return <span className="t-3">—</span>;
+  if (!u.available) return <span className="t-3" style={{ fontSize: 12 }}>{u.reason}</span>;
+  return (
+    <div title={u.note}>
+      {f.t("costs.uniqueValue", { pct: f.pct((u.pct ?? 0) * 100, 1) })}
+      <div className="t-3" style={{ fontSize: 12 }}>{f.t("costs.uniqueSample", { n: f.num(u.unique_articles ?? 0), total: f.num(u.compared_articles ?? 0) })}{u.confidence ? ` · ${u.confidence}` : ""}</div>
+    </div>
+  );
+}
+
 export default function CostsPage() {
-  const { t, num, money, date } = useI18n();
+  const f = useI18n();
+  const { t, num, money, date } = f;
   const { can } = useSession();
   const toast = useToast();
   const isAdmin = can("admin");
-  const services = useResource<{ items: Service[] }>("/costs/services");
-  const summary = useResource<CostSummary>("/costs/summary");
   const [period, setPeriod] = useState<Period>("30");
+  const services = useResource<{ items: Service[]; price_missing?: number }>("/costs/services", { period_days: Number(period) });
+  const summary = useResource<CostSummary>("/costs/summary");
+  const [importing, setImporting] = useState(false);
+  const runImport = async () => {
+    setImporting(true);
+    try {
+      const r = await api.post<{ created: number; sab_providers_created: number }>("/costs/services/import");
+      toast.push("success", t("costs.imported", { count: num(r.created) }));
+      reload();
+    } catch (e) {
+      toast.push("danger", errorMessage(e));
+    } finally {
+      setImporting(false);
+    }
+  };
   const [selected, setSelected] = useState<Service | null>(null);
   const [editing, setEditing] = useState<{ service: Service | null } | null>(null);
   const [deleting, setDeleting] = useState<Service | null>(null);
@@ -56,9 +96,13 @@ export default function CostsPage() {
       <PageHeader title={t("nav.costs")} sub={t("costs.sub")}
         actions={<>
           <PeriodPicker value={period} onChange={setPeriod} />
+          <Button icon={DownloadCloud} pending={importing} disabled={!isAdmin} title={isAdmin ? t("costs.importHint") : t("costs.adminOnly")} onClick={() => void runImport()}>{t("costs.import")}</Button>
           <Button variant="primary" icon={Plus} disabled={!isAdmin} title={isAdmin ? undefined : t("costs.adminOnly")} onClick={() => setEditing({ service: null })}>{t("costs.addService")}</Button>
         </>} />
       <InlineState tone="info" icon={CircleHelp}><span><strong>{t("costs.disclaimerTitle")}:</strong> {t("costs.disclaimer")}</span></InlineState>
+      {services.data?.price_missing ? (
+        <div style={{ marginTop: 12 }}><InlineState tone="warning">{t("costs.priceMissingBanner", { count: num(services.data.price_missing) })}</InlineState></div>
+      ) : null}
 
       <section className="kpi-grid" aria-label={t("overview.kpis")} style={{ marginTop: 16 }}>
         <KpiCard label={t("costs.kpi.total")} icon={Coins} unavailable={!s || s.total.services === 0}
@@ -81,16 +125,22 @@ export default function CostsPage() {
                 <table className="table table--stack">
                   <thead><tr>
                     <th>{t("costs.col.service")}</th><th>{t("costs.col.amount")}</th><th>{t("costs.col.monthly")}</th>
+                    <th>{t("costs.col.ratio")}</th><th>{t("costs.col.unique")}</th>
                     <th>{t("costs.col.renewal")}</th><th>{t("costs.col.source")}</th><th>{t("costs.col.backbone")}</th><th><span className="sr-only">{t("costs.col.actions")}</span></th>
                   </tr></thead>
                   <tbody>{d.items.map((x) => (
                     <tr key={x.id} aria-selected={selected?.id === x.id}>
                       <td className="cell-primary">
                         <div>{x.label}</div>
-                        <div className="t-3" style={{ fontSize: 12 }}>{t(kindLabel(x.kind))}{!x.active ? <> · <StatusChip tone="neutral">{t("costs.inactive")}</StatusChip></> : null}</div>
+                        <div className="t-3" style={{ fontSize: 12 }}>{t(kindLabel(x.kind))}{x.origin === "import" ? ` · ${t("costs.importedChip")}` : ""}{!x.active ? <> · <StatusChip tone="neutral">{t("costs.inactive")}</StatusChip></> : null}</div>
                       </td>
-                      <td data-label={t("costs.col.amount")}>{x.billing === "free" ? t("costs.billing.free") : `${money(x.amount_cents / 100, x.currency)} ${t(billingLabel(x.billing))}`}</td>
+                      <td data-label={t("costs.col.amount")}>
+                        {x.price_missing ? null : <div>{x.billing === "free" ? t("costs.billing.free") : `${money(x.amount_cents / 100, x.currency)} ${t(billingLabel(x.billing))}`}</div>}
+                        <PriceInline key={`${x.id}-${x.amount_cents}-${x.billing}-${x.renewal_date ?? ""}`} service={x} canEdit={isAdmin} onSaved={() => { toast.push("success", t("costs.priceSaved")); reload(); }} />
+                      </td>
                       <td data-label={t("costs.col.monthly")}>{x.monthly?.monthly_cents == null ? <span className="t-3" title={x.monthly?.reason}>—</span> : money(x.monthly.monthly_cents / 100, x.currency)}</td>
+                      <td data-label={t("costs.col.ratio")}><RatioCell m={x.metrics} currency={x.currency} f={f} /></td>
+                      <td data-label={t("costs.col.unique")}><UniqueCell m={x.metrics} f={f} /></td>
                       <td data-label={t("costs.col.renewal")}>{x.renewal_date ? date(x.renewal_date) : "—"}</td>
                       <td data-label={t("costs.col.source")}>{x.source_label ?? (x.source_id ? <span className="mono">{x.source_id}</span> : <span className="t-3">—</span>)}</td>
                       <td data-label={t("costs.col.backbone")}>{x.backbone ?? <span className="t-3">{t("costs.backboneUnknown")}</span>}</td>

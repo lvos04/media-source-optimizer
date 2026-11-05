@@ -24,6 +24,7 @@ failure) can be replaced by tests. Torrent results carry ``downloadVolumeFactor:
 every tracker, as Prowlarr's Cardigann definitions do for public trackers.
 
 Faults (``create_app(**faults)`` or ``app.state.faults``): ``auth=fail``, ``timeout=<seconds>`` (search),
+``timeout_once=<seconds>`` (only the first search call is slow; tests an automatic retry),
 ``category_error=1`` (search → HTTP 400 category validation), ``error500=1`` (search → 500), ``malformed=1``,
 ``user_agent=<ua>`` (User-Agent used when proxying to Newznab indexers; default ``Prowlarr/…``),
 ``validate_on_add=1`` (``POST /indexer`` tests a new Newznab/Torznab indexer like real Prowlarr: caps + a
@@ -528,6 +529,8 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
                 return JSONResponse({"message": "boom"}, status_code=500)
             if fl.get("timeout"):
                 time.sleep(float(fl["timeout"]))
+            if fl.get("timeout_once") and app.state.search_calls == 1:  # only the first search is slow
+                time.sleep(float(fl["timeout_once"]))
             if fl.get("malformed"):
                 return Response("<html>not json", media_type="application/json")
             qp = request.query_params

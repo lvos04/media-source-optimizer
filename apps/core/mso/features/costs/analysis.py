@@ -115,6 +115,12 @@ def service_protocol(service: dict[str, Any]) -> str | None:
 def monthly_cost(service: dict[str, Any], gb_per_month: float | None = None) -> dict[str, Any]:
     """Normalise the user-entered amount to cents per month (``None`` + reason when not derivable)."""
     billing, amount = service["billing"], int(service["amount_cents"] or 0)
+    if service.get("price_missing"):
+        return {
+            "monthly_cents": None,
+            "method": "prijs ontbreekt",
+            "reason": "Automatisch toegevoegd; vul de prijs in om kosten te berekenen",
+        }
     if billing == "free":
         return {"monthly_cents": 0, "method": "gratis"}
     if billing == "monthly":
@@ -183,6 +189,7 @@ def monthly_total(db: Database | None = None) -> dict[str, Any]:
         "mixed_currencies": len(currencies) > 1,
         "services": len(services),
         "unknown": unknown,
+        "price_missing": sum(1 for s in services if s.get("price_missing")),
         "by_kind": by_kind,
     }
 
@@ -625,6 +632,8 @@ def serialise_service(s: dict[str, Any]) -> dict[str, Any]:
             "notes",
             "active",
             "backbone",
+            "origin",
+            "price_missing",
             "created_at",
             "updated_at",
             "source_label",
@@ -632,6 +641,99 @@ def serialise_service(s: dict[str, Any]) -> dict[str, Any]:
     }
     if isinstance(out.get("renewal_date"), date):
         out["renewal_date"] = out["renewal_date"].isoformat()
+    return out
+
+
+# ------------------------------------------------------------------ per-service list metrics
+def _contributions(period_days: int) -> dict[str, dict[str, Any]]:
+    try:
+        from mso.features.usenet.metrics import provider_contribution  # type: ignore[import-not-found]
+    except ImportError:
+        return {}
+    try:
+        data = provider_contribution(period_days)
+    except Exception as exc:
+        LOGGER.info("provider_contribution niet beschikbaar: %s", exc)
+        return {}
+    items = data.get("items") if isinstance(data, dict) else data
+    out: dict[str, dict[str, Any]] = {}
+    for e in items or []:
+        if isinstance(e, dict):
+            for k in ("source_id", "provider_id", "slug", "id"):
+                if e.get(k):
+                    out[str(e[k])] = e
+    return out
+
+
+def unique_share(entry: dict[str, Any] | None) -> dict[str, Any]:
+    """'Deze provider leverde X % uniek' — only from articles checked on ≥2 providers (Usenet engine)."""
+    if not entry:
+        return {"available": False, "reason": "Nog geen artikelmetingen voor deze provider"}
+    compared = _int_or_none(entry.get("compared_articles")) or 0
+    unique = _int_or_none(entry.get("unique_available"))
+    if not compared or unique is None:
+        return {"available": False, "reason": "Nog geen artikelen bij meerdere providers vergeleken",
+                "articles_checked": _int_or_none(entry.get("articles_checked"))}
+    return {
+        "available": True,
+        "pct": round(unique / compared, 4),
+        "unique_articles": unique,
+        "compared_articles": compared,
+        "confidence": entry.get("confidence"),
+        "method": entry.get("method"),
+        "note": "Aandeel van de vergeleken artikelen dat alleen bij deze provider beschikbaar was. Geen garantie "
+        "voor andere releases; zegt niets over besparing.",
+    }
+
+
+def service_metrics(
+    services: list[dict[str, Any]], period_days: int, db: Database | None = None
+) -> dict[int, dict[str, Any]]:
+    """Per service over the period: successful downloads, successful GB, entered cost per successful GB and per
+    successful download (cost ÷ observed successes — a retrospective ratio, no savings promise) and, for Usenet
+    providers, the measured unique share. Byte attribution for Usenet uses provider bytes (bandwidth) and reports
+    the coverage of downloads that carry that evidence."""
+    db = db or get_db()
+    rows = outcomes_in_period(period_days, None, db) if services else []
+    usenet_ok = [r for r in rows if r["protocol"] == "usenet" and r["status"] == "success"]
+    usenet_cov = ratio(len([r for r in usenet_ok if r.get("provider_bytes")]), len(usenet_ok))
+    contrib = _contributions(period_days) if any(s["kind"] in USENET_KINDS for s in services) else {}
+    out: dict[int, dict[str, Any]] = {}
+    for s in services:
+        sid = s.get("source_id")
+        m: dict[str, Any] = {"period_days": period_days, "linked": bool(sid)}
+        if not sid:
+            out[s["id"]] = m | {"available": False, "reason": "Niet gekoppeld aan een bron"}
+            continue
+        if s["kind"] in USENET_KINDS:
+            keys = provider_keys(sid)
+            mine = [r for r in usenet_ok if provider_bytes_of(r, keys) > 0]
+            ok_bytes = sum(provider_bytes_of(r, keys) for r in mine)
+            m["bytes_method"] = "providerbytes van geslaagde downloads (bandbreedte)"
+            m["coverage"] = usenet_cov
+            entry = next((contrib[k] for k in keys if k in contrib), None)
+            m["unique"] = unique_share(entry)
+        else:
+            mine = [r for r in rows if r["status"] == "success" and r["source_id"] == sid]
+            ok_bytes = sum(int(r["downloaded_bytes"] or r["size_bytes"] or 0) for r in mine)
+            m["bytes_method"] = "grootte van geslaagde downloads via deze bron"
+        gb = ok_bytes / GB
+        gb_pm = gb / period_days * 30 if gb else None
+        cost = monthly_cost(s, gb_pm if s["billing"] == "block" else None)
+        period_cost = cost["monthly_cents"] * period_days / 30 if cost["monthly_cents"] is not None else None
+        m |= {
+            "available": True,
+            "successful_downloads": len(mine),
+            "successful_gb": round(gb, 2),
+            "period_cost_cents": round(period_cost) if period_cost is not None else None,
+            "per_success_cents": round(period_cost / len(mine), 1) if period_cost is not None and mine else None,
+            "per_gb_cents": round(period_cost / gb, 2) if period_cost is not None and gb > 0 else None,
+        }
+        if cost["monthly_cents"] is None:
+            m["cost_reason"] = cost.get("reason")
+        elif not mine:
+            m["cost_reason"] = "Nog geen geslaagde downloads via deze dienst in deze periode"
+        out[s["id"]] = m
     return out
 
 

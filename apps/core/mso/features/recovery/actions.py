@@ -58,7 +58,23 @@ def _dispatch(protocol: str, token: str, *, category: str, title: str) -> tuple[
     return "qbittorrent", None
 
 
-def send(media_ref: str, release_key: str, *, actor: str) -> dict[str, Any]:
+def idempotency_key(media_ref: str, release_key: str) -> str:
+    return f"send:{media_ref}:{release_key}"
+
+
+def sends_used_last_hour() -> int:
+    return int(
+        get_db().scalar(
+            "SELECT count(*) FROM recovery_sends WHERE status IN ('pending','sent') AND "
+            "created_at > now() - interval '1 hour'"
+        )
+        or 0
+    )
+
+
+def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual") -> dict[str, Any]:
+    """``via='change'``: sent by applying an approved change set (``download_send`` applier) — same quality
+    gate, quota, backoff and idempotency as a manual send."""
     t = candidates.resolve_target(media_ref)
     if t.origin == "mediaguard":
         from mso.features.mediaguard import service as mg
@@ -106,19 +122,13 @@ def send(media_ref: str, release_key: str, *, actor: str) -> dict[str, Any]:
             "(exponential backoff)",
         )
     per_hour = int(sr.get("herstel.manual_sends_per_hour"))
-    used = int(
-        db.scalar(
-            "SELECT count(*) FROM recovery_sends WHERE status IN ('pending','sent') AND "
-            "created_at > now() - interval '1 hour'"
-        )
-        or 0
-    )
+    used = sends_used_last_hour()
     if used >= per_hour:
         raise HTTPException(429, detail=f"Limiet van {per_hour} handmatige verzendingen per uur bereikt")
     token = r.extra.get("token")
     if not token:
         raise HTTPException(409, detail="Deze release heeft geen (geldige) downloadverwijzing; zoek opnieuw")
-    key = f"send:{media_ref}:{release_key}"
+    key = idempotency_key(media_ref, release_key)
     category = client_category(t.media_category)
     row = db.fetchone(
         "INSERT INTO recovery_sends(idempotency_key,media_ref,release_key,protocol,client,"
@@ -184,9 +194,10 @@ def send(media_ref: str, release_key: str, *, actor: str) -> dict[str, Any]:
     audit(
         actor,
         "recovery.sent",
-        f"Handmatig verstuurd naar {client}: {r.title}",
+        (f"Verstuurd via wijzigingsvoorstel naar {client}: {r.title}" if via == "change"
+         else f"Handmatig verstuurd naar {client}: {r.title}"),
         target=media_ref,
-        detail={"release_key": release_key, "category": category, "protocol": r.protocol},
+        detail={"release_key": release_key, "category": category, "protocol": r.protocol, "via": via},
     )
     return {
         "duplicate": False,

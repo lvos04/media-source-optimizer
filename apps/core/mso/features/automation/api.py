@@ -75,6 +75,41 @@ def _rec(rec_id: int) -> dict[str, Any]:
     return dict(r)
 
 
+def create_proposed_change(rec: dict[str, Any], proposed: dict[str, Any], actor: str) -> dict[str, Any]:
+    """Generic: ``evidence.proposed_change`` = {target, ops, title?, risk?, explanation?, impact?, dedupe_key?,
+    evaluate_after_h?}. Works for every proposal kind (torrent cleanup, server disable, fallback send, tuning …):
+    op flags (``destructive``/``irreversible``) and ``impact._technical`` are passed through unchanged. A proposal
+    with a removing/disabling op is always created as ``toestemming_nodig`` (never automatic)."""
+    target = proposed.get("target")
+    ops = proposed.get("ops")
+    if not isinstance(target, str) or not target:
+        raise HTTPException(422, detail="Voorgestelde wijziging is onvolledig: doel ontbreekt")
+    if not isinstance(ops, list) or not ops or not all(isinstance(o, dict) for o in ops):
+        raise HTTPException(422, detail="Voorgestelde wijziging is onvolledig: geen operaties")
+    risk = proposed.get("risk") or rec["risk"]
+    if any(o.get("destructive") or o.get("irreversible") for o in ops):
+        risk = "toestemming_nodig"
+    impact = proposed.get("impact")
+    if not isinstance(impact, dict):
+        impact = {"Toelichting": impact} if impact else {}
+    impact = {"area": rec["area"], **impact}
+    try:
+        return changes.create(
+            target,
+            proposed.get("title") or rec["title"],
+            [dict(o) for o in ops],
+            risk=risk,
+            explanation=proposed.get("explanation") or rec["explanation"],
+            impact=impact,
+            source=f"recommendation:{rec['id']}",
+            actor=actor,
+            dedupe_key=proposed.get("dedupe_key") or f"rec:{rec['id']}",
+            evaluate_after_h=proposed.get("evaluate_after_h"),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(422, detail=f"Voorgestelde wijziging is onvolledig: {exc}") from exc
+
+
 @router.post("/recommendations/{rec_id}/accept")
 def accept(rec_id: int, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
     """Accept = acknowledge and (if the recommendation proposes one) create/link its change set in preview.
@@ -86,22 +121,7 @@ def accept(rec_id: int, p: Principal = Depends(require("operator"))) -> dict[str
     ev = r["evidence"] or {}
     proposed = ev.get("proposed_change") if isinstance(ev, dict) else None
     if not change_id and isinstance(proposed, dict):
-        try:
-            ch = changes.create(
-                proposed["target"],
-                proposed.get("title") or r["title"],
-                list(proposed["ops"]),
-                risk=proposed.get("risk", r["risk"]),
-                explanation=proposed.get("explanation") or r["explanation"],
-                impact=proposed.get("impact") or {"area": r["area"]},
-                source=f"recommendation:{rec_id}",
-                actor=p.actor,
-                dedupe_key=proposed.get("dedupe_key") or f"rec:{rec_id}",
-                evaluate_after_h=proposed.get("evaluate_after_h"),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise HTTPException(422, detail=f"Voorgestelde wijziging is onvolledig: {exc}") from exc
-        change_id = ch["id"]
+        change_id = create_proposed_change(r, proposed, p.actor)["id"]
     get_db().execute(
         "UPDATE recommendations SET status='accepted', change_id=%s, updated_at=now() WHERE id=%s",
         (change_id, rec_id),
@@ -172,6 +192,15 @@ def status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "auto_rollback": bool(sr.get("automation.auto_rollback")),
         "applied_last_hour": engine.applied_last_hour(db),
         "evaluators": sorted(EVALUATORS),
+        "evaluator_fallback": True,
+        "evaluation": {
+            "hours": int(sr.get("automation.evaluation_hours")),
+            "hysteresis_pct": float(sr.get("automation.evaluation_hysteresis_pct")),
+            "min_samples": int(sr.get("automation.evaluation_min_samples")),
+            "torrent_auto_rollback": bool(sr.get("torrent.autotune_auto_rollback"))
+            if "torrent.autotune_auto_rollback" in sr.REGISTRY
+            else None,
+        },
         "risk_explanation": RISK_EXPLANATION,
         "log": db.fetchall("SELECT * FROM automation_log ORDER BY id DESC LIMIT 30"),
         "jobs": jobs_summary,
@@ -214,3 +243,26 @@ def run_now(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
     )
     audit(p.actor, "automation.run_requested", "Automatische ronde handmatig gestart", target="automation")
     return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.get("/evaluations")
+def evaluations(
+    limit: int = Query(30, ge=1, le=100), _: Principal = Depends(require("viewer"))
+) -> dict[str, Any]:
+    """Controle na een wijziging: per applied (or rolled back) change the stored outcome with baseline vs now
+    numbers, or a live interim comparison while the measurement period is still running."""
+    db = get_db()
+    rows = db.fetchall(
+        "SELECT * FROM change_sets WHERE applied_at IS NOT NULL AND status IN ('applied','rolled_back') "
+        "ORDER BY applied_at DESC LIMIT %s",
+        (limit,),
+    )
+    return {"items": [engine.evaluation_view(dict(r), db) for r in rows]}
+
+
+@router.get("/evaluations/{change_id}")
+def evaluation_one(change_id: int, _: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    ch = changes.get(change_id)
+    if not ch.get("applied_at"):
+        raise HTTPException(409, detail="Deze wijziging is nog niet toegepast")
+    return engine.evaluation_view(ch)

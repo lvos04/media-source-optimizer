@@ -606,9 +606,9 @@ def connector_test(
     audit(
         p.actor,
         "connector.tested",
-        f"Test {spec.label}: {result.status}",
+        f"Test {spec.label}: {_STATUS_NL.get(result.status, result.status)}",
         target=cid,
-        detail={"ok": result.ok, "message": result.message},
+        detail={"ok": result.ok, "status": result.status, "message": result.message},
     )
     return result.as_dict()
 

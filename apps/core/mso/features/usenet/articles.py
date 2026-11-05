@@ -26,6 +26,14 @@ from mso.features.usenet.nntp import NNTPError
 
 LOGGER = logging.getLogger(__name__)
 MAX_TEST_SECONDS = 300
+AUTO_TRIGGER = "auto_send"
+# Providers whose account MSO (or SABnzbd) currently reports as unusable are not sampled automatically.
+SKIP_AUTO_STATUS = {"auth_failed", "account_expired", "block_exhausted", "access_denied"}
+# Conservative per-connection overhead (greeting, AUTHINFO USER/PASS, QUIT) and per-STAT size estimate.
+OVERHEAD_COMMANDS = 4
+OVERHEAD_BYTES = 1024
+BYTES_PER_STAT = 200
+BUDGET_TEXT = "STAT-budget voor vandaag of deze maand is op; volgende steekproef zodra er weer budget is"
 
 
 def _eligible(slugs: list[str] | None) -> list[dict[str, Any]]:
@@ -102,6 +110,135 @@ def maybe_test_failed(nzo_id: str) -> dict[str, Any] | None:
         return None
 
 
+# ------------------------------------------------------------------ STAT budgets (automatic samples)
+def budget_limits() -> dict[str, dict[str, int]]:
+    return {
+        period: {
+            "connections": int(sr.get(f"usenet.stat_budget_{period}_connections")),
+            "commands": int(sr.get(f"usenet.stat_budget_{period}_commands")),
+            "bytes": int(sr.get(f"usenet.stat_budget_{period}_kb")) * 1024,
+        }
+        for period in ("daily", "monthly")
+    }
+
+
+def usage(slug: str | None = None) -> dict[str, dict[str, dict[str, int]]]:
+    """``{slug: {daily: {connections, commands, bytes}, monthly: {...}}}`` (today / this calendar month)."""
+    rows = get_db().fetchall(
+        "SELECT provider, "
+        "coalesce(sum(connections) FILTER (WHERE day = current_date),0) AS d_conn, "
+        "coalesce(sum(commands) FILTER (WHERE day = current_date),0) AS d_cmd, "
+        "coalesce(sum(bytes) FILTER (WHERE day = current_date),0) AS d_bytes, "
+        "coalesce(sum(connections),0) AS m_conn, coalesce(sum(commands),0) AS m_cmd, "
+        "coalesce(sum(bytes),0) AS m_bytes FROM usenet_stat_usage "
+        "WHERE day >= date_trunc('month', current_date)::date AND (%s::text IS NULL OR provider = %s) "
+        "GROUP BY provider",
+        (slug, slug),
+    )
+    return {
+        r["provider"]: {
+            "daily": {"connections": int(r["d_conn"]), "commands": int(r["d_cmd"]), "bytes": int(r["d_bytes"])},
+            "monthly": {"connections": int(r["m_conn"]), "commands": int(r["m_cmd"]), "bytes": int(r["m_bytes"])},
+        }
+        for r in rows
+    }
+
+
+def record_usage(slug: str, *, connections: int, commands: int, nbytes: int) -> None:
+    get_db().execute(
+        "INSERT INTO usenet_stat_usage(day,provider,connections,commands,bytes) VALUES (current_date,%s,%s,%s,%s) "
+        "ON CONFLICT (day, provider) DO UPDATE SET connections=usenet_stat_usage.connections+EXCLUDED.connections, "
+        "commands=usenet_stat_usage.commands+EXCLUDED.commands, bytes=usenet_stat_usage.bytes+EXCLUDED.bytes",
+        (slug, int(connections), int(commands), int(nbytes)),
+    )
+
+
+def budget_fit(slug: str) -> int:
+    """How many STAT commands one more automatic connection to ``slug`` may still send (0 = budget is op)."""
+    limits = budget_limits()
+    used = usage(slug).get(slug) or {}
+    fit: int | None = None
+    for period, lim in limits.items():
+        u = used.get(period) or {"connections": 0, "commands": 0, "bytes": 0}
+        if u["connections"] + 1 > lim["connections"]:
+            return 0
+        by_cmd = lim["commands"] - u["commands"] - OVERHEAD_COMMANDS
+        by_bytes = (lim["bytes"] - u["bytes"] - OVERHEAD_BYTES) // BYTES_PER_STAT
+        n = max(0, min(by_cmd, by_bytes))
+        fit = n if fit is None else min(fit, n)
+    return int(fit or 0)
+
+
+def budget_view() -> dict[str, Any]:
+    limits = budget_limits()
+    used = usage()
+    return {
+        "enabled": bool(sr.get("usenet.auto_sample_after_send")),
+        "sample_size": int(sr.get("usenet.auto_sample_size")),
+        "limits": limits,
+        "providers": [
+            {
+                "slug": r["slug"],
+                "label": r["label"],
+                "eligible": bool(r["enabled"] and all(providers.credentials(r["slug"]))),
+                "usage": used.get(r["slug"])
+                or {p: {"connections": 0, "commands": 0, "bytes": 0} for p in ("daily", "monthly")},
+                "fit": budget_fit(r["slug"]),
+            }
+            for r in providers.list_rows()
+        ],
+        "last_auto_test_at": get_db().scalar(
+            "SELECT max(created_at) FROM usenet_article_tests WHERE trigger=%s", (AUTO_TRIGGER,)
+        ),
+    }
+
+
+def queue_auto_sample(nzb_id: int, *, actor: str = "system") -> dict[str, Any] | None:
+    """After MSO sent an NZB: queue one STAT sample of exactly those articles on every eligible provider
+    (enabled, credentials in MSO, account not known to be unusable, budget left). Never raises."""
+    if not sr.get("usenet.auto_sample_after_send"):
+        return None
+    db = get_db()
+    nzb = nzbs.get(nzb_id)
+    if not nzb["segments"]:
+        return None
+    if db.scalar(
+        "SELECT 1 FROM usenet_article_tests WHERE nzb_id=%s AND trigger=%s LIMIT 1", (nzb_id, AUTO_TRIGGER)
+    ):
+        return None
+    rows = [
+        r
+        for r in providers.list_rows()
+        if r["enabled"] and all(providers.credentials(r["slug"])) and r["status"] not in SKIP_AUTO_STATUS
+    ]
+    rows = [r for r in rows if budget_fit(r["slug"]) >= 1]
+    if not rows:
+        return None
+    n = max(1, min(int(sr.get("usenet.auto_sample_size")), len(nzb["segments"])))
+    slugs = [r["slug"] for r in rows]
+    test = db.fetchone(
+        "INSERT INTO usenet_article_tests(nzb_id,trigger,providers,sample_size,requested_by) "
+        "VALUES (%s,%s,%s,%s,%s) RETURNING *",
+        (nzb_id, AUTO_TRIGGER, slugs, n, actor),
+    )
+    job = jobs.enqueue(
+        "usenet.article_test",
+        {"test_id": test["id"]},
+        idempotency_key=f"usenet-art:{test['id']}",
+        max_attempts=1,
+        created_by=actor,
+    )
+    db.execute("UPDATE usenet_article_tests SET job_id=%s WHERE id=%s", (job["id"], test["id"]))
+    audit(
+        "systeem",
+        "usenet.auto_sample",
+        f"Automatische beschikbaarheidssteekproef na versturen: {n} artikelen × {len(slugs)} provider(s)",
+        target=str(nzb_id),
+        detail={"providers": slugs, "sample_size": n, "sent_by": actor},
+    )
+    return public(dict(test)) | {"job_id": job["id"]}
+
+
 def run(test_id: int, ctx: jobs.JobContext | None = None) -> dict[str, Any]:
     db = get_db()
     test = db.fetchone("SELECT * FROM usenet_article_tests WHERE id=%s", (test_id,))
@@ -121,9 +258,18 @@ def run(test_id: int, ctx: jobs.JobContext | None = None) -> dict[str, Any]:
             info.update(status="error", message="Provider bestaat niet meer")
             continue
         results: list[tuple[Any, ...]] = []
+        mine = sample
+        if test["trigger"] == AUTO_TRIGGER:
+            fit = budget_fit(slug)
+            if fit < 1:
+                info.update(status="budget_exhausted", message=BUDGET_TEXT)
+                continue
+            mine = nzbs.spread_sample(sample, min(len(sample), fit))
+        used: dict[str, Any] = {"client": None}
         try:
             with providers.session(row) as client:
-                for seg in sample:
+                used["client"] = client
+                for seg in mine:
                     if time.monotonic() > deadline:
                         info.update(status="timeout", message="Tijdslimiet van de test bereikt")
                         break
@@ -136,6 +282,14 @@ def run(test_id: int, ctx: jobs.JobContext | None = None) -> dict[str, Any]:
         except NNTPError as exc:
             info.update(status=exc.status, message=str(exc))
             LOGGER.info("artikeltest %s: provider %s → %s", test_id, slug, exc.status)
+        finally:
+            c = used["client"]
+            record_usage(
+                slug,
+                connections=1,
+                commands=(c.commands_sent if c else 0),
+                nbytes=(c.bytes_sent + c.bytes_received if c else 0),
+            )
         if results:
             with db.tx() as conn:
                 conn.cursor().executemany(

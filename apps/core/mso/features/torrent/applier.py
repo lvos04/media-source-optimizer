@@ -13,6 +13,9 @@ hash
 - ``crossseed:<candidate_id>``      'afwezig' → 'toegevoegd_gepauzeerd' (paused, hash-checked, same save
 path).
                                     Rollback is refused: MSO never removes torrents.
+- ``cleanup:<token>``, ``arrblock:…``, ``blacklist:…``, ``torrent:<hash>:delete_with_files:<token>``
+                                    malware cleanup (``cleanup.py``): the ONLY delete path; validated against
+                                    a fresh scan and the stored preview, irreversible.
 
 Validation (``policy.validate``) does not need a reachable client, so guardrails also hold at preview time.
 
@@ -31,7 +34,7 @@ from typing import Any
 from mso import changes
 from mso.changes import Applier
 from mso.db import get_db
-from mso.features.torrent import policy
+from mso.features.torrent import cleanup, policy
 from mso.vault import get_vault
 
 ACTION_WINDOW_MIN = 10
@@ -66,7 +69,11 @@ def build() -> Applier:
             state["a"] = get_adapter("qbittorrent")
         return state["a"]
 
+    cl = cleanup.CleanupOps(adapter)
+
     def read(path: str) -> Any:
+        if cleanup.is_cleanup_path(path):
+            return cl.read(path)
         kind, _, rest = path.partition(":")
         if kind == "torrent":
             h, _, field_ = rest.partition(":")
@@ -87,6 +94,9 @@ def build() -> Applier:
     def write(path: str, value: Any) -> None:
         # no validation here: changes.apply validates every 'after' value; rollback must be able to restore
         # the observed previous value even if it would not pass today's guardrails
+        if cleanup.is_cleanup_path(path):
+            cl.write(path, value)  # refuses every "restore" of a deleted torrent / removed block
+            return
         kind, _, rest = path.partition(":")
         if kind == "torrent":
             h, _, field_ = rest.partition(":")
@@ -123,7 +133,13 @@ def build() -> Applier:
         if policy.is_rate_path(path):
             written[path] = value
 
-    return Applier(read=read, write=write, validate=policy.validate)
+    def validate(path: str, value: Any) -> None:
+        if cleanup.is_cleanup_path(path):
+            cl.validate(path, value)
+        else:
+            policy.validate(path, value)  # refuses every other delete/remove path
+
+    return Applier(read=read, write=write, validate=validate)
 
 
 changes.register_applier("qbittorrent", build)

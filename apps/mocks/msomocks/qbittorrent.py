@@ -6,8 +6,10 @@ Implements the subset Media Source Optimizer uses, with the real wire formats:
 setPreferences|networkInterfaceList``, ``transfer/info|speedLimitsMode|toggleSpeedLimitsMode``,
 ``torrents/info|properties|trackers|files|categories|add|recheck|reannounce|setUploadLimit|setDownloadLimit|
 uploadLimit|downloadLimit|setShareLimits|topPrio|bottomPrio|increasePrio|decreasePrio``, ``sync/maindata``
-(incremental ``rid`` diffs). ``torrents/delete`` and ``torrents/addTrackers`` exist ONLY so tests can assert
-they are never called (every call is recorded in ``app.state.qb.calls``).
+(incremental ``rid`` diffs), ``torrents/delete`` (removes the torrent; every delete is recorded in
+``app.state.qb.deletes`` as ``(hashes, deleteFiles)`` so tests can assert it is only called by an approved
+cleanup change). ``torrents/addTrackers``/``removeTrackers`` exist ONLY so tests can assert they are never called
+(every call is recorded in ``app.state.qb.calls``).
 
 Scenario torrents (``scenario=full``, default): public seeding, private seeding (passkey in announce URL),
 stalled without seeds + false ETA, failing tracker, healthy download, disk-pressure download, missing files,
@@ -201,6 +203,7 @@ class QbState:
         self.sessions: dict[str, int] = {}
         self.logins = 0
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
+        self.deletes: list[tuple[list[str], bool]] = []
         self.speed_limits_mode = 0
         self.rid = 0
         self.snapshots: dict[int, dict[str, Any]] = {}
@@ -737,8 +740,16 @@ def create_app(**faults: Any) -> FastAPI:
     for name in ("topPrio", "bottomPrio", "increasePrio", "decreasePrio"):
         _write(f"/api/v2/torrents/{name}", lambda f: None)
 
+    def delete(f: dict[str, Any]) -> None:
+        hs = hashes(f.get("hashes"))
+        qb.deletes.append((hs, str(f.get("deleteFiles", "false")).lower() == "true"))
+        for h in hs:
+            qb.torrents.pop(h, None)
+            qb.trackers.pop(h, None)
+            qb.files.pop(h, None)
+
+    _write("/api/v2/torrents/delete", delete)
     # present only so tests can assert MSO never calls them
-    _write("/api/v2/torrents/delete", lambda f: None)
     _write("/api/v2/torrents/addTrackers", lambda f: None)
     _write("/api/v2/torrents/removeTrackers", lambda f: None)
 

@@ -14,6 +14,10 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``broken_mode=<mode>``  that mode answers HTTP 500
 - ``server_errors=report`` like the field report: newshosting "502 Authentication Failed", block server
                           "482 Account expired" (in ``servererror`` and as warnings); eweka works
+- ``server_errors=field`` the 1.4.0 field situation with 5 servers: newshosting + usenetbucket "502 Authentication
+                          Failed", thundernews "502 Access Denied", xsnews "482 Account expired", eweka works. Only
+                          in SABnzbd's warning list (``servererror`` already cleared, as SABnzbd does after its
+                          retry pause) — the case where the 1.3.1 connector test showed no failing servers.
 - ``status_mode=fullstatus|none``  only answer the old ``fullstatus`` mode / neither (old SABnzbd)
 Tests can reach the live state through ``app.state.sab`` (a ``SabState``).
 """
@@ -220,6 +224,23 @@ class SabState:
         return out
 
 
+def _server(name: str, display: str, priority: int, connections: int) -> dict[str, Any]:
+    return {
+        "name": name,
+        "displayname": display,
+        "host": name,
+        "port": 563,
+        "ssl": 1,
+        "connections": connections,
+        "priority": priority,
+        "enable": 1,
+        "optional": 0,
+        "retention": 0,
+        "username": "user",
+        "password": "*****",
+    }
+
+
 def _parse_multipart(content_type: str, body: bytes) -> dict[str, tuple[str | None, bytes]]:
     msg = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(
         b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body
@@ -245,6 +266,22 @@ def create_app(**faults: Any) -> FastAPI:
             "news.newshosting.test", "Server news.newshosting.test reported: 502 Authentication Failed"
         )
         state.set_server_error("block.example.test", "Server block.example.test reported: 482 Account expired.")
+    if str(faults.get("server_errors", "")) == "field":
+        state.servers = [
+            _server("news.eweka.test", "Eweka", 0, 20),
+            _server("news.newshosting.test", "Newshosting", 1, 30),
+            _server("reader.usenetbucket.test", "UsenetBucket", 1, 20),
+            _server("nl.thundernews.test", "Thundernews", 2, 20),
+            _server("reader.xsnews.test", "XSNews", 2, 10),
+        ]
+        for name, text in (
+            ("news.newshosting.test", "Server news.newshosting.test reported: 502 Authentication Failed"),
+            ("reader.usenetbucket.test", "Server reader.usenetbucket.test reported: 502 Authentication Failed"),
+            ("nl.thundernews.test", "Server nl.thundernews.test reported: 502 Access Denied"),
+            ("reader.xsnews.test", "Server reader.xsnews.test reported: 482 Account expired."),
+        ):
+            state.set_server_error(name, text)
+            state.server_errors[name] = ""  # cleared after SABnzbd's retry pause; the warning stays
     app = FastAPI(title="Mock SABnzbd")
     app.state.sab = state
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -23,6 +24,7 @@ from fastapi import HTTPException
 
 from mso.db import get_db, jsonb
 
+LOGGER = logging.getLogger(__name__)
 MAX_NZB_BYTES = 40 * 1024 * 1024
 MAX_STORED_SEGMENTS = 2000
 IDEMPOTENT_WINDOW_H = 24
@@ -135,7 +137,7 @@ def record_send(
     actor: str = "system",
 ) -> int:
     p = parsed or ParsedNzb(title=None)
-    return int(
+    nid = int(
         get_db().scalar(
             "INSERT INTO "
             "usenet_nzbs(nzo_id,origin,title,category,release_key,source_id,sha256,url_redacted,groups,"
@@ -170,6 +172,20 @@ def record_send(
             ),
         )
     )
+    if origin in ("send_url", "send_nzb") and p.segments:
+        _auto_sample(nid, actor)
+    return nid
+
+
+def _auto_sample(nzb_id: int, actor: str) -> None:
+    """Every NZB MSO itself sends gets an automatic, budgeted STAT sample (setting
+    ``usenet.auto_sample_after_send``). Never blocks or fails the send."""
+    try:
+        from mso.features.usenet import articles  # lazy: articles imports this module
+
+        articles.queue_auto_sample(nzb_id, actor=actor)
+    except Exception as exc:  # pragma: no cover - defensive
+        LOGGER.warning("automatische steekproef niet ingepland: %s", type(exc).__name__)
 
 
 def record_nzb(

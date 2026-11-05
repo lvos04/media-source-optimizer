@@ -48,7 +48,7 @@ export function IndexersPage({ protocol }: { protocol: Protocol }) {
         <div className="span-12 kpi-grid">
           <KpiCard label={t("idx.kpi.sources")} icon={Activity} value={ready ? num(items.length) : "—"} unavailable={!ready} />
           <KpiCard label={t("idx.kpi.healthy")} icon={ShieldCheck} value={ready ? num(okLast) : "—"} unavailable={!ready} />
-          <KpiCard label={t("idx.kpi.reliability")} icon={Gauge} value={avgRel !== null ? pct(avgRel) : "—"}
+          <KpiCard label={t("idx.kpi.reliability")} icon={Gauge} value={avgRel !== null ? pct(avgRel * 100) : "—"}
             meta={ready ? t("idx.kpi.coverage", { n: num(measured.length) }) : undefined} unavailable={!ready} />
           <KpiCard label={t("idx.kpi.private")} icon={Lock} value={ready ? num(items.filter((i) => i.private).length) : "—"} unavailable={!ready} />
         </div>

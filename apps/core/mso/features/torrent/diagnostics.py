@@ -143,9 +143,10 @@ def payload_finding(scan: dict[str, Any] | None, source: dict[str, Any] | None =
         severity="critical",
         confidence=0.95 if strong else 0.75,
         evidence={"matches": m, "files_checked": scan.get("files_checked"), "source": src},
-        suggestion="Open niets uit deze download. Stop of verwijder de torrent zelf in qBittorrent (MSO "
-        "verwijdert nooit iets), controleer de indexer/tracker waar hij vandaan kwam en blokkeer de release of "
-        "indexer in Sonarr/Radarr (bijv. via de blocklist en een release-profiel dat deze extensies weigert).",
+        suggestion="Open niets uit deze download. Maak een opruimvoorstel: na jouw goedkeuring verwijdert MSO "
+        "de torrent mét bestanden en zet de release op de blacklist (niet terug te draaien). Controleer ook de "
+        "indexer/tracker waar hij vandaan kwam (bijv. een release-profiel in Sonarr/Radarr dat deze extensies "
+        "weigert).",
     )
 
 
@@ -630,8 +631,8 @@ def diagnose_client(
                 severity="critical",
                 confidence=0.9,
                 evidence={"torrents": [s.get("name") for s in suspicious[:20]], "sources": sources},
-                suggestion="Filter de torrentlijst op 'Problemen', verwijder ze zelf in qBittorrent en blokkeer "
-                "de bron in Sonarr/Radarr. MSO verwijdert nooit iets.",
+                suggestion="Maak één opruimvoorstel voor alle verdachte torrents: na jouw goedkeuring verwijdert "
+                "MSO ze mét bestanden en blokkeert de releases (niet terug te draaien).",
             )
         )
     if pref_violations:

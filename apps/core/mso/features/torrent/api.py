@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -16,7 +17,7 @@ from mso.auth import Principal, require
 from mso.connectors import base as cb
 from mso.db import get_db
 from mso.features.torrent import applier as _applier  # noqa: F401  (registers the qbittorrent applier)
-from mso.features.torrent import crossseed, diagnostics, ingest, policy, storage, tuning
+from mso.features.torrent import cleanup, crossseed, diagnostics, ingest, policy, storage, tuning
 from mso.features.torrent import settings as ts
 from mso.features.torrent.adapters import ADAPTERS
 
@@ -291,6 +292,67 @@ def recheck_preview(h: str, p: Principal = Depends(require("operator"))) -> dict
 @router.post("/torrents/{h}/reannounce-preview")
 def reannounce_preview(h: str, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
     return _action_preview(h, "reannounce", p.actor)
+
+
+# ------------------------------------------------------------------ malware cleanup (suspicious torrents)
+SUS_SQL = (
+    "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(diagnosis->'findings', '[]'::jsonb)) f "
+    "WHERE f->>'code' = 'suspicious_payload')"
+)
+
+
+@router.get("/suspicious")
+def suspicious_list(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Suspicious torrents from the last scan + the open cleanup proposal (if any)."""
+    db = get_db()
+    rows = db.fetchall(f"SELECT * FROM torrent_state WHERE NOT removed AND {SUS_SQL} ORDER BY name")
+    items = []
+    for r in rows:
+        v = torrent_view(r)
+        sus = v["suspicious"] or {}
+        items.append(
+            {
+                "hash": r["hash"],
+                "name": r["name"],
+                "category": r["category"],
+                "tracker_host": r["tracker_host"],
+                "size": v["size"],
+                "files": [m.get("name") for m in (sus.get("evidence") or {}).get("matches") or []][:5],
+            }
+        )
+    open_change = db.fetchone(
+        "SELECT * FROM change_sets WHERE target='qbittorrent' AND source=%s AND status IN ('preview','approved') "
+        "ORDER BY id DESC LIMIT 1",
+        (cleanup.SOURCE,),
+    )
+    return {"items": items, "open_change": dict(open_change) if open_change else None}
+
+
+class CleanupBody(BaseModel):
+    hashes: list[str] | None = Field(None, max_length=500)
+
+
+@router.post("/suspicious/cleanup-preview")
+def suspicious_cleanup_preview(
+    body: CleanupBody | None = None, p: Principal = Depends(require("operator"))
+) -> dict[str, Any]:
+    """Create ONE cleanup change (preview, toestemming_nodig) for all suspicious torrents, or for ``hashes``.
+    Based on a fresh scan; applying re-checks again and refuses if the list changed."""
+    hashes = body.hashes if body and body.hashes else None
+    if hashes is not None:
+        bad = [h for h in hashes if not re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", h or "")]
+        if bad:
+            raise HTTPException(422, detail="Ongeldige torrent-hash")
+    ch = cleanup.preview(hashes, p.actor)
+    audit(
+        p.actor,
+        "torrent.cleanup_proposed",
+        f"Opruimvoorstel verdachte torrents: {ch['title']}",
+        target="qbittorrent",
+        change_id=ch["id"],
+        detail={"torrents": sum(1 for o in ch["ops"] if str(o["path"]).startswith("torrent:"))},
+    )
+    return ch
 
 
 # ------------------------------------------------------------------ preferences / policy

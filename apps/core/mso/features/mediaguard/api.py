@@ -21,8 +21,13 @@ def _job_sync(ctx: jobs.JobContext) -> dict[str, Any]:
     if not service.configured():
         return {"skipped": "standalone"}
     if not ctx.payload.get("force"):
-        last = (service.snap_data("sync_state", {}) or {}).get("finished_at")
+        st = service.snap_data("sync_state", {}) or {}
+        last = st.get("finished_at")
         interval = int(sr.get("mediaguard.sync_interval_min")) * 60
+        # a cycle that stopped at the page limit continues at the next tick (every 5 min) instead of waiting
+        # for the full interval, so a long wanted list is read completely within a few runs
+        if service.sync_in_progress(st) and st.get("ok") is not False:
+            interval = min(interval, 300)
         if last:
             from datetime import UTC, datetime
 

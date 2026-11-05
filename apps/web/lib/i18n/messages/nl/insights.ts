@@ -52,6 +52,10 @@ export const messages = {
   "overview.audit": "Recente activiteit",
   "overview.viewAll": "Alles bekijken",
   "overview.dataAge": "gegevens {age}",
+  "automation.changeDiscarded": "Verworpen",
+  "overview.mgChecked": "status gecontroleerd {age} geleden",
+  "overview.mgSynced": "wachtlijst gesynchroniseerd {age} geleden",
+  "overview.mgSyncedPartial": "wachtlijst gesynchroniseerd {age} geleden (deelronde)",
   "overview.issues": "Aandachtspunten",
 
   // ---------------------------------------------------------------- costs

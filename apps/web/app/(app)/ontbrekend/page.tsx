@@ -92,7 +92,12 @@ export default function MissingPage() {
         <BaselineCard />
 
         <Card className="span-12" title={t("rec.wanted.title")} icon={ListTodo} flush
-          sub={wanted.data?.mediaguard_fetched_at ? t("rec.wanted.fetched", { when: relative(wanted.data.mediaguard_fetched_at) }) : undefined}
+          sub={wanted.data?.mediaguard_synced_at
+            ? t("rec.wanted.fetched", { when: relative(wanted.data.mediaguard_synced_at) })
+              + (wanted.data.mediaguard_sync?.partial && wanted.data.mediaguard_sync.total_open
+                ? ` · ${t("rec.wanted.partial", { done: num(wanted.data.mediaguard_sync.cycle_items ?? 0), total: num(wanted.data.mediaguard_sync.total_open) })}`
+                : "")
+            : undefined}
           actions={wanted.data?.mediaguard_stale ? <StatusChip tone="warning">{t("state.staleShort")}</StatusChip> : undefined}>
           <div className="toolbar" style={{ padding: "12px 16px" }}>
             <Segmented<Source> label={t("rec.wanted.source")} value={source} onChange={(v) => { setSource(v); setPage(1); }}

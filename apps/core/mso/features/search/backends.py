@@ -8,6 +8,11 @@ Usage from another slice, without touching Slice A code::
 ``fn(query: SearchQuery) -> list[NormalizedRelease]``. Raise ``SourceError(status, message)`` for a
 timeout/error/category error (so it is not reported as an empty result). Backends registered here are
 leaf nodes in the origin graph (they never call Prowlarr or MSO back) unless ``edges_to`` says so.
+
+``rss=True`` declares that ``fn`` answers a query *without* text (``query.q is None``) with the latest
+releases (an RSS-style listing). Prowlarr validates a newly added Newznab/Torznab indexer with exactly such a
+query, so MSO only offers to register itself in Prowlarr when at least one backend can answer it.
+``active`` (optional) says whether the backend is switched on right now (e.g. an opt-in feature).
 """
 
 from __future__ import annotations
@@ -31,6 +36,16 @@ class Backend:
     protocols: set[str] = field(default_factory=lambda: {"usenet"})
     scopes: tuple[str, ...] = ("normal", "anime")
     edges_to: tuple[str, ...] = ()  # origin-graph nodes this backend itself may query
+    rss: bool = False  # answers a text-less query with the latest releases
+    active: Callable[[], bool] | None = None  # None = always on
+
+    def is_active(self) -> bool:
+        if self.active is None:
+            return True
+        try:
+            return bool(self.active())
+        except Exception:
+            return False
 
 
 BACKENDS: dict[str, Backend] = {}
@@ -46,6 +61,8 @@ def register_backend(
     protocols: set[str] | None = None,
     scopes: tuple[str, ...] | list[str] = ("normal", "anime"),
     edges_to: tuple[str, ...] | list[str] = (),
+    rss: bool = False,
+    active: Callable[[], bool] | None = None,
 ) -> Backend:
     sid = source_id or (name if ":" in name else f"{name}:default")
     b = Backend(
@@ -57,6 +74,8 @@ def register_backend(
         protocols=set(protocols or {"usenet"}),
         scopes=tuple(scopes),
         edges_to=tuple(edges_to),
+        rss=rss,
+        active=active,
     )
     BACKENDS[name] = b
     return b

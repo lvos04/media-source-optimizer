@@ -258,7 +258,9 @@ def test_import_servers_from_sab(app: Any, serve: Any, admin: Any) -> None:
         "status": "ok",
         "detail": "SABnzbd meldt geen fouten voor deze server.",
         "source": "sabnzbd",
+        "stale": False,
     }
+    assert items[0]["mso_test"]["state"] == "missing_credentials"
     assert "wachtwoorden" in r.json()["note"]
     assert admin.post("/api/v1/usenet/providers/import-sab").json()["items"] == []  # already linked
     mock_app.state.sab.set_server_error("news.eweka.test", "Server 127.0.0.1 reported: 482 Account expired.")

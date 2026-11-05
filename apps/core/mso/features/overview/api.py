@@ -236,11 +236,21 @@ def mediaguard_block(db: Database) -> dict[str, Any]:
                         "SELECT extract(epoch FROM now() - %s::timestamptz)::bigint", (snap["fetched_at"],)
                     )
                 )
+            sync_state = (mg.snap_data("sync_state", {}) or {}) if configured else {}
+            synced_at = sync_state.get("last_success_at")
             out = {
                 "available": configured,
                 "mode": mode,
                 "reason": reason,
+                # stale_s = age of the status check (probe); wanted_sync_s = age of the wanted-list sync
                 "stale_s": stale,
+                "wanted_synced_at": synced_at,
+                "wanted_sync_s": int(
+                    db.scalar("SELECT extract(epoch FROM now() - %s::timestamptz)::bigint", (synced_at,))
+                )
+                if synced_at
+                else None,
+                "wanted_sync_partial": bool(mg.sync_in_progress(sync_state)) if sync_state else False,
                 "version": (probe or {}).get("version"),
                 "emergency_stop": (probe or {}).get("emergency_stop"),
                 "source": "mediaguard",
@@ -265,7 +275,7 @@ def mediaguard_block(db: Database) -> dict[str, Any]:
             out = {
                 "available": True,
                 "mode": "connected" if row["status"] == "healthy" else "degraded",
-                "reason": None if row["status"] == "healthy" else f"Laatste test: {row['status']}",
+                "reason": None if row["status"] == "healthy" else f"Laatste test: {status_label(row['status'])}",
                 "stale_s": row["stale_s"],
                 "source": "connectors",
             }
@@ -283,11 +293,26 @@ def backup_block(db: Database) -> dict[str, Any]:
     return {"available": True, "age_s": row["age_s"], "last": row, "stale": row["age_s"] > 2 * 86400}
 
 
+# Connector statuses as shown to the user (never the raw enum).
+CONNECTOR_STATUS_LABELS = {
+    "healthy": "Gezond",
+    "degraded": "Verstoord",
+    "offline": "Offline",
+    "auth_failed": "Inloggen geweigerd",
+    "unknown": "Onbekend",
+    "not_configured": "Niet ingesteld",
+}
+
+
+def status_label(status: str | None) -> str:
+    return CONNECTOR_STATUS_LABELS.get(status or "unknown", status or "Onbekend")
+
+
 def health_summary(conn: dict[str, Any], jobs: dict[str, Any], failures: dict[str, Any]) -> dict[str, Any]:
     issues = []
     for c in conn["items"]:
         if c["configured"] and c["status"] in ("offline", "auth_failed", "degraded"):
-            issues.append(f"{c['label']}: {c['status']}")
+            issues.append(f"{c['label']}: {status_label(c['status'])}")
     if not jobs["worker"]["healthy"]:
         issues.append("Worker niet actief" if not jobs["worker"]["seen"] else "Worker-hartslag verouderd")
     if jobs["failing_24h"]:

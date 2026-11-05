@@ -211,8 +211,46 @@ def _row_from_item(item: dict[str, Any], expires: datetime) -> tuple[Any, ...]:
     )
 
 
+def _upsert_items(db: Any, items: list[dict[str, Any]], expires: datetime) -> None:
+    with db.tx() as conn:
+        for item in items:
+            conn.execute(
+                "INSERT INTO mg_wanted_cache(mg_id,instance_id,media_type,media_category,"
+                "kind,reason,title,"
+                "item_title,item_provider_id,provider_id,season_number,episode_number,"
+                "absolute_episode_number,air_date_utc,status,attempts,last_searched_at,last_reason_code,raw,"
+                "expires_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (mg_id) DO UPDATE SET instance_id=EXCLUDED.instance_id, "
+                "media_type=EXCLUDED.media_type, media_category=EXCLUDED.media_category, "
+                "kind=EXCLUDED.kind, "
+                "reason=EXCLUDED.reason, title=EXCLUDED.title, item_title=EXCLUDED.item_title, "
+                "item_provider_id=EXCLUDED.item_provider_id, provider_id=EXCLUDED.provider_id, "
+                "season_number=EXCLUDED.season_number, episode_number=EXCLUDED.episode_number, "
+                "absolute_episode_number=EXCLUDED.absolute_episode_number, "
+                "air_date_utc=EXCLUDED.air_date_utc, status=EXCLUDED.status, "
+                "attempts=EXCLUDED.attempts, "
+                "last_searched_at=EXCLUDED.last_searched_at, "
+                "last_reason_code=EXCLUDED.last_reason_code, "
+                "raw=EXCLUDED.raw, fetched_at=now(), expires_at=EXCLUDED.expires_at",
+                _row_from_item(item, expires),
+            )
+
+
+def sync_in_progress(sync_state: dict[str, Any] | None = None) -> bool:
+    """A multi-run sync cycle is underway (the previous run stopped at the page limit)."""
+    st = sync_state if sync_state is not None else (snap_data("sync_state", {}) or {})
+    return int(st.get("next_page") or 1) > 1
+
+
 def sync(*, force: bool = False, actor: str = "system") -> dict[str, Any]:
-    """Read-only sync of wanted items (paged), KPIs, reasons and backfill quota into the cache."""
+    """Read-only sync of wanted items (paged), KPIs, reasons and backfill quota into the cache.
+
+    One run reads at most ``mediaguard.sync_max_pages`` pages of ``PAGE_SIZE`` items. A larger wanted list is
+    read over several runs: the next run resumes at ``next_page`` (a *cycle*). Items that MediaGuard no longer
+    reports are dropped from the cache when a cycle completes: at once for a single-run cycle (exact), and
+    for multi-run cycles only when they were not seen in two consecutive cycles (pages can shift between
+    runs). Every run — also a partial one — records ``finished_at``/``last_success_at``.
+    """
     if not configured():
         return {"skipped": "standalone", "message": "MediaGuard is niet gekoppeld"}
     sync_state = snap_data("sync_state", {}) or {}
@@ -237,50 +275,50 @@ def sync(*, force: bool = False, actor: str = "system") -> dict[str, Any]:
     ttl_s = int(sr.get("mediaguard.cache_ttl_min")) * 60
     c = client()
     db = get_db()
-    seen: list[int] = []
+    max_pages = int(sr.get("mediaguard.sync_max_pages"))
+    resume = sync_in_progress(sync_state)
+    first_page = int(sync_state.get("next_page") or 1) if resume else 1
+    cycle_started_at = sync_state.get("cycle_started_at") if resume else None
+    if not cycle_started_at:
+        cycle_started_at = db.scalar("SELECT clock_timestamp()").isoformat()  # full precision (cutoff)
+        resume = False
+        first_page = 1
+    cycle_items = int(sync_state.get("cycle_items") or 0) if resume else 0
+    # rows must not expire before the cycle can refresh them again
+    prev_total = int(sync_state.get("total_open") or 0)
+    runs_per_cycle = max(1, -(-max(prev_total, 1) // (PAGE_SIZE * max_pages)))
+    interval_s = int(sr.get("mediaguard.sync_interval_min")) * 60
+    expires = _now() + timedelta(seconds=ttl_s + (runs_per_cycle - 1) * min(interval_s, 300))
+    total = prev_total
+    page = first_page
+    items_this_run = 0
+    result.update(first_page=first_page, cycle_started_at=cycle_started_at)
     try:
-        max_pages = int(sr.get("mediaguard.sync_max_pages"))
-        expires = _now() + timedelta(seconds=ttl_s)
-        page = 1
-        while page <= max_pages:
+        while page < first_page + max_pages:
             data = c.get(
                 f"{API}/wanted", {"status": "open", "page": page, "page_size": PAGE_SIZE, "sort": "priority"}
             )
             items = data.get("items") or []
-            with db.tx() as conn:
-                for item in items:
-                    conn.execute(
-                        "INSERT INTO mg_wanted_cache(mg_id,instance_id,media_type,media_category,"
-                        "kind,reason,title,"
-                        "item_title,item_provider_id,provider_id,season_number,episode_number,"
-                        "absolute_episode_number,air_date_utc,status,attempts,last_searched_at,last_reason_code,raw,"
-                        "expires_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-                        "ON CONFLICT (mg_id) DO UPDATE SET instance_id=EXCLUDED.instance_id, "
-                        "media_type=EXCLUDED.media_type, media_category=EXCLUDED.media_category, "
-                        "kind=EXCLUDED.kind, "
-                        "reason=EXCLUDED.reason, title=EXCLUDED.title, item_title=EXCLUDED.item_title, "
-                        "item_provider_id=EXCLUDED.item_provider_id, provider_id=EXCLUDED.provider_id, "
-                        "season_number=EXCLUDED.season_number, episode_number=EXCLUDED.episode_number, "
-                        "absolute_episode_number=EXCLUDED.absolute_episode_number, "
-                        "air_date_utc=EXCLUDED.air_date_utc, status=EXCLUDED.status, "
-                        "attempts=EXCLUDED.attempts, "
-                        "last_searched_at=EXCLUDED.last_searched_at, "
-                        "last_reason_code=EXCLUDED.last_reason_code, "
-                        "raw=EXCLUDED.raw, fetched_at=now(), expires_at=EXCLUDED.expires_at",
-                        _row_from_item(item, expires),
-                    )
-                    seen.append(int(item["id"]))
-            result["pages"] = page
+            _upsert_items(db, items, expires)
+            items_this_run += len(items)
+            cycle_items += len(items)
+            result["pages"] = page - first_page + 1
             total = int(data.get("total") or 0)
             if page * PAGE_SIZE >= total or not items:
                 result["complete"] = True
                 break
             page += 1
-        result["items"] = len(seen)
+        result["items"] = items_this_run
         result["total_open"] = total
         if result["complete"]:
-            # items MediaGuard no longer reports as open are dropped from the (non-authoritative) cache
-            db.execute("DELETE FROM mg_wanted_cache WHERE NOT (mg_id = ANY(%s))", (seen,))
+            cutoff = cycle_started_at if first_page == 1 else sync_state.get("prev_cycle_started_at")
+            if cutoff:
+                db.execute("DELETE FROM mg_wanted_cache WHERE fetched_at < %s::timestamptz", (cutoff,))
+            result.update(next_page=1, prev_cycle_started_at=cycle_started_at, cycle_started_at=None)
+        else:
+            result.update(next_page=page)  # the loop stopped at the page limit; ``page`` is the next one
+        result["cycle_items"] = cycle_items
+        result["pages_total"] = -(-total // PAGE_SIZE) if total else result["pages"]
         if caps.get("wanted_kpis"):
             _conditional_get(c, "kpis", f"{API}/wanted/kpis", ttl_s=ttl_s)
         reasons_row = snap_get("reasons")
@@ -292,14 +330,23 @@ def sync(*, force: bool = False, actor: str = "system") -> dict[str, Any]:
             _conditional_get(c, "quota", f"{API}/wanted/backfill/quota", ttl_s=300)
         result.update(ok=True, error=None)
     except mgc.MediaGuardError as exc:
-        result.update(ok=False, error=str(exc))
+        result.update(ok=False, error=str(exc), items=items_this_run, cycle_items=cycle_items)
+        if "next_page" not in result:  # failed while paging: the next run retries the page that failed
+            result["next_page"] = page
+            if page == 1:
+                result["cycle_started_at"] = None
         if exc.code == "quota" or exc.status == 429:
             result["backoff_until"] = _iso(_now() + timedelta(minutes=15))
     result["finished_at"] = _iso(_now())
     result["duration_ms"] = int((time.monotonic() - started) * 1000)
+    result["cached"] = int(db.scalar("SELECT count(*) FROM mg_wanted_cache") or 0)
     new_state = {
+        **sync_state,
         **result,
         "last_success_at": result["finished_at"] if result.get("ok") else sync_state.get("last_success_at"),
+        "last_complete_at": result["finished_at"]
+        if result.get("ok") and result["complete"]
+        else sync_state.get("last_complete_at"),
         "last_error": result.get("error"),
     }
     if not result.get("backoff_until"):
@@ -309,9 +356,10 @@ def sync(*, force: bool = False, actor: str = "system") -> dict[str, Any]:
         audit(
             actor,
             "mediaguard.sync",
-            f"MediaGuard-synchronisatie: {result['items']} items",
+            f"MediaGuard-synchronisatie: {result['items']} items"
+            + ("" if result["complete"] else f" (deelronde, verder bij pagina {result.get('next_page')})"),
             target="mediaguard",
-            detail={"ok": result.get("ok"), "error": result.get("error")},
+            detail={"ok": result.get("ok"), "error": result.get("error"), "complete": result["complete"]},
         )
     return result
 
@@ -360,12 +408,22 @@ def cached_wanted(
         r["stale"] = r["expires_at"] < now
         r["media_ref"] = f"mg:{r['mg_id']}"
     oldest = db.scalar("SELECT min(fetched_at) FROM mg_wanted_cache")
+    st = snap_data("sync_state", {}) or {}
     return {
         "items": rows,
         "total": total,
         "page": page,
         "page_size": page_size,
+        # when the wanted list was last read from MediaGuard (also a partial run); the oldest cached row can
+        # be older while a multi-run cycle is underway
+        "synced_at": st.get("last_success_at"),
         "fetched_at": oldest,
+        "sync": {
+            "partial": sync_in_progress(st),
+            "cycle_items": st.get("cycle_items"),
+            "total_open": st.get("total_open"),
+            "last_complete_at": st.get("last_complete_at"),
+        },
         "stale": any(r["stale"] for r in rows),
     }
 

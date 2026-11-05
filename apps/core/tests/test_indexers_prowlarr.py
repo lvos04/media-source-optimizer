@@ -9,8 +9,9 @@ import logging
 from typing import Any
 
 import pytest
+from msomocks import newznab as mock_nz
 from msomocks import prowlarr as mock_prowlarr
-from slice_a_helpers import PROWLARR_KEY, configure_prowlarr, set_settings
+from slice_a_helpers import NZ_KEY, PROWLARR_KEY, TZ_KEY, add_direct, configure_prowlarr, set_settings
 
 
 @pytest.fixture()
@@ -89,7 +90,9 @@ def test_view_detects_conflicts_and_makes_recommendations_only(
     operator.post("/api/v1/indexers/prowlarr/sync")  # idempotent
     recs = viewer.get("/api/v1/indexers/recommendations").json()["items"]
     keys = sorted(r["dedupe_key"] for r in recs)
-    assert keys == sorted(set(keys)) and len(keys) == 3
+    # no own sources behind MSO's endpoint → no recommendation to register MSO (Prowlarr would refuse it)
+    assert keys == sorted(set(keys)) and len(keys) == 2
+    assert not [k for k in keys if "mso_not_registered" in k]
     anime = next(r for r in recs if "anime_tagged_normal" in r["dedupe_key"])
     assert anime["risk"] == "advies" and anime["evidence"]["preview"]["suggested_tags"] == ["anime"]
     # never wrote anything to Prowlarr
@@ -107,8 +110,18 @@ def test_registration_requires_public_url(admin: Any, prowlarr: tuple[Any, str])
     assert r.status_code == 422 and "publieke URL" in r.json()["detail"]
 
 
+@pytest.fixture()
+def own_sources(admin: Any, serve: Any) -> None:
+    """One direct NZB + one direct Torznab indexer behind MSO's endpoint (registration precondition)."""
+    add_direct(admin, serve(mock_nz.create_app(apikey=NZ_KEY)), label="Eigen NZB")
+    add_direct(
+        admin, serve(mock_nz.create_app(apikey=TZ_KEY, protocol="torrent")), kind="torznab", key=TZ_KEY,
+        label="Eigen torrent",
+    )
+
+
 def test_registration_change_set_flow(
-    admin: Any, prowlarr: tuple[Any, str], db: Any, manage_mode: None, caplog: Any
+    admin: Any, prowlarr: tuple[Any, str], db: Any, manage_mode: None, caplog: Any, own_sources: None
 ) -> None:
     caplog.set_level(logging.DEBUG)
     mock, _ = prowlarr
@@ -122,10 +135,23 @@ def test_registration_change_set_flow(
     ch = res["change"]
     assert ch["risk"] == "toestemming_nodig" and ch["status"] == "preview" and ch["target"] == "prowlarr"
     assert [op["path"] for op in ch["ops"]] == ["indexer:newznab", "indexer:torznab"]
-    assert ch["ops"][0]["after"]["baseUrl"] == "http://mso.lan:8000/newznab"
-    payload = ch["impact"]["payloads"]["newznab"]
+    assert "URL: http://mso.lan:8000/newznab" in ch["ops"][0]["after"]
+    assert ch["ops"][0]["after"].startswith("Naam: Media Source Optimizer (Newznab)\nType: Newznab")
+    # compact Dutch impact; the raw Prowlarr payload only in the response (technische details)
+    imp = ch["impact"]["Te registreren"]["Newznab"]
+    assert imp["URL"] == "http://mso.lan:8000/newznab/api" and imp["Tags"] == "anime, normal"
+    assert imp["Prioriteit"] == 25 and "Eigen NZB" in imp["Bronnen achter het endpoint"]
+    assert "payloads" not in ch["impact"] and "sortName" not in str(ch)
+    payload = res["payloads"]["newznab"]
     api_field = next(f for f in payload["fields"] if f["name"] == "apiKey")
     assert api_field["value"].startswith("***")
+    # built from the *generic* schema entry, never a preset's identity (abNZB / AnimeTosho)
+    for kind in ("newznab", "torznab"):
+        p = res["payloads"][kind]
+        assert not {"sortName", "added", "description", "infoLink", "presets", "id"} & set(p)
+        assert p["name"].startswith("Media Source Optimizer") and p["indexerUrls"] == []
+        assert p["configContract"] == ("NewznabSettings" if kind == "newznab" else "TorznabSettings")
+        assert p["appProfileId"] == 1 and p["priority"] == 25 and sorted(p["tags"]) == [1, 2]
     from mso.vault import get_vault
 
     key = get_vault().get("newznab.apikey")
@@ -139,6 +165,9 @@ def test_registration_change_set_flow(
     assert r.status_code == 200, r.text
     regs = [i for i in mock.state.data["indexers"] if i["name"].startswith("Media Source Optimizer")]
     assert len(regs) == 2
+    posts = [c for c in mock.state.calls if c["method"] in ("POST", "PUT")]
+    assert posts and all("forceSave" not in c["query"] for c in posts)  # never bypass Prowlarr's validation
+    assert not [i for i in regs if "animetosho" in str(i).lower() or "abnzb" in str(i).lower()]
     nz = next(i for i in regs if i["implementation"] == "Newznab")
     fields = {f["name"]: f["value"] for f in nz["fields"]}
     assert fields["baseUrl"] == "http://mso.lan:8000/newznab" and fields["apiKey"] == key
@@ -158,7 +187,9 @@ def test_registration_change_set_flow(
     assert key not in caplog.text and PROWLARR_KEY not in caplog.text
 
 
-def test_duplicate_registration_detected(admin: Any, viewer: Any, prowlarr: tuple[Any, str]) -> None:
+def test_duplicate_registration_detected(
+    admin: Any, viewer: Any, prowlarr: tuple[Any, str], own_sources: None
+) -> None:
     mock, _ = prowlarr
     set_settings({"newznab.public_url": "http://mso.lan:8000"})
     for i in (50, 51):

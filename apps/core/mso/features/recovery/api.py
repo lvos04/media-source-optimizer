@@ -139,7 +139,12 @@ def get_wanted(
             limit=page_size - len(manual_rows),
         )
         total += res["total"]
-        meta.update(mediaguard_fetched_at=res["fetched_at"], mediaguard_stale=res["stale"])
+        meta.update(
+            mediaguard_synced_at=res["synced_at"],
+            mediaguard_fetched_at=res["fetched_at"],
+            mediaguard_sync=res["sync"],
+            mediaguard_stale=res["stale"],
+        )
         for r in res["items"]:
             items.append(
                 {

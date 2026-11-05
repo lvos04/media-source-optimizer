@@ -6,8 +6,9 @@ Rules (deterministic, conservative):
 2. Unlimited providers are only re-ordered by *explicitly tested* availability on your own requested articles,
    and only when every one of them has at least ``usenet.min_articles_for_recommendation`` compared articles
    and the difference is at least 1 percentage point. Otherwise the current order is kept and MSO says why.
-3. A server whose account is expired or whose login is refused — according to MSO's own check of the linked
-   provider OR to SABnzbd's own server status/warnings — but still enabled in SABnzbd, gets a suggestion to
+3. A server whose account is expired or whose login is refused — according to MSO's own *current* check of
+   the linked provider (with credentials, < 24 h old, newer than SABnzbd's status) OR to SABnzbd's own server
+   status/warnings — but still enabled in SABnzbd, gets a suggestion to
    disable that server (it only produces errors/delays), and an advisory per failing server.
 4. A server where SABnzbd found only a small share of the articles it tried gets an observation (passive).
 Nothing is written until an admin creates the change set, approves it and applies it in beheermodus.
@@ -42,10 +43,19 @@ _DISABLE_REASON = {
 }
 
 
+def _own_bad(p: dict[str, Any], sab: dict[str, dict[str, Any]]) -> str | None:
+    """MSO's own failing test of a linked provider — only while it still counts: credentials present, younger
+    than 24 h and newer than SABnzbd's latest status change (an old test from before credentials were filled
+    in, or one SABnzbd has since contradicted, never produces "inloggen geweigerd")."""
+    own = providers.own_status(p, sab.get(p["sab_server"] or ""))
+    return own if own in BAD_STATUS else None
+
+
 def _bad(p: dict[str, Any], sab: dict[str, dict[str, Any]]) -> str | None:
-    """Failing status of a linked provider: MSO's own check, else SABnzbd's view of its server."""
-    if p["status"] in BAD_STATUS:
-        return str(p["status"])
+    """Failing status of a linked provider: MSO's own current check, else SABnzbd's view of its server."""
+    own = _own_bad(p, sab)
+    if own:
+        return own
     st = (sab.get(p["sab_server"] or "") or {}).get("status")
     return st if st in BAD_STATUS else None
 
@@ -129,7 +139,7 @@ def suggestions(period_days: int = 30) -> dict[str, Any]:
     for srv in sorted(servers, key=lambda s: (s["priority"], s["name"])):
         p = linked_by_server.get(srv["name"])
         st = sab.get(srv["name"]) or {}
-        own_bad = p["status"] if p and p["status"] in BAD_STATUS else None
+        own_bad = _own_bad(p, sab) if p else None
         sab_bad = st.get("status") if st.get("status") in serverstatus.FAILING else None
         status = own_bad or sab_bad
         if not status or not srv["enable"]:

@@ -25,6 +25,12 @@ export interface SearchItem {
   imdb_id: string | null; seeders: number | null; leechers: number | null; grabs: number | null;
   private: boolean; freeleech: boolean | null; confidence: number; false_positive_flags: string[];
   parsed: ParsedTitle; trace: string[]; also_from: string[];
+  extra?: { title_match?: number | null; confidence_basis?: ConfidenceBasis; [k: string]: unknown };
+}
+
+/** What a result's "Zekerheid" is made of (it says how sure MSO is about the *title*, not about quality). */
+export interface ConfidenceBasis {
+  title_match: number | null; parsed: number; ids_match: boolean; year: "klopt" | "wijkt_af" | null; warnings: number;
 }
 
 export interface SourceReport {
@@ -83,6 +89,8 @@ export interface IndexerSource {
   library_relevant?: boolean | null; relevance_reason?: string | null;
   prowlarr_health?: Array<{ kind: string; broken: boolean; message: string; source: string }>;
   prowlarr_broken?: boolean;
+  /** When MSO's sync first saw Prowlarr's "not working" message (null when not broken). */
+  prowlarr_broken_since?: string | null;
   prowlarr?: { prowlarr_id: number; implementation: string | null; definition: string | null; privacy: string | null; tags: string[]; disabled_till: string | null; most_recent_failure: string | null; avg_response_ms: number | null; queries: number | null; grabs: number | null; failed_queries: number | null; anime_name: boolean };
   direct?: DirectIndexer;
 }
@@ -114,9 +122,18 @@ export interface Recommendation {
   updated_at: string;
 }
 
+export type RegistrationKind = "newznab" | "torznab";
 export type RegisterResult =
-  | { status: "preview"; change: ChangeSet; already: string[] }
-  | { status: "already_registered"; kinds: string[] };
+  | { status: "preview"; change: ChangeSet; already: string[]; not_ready: Partial<Record<RegistrationKind, string>>;
+      /** Full Prowlarr payload per kind (API key masked) — only for "technische details". */
+      payloads: Partial<Record<RegistrationKind, Record<string, unknown>>> }
+  | { status: "already_registered"; kinds: string[]; not_ready?: Partial<Record<RegistrationKind, string>> };
+
+/** Own (non-Prowlarr) sources behind MSO's endpoint for one protocol; ready = Prowlarr's add-indexer test can pass. */
+export interface EndpointReadiness {
+  kind: RegistrationKind; protocol: Protocol; ready: boolean; reason: string | null;
+  sources: Array<{ source_id: string; label: string; kind: string; rss: boolean }>;
+}
 
 // ---------------------------------------------------------------- newznab endpoint
 export interface NewznabConsumer {
@@ -129,6 +146,7 @@ export interface NewznabEndpoint {
   default_consumer: NewznabConsumer; backends: string[]; max_limit: number;
   prowlarr_registrations: Array<{ source_id: string; label: string; base_url_kind: string | null }>;
   categories: Record<MediaCategory, number[]>;
+  registration: Record<RegistrationKind, EndpointReadiness>;
 }
 
 export interface OriginGraph {

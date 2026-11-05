@@ -249,6 +249,13 @@ def sync_sources() -> dict[str, Any]:
     seen: list[str] = []
     mso_ids: list[int] = []
     pub = keys.public_base_url()
+    prev_broken = {
+        r["id"]: r["since"]
+        for r in db.fetchall(
+            "SELECT id, meta->>'prowlarr_broken_since' AS since FROM sources WHERE origin='prowlarr'"
+        )
+    }
+    now_iso = datetime.now(UTC).isoformat()
     for idx in indexers:
         iid = int(idx["id"])
         sid = f"prowlarr:{iid}"
@@ -278,6 +285,11 @@ def sync_sources() -> dict[str, Any]:
             "video_categories": scope["video_categories"],
             "prowlarr_health": issues,
             "prowlarr_broken": any(i["broken"] for i in issues),
+            # first sync that saw the "not working" health message (kept while it lasts; None once gone), so
+            # the UI can tell results from *before* the breakage from results despite it
+            "prowlarr_broken_since": (prev_broken.get(sid) or now_iso)
+            if any(i["broken"] for i in issues)
+            else None,
             "is_mso": mso,
             "anime_name": is_anime_name(idx.get("name"), idx.get("definitionName")),
             "disabled_till": st.get("disabledTill"),
@@ -381,6 +393,21 @@ def desired_registration(kind: str, *, public_base: str | None = None) -> dict[s
     }
 
 
+REG_KEYS = ("name", "implementation", "baseUrl", "apiPath", "enable")
+SUMMARY_LINES = (
+    ("name", "Naam"),
+    ("implementation", "Type"),
+    ("baseUrl", "URL"),
+    ("apiPath", "API-pad"),
+    ("enable", "Ingeschakeld"),
+)
+# Prowlarr's schema entries are *definitions* (presets such as abNZB or AnimeTosho plus "Generic …"); these keys
+# only describe the definition and must never be sent back as if they were MSO's own values.
+DEFINITION_ONLY = ("id", "presets", "added", "sortName", "description", "infoLink", "legacyUrls", "message")
+NO_RESULTS_HINT = "no results were returned from your indexer"
+CAT_NAMES_NL = {"Movies": "Films", "TV": "Series"}
+
+
 def _normalize(rec: dict[str, Any] | None) -> dict[str, Any] | None:
     if rec is None:
         return None
@@ -391,6 +418,39 @@ def _normalize(rec: dict[str, Any] | None) -> dict[str, Any] | None:
         "apiPath": field_value(rec, "apiPath") or "/api",
         "enable": bool(rec.get("enable")),
     }
+
+
+def summary(reg: dict[str, Any] | None) -> str | None:
+    """Change-set op value for a registration: compact Dutch lines (what the preview shows and what read()
+    returns), e.g. ``Naam: Media Source Optimizer (Newznab)\\nType: Newznab\\nURL: …``."""
+    if reg is None:
+        return None
+    out = []
+    for key, label in SUMMARY_LINES:
+        v = reg.get(key)
+        out.append(f"{label}: {('ja' if v else 'nee') if key == 'enable' else v}")
+    return "\n".join(out)
+
+
+def parse_registration(value: Any) -> dict[str, Any]:
+    """Inverse of :func:`summary`; also accepts the older dict form of open change sets."""
+    if isinstance(value, dict):
+        if set(value) != set(REG_KEYS):
+            raise ValueError("ongeldige registratie")
+        return dict(value)
+    if not isinstance(value, str):
+        raise ValueError("ongeldige registratie")
+    by_label = {label: key for key, label in SUMMARY_LINES}
+    out: dict[str, Any] = {}
+    for line in value.splitlines():
+        label, sep, v = line.partition(": ")
+        if not sep or label not in by_label:
+            raise ValueError("ongeldige registratie")
+        key = by_label[label]
+        out[key] = (v.strip() == "ja") if key == "enable" else v.strip()
+    if set(out) != set(REG_KEYS):
+        raise ValueError("ongeldige registratie")
+    return out
 
 
 def find_registrations(
@@ -419,6 +479,26 @@ def _set_field(body: dict[str, Any], name: str, value: Any) -> None:
     body["fields"].append({"name": name, "value": value})
 
 
+def pick_template(schema: list[dict[str, Any]], implementation: str) -> dict[str, Any] | None:
+    """The *generic* Newznab/Torznab definition from ``GET /api/v1/indexer/schema``. Prowlarr lists presets
+    first (abNZB, AnimeTosho, …, with their own URL, description and categories); copying one of those would
+    send another indexer's identity (e.g. ``sortName: animetosho``). Prefer "Generic …", then any entry
+    without a preset baseUrl, else the first one."""
+    cands = [s for s in schema if s.get("implementation") == implementation]
+
+    def generic(s: dict[str, Any]) -> bool:
+        return str(s.get("name") or "").strip().lower().startswith("generic")
+
+    def no_preset_url(s: dict[str, Any]) -> bool:
+        return not str(field_value(s, "baseUrl") or "").strip()
+
+    for pred in (generic, no_preset_url):
+        for s in cands:
+            if pred(s):
+                return s
+    return cands[0] if cands else None
+
+
 def create_payload(
     kind: str,
     client: ProwlarrClient | None,
@@ -427,19 +507,21 @@ def create_payload(
     api_key: str,
     template: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Body for ``POST /api/v1/indexer``: Prowlarr's generic schema template with MSO's own values filled in
+    (name, implementation, configContract, protocol, baseUrl, apiPath, apiKey, existing scope tags)."""
     spec = REGISTRATIONS[kind]
     want = desired_registration(kind)
     if template is None and client is not None:
-        template = next(
-            (s for s in client.indexer_schema() if s.get("implementation") == spec["implementation"]), None
-        )
+        template = pick_template(client.indexer_schema(), spec["implementation"])
     body = copy.deepcopy(template) if template else {"fields": []}
-    body.pop("id", None)
-    body.pop("presets", None)
+    for k in DEFINITION_ONLY:
+        body.pop(k, None)
+    preset = bool(str(field_value(body, "baseUrl") or "").strip())
     body.update(
         {
             "name": want["name"],
             "implementation": spec["implementation"],
+            "implementationName": spec["implementation"],
             "configContract": spec["configContract"],
             "protocol": spec["protocol"],
             "enable": True,
@@ -448,10 +530,33 @@ def create_payload(
             "tags": tag_ids,
         }
     )
+    if preset:  # fallback template was a preset: never carry its URLs/parameters over
+        body["indexerUrls"] = []
+        if any(f.get("name") == "additionalParameters" for f in body.get("fields") or []):
+            _set_field(body, "additionalParameters", "")
     _set_field(body, "baseUrl", want["baseUrl"])
     _set_field(body, "apiPath", "/api")
     _set_field(body, "apiKey", api_key)
     return body
+
+
+def _readiness(kind: str) -> dict[str, Any]:
+    from mso.features.newznab_server import readiness
+
+    return readiness.endpoint_sources(kind)
+
+
+def _translate_prowlarr_refusal(exc: ProwlarrError, kind: str) -> ProwlarrError:
+    if NO_RESULTS_HINT not in exc.message.lower():
+        return exc
+    labels = ", ".join(s["label"] for s in _readiness(kind)["sources"]) or "geen"
+    return ProwlarrError(
+        f"Prowlarr weigert de {REGISTRATIONS[kind]['label']}-indexer: zijn testzoekopdracht (zonder zoekterm) "
+        f"kreeg van MSO 0 resultaten. Eigen bronnen achter het endpoint: {labels}. Controleer of die bereikbaar "
+        f"zijn en recente releases geven (Bronrapport bij Zoeken). Prowlarr meldde: {exc.message}",
+        exc.code,
+        exc.status,
+    )
 
 
 def _applier() -> changes.Applier:
@@ -465,7 +570,7 @@ def _applier() -> changes.Applier:
 
     def read(path: str) -> Any:
         found = find_registrations(client.indexers(), kind_of(path))
-        return _normalize(found[0]) if found else None
+        return summary(_normalize(found[0])) if found else None
 
     def write(path: str, value: Any) -> None:
         kind = kind_of(path)
@@ -475,35 +580,36 @@ def _applier() -> changes.Applier:
                 if str(rec.get("name") or "").startswith(MSO_INDEXER_PREFIX):
                     client.delete_indexer(int(rec["id"]))
             return
+        reg = parse_registration(value)
         key = keys.default_key()
-        if found:
-            body = copy.deepcopy(found[0])
-            body["name"] = value["name"]
-            body["enable"] = value["enable"]
-            _set_field(body, "baseUrl", value["baseUrl"])
-            _set_field(body, "apiPath", value["apiPath"])
-            _set_field(body, "apiKey", key)
-            client.update_indexer(body)  # tags untouched (MediaGuard may manage them)
-            return
-        client.create_indexer(create_payload(kind, client, tag_ids=_scope_tag_ids(client), api_key=key))
+        try:
+            if found:
+                body = copy.deepcopy(found[0])
+                body["name"] = reg["name"]
+                body["enable"] = reg["enable"]
+                _set_field(body, "baseUrl", reg["baseUrl"])
+                _set_field(body, "apiPath", reg["apiPath"])
+                _set_field(body, "apiKey", key)
+                client.update_indexer(body)  # tags untouched (MediaGuard may manage them)
+                return
+            client.create_indexer(create_payload(kind, client, tag_ids=_scope_tag_ids(client), api_key=key))
+        except ProwlarrError as exc:
+            raise _translate_prowlarr_refusal(exc, kind) from exc
 
     def validate(path: str, value: Any) -> None:
-        kind_of(path)
+        kind = kind_of(path)
         if value is None:
             return
-        if not isinstance(value, dict) or set(value) != {
-            "name",
-            "implementation",
-            "baseUrl",
-            "apiPath",
-            "enable",
-        }:
-            raise ValueError("ongeldige registratie")
-        if not str(value["name"]).startswith(MSO_INDEXER_PREFIX):
+        reg = parse_registration(value)
+        if not str(reg["name"]).startswith(MSO_INDEXER_PREFIX):
             raise ValueError("alleen de eigen MSO-indexer mag worden geregistreerd")
         pub = keys.public_base_url()
-        if pub and not norm_url(value["baseUrl"]).startswith(norm_url(pub)):
+        if pub and not norm_url(reg["baseUrl"]).startswith(norm_url(pub)):
             raise ValueError("baseUrl wijst niet naar MSO")
+        if reg["enable"]:
+            ready = _readiness(kind)
+            if not ready["ready"]:
+                raise ValueError(ready["reason"])
 
     return changes.Applier(read=read, write=write, validate=validate)
 
@@ -519,19 +625,57 @@ def mask_payload(body: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _categories_text() -> str:
+    from mso.features.newznab_server.xmlout import CATEGORY_TREE
+
+    parts = [f"{CAT_NAMES_NL.get(name, name)} ({cid})" for cid, name, _ in CATEGORY_TREE]
+    return ", ".join(parts) + " incl. Anime (5070) — Prowlarr leest ze uit de caps van MSO"
+
+
+def _impact_row(
+    reg: dict[str, Any], body: dict[str, Any], tag_labels: list[str], sources: list[dict[str, Any]]
+) -> dict[str, Any]:
+    proto = "usenet" if reg["implementation"] == "Newznab" else "torrents"
+    return {
+        "Naam": reg["name"],
+        "Type": f"{reg['implementation']} ({proto})",
+        "URL": f"{reg['baseUrl']}{reg['apiPath']}",
+        "Categorieën": _categories_text(),
+        "Prioriteit": body.get("priority") or 25,
+        "Tags": ", ".join(tag_labels) or "geen",
+        "Bronnen achter het endpoint": ", ".join(s["label"] for s in sources) or "geen",
+        "API-sleutel": "consumer-sleutel 'Prowlarr' van MSO (pas bij toepassen ingevuld)",
+    }
+
+
+def _refusal_detail(reasons: dict[str, str]) -> str:
+    from mso.features.newznab_server import readiness
+
+    if len(reasons) == 1:
+        return next(iter(reasons.values()))
+    if all(r.startswith(readiness.NO_BACKENDS[k][:60]) for k, r in reasons.items()):
+        return readiness.NO_BACKENDS["newznab"]
+    return " ".join(f"{REGISTRATIONS[k]['label']}: {r}" for k, r in reasons.items())
+
+
 def propose_registration(actor: str, kinds: list[str] | None = None) -> dict[str, Any]:
     """Preview (change set, risk toestemming_nodig) registering MSO's endpoints in Prowlarr. Idempotent: an
-    existing registration (matched by baseUrl) is reported, never duplicated."""
+    existing registration (matched by baseUrl) is reported, never duplicated. Refused per protocol when MSO has
+    no own source behind that endpoint (Prowlarr's add-indexer test would only get 0 results)."""
     kinds = kinds or ["newznab", "torznab"]
+    for kind in kinds:
+        if kind not in REGISTRATIONS:
+            raise HTTPException(422, detail=f"Onbekend type '{kind}'")
+        desired_registration(kind)  # public URL first
     client = ProwlarrClient.from_config()
     indexers = client.indexers()
     keys.ensure_default_consumer()
     tag_ids = _scope_tag_ids(client)
-    schema = client.indexer_schema()
-    ops, payloads, already = [], {}, []
+    tag_labels = sorted(tag_map(client.tags()).get(i, str(i)) for i in tag_ids)
+    schema: list[dict[str, Any]] | None = None
+    ops, payloads, already, impact_rows = [], {}, [], {}
+    not_ready: dict[str, str] = {}
     for kind in kinds:
-        if kind not in REGISTRATIONS:
-            raise HTTPException(422, detail=f"Onbekend type '{kind}'")
         want = desired_registration(kind)
         found = find_registrations(indexers, kind)
         if len(found) > 1:
@@ -544,40 +688,59 @@ def propose_registration(actor: str, kinds: list[str] | None = None) -> dict[str
         if cur == want:
             already.append(kind)
             continue
-        template = next(
-            (s for s in schema if s.get("implementation") == REGISTRATIONS[kind]["implementation"]), None
-        )
-        payloads[kind] = mask_payload(
-            create_payload(kind, None, tag_ids=tag_ids, api_key="x", template=template)
-            if cur is None
-            else {**found[0], "fields": found[0].get("fields")}
-        )
+        ready = _readiness(kind)
+        if not ready["ready"]:
+            not_ready[kind] = ready["reason"]
+            continue
+        if cur is None:
+            if schema is None:
+                schema = client.indexer_schema()
+            template = pick_template(schema, REGISTRATIONS[kind]["implementation"])
+            body = create_payload(kind, None, tag_ids=tag_ids, api_key="x", template=template)
+        else:
+            body = {**found[0], "fields": found[0].get("fields")}
+        payloads[kind] = mask_payload(body)
+        label = REGISTRATIONS[kind]["label"]
+        impact_rows[label] = _impact_row(want, body, tag_labels, ready["sources"])
         ops.append(
             {
                 "path": f"indexer:{kind}",
-                "label": f"Prowlarr-indexer '{want['name']}'"
-                + (" aanmaken" if cur is None else " bijwerken"),
-                "before": cur,
-                "after": want,
+                "label": f"{label}-indexer in Prowlarr " + ("aanmaken" if cur is None else "bijwerken"),
+                "before": summary(cur),
+                "after": summary(want),
             }
         )
     if not ops:
-        return {"status": "already_registered", "kinds": already}
-    tag_labels = sorted(tag_map(client.tags()).get(i, str(i)) for i in tag_ids)
+        if not_ready and not already:
+            raise HTTPException(422, detail=_refusal_detail(not_ready))
+        return {"status": "already_registered", "kinds": already, "not_ready": not_ready}
     explanation = (
         "MSO registreert alleen zijn eigen Newznab/Torznab-endpoint als indexer in Prowlarr. "
         "Bestaande tags worden alleen gebruikt (" + (", ".join(tag_labels) or "geen") + "), nooit "
         "aangemaakt of gewijzigd; Applications en MediaGuard-instellingen blijven onaangeroerd. "
-        "Verzoeken die Prowlarr via deze indexer doet, bevraagt MSO nooit terug bij Prowlarr."
+        "Verzoeken die Prowlarr via deze indexer doet, bevraagt MSO nooit terug bij Prowlarr; ze worden "
+        "beantwoord door MSO's eigen bronnen. Prowlarr test een nieuwe indexer met een zoekopdracht zonder "
+        "zoekterm; MSO antwoordt daarop met de nieuwste echte releases van die bronnen."
     )
+    impact: dict[str, Any] = {"Te registreren": impact_rows}
+    if already:
+        impact["Al aanwezig"] = [REGISTRATIONS[k]["label"] for k in already]
+    if not_ready:
+        impact["Niet geregistreerd"] = {REGISTRATIONS[k]["label"]: r for k, r in not_ready.items()}
     ch = changes.create(
         PROWLARR_ID,
         "MSO als indexer registreren in Prowlarr",
         ops,
         risk="toestemming_nodig",
         explanation=explanation,
-        impact={"payloads": payloads, "already": already, "tags_used": tag_labels},
+        impact=impact,
         actor=actor,
-        dedupe_key="prowlarr:register-mso",
+        dedupe_key="prowlarr:register-mso:" + ",".join(sorted(op["path"] for op in ops)),
     )
-    return {"status": "preview", "change": ch, "already": already}
+    return {
+        "status": "preview",
+        "change": ch,
+        "already": already,
+        "not_ready": not_ready,
+        "payloads": payloads,
+    }

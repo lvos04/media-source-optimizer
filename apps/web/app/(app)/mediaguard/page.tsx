@@ -120,16 +120,19 @@ export default function MediaGuardPage() {
                 <div className="stack">
                   <div className="row wrap">
                     {ls.ok ? <StatusChip tone="success">{t("mg.sync.ok")}</StatusChip> : <StatusChip tone="danger">{t("mg.sync.failed")}</StatusChip>}
-                    {ls.complete === false && ls.ok ? <StatusChip tone="warning">{t("mg.sync.partial")}</StatusChip> : null}
+                    {ls.complete === false && ls.ok ? <StatusChip tone="info">{t("mg.sync.partial", { page: num(ls.next_page ?? 1) })}</StatusChip> : null}
                     {ls.backoff_until ? <StatusChip tone="warning">{t("mg.sync.backoff", { when: relative(ls.backoff_until) })}</StatusChip> : null}
                   </div>
                   <dl className="kv">
                     <dt>{t("mg.sync.last")}</dt><dd>{ls.finished_at ? relative(ls.finished_at) : "—"}</dd>
                     <dt>{t("mg.sync.lastOk")}</dt><dd>{ls.last_success_at ? relative(ls.last_success_at) : "—"}</dd>
-                    <dt>{t("mg.sync.items")}</dt><dd className="num">{num(ls.items ?? 0)}{ls.total_open != null ? ` / ${num(ls.total_open)}` : ""}</dd>
+                    <dt>{t("mg.sync.lastComplete")}</dt><dd>{ls.last_complete_at ? relative(ls.last_complete_at) : "—"}</dd>
+                    <dt>{t("mg.sync.items")}</dt><dd className="num">{num(ls.cached ?? ls.items ?? 0)}{ls.total_open != null ? ` / ${num(ls.total_open)}` : ""}</dd>
+                    {ls.complete === false && ls.cycle_items != null ? <><dt>{t("mg.sync.cycle")}</dt><dd className="num">{num(ls.cycle_items)}{ls.total_open != null ? ` / ${num(ls.total_open)}` : ""}</dd></> : null}
                     <dt>{t("mg.sync.duration")}</dt><dd>{ls.duration_ms != null ? duration(ls.duration_ms / 1000) : "—"}</dd>
                   </dl>
                   {ls.last_error ? <p className="t-danger" style={{ fontSize: 12 }}>{ls.last_error}</p> : null}
+                  {ls.complete === false && ls.ok ? <p className="hint">{t("mg.sync.partialHint")}</p> : null}
                   <p className="hint">{t("mg.sync.hint")}</p>
                 </div>
               );

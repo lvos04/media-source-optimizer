@@ -65,7 +65,7 @@ export function PriorityCard() {
                 <tr key={s.name}>
                   <td data-label={t("usenet.prio.server")}>
                     <strong>{s.displayname}</strong> <span className="t-3 mono" style={{ fontSize: 12 }}>{s.name}</span>
-                    {s.provider ? <div className="row" style={{ gap: 6, marginTop: 2 }}><span className="t-3" style={{ fontSize: 12 }}>{s.provider.label}</span><ProviderStatusChip status={s.provider.status} /></div>
+                    {s.provider ? <div className="row" style={{ gap: 6, marginTop: 2 }}><span className="t-3" style={{ fontSize: 12 }}>{s.provider.label}</span>{s.provider.source !== "sabnzbd" ? <ProviderStatusChip status={s.provider.status} /> : null}</div>
                       : <div className="t-3" style={{ fontSize: 12 }}>{t("usenet.providers.notLinked")}</div>}
                   </td>
                   <td data-label={t("usenet.prio.status")} style={{ minWidth: 200, maxWidth: 340 }}>

@@ -42,8 +42,13 @@ export const messages = {
   "usenet.providers.needsCredentials": "Vul eerst gebruikersnaam en wachtwoord in via Bewerken",
   "usenet.providers.sabStatus": "Status in SABnzbd",
   "usenet.providers.msoStatus": "MSO-test",
+  "usenet.providers.msoTest.notTested": "Niet getest (geen inloggegevens in MSO)",
+  "usenet.providers.msoTest.stale": "Verouderd: {status} ({when})",
+  "usenet.providers.msoTest.staleHint": "Deze MSO-test is ouder dan 24 uur en bepaalt de status niet meer (SABnzbd gaat voor). Test opnieuw voor een actueel resultaat.",
+  "usenet.providers.msoTest.supersededHint": "SABnzbd meldde na deze MSO-test een nieuwere status; die telt.",
   "usenet.providers.source.sabnzbd": "bron: SABnzbd",
   "usenet.providers.source.mso": "bron: MSO-test",
+  "usenet.providers.source.msoStale": "bron: verouderde MSO-test",
   "usenet.providers.sabStatusNone": "Niet gekoppeld aan een SABnzbd-server",
 
   // provider form

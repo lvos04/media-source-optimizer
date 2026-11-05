@@ -168,7 +168,11 @@ def test_policy_rejects_out_of_range_value(app: Any, sab: Any) -> None:
 
 def test_expired_provider_gets_disable_suggestion(admin: Any, db: Any, sab: Any) -> None:
     _providers(admin)
-    db.execute("UPDATE usenet_providers SET status='account_expired' WHERE slug='newshosting'")
+    admin.get("/api/v1/usenet/sab/servers")  # SABnzbd's status is observed first …
+    # … then MSO's own (newer) test with credentials fails: that counts, even though SABnzbd says "ok"
+    db.execute(
+        "UPDATE usenet_providers SET status='account_expired', last_check_at=now() WHERE slug='newshosting'"
+    )
     sug = admin.get("/api/v1/usenet/recommendations").json()
     ops = {o["path"]: o for o in sug["ops"]}
     assert ops["servers/news.newshosting.test/enable"]["after"] == 0

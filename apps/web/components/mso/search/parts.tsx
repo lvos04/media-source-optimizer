@@ -6,8 +6,26 @@ import { useState } from "react";
 import { Trace } from "@/components/mg/domain";
 import { Button, Card, StatusChip, type Tone } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
-import type { MediaCategory, ParsedTitle, SourceReport, SourceStatus } from "@/lib/api/search";
-import { useI18n, type MessageKey } from "@/lib/i18n";
+import type { ConfidenceBasis, MediaCategory, ParsedTitle, SearchItem, SourceReport, SourceStatus } from "@/lib/api/search";
+import { useI18n, type Formatters, type MessageKey } from "@/lib/i18n";
+
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+/** One-line basis under the score ("titel 100% · naam 83%"): explains why same-title results score alike. */
+export function confidenceShort(b: ConfidenceBasis, t: Formatters["t"]): string {
+  const parts = [];
+  if (b.title_match !== null && b.title_match !== undefined) parts.push(t("zoeken.conf.title", { pct: pct(b.title_match) }));
+  parts.push(t("zoeken.conf.parsed", { pct: pct(b.parsed) }));
+  if (b.ids_match) parts.push(t("zoeken.conf.ids"));
+  if (b.year) parts.push(t(b.year === "klopt" ? "zoeken.conf.yearOk" : "zoeken.conf.yearOff"));
+  return parts.join(" · ");
+}
+
+/** Tooltip for the score: what it measures and what it is made of. */
+export function confidenceText(it: SearchItem, t: Formatters["t"]): string {
+  const b = it.extra?.confidence_basis;
+  return t("zoeken.confidenceHelp") + (b ? ` — ${confidenceShort(b, t)}${b.warnings ? ` · ${t("zoeken.conf.warnings", { n: b.warnings })}` : ""}` : "");
+}
 
 export const MEDIA_CATEGORIES: MediaCategory[] = ["tv", "tv-anime", "movies", "movies-anime"];
 

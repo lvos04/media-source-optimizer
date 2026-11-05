@@ -149,7 +149,7 @@ COMPARE_FIELDS = [
     ("audio_languages", "Audiotalen"),
     ("dual_audio", "Dual audio"),
     ("subtitles", "Ondertitels"),
-    ("release_group", "Groep"),
+    ("release_group", "Releasegroep"),
     ("confidence", "Zekerheid"),
     ("false_positive_flags", "Waarschuwingen"),
     ("private", "Privé"),

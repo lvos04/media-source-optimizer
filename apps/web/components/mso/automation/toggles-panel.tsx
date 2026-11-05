@@ -7,7 +7,7 @@ import { StateView } from "@/components/mg/states";
 import { useAction } from "@/lib/api/actions";
 import type { Resource } from "@/lib/api/hooks";
 import type { AutomationStatus } from "@/lib/api/insights";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 import { jobKindLabel } from "@/lib/status";
@@ -17,6 +17,9 @@ const LOG_RESULT: Record<string, string> = {
   keep: "Behouden", unknown: "Onbeslist", niet_beschikbaar: "Niet beschikbaar", rolled_back: "Teruggedraaid",
   rollback_proposed: "Terugdraaien voorgesteld", rollback_failed: "Terugdraaien mislukt",
 };
+/** automation_log.kind (backend `features/automation/engine.py`) → Dutch. */
+const LOG_KIND: Record<string, string> = { run: "Ronde", apply: "Toepassen", evaluate: "Evaluatie" };
+const KNOWN_AREAS = new Set(["usenet", "torrent", "indexers", "recovery", "costs", "mediaguard", "automation"]);
 
 /** Per-area "automatisch veilig" toggles (PUT /automation/toggles, admin), state, log and jobs. */
 export function TogglesPanel({ status }: { status: Resource<AutomationStatus> }) {
@@ -72,7 +75,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
           <div className="list" style={{ maxHeight: 360, overflow: "auto" }} tabIndex={0} role="region" aria-label="Automatiseringslog (scrollbaar)">
             {s.log.map((l) => (
               <div className="list-row" key={l.id}>
-                <div className="list-main"><div className="list-title" style={{ whiteSpace: "normal" }}>{l.message}</div><div className="list-sub mono">{l.kind}{l.area ? ` · ${l.area}` : ""}{l.change_id ? ` · #${l.change_id}` : ""} · {relative(l.ts)}</div></div>
+                <div className="list-main"><div className="list-title" style={{ whiteSpace: "normal" }}>{l.message}</div><div className="list-sub">{LOG_KIND[l.kind] ?? l.kind}{l.area ? ` · ${KNOWN_AREAS.has(l.area) ? t(`automation.area.${l.area}` as MessageKey) : l.area}` : ""}{l.change_id ? ` · #${l.change_id}` : ""} · {relative(l.ts)}</div></div>
                 <StatusChip tone={l.result === "applied" || l.result === "keep" || l.result === "done" ? "success" : l.result === "failed" || l.result.startsWith("roll") ? "danger" : l.result === "skipped" || l.result === "rate_limited" ? "warning" : "neutral"}>{LOG_RESULT[l.result] ?? l.result}</StatusChip>
               </div>
             ))}

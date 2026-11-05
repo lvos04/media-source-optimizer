@@ -27,9 +27,18 @@ function StatusCell({ s }: { s: IndexerSource }) {
   if (!s.enabled) return <StatusChip tone="neutral">{t("idx.disabled")}</StatusChip>;
   const chips = [];
   const notes: Array<{ text: string; danger?: boolean }> = [];
-  if (s.prowlarr_broken) {
+  const lastAt = s.stats?.last_search_at ?? null;
+  const lastStatus = (s.stats?.last_status ?? "ok") as SourceStatus;
+  // Broken per Prowlarr, yet MSO's last search *after* the breakage was first seen still got results:
+  // "Resultaten" stays the primary status, Prowlarr's warning is secondary. Results from before the
+  // breakage never make a broken indexer look healthy.
+  const resultsDespiteBroken = Boolean(s.prowlarr_broken && lastAt && lastStatus === "ok" && s.prowlarr_broken_since
+    && new Date(lastAt) >= new Date(s.prowlarr_broken_since));
+  const brokenPrimary = Boolean(s.prowlarr_broken) && !resultsDespiteBroken;
+  if (brokenPrimary) {
     chips.push(<StatusChip key="broken" tone="danger" icon={TriangleAlert} title={t("idx.brokenHelp")}>{t("idx.broken")}</StatusChip>);
     for (const h of s.prowlarr_health ?? []) if (h.broken) notes.push({ text: h.message, danger: true });
+    if (lastAt && lastStatus === "ok") notes.push({ text: t("idx.brokenEarlierResults", { when: relative(lastAt) }) });
   }
   if (s.library_relevant === false) {
     chips.push(<StatusChip key="irr" tone="neutral" icon={CircleSlash} title={t("idx.irrelevantHelp")}>{t("idx.irrelevant")}</StatusChip>);
@@ -45,11 +54,15 @@ function StatusCell({ s }: { s: IndexerSource }) {
     chips.push(<StatusChip key="p" tone="warning">{t("idx.disabledTill", { when: relative(s.prowlarr.disabled_till) })}</StatusChip>);
   }
   if (!s.direct) {
-    if (s.stats?.last_search_at) {
+    if (lastAt && !brokenPrimary) {
       // the status of the LAST observation (ok / empty / timeout / error …), not "any error in the window"
-      const st = SOURCE_STATUS[(s.stats.last_status ?? "ok") as SourceStatus] ?? SOURCE_STATUS.error;
+      const st = SOURCE_STATUS[lastStatus] ?? SOURCE_STATUS.error;
       chips.push(<StatusChip key="s" tone={st.tone} icon={st.icon}>{t(st.label)}</StatusChip>);
-    } else if (s.prowlarr?.queries) {
+      if (resultsDespiteBroken) {
+        chips.push(<StatusChip key="pw" tone="warning" icon={TriangleAlert} title={t("idx.brokenHelp")}>{t("idx.brokenSecondary")}</StatusChip>);
+        for (const h of s.prowlarr_health ?? []) if (h.broken) notes.push({ text: h.message });
+      }
+    } else if (!lastAt && s.prowlarr?.queries) {
       // never asked by MSO yet, but Prowlarr has measurements: say so instead of "not queried"
       const failed = s.prowlarr.failed_queries ?? 0;
       chips.push(<StatusChip key="pm" tone={failed > s.prowlarr.queries / 2 ? "warning" : "neutral"}>{t("idx.prowlarrMeasured")}</StatusChip>);
@@ -59,7 +72,7 @@ function StatusCell({ s }: { s: IndexerSource }) {
   return (
     <div className="stack-sm">
       <span className="row wrap" style={{ gap: 4 }}>{chips.length ? chips : <StatusChip tone="neutral">{t("idx.never")}</StatusChip>}</span>
-      {s.stats?.last_search_at ? <span className="cell-sub">{t("idx.lastSearch", { when: relative(s.stats.last_search_at) })}</span> : null}
+      {lastAt && !brokenPrimary ? <span className="cell-sub">{t("idx.lastSearch", { when: relative(lastAt) })}</span> : null}
       {notes.map((n) => <span key={n.text} className={n.danger ? "cell-sub t-danger" : "cell-sub"} style={{ maxWidth: 360 }}>{n.text}</span>)}
       {s.direct?.last_error ? <span className="cell-sub t-danger">{s.direct.last_error}</span> : null}
     </div>

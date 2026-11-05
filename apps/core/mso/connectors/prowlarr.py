@@ -163,13 +163,12 @@ class ProwlarrClient:
         return self.request("GET", "search", params=params, headers=headers, timeout=timeout) or []
 
     # -------------------------------------------------------------- the one write (via change set only)
+    # No ``forceSave=true``: Prowlarr's own validation (incl. its test query) must decide; MSO never bypasses it.
     def create_indexer(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self.request("POST", "indexer", params={"forceSave": "true"}, json=body) or {}
+        return self.request("POST", "indexer", json=body) or {}
 
     def update_indexer(self, body: dict[str, Any]) -> dict[str, Any]:
-        return (
-            self.request("PUT", f"indexer/{int(body['id'])}", params={"forceSave": "true"}, json=body) or {}
-        )
+        return self.request("PUT", f"indexer/{int(body['id'])}", json=body) or {}
 
     def delete_indexer(self, indexer_id: int) -> None:
         self.request("DELETE", f"indexer/{int(indexer_id)}")

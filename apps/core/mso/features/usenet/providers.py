@@ -15,6 +15,7 @@ import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -98,23 +99,92 @@ def has_credentials(slug: str) -> bool:
     return bool(user and password)
 
 
-def health(
-    row: dict[str, Any], sab: dict[str, Any] | None, creds_complete: bool
+# An MSO test result is only shown as current for this long; after that it is "verouderd" and SABnzbd's
+# status (when there is one) takes precedence.
+MSO_TEST_MAX_AGE = timedelta(hours=24)
+_UNTESTED = ("unknown", "missing_credentials")
+
+
+def _ts(v: Any) -> datetime | None:
+    if v is None:
+        return None
+    if isinstance(v, str):
+        try:
+            v = datetime.fromisoformat(v)
+        except ValueError:
+            return None
+    return v if v.tzinfo else v.replace(tzinfo=UTC)
+
+
+def mso_test(
+    row: dict[str, Any], sab: dict[str, Any] | None, creds_complete: bool, *, now: datetime | None = None
 ) -> dict[str, Any]:
-    """Primary health shown for a provider: MSO's own NNTP check when MSO has credentials and has tested;
-    otherwise SABnzbd's view of the linked server; otherwise 'missing_credentials'/'unknown'."""
-    own_tested = row["status"] not in ("unknown", "missing_credentials")
-    if creds_complete and own_tested:
-        return {"status": row["status"], "detail": row["status_detail"], "source": "mso"}
-    if sab and sab["status"] not in ("unknown",):
+    """How much MSO's own NNTP test of this provider still counts.
+
+    ``state``:
+    - ``missing_credentials``: MSO has no username/password, so nothing it recorded is a real test (an old
+      ``auth_failed`` from before credentials were checked is ignored);
+    - ``untested``: credentials present but not tested yet;
+    - ``stale``: the test is older than :data:`MSO_TEST_MAX_AGE` (shown as "verouderd" with its date);
+    - ``superseded``: SABnzbd's own status for the linked server changed after MSO's test, so SABnzbd's
+      status is more recent;
+    - ``current``: a valid, recent test with credentials — it is the primary health.
+    """
+    now = now or datetime.now(UTC)
+    at = _ts(row.get("last_check_at"))
+    status, detail = row["status"], row.get("status_detail")
+    if not creds_complete:
+        state, status, detail = "missing_credentials", "missing_credentials", MISSING_CREDENTIALS_TEXT
+    elif status in _UNTESTED or at is None:
+        state = "untested"
+    elif at < now - MSO_TEST_MAX_AGE:
+        state = "stale"
+    elif (
+        sab
+        and sab.get("status") not in (None, "unknown", "disabled")
+        and _ts(sab.get("since")) is not None
+        and _ts(sab.get("since")) > at  # type: ignore[operator]
+    ):
+        state = "superseded"
+    else:
+        state = "current"
+    return {
+        "status": status,
+        "detail": detail,
+        "checked_at": at,
+        "state": state,
+        "stale_after": at + MSO_TEST_MAX_AGE if at else None,
+    }
+
+
+def own_status(
+    row: dict[str, Any], sab: dict[str, Any] | None, creds_complete: bool | None = None
+) -> str | None:
+    """MSO's own test status when it still counts (see :func:`mso_test`), else ``None``."""
+    complete = has_credentials(row["slug"]) if creds_complete is None else creds_complete
+    t = mso_test(row, sab, complete)
+    return str(t["status"]) if t["state"] == "current" else None
+
+
+def health(
+    row: dict[str, Any], sab: dict[str, Any] | None, creds_complete: bool, *, now: datetime | None = None
+) -> dict[str, Any]:
+    """Primary health shown for a provider: MSO's own NNTP check when it is current (credentials present,
+    tested, younger than 24 h and not older than SABnzbd's latest status change); otherwise SABnzbd's view of
+    the linked server; otherwise 'missing_credentials' or the (stale) MSO test."""
+    t = mso_test(row, sab, creds_complete, now=now)
+    if t["state"] == "current":
+        return {"status": t["status"], "detail": t["detail"], "source": "mso", "stale": False}
+    if sab and sab.get("status") not in (None, "unknown"):
         return {
             "status": sab["status"],
             "detail": sab.get("message") or sab.get("explanation"),
             "source": "sabnzbd",
+            "stale": False,
         }
-    if not creds_complete:
-        return {"status": "missing_credentials", "detail": MISSING_CREDENTIALS_TEXT, "source": "mso"}
-    return {"status": row["status"], "detail": row["status_detail"], "source": "mso"}
+    if t["state"] == "missing_credentials":
+        return {"status": "missing_credentials", "detail": MISSING_CREDENTIALS_TEXT, "source": "mso", "stale": False}
+    return {"status": t["status"], "detail": t["detail"], "source": "mso", "stale": t["state"] != "untested"}
 
 
 def public(
@@ -163,6 +233,7 @@ def public(
         "credentials": cred,
         "credentials_complete": complete,
         "sab_status": sab,
+        "mso_test": mso_test(row, sab, complete),
         "health": health(row, sab, complete),
         "updated_at": row["updated_at"],
     }
@@ -470,8 +541,20 @@ def due_for_check() -> list[str]:
     return [r["slug"] for r in rows if has_credentials(r["slug"])]
 
 
+def normalize_missing_credentials() -> list[str]:
+    """Providers without credentials whose stored status is a (pre-1.3) "test" result → 'missing_credentials'.
+    Nothing was ever tested for them, so e.g. an old 'auth_failed' must not linger."""
+    fixed = []
+    for r in list_rows():
+        if r["status"] != "missing_credentials" and not has_credentials(r["slug"]):
+            _sync_credential_status(r["slug"])
+            fixed.append(r["slug"])
+    return fixed
+
+
 @jobs.handler("usenet.provider_checks")
 def _job_checks(ctx: jobs.JobContext) -> dict[str, Any]:
+    normalize_missing_credentials()
     slugs = ctx.payload.get("slugs") or due_for_check()
     results = {}
     for slug in slugs:

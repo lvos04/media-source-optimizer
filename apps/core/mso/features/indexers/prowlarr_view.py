@@ -178,17 +178,26 @@ def build_view(client: ProwlarrClient | None = None) -> dict[str, Any]:
             )
     mso_any = [i for i in idx_view if i["is_mso"]]
     if not mso_any:
+        from mso.features.newznab_server import readiness
+
+        ready = readiness.all_endpoint_sources()
+        useful = any(r["ready"] for r in ready.values())
         conflicts.append(
             _conflict(
                 "mso_not_registered",
                 "info",
                 "mso:registration",
                 "MSO is (nog) niet als indexer in Prowlarr geregistreerd",
-                "Registreren is optioneel. Via een wijzigingsvoorstel (toestemming nodig) voegt MSO "
-                "alleen zijn eigen "
-                "Newznab/Torznab-endpoint toe; tags en applicaties blijven ongewijzigd.",
+                (
+                    "Registreren is optioneel. Via een wijzigingsvoorstel (toestemming nodig) voegt MSO "
+                    "alleen zijn eigen "
+                    "Newznab/Torznab-endpoint toe; tags en applicaties blijven ongewijzigd."
+                )
+                if useful
+                else str(ready["newznab"]["reason"]),
                 {"where": "MSO → NZB-indexers → Newznab/Torznab-endpoint"},
-                action="register",
+                # no recommendation to register while Prowlarr would only get its own results back
+                action="register" if useful else None,
             )
         )
 
@@ -251,7 +260,7 @@ def refresh_recommendations(view: dict[str, Any] | None = None) -> list[dict[str
     view = view or build_view()
     keys_now: list[str] = []
     for c in view["conflicts"]:
-        if c["severity"] == "info" and c["code"] != "mso_not_registered":
+        if c["severity"] == "info" and not (c["code"] == "mso_not_registered" and c["action"] == "register"):
             continue
         dk = f"prowlarr_view:{c['code']}:{c['subject']}"
         keys_now.append(dk)

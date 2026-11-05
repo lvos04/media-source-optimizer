@@ -15,8 +15,9 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
 function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () => void; onChanged: () => void }) {
-  const { t, num, bytes, relative } = useI18n();
+  const { t, num, bytes, relative, dateTime } = useI18n();
   const ratio = useRatio();
+  const mt = p.mso_test;
   const toast = useToast();
   const { can } = useSession();
   const [testing, setTesting] = useState(false);
@@ -46,7 +47,7 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
       actions={
         <span className="row" style={{ gap: 6 }}>
           <ProviderStatusChip status={p.health.status} detail={p.health.detail} />
-          <span className="t-3" style={{ fontSize: 11.5 }}>{t(`usenet.providers.source.${p.health.source}` as MessageKey)}</span>
+          <span className="t-3" style={{ fontSize: 11.5 }}>{t(p.health.stale ? "usenet.providers.source.msoStale" : `usenet.providers.source.${p.health.source}` as MessageKey)}</span>
         </span>
       }
       footer={
@@ -65,14 +66,27 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
       <div className="stack-sm">
         {!p.enabled ? <StatusChip tone="neutral">{t("usenet.providers.disabled")}</StatusChip> : null}
         {!p.credentials_complete ? <InlineState tone="warning">{t("usenet.providers.credentialsHint")}</InlineState> : null}
-        {p.credentials_complete && p.status !== "ok" && p.status !== "unknown" && p.status !== "missing_credentials" && p.status_detail ? (
-          <InlineState tone={p.status === "rate_limited" || p.status === "timeout" ? "warning" : "danger"}>{p.status_detail}</InlineState>
+        {mt.state === "current" && mt.status !== "ok" && mt.detail ? (
+          <InlineState tone={mt.status === "rate_limited" || mt.status === "timeout" ? "warning" : "danger"}>{mt.detail}</InlineState>
         ) : null}
         <dl className="kv">
           <dt>{t("usenet.providers.sabStatus")}</dt>
           <dd>{p.sab_server ? <SabStatusCell st={p.sab_status} /> : <span className="t-3">{t("usenet.providers.sabStatusNone")}</span>}</dd>
           <dt>{t("usenet.providers.msoStatus")}</dt>
-          <dd><ProviderStatusChip status={p.status} detail={p.status_detail} /></dd>
+          <dd>
+            {mt.state === "missing_credentials" ? (
+              <span className="t-3">{t("usenet.providers.msoTest.notTested")}</span>
+            ) : mt.state === "stale" || mt.state === "superseded" ? (
+              <span className="stack-sm" style={{ gap: 2 }}>
+                <StatusChip tone="neutral" title={mt.detail ?? undefined}>
+                  {t("usenet.providers.msoTest.stale", { status: t(`usenet.status.${mt.status}` as MessageKey), when: dateTime(mt.checked_at) })}
+                </StatusChip>
+                <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal" }}>
+                  {t(mt.state === "stale" ? "usenet.providers.msoTest.staleHint" : "usenet.providers.msoTest.supersededHint")}
+                </span>
+              </span>
+            ) : <ProviderStatusChip status={mt.status} detail={mt.detail} />}
+          </dd>
           <dt>{t("usenet.providers.lastCheck")}</dt><dd>{relative(p.last_check_at)}</dd>
           <dt>{t("usenet.providers.lastOk")}</dt><dd>{relative(p.last_ok_at)}</dd>
           <dt>{t("usenet.providers.connections")}</dt>

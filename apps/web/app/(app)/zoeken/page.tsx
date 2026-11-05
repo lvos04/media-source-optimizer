@@ -8,7 +8,7 @@ import { Button, Card, Field, InlineState, PageHeader, Segmented, StatusChip } f
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { CompareDrawer } from "@/components/mso/search/compare-drawer";
-import { FlagChips, MEDIA_CATEGORIES, ReleaseRibbon, SourceReportCard, categoryKey, numbering } from "@/components/mso/search/parts";
+import { FlagChips, MEDIA_CATEGORIES, ReleaseRibbon, SourceReportCard, categoryKey, confidenceShort, confidenceText, numbering } from "@/components/mso/search/parts";
 import { SendDialog } from "@/components/mso/search/send-dialog";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
@@ -172,7 +172,7 @@ export default function SearchPage() {
                           <th scope="col">{t("zoeken.col.release")}</th>
                           <th scope="col">{t("zoeken.col.source")}</th>
                           <th scope="col">{t("zoeken.col.facts")}</th>
-                          <th scope="col">{t("zoeken.col.confidence")}</th>
+                          <th scope="col" title={t("zoeken.confidenceHelp")}>{t("zoeken.col.confidence")}</th>
                           <th scope="col"><span className="sr-only">{t("zoeken.col.actions")}</span></th>
                         </tr>
                       </thead>
@@ -211,7 +211,10 @@ export default function SearchPage() {
                                   : it.grabs !== null ? <div className="cell-sub">{t("zoeken.grabs", { n: num(it.grabs) })}</div> : null}
                               </td>
                               <td data-label={t("zoeken.col.confidence")}>
-                                <Confidence value={it.confidence} tone={it.confidence < 0.4 ? "danger" : it.confidence < 0.6 ? "warning" : "success"} />
+                                <span title={confidenceText(it, t)}>
+                                  <Confidence value={it.confidence} tone={it.confidence < 0.4 ? "danger" : it.confidence < 0.6 ? "warning" : "success"} />
+                                </span>
+                                {it.extra?.confidence_basis ? <div className="cell-sub">{confidenceShort(it.extra.confidence_basis, t)}</div> : null}
                               </td>
                               <td data-label={t("zoeken.col.actions")}>
                                 <div className="row wrap" style={{ gap: 6, justifyContent: "flex-end" }}>

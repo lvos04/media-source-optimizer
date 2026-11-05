@@ -29,14 +29,16 @@ sr.define(
 )
 sr.define(
     "mediaguard.sync_max_pages",
-    "Max. pagina's per synchronisatie",
+    "Max. pagina's per synchronisatieronde",
     "int",
-    10,
+    25,
     min=1,
     max=100,
     category=CAT,
     advanced=True,
-    help="Per pagina 200 items; begrenst de belasting van MediaGuard.",
+    help="Per pagina 200 items (25 pagina's = 5.000 items per ronde); begrenst de belasting van MediaGuard. "
+    "Een langere wachtlijst wordt over meerdere rondes gelezen: de volgende ronde (na 5 minuten) gaat verder "
+    "waar de vorige stopte.",
 )
 sr.define(
     "mediaguard.search_quota_per_hour",

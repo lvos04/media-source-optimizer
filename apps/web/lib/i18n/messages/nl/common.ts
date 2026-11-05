@@ -64,7 +64,7 @@ export const messages = {
   "mode.section.current": "Huidige modus",
   "mode.section.choose": "Bedrijfsmodus kiezen",
   "mode.section.readOnlyTitle": "Alleen-lezen",
-  "mode.section.readOnlyBody": "MSO leest, meet en adviseert. Voorstellen zie je als voorvertoning, maar er wordt niets gewijzigd in Prowlarr, SABnzbd, qBittorrent of MediaGuard — ook niet automatisch. De veiligste stand.",
+  "mode.section.readOnlyBody": "MSO leest, meet en adviseert. Voorstellen zie je als voorvertoning, maar er wordt niets gewijzigd aan de configuratie van Prowlarr, SABnzbd, qBittorrent of MediaGuard — ook niet automatisch. Wel mogelijk, omdat het geen configuratie wijzigt: op jouw verzoek een release naar SABnzbd of qBittorrent sturen, en 'Vraag MediaGuard opnieuw te zoeken' (een zoekverzoek via MediaGuard's officiële route, begrensd door het MSO- en MediaGuard-quotum). Beide worden vastgelegd in de audit. De veiligste stand.",
   "mode.section.manageTitle": "Beheermodus",
   "mode.section.manageBody": "Goedgekeurde wijzigingen worden toegepast in gekoppelde systemen (met controle achteraf en terugdraaien). Onderdelen waarvoor 'Automatisch veilig toepassen' aan staat, mogen kleine omkeerbare wijzigingen zelf doorvoeren, tenzij de automatisering gepauzeerd is.",
   "mode.section.adminOnly": "Alleen een beheerder kan de bedrijfsmodus wijzigen.",

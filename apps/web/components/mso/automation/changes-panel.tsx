@@ -51,7 +51,7 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
                       <div className="list-title">{c.title}</div>
                       <div className="list-sub mono">#{String(c.id)} · {c.target} · {relative(c.created_at)}</div>
                     </div>
-                    <div className="list-aside"><RiskChip risk={c.risk} /><StatusChip tone={st.tone}>{(c.status as string) === "discarded" ? c.status : t(st.label)}</StatusChip></div>
+                    <div className="list-aside"><RiskChip risk={c.risk} /><StatusChip tone={st.tone}>{(c.status as string) === "discarded" ? t("automation.changeDiscarded") : t(st.label)}</StatusChip></div>
                   </button>
                 );
               })}
@@ -65,7 +65,7 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
         ) : (
           <>
             <ResourceView resource={detail} endpoint="GET /api/v1/changes/{id}" compact>
-              {(c) => <ChangePreview change={c} onChanged={() => { void detail.reload(); void list.reload(); }} />}
+              {(c) => <ChangePreview key={String(c.id)} change={c} onChanged={() => { void detail.reload(); void list.reload(); }} />}
             </ResourceView>
             {ev ? (
               <Card title={t("automation.evaluation")}>

@@ -25,7 +25,13 @@ every tracker, as Prowlarr's Cardigann definitions do for public trackers.
 
 Faults (``create_app(**faults)`` or ``app.state.faults``): ``auth=fail``, ``timeout=<seconds>`` (search),
 ``category_error=1`` (search → HTTP 400 category validation), ``error500=1`` (search → 500), ``malformed=1``,
-``user_agent=<ua>`` (User-Agent used when proxying to Newznab indexers; default ``Prowlarr/…``).
+``user_agent=<ua>`` (User-Agent used when proxying to Newznab indexers; default ``Prowlarr/…``),
+``validate_on_add=1`` (``POST /indexer`` tests a new Newznab/Torznab indexer like real Prowlarr: caps + a
+text-less ``t=search`` with the caps categories; 0 items → HTTP 400 "Query successful, but no results were
+returned from your indexer"; ``app.state.validations`` records each test).
+
+``indexer/schema`` mirrors real Prowlarr: preset definitions (abNZB, AnimeTosho) come *before* the
+"Generic Newznab"/"Generic Torznab" entries and carry display-only keys (``added``, ``sortName``, …).
 """
 
 from __future__ import annotations
@@ -54,6 +60,60 @@ def _fields(base_url: str = "", api_path: str = "/api", api_key: str = "") -> li
         {"name": "apiKey", "value": api_key},
         {"name": "additionalParameters", "value": ""},
     ]
+
+
+NO_RESULTS = (
+    "Query successful, but no results were returned from your indexer. This may be an issue with the indexer, "
+    "your indexer category settings, or other indexer settings such as search freeleech only etc. See the FAQ "
+    "for details."
+)
+
+
+def _definition(
+    impl: str, proto: str, name: str, base_url: str, description: str, sort: str
+) -> dict[str, Any]:
+    """One entry of ``/api/v1/indexer/schema``: like real Prowlarr, presets come first, then "Generic …"."""
+    return {
+        "name": name,
+        "sortName": sort,
+        "added": "0001-01-01T00:00:00Z",
+        "description": description,
+        "infoLink": f"https://wiki.servarr.com/prowlarr/supported-indexers#{impl.lower()}",
+        "language": "en-US",
+        "privacy": "private",
+        "encoding": "Unicode (UTF-8)",
+        "definitionName": impl,
+        "implementation": impl,
+        "implementationName": impl,
+        "configContract": f"{impl}Settings",
+        "protocol": proto,
+        "enable": True,
+        "redirect": False,
+        "supportsRss": True,
+        "supportsSearch": True,
+        "appProfileId": 1,
+        "priority": 25,
+        "downloadClientId": 0,
+        "tags": [],
+        "indexerUrls": [base_url] if base_url else [],
+        "legacyUrls": [],
+        "fields": _fields(base_url),
+        "presets": [],
+    }
+
+
+SCHEMA = [
+    _definition("Newznab", "usenet", "abNZB", "https://abnzb.com", "abNZB is a Dutch Usenet indexer", "abnzb"),
+    _definition(
+        "Newznab", "usenet", "Generic Newznab", "", "Newznab is an API search specification for Usenet",
+        "generic newznab",
+    ),
+    _definition("Torznab", "torrent", "AnimeTosho", "https://feed.animetosho.org", "Anime NZB/DDL mirror",
+                "animetosho"),
+    _definition(
+        "Torznab", "torrent", "Generic Torznab", "", "A Newznab-like api for torrents.", "generic torznab"
+    ),
+]
 
 
 def caps(*cats: tuple[int, str, list[tuple[int, str]]]) -> dict[str, Any]:
@@ -210,6 +270,7 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
     app.state.max_active = 0
     app.state.callbacks = []
     app.state.callback_errors = []
+    app.state.validations = []
     lock = threading.Lock()
 
     def authed(request: Request) -> bool:
@@ -267,27 +328,54 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
     def schema(request: Request) -> Any:
         if not authed(request):
             return unauthorized()
-        return [
-            {
-                "implementation": impl,
-                "implementationName": impl,
-                "configContract": f"{impl}Settings",
-                "protocol": proto,
-                "enable": True,
-                "appProfileId": 1,
-                "priority": 25,
-                "tags": [],
-                "fields": _fields(),
-                "presets": [{"name": "preset"}],
-            }
-            for impl, proto in (("Newznab", "usenet"), ("Torznab", "torrent"))
-        ]
+        return SCHEMA
+
+    async def validate_new_indexer(body: dict[str, Any]) -> str | None:
+        """Real Prowlarr: a new enabled Newznab/Torznab indexer is tested before it is saved — caps, then a
+        text-less ``t=search`` (RSS-style, with the categories from caps); 0 items is a validation *error*
+        (``forceSave`` only skips warnings, never this)."""
+        base = str(_field(body, "baseUrl") or "").rstrip("/")
+        url = base + str(_field(body, "apiPath") or "/api")
+        key = str(_field(body, "apiKey") or "")
+        ua = app.state.faults.get("user_agent") or UA
+        rec: dict[str, Any] = {"url": base, "implementation": body.get("implementation")}
+        app.state.validations.append(rec)
+        try:
+            async with httpx.AsyncClient(timeout=20, headers={"User-Agent": ua}) as c:
+                caps_r = await c.get(url, params={"t": "caps", "apikey": key})
+                cat_ids = [
+                    el.get("id")
+                    for el in DET.fromstring(caps_r.content).iter()
+                    if el.tag in ("category", "subcat") and el.get("id")
+                ]
+                params = {"t": "search", "extended": "1", "limit": "100", "offset": "0", "apikey": key}
+                if cat_ids:
+                    params["cat"] = ",".join(cat_ids)
+                rec["params"] = {k: v for k, v in params.items() if k != "apikey"}
+                r = await c.get(url, params=params)
+        except (httpx.HTTPError, DET.ParseError) as exc:
+            rec["error"] = type(exc).__name__
+            return f"Unable to connect to indexer, check the log above the ValidationFailure for more details. {exc}"
+        root = DET.fromstring(r.content)
+        if root.tag == "error":
+            rec["error"] = root.get("code")
+            return f"Indexer error {root.get('code')}: {root.get('description')}"
+        rec["items"] = len(list(root.iter("item")))
+        if not rec["items"]:
+            return NO_RESULTS
+        return None
 
     @app.post("/api/v1/indexer")
     async def indexer_create(request: Request) -> Any:
         if not authed(request):
             return unauthorized()
         body = await request.json()
+        if app.state.faults.get("validate_on_add") and body.get("enable", True):
+            err = await validate_new_indexer(body)
+            if err:
+                return JSONResponse(
+                    [{"propertyName": "", "errorMessage": err, "severity": "error"}], status_code=400
+                )
         with lock:
             body["id"] = app.state.data["next_id"]
             app.state.data["next_id"] += 1

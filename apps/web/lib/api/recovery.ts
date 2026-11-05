@@ -25,6 +25,9 @@ export interface CompatMatrix {
 
 export interface MgSyncState {
   ok?: boolean; error?: string | null; items?: number; pages?: number; complete?: boolean; total_open?: number;
+  /** Multi-run cycle: next page to read (1 = cycle complete), items read in this cycle, rows in the cache. */
+  next_page?: number; cycle_items?: number; cached?: number; first_page?: number; pages_total?: number;
+  last_complete_at?: string | null;
   started_at?: string; finished_at?: string; duration_ms?: number; last_success_at?: string | null;
   last_error?: string | null; backoff_until?: string;
 }
@@ -80,7 +83,11 @@ export interface WantedRow {
 }
 export interface WantedList {
   items: WantedRow[]; total: number; page: number; page_size: number; mode: MgMode;
+  /** When the wanted list was last read from MediaGuard (also a partial run). */
+  mediaguard_synced_at?: string | null;
+  /** Oldest cached row (can be older than `mediaguard_synced_at` while a multi-run sync cycle is underway). */
   mediaguard_fetched_at?: string | null; mediaguard_stale?: boolean;
+  mediaguard_sync?: { partial: boolean; cycle_items: number | null; total_open: number | null; last_complete_at: string | null };
 }
 
 export interface RequirementsInput {

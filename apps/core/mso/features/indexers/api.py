@@ -92,6 +92,7 @@ def list_sources(
             "relevance_reason": meta.get("relevance_reason"),
             "prowlarr_health": meta.get("prowlarr_health") or [],
             "prowlarr_broken": bool(meta.get("prowlarr_broken")),
+            "prowlarr_broken_since": meta.get("prowlarr_broken_since"),
             "is_mso": bool(meta.get("is_mso")),
             "stats": stats.get(s["id"]),
             "updated_at": s["updated_at"],

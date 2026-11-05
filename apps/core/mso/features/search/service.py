@@ -459,6 +459,9 @@ def _languages_ok(r: NormalizedRelease, required: list[str], excluded: list[str]
     return True
 
 
+WEAK_FLAGS = ("categorie_onzeker", "geobfusceerd", "verdacht_klein", "taal_onbekend")
+
+
 def _flags(r: NormalizedRelease, query: SearchQuery) -> None:
     p = r.parsed
     f = r.false_positive_flags
@@ -521,11 +524,17 @@ def _flags(r: NormalizedRelease, query: SearchQuery) -> None:
     conf -= 0.3 * len([x for x in f if x in MISMATCH_FLAGS and x != "titel_wijkt_af"])
     if "aflevering_geen_film" in f:
         conf -= 0.2  # heavy: together with the mismatch weight above −0.5
-    conf -= 0.1 * len(
-        [x for x in f if x in ("categorie_onzeker", "geobfusceerd", "verdacht_klein", "taal_onbekend")]
-    )
+    conf -= 0.1 * len([x for x in f if x in WEAK_FLAGS])
     r.confidence = round(max(0.0, min(1.0, conf)), 2)
     r.false_positive_flags = sorted(set(f))
+    # what the score is made of, so the UI can explain near-identical scores (same title → same certainty)
+    r.extra["confidence_basis"] = {
+        "title_match": tm,
+        "parsed": p.confidence,
+        "ids_match": ids_match,
+        "year": None if not (movie and p.year) else ("wijkt_af" if "jaar_wijkt_af" in f else "klopt"),
+        "warnings": len([x for x in r.false_positive_flags if x in MISMATCH_FLAGS or x in WEAK_FLAGS]),
+    }
 
 
 def _wants_movie(query: SearchQuery) -> bool:
@@ -737,6 +746,9 @@ def _prowlarr_children(
             msg = f"{dropped_by_child[sid]} weggefilterd"
         if n:
             status = "ok"
+            if ((sources.get(sid) or {}).get("meta") or {}).get("prowlarr_broken"):
+                # queried anyway (skip setting off / not yet synced): results are primary, the warning secondary
+                msg = "Prowlarr meldt problemen" + (f"; {msg}" if msg else "")
         elif sid in failures:
             status, msg = "error", failures[sid]
         else:

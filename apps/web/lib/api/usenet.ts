@@ -24,8 +24,14 @@ export interface UsenetProvider {
   last_check_at: string | null; last_ok_at: string | null; capabilities: string[];
   credentials: { username: SecretStatus; password: SecretStatus }; credentials_complete: boolean;
   sab_status: SabServerStatus | null;
-  /** Primary health: MSO's own check when it has credentials, otherwise SABnzbd's view. */
-  health: { status: ProviderStatus; detail: string | null; source: "mso" | "sabnzbd" };
+  /** How much MSO's own NNTP test still counts: only `current` tests (credentials, < 24 h, newer than
+   *  SABnzbd's latest status change) determine the health; `stale` ones are shown as "verouderd". */
+  mso_test: {
+    status: ProviderStatus; detail: string | null; checked_at: string | null; stale_after: string | null;
+    state: "current" | "stale" | "superseded" | "untested" | "missing_credentials";
+  };
+  /** Primary health: MSO's own current check, otherwise SABnzbd's view. */
+  health: { status: ProviderStatus; detail: string | null; source: "mso" | "sabnzbd"; stale?: boolean };
   updated_at: string;
 }
 export interface ProviderPreset { slug: string; label: string; kind: "unlimited" | "block"; host: string; port: number; ssl: boolean }
@@ -46,7 +52,8 @@ export interface ProviderInput {
 export interface SabServer {
   name: string; displayname: string; port: number; ssl: boolean; connections: number; priority: number;
   enable: number; optional: number; retention: number; username_set: boolean;
-  provider: { slug: string; label: string; kind: "unlimited" | "block"; status: ProviderStatus } | null;
+  /** `status` is the provider's effective health (see `UsenetProvider.health`). */
+  provider: { slug: string; label: string; kind: "unlimited" | "block"; status: ProviderStatus; source?: "mso" | "sabnzbd" } | null;
   period: { bytes: number; articles_tried: number | null; articles_success: number | null; success_ratio: number | null };
   daily: Array<{ day: string; bytes: number }>; total_bytes: number | null;
   sab_status: SabServerStatus | null; low_article_success: boolean;

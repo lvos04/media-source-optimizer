@@ -106,24 +106,33 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
   const { t } = useI18n();
   const gate = useWriteGate("operator");
   const toast = useToast();
-  const [pending, setPending] = useState<"approve" | "apply" | "rollback" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmRollback, setConfirmRollback] = useState(false);
+  // Action state is keyed by change id: a parent that reuses this component for another change set (e.g. a
+  // list + detail panel) must never show the error, pending state or rollback dialog of the previous one —
+  // also not when that change's request only finishes after the switch.
+  const changeKey = String(change.id);
+  const [pendingState, setPendingState] = useState<{ id: string; action: "approve" | "apply" | "rollback" } | null>(null);
+  const [errorState, setErrorState] = useState<{ id: string; message: string } | null>(null);
+  const [rollbackFor, setRollbackFor] = useState<string | null>(null);
+  const pending = pendingState?.id === changeKey ? pendingState.action : null;
+  const error = errorState?.id === changeKey ? errorState.message : null;
+  const confirmRollback = rollbackFor === changeKey;
+  const setConfirmRollback = (open: boolean) => setRollbackFor(open ? changeKey : null);
   const status = CHANGE_STATUS[change.status] ?? CHANGE_STATUS.preview;
-  const id = encodeURIComponent(String(change.id));
+  const id = encodeURIComponent(changeKey);
 
   const run = async (action: "approve" | "apply" | "rollback") => {
-    setPending(action);
-    setError(null);
+    const forId = changeKey;
+    setPendingState({ id: forId, action });
+    setErrorState(null);
     try {
       const result = await api.post<ChangeSet | null>(`/changes/${id}/${action}`);
       toast.push("success", t(action === "approve" ? "change.approved" : action === "apply" ? "change.applied" : "change.rolledBack"), change.title);
-      setConfirmRollback(false);
+      setRollbackFor((cur) => (cur === forId ? null : cur));
       await onChanged?.(result && typeof result === "object" && "id" in result ? result : null);
     } catch (e) {
-      setError(errorMessage(e));
+      setErrorState({ id: forId, message: errorMessage(e) });
     } finally {
-      setPending(null);
+      setPendingState((cur) => (cur?.id === forId ? null : cur));
     }
   };
 

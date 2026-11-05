@@ -49,17 +49,28 @@ def overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     rows = providers.list_rows()
     sab_states = serverstatus.current()
     labels = {r["sab_server"]: r["label"] for r in rows if r["sab_server"]}
+    health = {
+        r["slug"]: providers.health(
+            r, serverstatus.public(sab_states.get(r["sab_server"] or "")), providers.has_credentials(r["slug"])
+        )
+        for r in rows
+    }
     return {
         "sab": {"configured": cb.is_configured("sabnzbd"), **(dict(row) if row else {})},
         "ingest": history.ingest_status(),
         "providers": {
             "total": len(rows),
-            "ok": sum(1 for r in rows if r["status"] == "ok"),
+            "ok": sum(1 for r in rows if health[r["slug"]]["status"] == "ok"),
             "missing_credentials": sum(1 for r in rows if not providers.has_credentials(r["slug"])),
             "problems": [
-                {"slug": r["slug"], "label": r["label"], "status": r["status"]}
+                {
+                    "slug": r["slug"],
+                    "label": r["label"],
+                    "status": health[r["slug"]]["status"],
+                    "source": health[r["slug"]]["source"],
+                }
                 for r in rows
-                if r["enabled"] and r["status"] not in ("ok", "unknown", "missing_credentials")
+                if r["enabled"] and health[r["slug"]]["status"] not in ("ok", "unknown", "missing_credentials")
             ],
         },
         "sab_servers": {
@@ -135,13 +146,22 @@ def sab_servers(
         success = int(st["success"]) if st and st["success"] is not None else None
         p = linked.get(s["name"])
         ratio = round(success / tried, 4) if tried and success is not None else None
+        sab_pub = serverstatus.public(sab_states.get(s["name"]))
+        p_health = providers.health(p, sab_pub, providers.has_credentials(p["slug"])) if p else None
         items.append(
             {
                 **{k: v for k, v in s.items() if k != "host"},
-                "provider": {"slug": p["slug"], "label": p["label"], "kind": p["kind"], "status": p["status"]}
-                if p
+                # the provider's chip shows its effective health (a stale/old MSO test never overrides SABnzbd)
+                "provider": {
+                    "slug": p["slug"],
+                    "label": p["label"],
+                    "kind": p["kind"],
+                    "status": p_health["status"],
+                    "source": p_health["source"],
+                }
+                if p and p_health
                 else None,
-                "sab_status": serverstatus.public(sab_states.get(s["name"])),
+                "sab_status": sab_pub,
                 "low_article_success": bool(
                     s["enable"]
                     and tried

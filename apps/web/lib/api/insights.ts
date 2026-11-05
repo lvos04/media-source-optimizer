@@ -21,7 +21,13 @@ export interface Overview {
   changes: Unavailable & { open: number; failed_7d: number; items: Array<{ id: number; target: string; title: string; risk: Risk; status: string; created_at: string }> };
   costs: Unavailable & { monthly_cents?: number | null; currency?: string; services?: number; unknown?: Array<{ id: number; label: string; reason: string | null }> };
   jobs: Unavailable & { failing_24h: number; failing: Array<{ kind: string; n: number; last_failed: string; last_error: string | null }>; queued: number; running: number; worker: { seen: boolean; stale_s: number | null; healthy: boolean } };
-  mediaguard: Unavailable & { mode: "standalone" | "degraded" | "connected"; mode_label: string; stale_s: number | null; version?: string | null };
+  mediaguard: Unavailable & {
+    mode: "standalone" | "degraded" | "connected"; mode_label: string; version?: string | null;
+    /** Age of the MediaGuard status check (probe). */
+    stale_s: number | null;
+    /** Age of the last wanted-list sync (also a partial run). */
+    wanted_synced_at?: string | null; wanted_sync_s?: number | null; wanted_sync_partial?: boolean;
+  };
   backup: Unavailable & { age_s: number | null; stale?: boolean };
   recent_audit: Array<{ id: number; ts: string; actor: string; action: string; target: string | null; summary: string }>;
   generated_at: string;

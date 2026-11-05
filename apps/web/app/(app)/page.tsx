@@ -188,7 +188,10 @@ function SystemCard({ o }: { o: Overview }) {
       <dl className="kv">
         <dt>{t("overview.mediaguard")}</dt>
         <dd><StatusChip tone={MG_TONE[o.mediaguard.mode] ?? "neutral"} title={o.mediaguard.reason ?? undefined}>{o.mediaguard.mode_label}</StatusChip>
-          {o.mediaguard.stale_s != null ? <span className="t-3"> · {t("overview.dataAge", { age: duration(o.mediaguard.stale_s) })}</span> : null}</dd>
+          {o.mediaguard.stale_s != null ? <span className="t-3"> · {t("overview.mgChecked", { age: duration(o.mediaguard.stale_s) })}</span> : null}
+          {o.mediaguard.wanted_sync_s != null ? (
+            <span className="t-3"> · {t(o.mediaguard.wanted_sync_partial ? "overview.mgSyncedPartial" : "overview.mgSynced", { age: duration(o.mediaguard.wanted_sync_s) })}</span>
+          ) : null}</dd>
         <dt>{t("overview.backup")}</dt>
         <dd>{o.backup.available ? (
           <StatusChip tone={o.backup.stale ? "warning" : "success"} icon={DatabaseBackup}>{duration(o.backup.age_s)}{o.backup.stale ? ` · ${t("overview.backupOld")}` : ""}</StatusChip>

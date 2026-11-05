@@ -22,7 +22,7 @@ from mso.auth import Principal, require
 from mso.db import get_db
 from mso.domain import categories as C
 from mso.features.indexers import registry
-from mso.features.newznab_server import keys, xmlout
+from mso.features.newznab_server import keys, readiness, xmlout
 from mso.features.search import origin, service
 from mso.features.search import settings as S
 from mso.features.search.models import SearchQuery
@@ -170,6 +170,9 @@ def _handle(request: Request, *, torznab: bool) -> Response:
     absolute = None
     if func == "tvsearch" and ep is not None and nums["season"] is None and (mc == "tv-anime" or not cats):
         absolute, ep = ep, None
+    # No q (and no ids) = RSS-style "latest releases" request. Prowlarr validates a newly added indexer with
+    # exactly this; it is answered by the own backends (direct/Spotweb/…, never Prowlarr itself) with their
+    # latest real releases — see readiness.py for when registering in Prowlarr is offered at all.
     query = SearchQuery(
         q=(p.get("q") or "").strip() or None,
         media_category=mc,
@@ -313,6 +316,8 @@ def endpoint_info(request: Request, _: Principal = Depends(require("viewer"))) -
             for r in regs
         ],
         "categories": {k: list(v.newznab) for k, v in C.CATEGORIES.items()},
+        # per protocol: does MSO have own sources behind the endpoint that answer Prowlarr's text-less test query?
+        "registration": readiness.all_endpoint_sources(),
     }
 
 

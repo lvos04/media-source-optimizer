@@ -7,7 +7,7 @@ import { Button, InlineState, StatusChip } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
 import { api, errorMessage } from "@/lib/api/client";
 import type { CompareResult, MediaCategory } from "@/lib/api/search";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 function fmt(key: string, value: unknown, num: (n: number, d?: number) => string): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -116,7 +116,10 @@ export function CompareDrawer({ tokens, category, onClose }: { tokens: string[];
                         <th scope="row">{f.label}{differs ? <span className="sr-only"> ({t("zoeken.compareDiffers")})</span> : null}</th>
                         {data.candidates.map((c) => (
                           <td key={c.token} className={f.key === "source_label" ? undefined : "mono"} style={{ fontSize: 12 }}>
-                            {f.key === "size_bytes" && typeof c.fields[f.key] === "number" ? bytes(c.fields[f.key] as number) : fmt(f.key, c.fields[f.key], num)}
+                            {f.key === "size_bytes" && typeof c.fields[f.key] === "number" ? bytes(c.fields[f.key] as number)
+                              : f.key === "false_positive_flags" && Array.isArray(c.fields[f.key])
+                                ? fmt(f.key, (c.fields[f.key] as string[]).map((x) => t(`zoeken.flag.${x}` as MessageKey) || x), num)
+                                : fmt(f.key, c.fields[f.key], num)}
                           </td>
                         ))}
                       </tr>

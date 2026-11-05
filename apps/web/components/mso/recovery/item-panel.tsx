@@ -14,6 +14,7 @@ import { useAction } from "@/lib/api/actions";
 import { useResource } from "@/lib/api/hooks";
 import type { CandidateResult, MgQuotaOverview, RecoveryItem, RequirementsInput, RequirementsView, StoredCandidate } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
+import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 import { enumLabel } from "@/lib/status";
 
@@ -83,6 +84,7 @@ function CandidateRow({ c, canSend, sendReason, onSend, pending }: {
 export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: string; onChanged: () => void; bare?: boolean }) {
   const { t, relative, num } = useI18n();
   const { can } = useSession();
+  const { mode: liveMode } = useMode();
   const categoryLabel = useCategoryLabel();
   const item = useResource<RecoveryItem>(`/recovery/items/${encodeURIComponent(mediaRef)}`);
   const quota = useResource<MgQuotaOverview>(mediaRef.startsWith("mg:") ? "/mediaguard/quota" : null, undefined, 60_000);
@@ -173,6 +175,7 @@ export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: str
                 {tgt.origin === "mediaguard" ? (
                   <div>
                     <p className="hint" style={{ marginTop: 0 }}>{t("rec.item.askHint")}</p>
+                    {liveMode === "read_only" ? <p className="hint" style={{ marginTop: 0 }}>{t("rec.item.askReadOnly")}</p> : null}
                     <QuotaMeter quota={quota.data} instanceId={tgt.instance_id} compact />
                   </div>
                 ) : null}

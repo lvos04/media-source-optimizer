@@ -176,7 +176,9 @@ def _sab_servers_without_provider(period_days: int, linked: set[str]) -> list[di
         ps = stats.get(server)
         tried = int(ps["tried"] or 0) if ps and ps["tried"] is not None else 0
         success = int(ps["success"] or 0) if ps and ps["success"] is not None else 0
-        label = names.get(server) or server
+        from mso.features.usenet.serverstatus import short_name
+
+        label = names.get(server) or short_name(server)
         out.append(
             {
                 "source_id": f"sabnzbd:{server}",

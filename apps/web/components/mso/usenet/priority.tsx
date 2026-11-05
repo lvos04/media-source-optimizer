@@ -9,6 +9,7 @@ import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview } from "@/components/mso/change-preview";
 import { RiskChip } from "@/components/mso/risk-chip";
+import { RetryServerButton, ServerAutopilotCell } from "@/components/mso/usenet/autopilot";
 import { ConfidenceChip, ProviderStatusChip, SabStatusCell, useRatio } from "@/components/mso/usenet/shared";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
@@ -90,6 +91,12 @@ export function PriorityCard() {
                   </td>
                   <td data-label={t("usenet.prio.status")} style={{ minWidth: 200, maxWidth: 340 }}>
                     <SabStatusCell st={s.sab_status} />
+                    <ServerAutopilotCell ap={s.autopilot} />
+                    {!s.enable ? (
+                      <div style={{ marginTop: 4 }}>
+                        <RetryServerButton server={s.name} name={s.displayname} onDone={() => Promise.all([servers.reload(), suggestion.reload()]).then(() => undefined)} />
+                      </div>
+                    ) : null}
                   </td>
                   <td data-label={t("usenet.prio.priority")}>{num(s.priority)}</td>
                   <td data-label={t("usenet.prio.enabled")}>

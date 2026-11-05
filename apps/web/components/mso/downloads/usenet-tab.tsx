@@ -3,12 +3,12 @@
 import { FlaskConical, History, ListOrdered, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
-import { Button, Card, LinkButton, Progress, Segmented, StatusChip, type Tone } from "@/components/mg/primitives";
+import { Button, Card, InlineState, LinkButton, Progress, Segmented, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
-import type { SabHistory, SabHistoryItem, SabQueue } from "@/lib/api/usenet";
+import type { SabCategories, SabHistory, SabHistoryItem, SabQueue } from "@/lib/api/usenet";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
@@ -58,11 +58,31 @@ function ReasonCell({ item }: { item: SabHistoryItem }) {
   );
 }
 
+/** P5: "standaard (*)" explained in place — Sonarr/Radarr sent no category; what to set in their download client. */
+function DefaultCategoryNote({ items }: { items: SabHistoryItem[] }) {
+  const { t, num } = useI18n();
+  const cats = useResource<SabCategories>("/usenet/sab/categories");
+  const n = items.filter((h) => h.category === "*").length;
+  if (!n) return null;
+  const mapped = (cats.data?.items ?? []).filter((c) => c.name !== "*" && c.media_category);
+  const examples = mapped.length
+    ? mapped.slice(0, 4).map((c) => `'${c.name}' (${t(`usenet.cat.media.${c.media_category}` as MessageKey)})`).join(", ")
+    : "'tv' (Sonarr), 'movies' (Radarr)";
+  return (
+    <div style={{ padding: "12px 16px 0" }}>
+      <InlineState tone="info">
+        <strong>{t("usenet.dl.defaultCatTitle")}</strong> {t("usenet.dl.defaultCatCount", { n: num(n), total: num(items.length) })}{" "}
+        {t("usenet.dl.defaultCatBody")} {t("usenet.dl.defaultCatFix", { examples })}
+      </InlineState>
+    </div>
+  );
+}
+
 function CategoryCell({ category, media, source }: { category: string | null; media: string | null; source: SabHistoryItem["category_source"] }) {
   const { t } = useI18n();
   return (
     <>
-      {category === "*" ? t("usenet.dl.defaultCategory") : category ?? "—"}
+      {category === "*" ? <span title={t("usenet.dl.defaultCatBody")}>{t("usenet.dl.defaultCategory")}</span> : category ?? "—"}
       <div className="t-3" style={{ fontSize: 12 }}>
         {media ? t(`usenet.cat.media.${media}` as MessageKey) : t("usenet.dl.unmapped")}
         {media && source !== "geen" ? ` · ${t(`usenet.dl.catSource.${source}` as MessageKey)}` : ""}
@@ -138,6 +158,8 @@ export function UsenetDownloadsTab() {
         <ResourceView resource={history} endpoint="GET /api/v1/usenet/sab/history" isEmpty={(d) => !d.items.length}
           empty={<StateView kind="empty" compact title={t("usenet.dl.historyEmpty")} />}>
           {(d) => (
+            <>
+            <DefaultCategoryNote items={d.items} />
             <table className="table table--stack">
               <thead>
                 <tr><th>{t("usenet.dl.name")}</th><th>{t("usenet.dl.category")}</th><th>{t("usenet.dl.status")}</th><th>{t("usenet.dl.reason")}</th><th>{t("usenet.dl.size")}</th><th>{t("usenet.dl.finished")}</th></tr>
@@ -168,6 +190,7 @@ export function UsenetDownloadsTab() {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </ResourceView>
       </Card>

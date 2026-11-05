@@ -70,6 +70,12 @@ export function AvailabilityCard() {
         <div className="stack-sm">
           <InlineState tone="info">{t("usenet.avail.disclaimer")}</InlineState>
           <AutoSampleStatus />
+          {data.data?.credentials_hint ? (
+            <InlineState tone="neutral">
+              <strong>{t("usenet.avail.credsHint")}</strong>
+              {" — "}{t("usenet.avail.credsHintBody", { providers: data.data.credentials_hint.providers.join(", ") })}
+            </InlineState>
+          ) : null}
         </div>
       </div>
       <ResourceView resource={data} endpoint="GET /api/v1/usenet/contribution" isEmpty={(d) => !d.items.length}
@@ -78,7 +84,7 @@ export function AvailabilityCard() {
           <table className="table table--stack">
             <thead>
               <tr>
-                <th>{t("usenet.avail.provider")}</th><th>{t("usenet.avail.checked")}</th><th>{t("usenet.avail.available")}</th>
+                <th>{t("usenet.avail.provider")}</th><th>{t("usenet.avail.availability")}</th><th>{t("usenet.avail.checked")}</th>
                 <th>{t("usenet.avail.unique")}</th><th>{t("usenet.avail.passive")}</th><th>{t("usenet.avail.bytes")}</th>
                 <th>{t("usenet.avail.coverage")}</th><th>{t("usenet.avail.confidence")}</th>
               </tr>
@@ -89,12 +95,23 @@ export function AvailabilityCard() {
                   <td data-label={t("usenet.avail.provider")}>
                     <strong>{c.label}</strong>
                     <div className="t-3" style={{ fontSize: 12 }}>
-                      {t(`usenet.avail.method.${c.method}` as MessageKey)} · {t(c.kind === "block" ? "usenet.providers.kind.block" : "usenet.providers.kind.unlimited")}
+                      {t(`usenet.avail.method.${c.method}` as MessageKey)} · {t(c.kind === "sab_server" ? "usenet.avail.sabServer" : c.kind === "block" ? "usenet.providers.kind.block" : "usenet.providers.kind.unlimited")}
                     </div>
                   </td>
-                  <td data-label={t("usenet.avail.checked")}>{num(c.articles_checked)}</td>
-                  <td data-label={t("usenet.avail.available")}>
-                    {c.articles_checked ? `${num(c.available)} (${ratio(c.available / c.articles_checked)})` : "—"}
+                  <td data-label={t("usenet.avail.availability")}>
+                    {c.availability?.source ? (
+                      <div className="stack-sm" style={{ gap: 2 }}>
+                        <strong>{ratio(c.availability.ratio)}</strong>
+                        <StatusChip tone={c.availability.source === "stat" ? "success" : "neutral"} icon={null}
+                          title={c.availability.source === "passive" ? t("usenet.avail.source.passiveTitle") : undefined}>
+                          {t(c.availability.source === "stat" ? "usenet.avail.source.stat" : "usenet.avail.source.passive")}
+                        </StatusChip>
+                        <span className="t-3" style={{ fontSize: 12 }}>{t("usenet.avail.ofArticles", { n: num(c.availability.articles) })}</span>
+                      </div>
+                    ) : <span className="t-3">{t("usenet.avail.source.none")}</span>}
+                  </td>
+                  <td data-label={t("usenet.avail.checked")}>
+                    {c.articles_checked ? `${num(c.available)} / ${num(c.articles_checked)}` : "—"}
                   </td>
                   <td data-label={t("usenet.avail.unique")}>
                     {c.unique_available === null ? <span className="t-3">{t("usenet.avail.notComparable")}</span>

@@ -18,6 +18,15 @@ def _start(serve: Any, admin: Any) -> Any:
     return mock_app.state.sab
 
 
+def _providers(admin: Any) -> None:
+    """Providers linked to the SABnzbd servers, without credentials (as after "Importeren uit SABnzbd")."""
+    for slug, server in (("eweka", "news.eweka.test"), ("newshosting", "news.newshosting.test"),
+                         ("blok", "block.example.test")):
+        r = admin.post("/api/v1/usenet/providers", json={"slug": slug, "label": slug.title(), "host": "127.0.0.1",
+                                                         "port": 1119, "ssl": False, "sab_server": server})
+        assert r.status_code == 200, r.text
+
+
 def test_table_never_empty_passive_from_sabnzbd(app: Any, db: Any, admin: Any, viewer: Any, serve: Any) -> None:
     _start(serve, admin)
     # no providers, no stored statistics yet: SABnzbd's counters are read on demand
@@ -30,7 +39,7 @@ def test_table_never_empty_passive_from_sabnzbd(app: Any, db: Any, admin: Any, v
     assert body["sources"]["passive"] == 3 and body["credentials_hint"] is None
 
     # providers imported from SABnzbd, without credentials → same passive figure + one gentle hint
-    assert admin.post("/api/v1/usenet/providers/import-sab").status_code == 200
+    _providers(admin)
     body = viewer.get("/api/v1/usenet/contribution").json()
     assert len(body["items"]) == 3 and all(i["slug"] for i in body["items"])
     assert all(i["availability"]["source"] == "passive" for i in body["items"])
@@ -41,8 +50,8 @@ def test_table_never_empty_passive_from_sabnzbd(app: Any, db: Any, admin: Any, v
 
 def test_stat_sample_wins_for_providers_with_results(app: Any, db: Any, admin: Any, viewer: Any, serve: Any) -> None:
     _start(serve, admin)
-    assert admin.post("/api/v1/usenet/providers/import-sab").status_code == 200
-    slug = db.scalar("SELECT slug FROM usenet_providers WHERE sab_server='news.eweka.test'")
+    _providers(admin)
+    slug = "eweka"
     nzb = db.scalar(
         "INSERT INTO usenet_nzbs(sha256,title,origin,segment_total) VALUES ('x','t','upload',4) RETURNING id"
     )

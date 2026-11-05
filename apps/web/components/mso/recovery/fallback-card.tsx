@@ -19,6 +19,8 @@ const STATUS: Record<FallbackStatus, { tone: Tone; label: MessageKey }> = {
   sent: { tone: "success", label: "rec.fb.status.sent" },
   failed: { tone: "danger", label: "rec.fb.status.failed" },
   discarded: { tone: "neutral", label: "rec.fb.status.discarded" },
+  retry: { tone: "info", label: "rec.fb.status.retry" },
+  mg_requested: { tone: "success", label: "rec.fb.status.mg_requested" },
 };
 
 const MAPPING: Record<string, MessageKey> = {
@@ -39,8 +41,9 @@ function ProposalDialog({ changeId, onClose, onChanged }: { changeId: number; on
 
 /** Failed downloads → blacklist → fallback candidate → change set "Versturen naar SABnzbd/qBittorrent". */
 export function FallbackCard({ reloadKey }: { reloadKey?: number }) {
-  const { t, relative } = useI18n();
-  const list = useResource<FallbackList>("/recovery/fallbacks", { limit: 100 }, 60_000);
+  const { t, relative, num } = useI18n();
+  const [showSilent, setShowSilent] = useState(false);
+  const list = useResource<FallbackList>("/recovery/fallbacks", { limit: 100, include_silent: showSilent }, 60_000);
   const [open, setOpen] = useState<number | null>(null);
   const reload = list.reload;
   useEffect(() => { if (reloadKey) void reload(); }, [reloadKey, reload]);
@@ -51,12 +54,33 @@ export function FallbackCard({ reloadKey }: { reloadKey?: number }) {
       actions={s ? (
         <span className="row wrap" style={{ gap: 6 }}>
           <StatusChip tone={s.fallback_on_failure ? "success" : "neutral"}>{t(s.fallback_on_failure ? "rec.fb.on" : "rec.fb.off")}</StatusChip>
-          <StatusChip tone={s.auto_send_fallback ? "warning" : "info"}>{t(s.auto_send_fallback ? "rec.fb.autoSend" : "rec.fb.approval")}</StatusChip>
+          {list.data?.summary?.autopilot ? <StatusChip tone="success">{t("rec.fb.autopilot")}</StatusChip>
+            : <StatusChip tone={s.auto_send_fallback ? "warning" : "info"}>{t(s.auto_send_fallback ? "rec.fb.autoSend" : "rec.fb.approval")}</StatusChip>}
         </span>
       ) : undefined}>
-      {s && list.data?.mediaguard_mode === "connected" && !s.allow_manual_send_connected ? (
+      {list.data?.summary?.autopilot ? (
+        <div style={{ padding: "12px 16px 0" }}><InlineState tone="success">{t("rec.fb.autopilotNote")}</InlineState></div>
+      ) : s && list.data?.mediaguard_mode === "connected" && !s.allow_manual_send_connected ? (
         <div style={{ padding: "12px 16px 0" }}><InlineState tone="info">{t("rec.fb.connectedNote")}</InlineState></div>
       ) : null}
+      {list.data?.summary ? (() => {
+        const sm = list.data.summary;
+        const parts = [
+          sm.by_status.retry ? t("rec.fb.summary.retry", { n: num(sm.by_status.retry) }) : null,
+          sm.by_status.mg_requested ? t("rec.fb.summary.mg", { n: num(sm.by_status.mg_requested) }) : null,
+          sm.not_wanted ? t("rec.fb.summary.notWanted", { n: num(sm.not_wanted) }) : null,
+        ].filter(Boolean);
+        return parts.length ? (
+          <div className="row wrap t-2" style={{ padding: "10px 16px 0", fontSize: 12.5, gap: 8 }}>
+            <span>{parts.join(" · ")}</span>
+            {sm.not_wanted ? (
+              <Button size="sm" variant="ghost" onClick={() => setShowSilent((v) => !v)}>
+                {t(showSilent ? "rec.fb.summary.hide" : "rec.fb.summary.show")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null;
+      })() : null}
       <ResourceView resource={list} endpoint="GET /api/v1/recovery/fallbacks" isEmpty={(d) => d.items.length === 0}
         empty={<StateView kind="empty" compact title={t("rec.fb.empty")} body={t(s && !s.fallback_on_failure ? "rec.fb.emptyOff" : "rec.fb.emptyBody")} />}>
         {(d) => (

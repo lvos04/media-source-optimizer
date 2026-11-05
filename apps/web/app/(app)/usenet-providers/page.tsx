@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button, Card, PageHeader } from "@/components/mg/primitives";
 import { ResourceView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
+import { AutopilotCard } from "@/components/mso/usenet/autopilot";
 import { ArticleTestsCard, AvailabilityCard } from "@/components/mso/usenet/availability";
 import { CategoryMapCard } from "@/components/mso/usenet/categories";
 import { HeaderIndexCard } from "@/components/mso/usenet/header-index";
@@ -71,6 +72,7 @@ export default function UsenetProvidersPage() {
             {(d) => <ProvidersSection providers={d.items} reload={() => void providers.reload()} />}
           </ResourceView>
         </Card>
+        <AutopilotCard />
         <AvailabilityCard />
         <ArticleTestsCard />
         <PriorityCard />

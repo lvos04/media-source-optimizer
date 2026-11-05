@@ -9,6 +9,8 @@ export interface MgQuotaOverview {
   reserve: number;
   mediaguard: Record<string, MgQuotaBlock> | null;
   mediaguard_fetched_at: string | null;
+  /** MediaGuard could not be re-read: the shown quota is older than 5 minutes. */
+  mediaguard_stale?: boolean;
 }
 
 export interface CompatRoute {
@@ -154,7 +156,12 @@ export interface RecoveryItem {
 }
 
 /** `GET /recovery/fallbacks` — failed downloads the analysis looked at (1.4.0). */
-export type FallbackStatus = "waiting" | "skipped" | "no_candidate" | "proposed" | "sent" | "failed" | "discarded";
+export type FallbackStatus =
+  | "waiting" | "skipped" | "no_candidate" | "proposed" | "sent" | "failed" | "discarded"
+  /** server problem: SABnzbd retries the same job once the failing servers are off */
+  | "retry"
+  /** Autopilot asked MediaGuard to search again (MediaGuard stays owner) */
+  | "mg_requested";
 export interface FallbackRow {
   id: number; outcome_id: number; failed_release_key: string | null; failed_title: string; protocol: "usenet" | "torrent" | null;
   failure_reason: string | null; failure_label: string; media_ref: string | null;
@@ -165,6 +172,8 @@ export interface FallbackRow {
 }
 export interface FallbackList {
   items: FallbackRow[];
-  settings: { fallback_on_failure: boolean; auto_send_fallback: boolean; allow_manual_send_connected: boolean; searches_per_run: number };
+  settings: { fallback_on_failure: boolean; auto_send_fallback: boolean; allow_manual_send_connected: boolean; searches_per_run: number; autopilot_fallback?: boolean };
   mediaguard_mode: MgMode;
+  /** Counts per status; `not_wanted` = items MediaGuard no longer wants (skipped silently, not a problem). */
+  summary?: { by_status: Partial<Record<FallbackStatus, number>>; not_wanted: number; autopilot: boolean };
 }

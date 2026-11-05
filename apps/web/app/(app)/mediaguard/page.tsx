@@ -10,7 +10,7 @@ import { CompatTable, MgModeChip, QuotaMeter } from "@/components/mso/mediaguard
 import { useAction } from "@/lib/api/actions";
 import { useResource } from "@/lib/api/hooks";
 import { waitForJob } from "@/lib/api/jobs";
-import type { MgSearchRequest, MgStatus } from "@/lib/api/recovery";
+import type { MgQuotaOverview, MgSearchRequest, MgStatus } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
@@ -27,6 +27,8 @@ export default function MediaGuardPage() {
   const { can } = useSession();
   const status = useResource<MgStatus>("/mediaguard/status", undefined, 60_000);
   const requests = useResource<{ items: MgSearchRequest[] }>("/mediaguard/search-requests", { limit: 50 }, 60_000);
+  // own resource (re-read from MediaGuard when older than 2 min) so the card never shows the copy of the last sync
+  const quota = useResource<MgQuotaOverview>("/mediaguard/quota", undefined, 60_000);
   const { run, pending } = useAction();
   const isOperator = can("operator");
   const isAdmin = can("admin");
@@ -39,7 +41,7 @@ export default function MediaGuardPage() {
     if (!r) return;
     setSyncing(true);
     // poll the sync job, then refresh status/quota/KPIs (instead of guessing with a fixed delay)
-    try { await waitForJob(r.job_id, { timeoutMs: 5 * 60_000 }); } finally { setSyncing(false); void status.reload(); }
+    try { await waitForJob(r.job_id, { timeoutMs: 5 * 60_000 }); } finally { setSyncing(false); void status.reload(); void quota.reload(); }
   };
   const setMethod = async (method: "apikey" | "user" | "token") => {
     if (await run("method", "put", "/connectors/mediaguard", { options: { auth_method: method } }, t("mg.auth.saved"))) void probe();
@@ -105,8 +107,13 @@ export default function MediaGuardPage() {
         </Card>
 
         <Card className="span-6" title={t("mg.quota.title")} icon={Gauge}>
-          <ResourceView resource={status} endpoint="GET /api/v1/mediaguard/status" compact>
-            {(d) => <QuotaMeter quota={d.quota} />}
+          <ResourceView resource={quota} endpoint="GET /api/v1/mediaguard/quota" compact>
+            {(q) => (
+              <div className="stack-sm">
+                <QuotaMeter quota={q} />
+                {q.mediaguard_stale ? <InlineState tone="warning">{t("mg.quota.stale")}</InlineState> : null}
+              </div>
+            )}
           </ResourceView>
         </Card>
 

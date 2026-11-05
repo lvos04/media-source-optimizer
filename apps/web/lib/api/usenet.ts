@@ -59,18 +59,62 @@ export interface SabServer {
   period: { bytes: number; articles_tried: number | null; articles_success: number | null; success_ratio: number | null };
   daily: Array<{ day: string; bytes: number }>; total_bytes: number | null;
   sab_status: SabServerStatus | null; low_article_success: boolean;
+  /** Autopilot state of this server (switched off by MSO, probe running, …); null = MSO never touched it. */
+  autopilot: ServerAutopilot | null;
+}
+
+/** Autopilot: automatic off/on per SABnzbd server. */
+export type ServerAutopilotStatus = "disabled" | "probing" | "recovered" | "given_up";
+export interface ServerAutopilot {
+  status: ServerAutopilotStatus; reason: string | null; reason_label: string | null; disabled_at: string | null;
+  probes: number; next_probe_at: string | null; probe_started_at: string | null;
+  probe_trigger: "autopilot" | "user" | "sabnzbd" | "own_test" | null; last_result: string | null;
+  disable_change_id: number | null; updated_at: string | null;
+}
+export interface RetryRow {
+  id: number; nzo_id: string; title: string; reason: string | null; reason_label: string | null;
+  status: "proposed" | "retried" | "verified" | "failed"; trigger: "autopilot" | "proposal"; change_id: number | null;
+  error: string | null; created_at: string; retried_at: string | null; verified_at: string | null;
+}
+export interface RetryQuota { hour_used: number; hour_max: number; day_used: number; day_max: number; left: number }
+export interface AutopilotRunSummary {
+  at: string;
+  servers?: { autopilot?: boolean; switched_off?: string[]; switched_on?: string[]; probe_failed?: string[]; recovered?: string[]; kept_last?: string[]; error?: string };
+  retry?: { status?: string; count?: number; more?: number; reason?: string; change_id?: number; auto_reason?: string | null; error?: string };
+}
+/** `GET /usenet/autopilot` */
+export interface UsenetAutopilot {
+  autopilot: boolean; auto_disable_after_h: number; probe_interval_h: number;
+  servers: Record<string, ServerAutopilot | null>;
+  retry: {
+    enabled: boolean; counts: Partial<Record<RetryRow["status"], number>>; quota: RetryQuota;
+    open_change: { id: number; title: string; risk: string } | null; items: RetryRow[]; last_run: AutopilotRunSummary | null;
+  };
+}
+/** `POST /usenet/retries/propose` */
+export interface RetryProposeResult {
+  status: "off" | "waiting" | "nothing" | "quota" | "applied" | "preview" | "failed" | string; count: number; more?: number;
+  reason?: string; change_id?: number; change_status?: string; auto_reason?: string | null;
 }
 export interface SabServerList { items: SabServer[]; period_days: number; last_stats_at: string | null }
 
 /** `GET /usenet/contribution` */
 export interface ProviderContribution {
-  source_id: string; label: string; slug: string; kind: "unlimited" | "block";
+  /** `slug` null + `kind` "sab_server": a SABnzbd server without MSO provider (passive figures only). */
+  source_id: string; label: string; slug: string | null; kind: "unlimited" | "block" | "sab_server";
   articles_checked: number; available: number; unique_available: number | null; compared_articles: number;
   bytes_downloaded: number | null; failures_by_reason: Record<string, number>; coverage: number;
   confidence: ConfidenceLevel; method: string; nzbs_tested: number;
   passive: { server: string | null; articles_tried: number | null; articles_success: number | null; success_ratio: number | null };
+  /** The one availability figure per row: own STAT sample, else SABnzbd's counters ("passief uit SABnzbd"). */
+  availability: { ratio: number | null; source: "stat" | "passive" | null; label: string | null; articles: number };
+  has_credentials: boolean;
 }
-export interface ContributionOverview { period_days: number; items: ProviderContribution[]; tests: number; notes: string[] }
+export interface ContributionOverview {
+  period_days: number; items: ProviderContribution[]; tests: number; notes: string[];
+  sources?: { stat: number; passive: number };
+  credentials_hint?: { providers: string[]; text: string } | null;
+}
 
 export interface UsenetNzb {
   id: number; nzo_id: string | null; origin: "send_url" | "send_nzb" | "upload"; title: string; category: string | null;

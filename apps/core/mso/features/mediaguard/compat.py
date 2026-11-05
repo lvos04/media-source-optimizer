@@ -166,6 +166,27 @@ ROUTES: list[RouteSpec] = [
         "quotum), met MSO-quotum, idempotentie en backoff.",
         "mediaguard/wanted/api.py::search_now",
     ),
+    RouteSpec(
+        "instance_queue",
+        "GET",
+        "/api/v1/instances/{instance_id}/queue",
+        "viewer",
+        "read",
+        "Wachtrij Sonarr/Radarr",
+        "Zoekt het wachtrij-item van een verdachte torrent op (downloadId) voor de blokkade.",
+        "mediaguard/instances/manage.py::queue (aec9e64)",
+    ),
+    RouteSpec(
+        "instance_queue_block",
+        "DELETE",
+        "/api/v1/instances/{instance_id}/queue/{queue_id}",
+        "operator",
+        "write",
+        "Release blokkeren",
+        "Alleen bij een goedgekeurde malware-opruiming: blocklist=true, remove_from_client=false — de release "
+        "komt op de blocklist van Sonarr/Radarr; MSO verwijdert de torrent zelf.",
+        "mediaguard/instances/manage.py::queue_remove (aec9e64)",
+    ),
 ]
 
 NEVER_USED: list[dict[str, str]] = [

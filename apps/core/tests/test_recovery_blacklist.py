@@ -271,4 +271,6 @@ def test_no_code_path_touches_mediaguard_files_or_db() -> None:
     assert [(m, p.pattern) for m, p in mgc.ALLOWED_WRITES] == [
         ("POST", r"^/api/v1/auth/login$"),
         ("POST", r"^/api/v1/wanted/\d+/search$"),
+        # 1.4.0: blocklist-only queue removal for an approved malware cleanup (params enforced in request())
+        ("DELETE", r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$"),
     ]

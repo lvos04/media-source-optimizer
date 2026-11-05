@@ -313,6 +313,14 @@ def test_client_refuses_forbidden_write_routes_before_io() -> None:
     for method in ("PUT", "PATCH", "DELETE"):
         with pytest.raises(mgc.WriteRefused):
             c.request(method, "/api/v1/wanted/1/search")
+    # queue route: only as a blocklist without removing the download
+    for params in ({}, {"blocklist": "true"}, {"blocklist": "true", "remove_from_client": "true"},
+                   {"blocklist": "false", "remove_from_client": "false"}):
+        with pytest.raises(mgc.WriteRefused):
+            c.request("DELETE", "/api/v1/instances/sonarr-series/queue/5", params=params)
+    with pytest.raises(mgc.WriteRefused):
+        c.request("DELETE", "/api/v1/instances/sonarr-series/queue/5/../../x",
+                  params={"blocklist": "true", "remove_from_client": "false"})
 
 
 def test_secrets_never_exposed(mg: Any, admin: Any, viewer: Any, operator: Any, worker: Any) -> None:

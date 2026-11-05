@@ -15,7 +15,8 @@ Authentication (least privilege first):
   MediaGuard — broader than MSO needs; the UI warns about it.
 
 Write safety: :class:`MediaGuardClient` refuses, before any network I/O, every non-GET request except
-``POST /api/v1/auth/login`` and ``POST /api/v1/wanted/{id}/search`` (see ``ALLOWED_WRITES``). Notably
+``POST /api/v1/auth/login``, ``POST /api/v1/wanted/{id}/search`` and (1.4.0, approved malware cleanup only)
+``DELETE /api/v1/instances/{id}/queue/{qid}?blocklist=true&remove_from_client=false`` (see ``ALLOWED_WRITES``). Notably
 ``retry-relaxed`` (relaxes quality), ``actions``, ``ignore``/``unignore``, ``backfill-plan`` (refreshes
 MediaGuard's own tables) and interactive diagnosis are never called.
 """
@@ -41,7 +42,11 @@ API = "/api/v1"
 ALLOWED_WRITES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("POST", re.compile(r"^/api/v1/auth/login$")),
     ("POST", re.compile(r"^/api/v1/wanted/\d+/search$")),
+    # 1.4.0: block a suspicious release in Sonarr/Radarr (only with blocklist=true & remove_from_client=false,
+    # enforced in request(); MSO deletes the torrent itself via its own approved cleanup change)
+    ("DELETE", re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$")),
 )
+QUEUE_BLOCK_RE = re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$")
 FASTAPI_NOT_FOUND = "Not Found"
 
 
@@ -176,6 +181,10 @@ class MediaGuardClient:
         headers: dict[str, str] | None = None,
     ) -> httpx.Response:
         self._check_allowed(method, path)
+        if method.upper() == "DELETE" and QUEUE_BLOCK_RE.match(path):
+            p = {k: str(v).lower() for k, v in (params or {}).items()}
+            if p.get("blocklist") != "true" or p.get("remove_from_client") != "false":
+                raise WriteRefused(method.upper(), path)
         mutating = method.upper() not in ("GET", "HEAD")
         for attempt in (1, 2):
             h = dict(headers or {})

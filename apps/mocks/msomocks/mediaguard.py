@@ -441,6 +441,9 @@ def create_app(**faults: Any) -> FastAPI:
     }
     st.policy_overrides: dict[str, dict[str, Any]] = {}  # instance_id -> ProfileConfig overrides
     st.diagnoses: dict[int, dict[str, Any]] = {}
+    # Sonarr/Radarr queue per instance, as proxied by mediaguard/instances/manage.py (queue, queue_remove)
+    st.queues: dict[str, list[dict[str, Any]]] = {iid: [] for iid in MEDIA_TYPES}
+    st.blocked: list[dict[str, Any]] = []
     st.faults = f
     for w in st.wanted:
         if w["last_reason_code"]:
@@ -539,6 +542,36 @@ def create_app(**faults: Any) -> FastAPI:
         }
 
     # ------------------------------------------------------------------ system (api/system.py)
+    # ------------------------------------------------------------------ instances/manage.py (queue)
+    @app.get("/api/v1/instances")
+    def instances(_: dict[str, Any] = Depends(require("viewer"))) -> list[dict[str, Any]]:
+        return [{"id": iid, "app": "radarr" if "radarr" in iid else "sonarr", "name": iid} for iid in st.queues]
+
+    @app.get("/api/v1/instances/{instance_id}/queue")
+    def instance_queue(instance_id: str, page: int = 1, page_size: int = 50,
+                       _: dict[str, Any] = Depends(require("viewer"))) -> dict[str, Any]:
+        if instance_id not in st.queues:
+            raise HTTPException(404, "Onbekende instantie")
+        items = st.queues[instance_id]
+        start = (page - 1) * page_size
+        return {"page": page, "pageSize": page_size, "totalRecords": len(items),
+                "records": items[start:start + page_size]}
+
+    @app.delete("/api/v1/instances/{instance_id}/queue/{queue_id}")
+    def instance_queue_remove(instance_id: str, queue_id: int, remove_from_client: bool = True,
+                              blocklist: bool = False,
+                              _: dict[str, Any] = Depends(require("operator"))) -> dict[str, bool]:
+        items = st.queues.get(instance_id)
+        if items is None:
+            raise HTTPException(404, "Onbekende instantie")
+        hit = next((q for q in items if int(q.get("id", -1)) == queue_id), None)
+        if hit is None:
+            raise HTTPException(404, "Niet in de wachtrij")
+        items.remove(hit)
+        st.blocked.append({"instance_id": instance_id, "queue_id": queue_id, "downloadId": hit.get("downloadId"),
+                           "remove_from_client": remove_from_client, "blocklist": blocklist})
+        return {"removed": True}
+
     @app.get("/api/v1/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": "0.0.9" if f.get("old_version") else VERSION}

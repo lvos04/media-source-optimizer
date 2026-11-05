@@ -328,9 +328,7 @@ def _mg_app(download_id: str) -> FastAPI:
 def test_mediaguard_blocklist_when_route_allowed(
     qb: Qb, admin: Any, operator: Any, serve: Any, manage_mode: None, monkeypatch: Any
 ) -> None:
-    import re
 
-    from mso.connectors import mediaguard as mgc
     from mso.features.torrent import cleanup
 
     hs = _setup(qb)
@@ -340,12 +338,9 @@ def test_mediaguard_blocklist_when_route_allowed(
         "url": url, "enabled": True, "options": {"auth_method": "apikey"},
         "secrets": {"api_key": "mgk_testsleutel"}})
     assert r.status_code == 200, r.text
-    # today MSO's MediaGuard client does not whitelist the route → MSO blacklist only, explained in the preview
+    # the route is whitelisted since 1.4.0 (DELETE only with blocklist=true & remove_from_client=false)
     ok, why = cleanup.mediaguard_block_status()
-    assert not ok and "nog niet toe" in why
-    # with the whitelist entry the coordinator is asked to add:
-    monkeypatch.setattr(mgc, "ALLOWED_WRITES", mgc.ALLOWED_WRITES + (
-        ("DELETE", re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$")),))
+    assert ok, why
     ch = operator.post("/api/v1/torrent/suspicious/cleanup-preview", json={"hashes": [hs["exe"]]}).json()
     assert [o["path"].split(":")[0] for o in ch["ops"]] == ["cleanup", "arrblock", "blacklist", "torrent"]
     assert "via MediaGuard" in ch["impact"]["Blokkeren"]

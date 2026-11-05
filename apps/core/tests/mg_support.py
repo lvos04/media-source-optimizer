@@ -15,7 +15,8 @@ from mso.domain.release import NormalizedRelease, parse_title
 OPERATOR = ("mso-operator", "Operator-Wachtwoord1")
 VIEWER = ("mso-viewer", "Viewer-Wachtwoord1")
 ADMIN = ("admin", "Admin-Wachtwoord1")
-ALLOWED_WRITE = [re.compile(r"^/api/v1/auth/login$"), re.compile(r"^/api/v1/wanted/\d+/search$")]
+ALLOWED_WRITE = [re.compile(r"^/api/v1/auth/login$"), re.compile(r"^/api/v1/wanted/\d+/search$"),
+                 re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$")]
 
 
 def start_mock(serve: Any, **faults: Any) -> tuple[Any, str]:

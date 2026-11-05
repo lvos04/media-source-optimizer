@@ -18,6 +18,30 @@ Zie [docs/HARDWARE_ACCEPTANCE.md](docs/HARDWARE_ACCEPTANCE.md).
 | Containerstack (gebouwde images + 7 mocks) smoke/e2e | **19 / 19 geslaagd** | `docs/test-evidence/stack-smoke-report.md` |
 | Playwright (15 schermen × donker/licht × 1440/390 + toetsenbord, alleen-lezen, login) | **68 / 68 geslaagd** | `docs/test-evidence/playwright.log`, `docs/screenshots/` (60 png) |
 
+## 0c. Aanvulling 1.4.0 — van melden naar oplossen (5 nov 2026)
+
+Nieuwe voorstellen hebben elk tests met mocks. Gecontroleerd wordt: het voorbeeld klopt, Alleen-lezen blokkeert,
+goedkeuring is nodig, nooit automatisch bij verwijderen of uitschakelen, controle na toepassen, terugdraaien waar dat
+kan, auditregels aanwezig, en geen geheimen in logs of audit:
+- **Malware-opruiming** (`test_torrent_cleanup.py`). Er wordt nooit een niet-verdachte torrent verwijderd, en nooit
+  meer dan het voorbeeld toont: een gewijzigde lijst wordt geweigerd. De blokkade via MediaGuard is alleen toegestaan
+  met `blocklist=true&remove_from_client=false`.
+- **Servers uitschakelen** (`test_usenet_disable_failing.py`), **fallback versturen** (`test_recovery_fallback.py`),
+  **tuningbundel**.
+- **Evaluators**: synthetische meetreeksen (beter, slechter → automatisch terugdraaien met `change.auto_rolled_back`,
+  onvoldoende data, niet van toepassing).
+- **Prowlarr-test zonder zoekterm**: ≥ 1 item zodra er een eigen bron is (header-index of Spotweb).
+- **Herstel van een back-up**: de audit blijft behouden (blijft groen).
+
+Resultaten op de gebouwde images: backend **454 / 454**, containerstack **19 / 19**, Playwright **70 / 70** (15 schermen ×
+licht/donker × 1440/390), alles-in-één **9 / 9**.
+
+Niet tegen echte diensten geverifieerd:
+- echte qBittorrent `torrents/delete`;
+- de wachtrij- en blokkeerroute van MediaGuard 0.3.5 (gecontroleerd tegen de broncode van `aec9e64`);
+- echte NNTP-providers voor STAT;
+- echte Prowlarr-registratie.
+
 ## 0b. Aanvulling 1.3.1 — fixes uit de hertest (5 nov 2026)
 
 Hertest op de echte TrueNAS (Cowork): 25 geslaagd, 3 gedeeltelijk, 1 mislukt (registratie in Prowlarr), 11 geblokkeerd

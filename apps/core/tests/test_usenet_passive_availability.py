@@ -44,12 +44,12 @@ def test_stat_sample_wins_for_providers_with_results(app: Any, db: Any, admin: A
     assert admin.post("/api/v1/usenet/providers/import-sab").status_code == 200
     slug = db.scalar("SELECT slug FROM usenet_providers WHERE sab_server='news.eweka.test'")
     nzb = db.scalar(
-        "INSERT INTO usenet_nzbs(sha256,title,origin,segments,segment_total) VALUES ('x','t','upload','[]'::jsonb,4) "
-        "RETURNING id"
+        "INSERT INTO usenet_nzbs(sha256,title,origin,segment_total) VALUES ('x','t','upload',4) RETURNING id"
     )
     tid = db.scalar(
-        "INSERT INTO usenet_article_tests(nzb_id,status,trigger,sample_size) VALUES (%s,'done','manual',4) RETURNING id",
-        (nzb,),
+        "INSERT INTO usenet_article_tests(nzb_id,status,trigger,sample_size,providers) "
+        "VALUES (%s,'done','manual',4,%s) RETURNING id",
+        (nzb, [slug]),
     )
     for i, ok in enumerate([True, True, True, False]):
         db.execute(

@@ -18,6 +18,13 @@ Zie [docs/HARDWARE_ACCEPTANCE.md](docs/HARDWARE_ACCEPTANCE.md).
 | Containerstack (gebouwde images + 7 mocks) smoke/e2e | **19 / 19 geslaagd** | `docs/test-evidence/stack-smoke-report.md` |
 | Playwright (15 schermen × donker/licht × 1440/390 + toetsenbord, alleen-lezen, login) | **68 / 68 geslaagd** | `docs/test-evidence/playwright.log`, `docs/screenshots/` (60 png) |
 
+## 0b. Aanvulling 1.3.1 — fixes uit de hertest (5 nov 2026)
+
+Hertest op de echte TrueNAS (Cowork): 25 geslaagd, 3 gedeeltelijk, 1 mislukt (registratie in Prowlarr), 11 geblokkeerd
+(TrueNAS-onderdelen en telefoon, door keuze of door ontbrekende middelen). Alle problemen zijn verwerkt. Herhaalde tests:
+backend **401 / 401**, containerstack **19 / 19**, Playwright **70 / 70**, alles-in-één **9 / 9**.
+Registratie in Prowlarr is alleen tegen een mock getest die de validatie van Prowlarr nabootst; niet tegen een echte Prowlarr.
+
 ## 0a. Aanvulling 1.3.0 — fixes uit de echte TrueNAS-test (5 nov 2026)
 
 De eerste echte test (Claude Cowork op de TrueNAS van de gebruiker, rapport 4 nov) vond 11 groepen problemen

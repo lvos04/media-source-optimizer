@@ -32,7 +32,7 @@
   {
     "scenario": "9 geen geheimen in de log",
     "ok": true,
-    "detail": "7660 bytes log gecontroleerd"
+    "detail": "7753 bytes log gecontroleerd"
   },
   {
     "scenario": "7 --user 568 op map van 568 → gezond",

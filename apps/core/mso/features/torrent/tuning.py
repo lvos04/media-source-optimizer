@@ -555,12 +555,18 @@ VERDICT_RUN = {  # evaluator verdict → tuning run status / note prefix
     "worse": ("degraded_pending", "verslechtering gemeten"),
     "insufficient": ("inconclusive", "onvoldoende metingen; wijziging blijft staan, geen conclusie"),
 }
+STATUS_NL = {
+    "kept": "behouden",
+    "inconclusive": "onbeslist",
+    "degraded_pending": "verslechterd, terugdraaien via Automatisering",
+    "rolled_back": "teruggedraaid",
+}
 ONE_SHOT = ("crossseed:", ":recheck", ":reannounce")
 
 
-def _not_measured(reason: str) -> dict[str, Any]:
+def _not_measured(reason: str, verdict: str = "not_applicable") -> dict[str, Any]:
     return {
-        "verdict": "insufficient",
+        "verdict": verdict,
         "measures": [],
         "message": f"Niet geëvalueerd: {reason}.",
         "auto_rollback": False,
@@ -578,7 +584,9 @@ def evaluate_change(change: dict[str, Any]) -> dict[str, Any]:
     measured ("beleidsgrens, geen meting"); deletions never reach an evaluator (the engine skips them)."""
     from mso.features.automation import evaluators as ev
 
-    sync_runs()
+    interim = bool(change.get("_interim"))  # live UI preview: compute only, never write state
+    if not interim:
+        sync_runs()
     db = get_db()
     run = db.fetchone(
         "SELECT * FROM torrent_tuning_runs WHERE change_id=%s ORDER BY id DESC LIMIT 1", (change["id"],)
@@ -591,7 +599,7 @@ def evaluate_change(change: dict[str, Any]) -> dict[str, Any]:
             return _not_measured(NO_MEASUREMENT)
         return ev.generic_evaluator(change)  # manual preference change: generic torrent measures
     if run["kind"] == "guardrail" or run["param"] == BUNDLE_PARAM:
-        if run["status"] in OPEN:
+        if run["status"] in OPEN and not interim:
             db.execute(
                 "UPDATE torrent_tuning_runs SET status='kept', note=%s, evaluated_at=now() WHERE id=%s",
                 (NO_MEASUREMENT + ": waarde blijft staan", run["id"]),
@@ -599,7 +607,7 @@ def evaluate_change(change: dict[str, Any]) -> dict[str, Any]:
         return _not_measured(NO_MEASUREMENT)
     applied_at = run["applied_at"] or change.get("applied_at")
     if applied_at is None:
-        return _not_measured("wijziging is niet toegepast")
+        return _not_measured("wijziging is niet toegepast", "insufficient")
     now = datetime.now(UTC)
     hyst = float(ts.get("tuning_hysteresis_pct"))
     min_n = int(ts.get("tuning_min_samples"))
@@ -651,18 +659,19 @@ def evaluate_change(change: dict[str, Any]) -> dict[str, Any]:
         "why": primary.get("why"),
         "completion": {k: completion.get(k) for k in ("verdict", "delta_pct", "why")},
     }
-    db.execute(
-        "UPDATE torrent_tuning_runs SET status=%s, result=%s, note=%s, evaluated_at=now() WHERE id=%s",
-        (status, jsonb(result), note, run["id"]),
-    )
-    audit(
-        "autotune",
-        "torrent.tuning_evaluated",
-        f"Tuning {run['param']}: {note}",
-        target="qbittorrent",
-        change_id=change["id"],
-        detail={"verdict": verdict, "delta_pct": primary.get("delta_pct")},
-    )
+    if not interim:
+        db.execute(
+            "UPDATE torrent_tuning_runs SET status=%s, result=%s, note=%s, evaluated_at=now() WHERE id=%s",
+            (status, jsonb(result), note, run["id"]),
+        )
+        audit(
+            "autotune",
+            "torrent.tuning_evaluated",
+            f"Tuning {run['param']}: {STATUS_NL[status]} ({note})",
+            target="qbittorrent",
+            change_id=change["id"],
+            detail={"verdict": verdict, "status": status, "delta_pct": primary.get("delta_pct")},
+        )
     return ev.evaluation(
         [primary, completion],
         message=f"Tuningstap {run['param']}: {note}",

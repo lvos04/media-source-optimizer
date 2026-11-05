@@ -148,6 +148,7 @@ export function HeaderIndexCard({ providers }: { providers: UsenetProvider[] }) 
         {(s) => (
           <div className="stack">
             <InlineState tone="warning">{s.disclaimer}</InlineState>
+            <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t(s.config.enabled ? "usenet.hi.endpointOn" : "usenet.hi.endpointOff")}</p>
             {s.config.enabled || s.usage.headers ? (
               <div className="grid" style={{ gap: 16 }}>
                 <div className="span-6 stack-sm">

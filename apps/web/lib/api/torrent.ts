@@ -117,7 +117,11 @@ export interface TuningList {
   settings: { autotune_enabled: boolean; auto_rollback: boolean; evaluation_hours: number; baseline_hours: number; hysteresis_pct: number; cooldown_hours: number };
   automation_allowed: boolean; mode: string; paused: boolean; open_run: number | null;
 }
-export interface ProposeResult { reason?: string; run?: TuningRun; change?: ChangeSet; auto?: string | null }
+export interface ProposeResult { reason?: string; run?: TuningRun; change?: ChangeSet; auto?: string | null; bundle?: boolean }
+
+/** GET /torrent/suspicious — suspicious torrents of the last scan + the open cleanup proposal. */
+export interface SuspiciousTorrent { hash: string; name: string; category: string | null; tracker_host: string | null; size: number | null; files: string[] }
+export interface SuspiciousList { items: SuspiciousTorrent[]; open_change: ChangeSet | null }
 
 export interface StorageReport {
   client: { available: boolean; updated_at: string | null; error: string | null };

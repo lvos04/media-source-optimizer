@@ -15,6 +15,18 @@ import { useSession } from "@/lib/session";
 type Filter = "all" | "failed";
 const STATUS_TONE: Record<SabHistoryItem["status"], Tone> = { success: "success", failed: "danger", active: "accent" };
 const CERTAINTY_TONE: Record<string, Tone> = { zeker: "danger", waarschijnlijk: "warning", onbekend: "neutral" };
+const QUEUE_TONE: Record<string, Tone> = { Paused: "neutral", Failed: "danger", Completed: "success", Queued: "neutral", Idle: "neutral" };
+
+/** SABnzbd queue status ("Downloading", "Queued", …) in Dutch; unknown statuses are shown as SABnzbd sends them. */
+function useQueueStatus() {
+  const { t } = useI18n();
+  return (status: string | null | undefined) => {
+    if (!status) return "—";
+    const key = `usenet.dl.queueStatus.${status}`;
+    const label = t(key as MessageKey);
+    return label === key ? status : label;
+  };
+}
 
 function ReasonCell({ item }: { item: SabHistoryItem }) {
   const { t } = useI18n();
@@ -31,7 +43,9 @@ function ReasonCell({ item }: { item: SabHistoryItem }) {
       {cause ? (
         <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal" }} title={item.evidence ?? undefined}>
           {t("usenet.dl.likelyCause", {
-            cause: `${cause.label.toLowerCase()} — ${t("usenet.dl.likelyCauseServers", { servers: cause.servers.map((s) => s.name).join(", ") })}`,
+            cause: `${cause.label.toLowerCase()} — ${t("usenet.dl.likelyCauseServers", {
+              servers: cause.servers.map((s) => `${s.name}: ${(s.label || t(`usenet.status.${s.status}` as MessageKey)).toLowerCase()}`).join("; "),
+            })}`,
           })}
         </span>
       ) : item.evidence ? (
@@ -60,6 +74,7 @@ function CategoryCell({ category, media, source }: { category: string | null; me
 /** Downloads → Usenet: SABnzbd queue and history with evidence-based failure reasons. */
 export function UsenetDownloadsTab() {
   const { t, num, bytes, relative } = useI18n();
+  const queueStatus = useQueueStatus();
   const toast = useToast();
   const { can } = useSession();
   const [filter, setFilter] = useState<Filter>("all");
@@ -83,7 +98,7 @@ export function UsenetDownloadsTab() {
   return (
     <div className="grid">
       <Card title={t("usenet.dl.queue")} icon={ListOrdered} className="span-12" flush
-        sub={queue.data ? (queue.data.paused ? t("usenet.dl.paused") : queue.data.speed_kbps ? t("usenet.dl.speed", { speed: bytes(queue.data.speed_kbps * 1024) }) : undefined) : undefined}
+        sub={queue.data ? (queue.data.paused ? t("usenet.dl.paused") : queue.data.status && !queue.data.speed_kbps ? queueStatus(queue.data.status) : queue.data.speed_kbps ? t("usenet.dl.speed", { speed: bytes(queue.data.speed_kbps * 1024) }) : undefined) : undefined}
         actions={
           <Button size="sm" icon={RefreshCw} onClick={() => void refresh()} pending={busy} disabled={!can("operator")}
             title={can("operator") ? undefined : t("usenet.operatorOnly")}>{t("usenet.refresh")}</Button>
@@ -102,7 +117,9 @@ export function UsenetDownloadsTab() {
                     <td data-label={t("usenet.dl.category")}>
                       <CategoryCell category={q.category} media={q.media_category} source={q.category_source} />
                     </td>
-                    <td data-label={t("usenet.dl.status")}><StatusChip tone="accent" icon={null}>{q.status}</StatusChip></td>
+                    <td data-label={t("usenet.dl.status")}>
+                      <StatusChip tone={QUEUE_TONE[q.status] ?? "accent"} icon={null} title={q.status !== queueStatus(q.status) ? `SABnzbd: ${q.status}` : undefined}>{queueStatus(q.status)}</StatusChip>
+                    </td>
                     <td data-label={t("usenet.dl.progress")} style={{ minWidth: 120 }}>
                       <Progress value={q.percentage} thin label={t("usenet.dl.progress")} />
                       <span className="t-3" style={{ fontSize: 12 }}>{q.percentage === null ? "—" : `${num(q.percentage)}%`} · {q.size_mb === null ? "—" : bytes(q.size_mb * 1024 * 1024)}</span>

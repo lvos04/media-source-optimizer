@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, GitCompareArrows, Lightbulb, TriangleAlert } from "lucide-react";
+import { ArrowDownUp, GitCompareArrows, Lightbulb, PowerOff, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { DiffViewer } from "@/components/mg/domain";
@@ -27,6 +27,26 @@ export function PriorityCard() {
   const suggestion = useResource<PrioritySuggestion>("/usenet/recommendations", { period_days: 30 });
   const [change, setChange] = useState<ChangeSet | null>(null);
   const [pending, setPending] = useState(false);
+  const [disableChange, setDisableChange] = useState<ChangeSet | null>(null);
+  const [disablePending, setDisablePending] = useState(false);
+
+  const proposeDisable = async () => {
+    setDisablePending(true);
+    try {
+      const ch = await api.post<ChangeSet>("/usenet/recommendations/disable-failing", {});
+      setDisableChange(ch);
+      toast.push("success", t("usenet.prio.disableProposed"), ch.title);
+    } catch (e) {
+      toast.push("danger", errorMessage(e));
+    } finally {
+      setDisablePending(false);
+    }
+  };
+
+  const onDisableChanged = async (updated: ChangeSet | null) => {
+    if (updated) setDisableChange(updated);
+    await Promise.all([servers.reload(), suggestion.reload()]);
+  };
 
   const propose = async () => {
     setPending(true);
@@ -115,6 +135,29 @@ export function PriorityCard() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              ) : null}
+              {sg.disable.count || disableChange ? (
+                <div className="stack-sm" style={{ border: "1px solid var(--mg-border-soft)", borderRadius: "var(--mg-r)", padding: 12 }}>
+                  <div className="row-between wrap">
+                    <span className="eyebrow">{t("usenet.prio.disableTitle")}</span>
+                    <RiskChip risk="toestemming_nodig" />
+                  </div>
+                  {sg.disable.count ? (
+                    <p className="t-2" style={{ margin: 0, fontSize: 13 }}>
+                      {t("usenet.prio.disableHint", {
+                        servers: sg.disable.servers.map((name) => sg.issues.find((i) => i.server === name)?.name ?? name).join(", "),
+                      })}
+                    </p>
+                  ) : null}
+                  {!disableChange ? (
+                    <div>
+                      <Button variant="danger" icon={PowerOff} onClick={() => void proposeDisable()} pending={disablePending}
+                        disabled={!can("admin")} title={can("admin") ? undefined : t("usenet.adminOnly")}>
+                        {t("usenet.prio.disablePropose", { count: num(sg.disable.count) })}
+                      </Button>
+                    </div>
+                  ) : <ChangePreview change={disableChange} onChanged={onDisableChanged} />}
                 </div>
               ) : null}
               {sg.notes.map((n, idx) => <InlineState key={n} tone={idx === 0 && sg.issues.length ? "danger" : "info"}>{n}</InlineState>)}

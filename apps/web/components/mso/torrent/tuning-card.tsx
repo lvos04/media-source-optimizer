@@ -8,6 +8,7 @@ import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview, formatOpValue } from "@/components/mso/change-preview";
 import { RiskChip } from "@/components/mso/risk-chip";
+import { notifyTorrentChanged } from "@/components/mso/torrent/shared";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -55,6 +56,7 @@ function TuningImpact({ impact, unit }: { impact: unknown; unit: string | null }
           let value: ReactNode;
           if (v === null || v === undefined || v === "") value = "—";
           else if (typeof v === "string") value = v;
+          else if (Array.isArray(v) && v.every((x) => typeof x === "string")) value = <ul style={{ margin: 0, paddingLeft: 18 }}>{(v as string[]).map((x) => <li key={x}>{x}</li>)}</ul>;
           else if (typeof v === "number") value = k === "evaluate_after_h" ? t("torrent.tuning.hours", { h: num(v, 1) }) : num(v, 2);
           else if (typeof v === "object" && "median" in (v as object)) value = <MetricValue stats={v as Partial<MetricStats>} unit={unit} />;
           else return null; // nested technical data is not shown here (it stays in the change log)
@@ -90,6 +92,7 @@ function RunChange({ id, unit, onChanged }: { id: number; unit: string | null; o
       setPending(null);
       await change.reload();
       onChanged();
+      notifyTorrentChanged();
     }
   };
   return (
@@ -101,7 +104,7 @@ function RunChange({ id, unit, onChanged }: { id: number; unit: string | null; o
         return (
           <div className="stack-sm">
             <ChangePreview change={{ ...c, impact: null }} card={false} actions={c.status === "applied"}
-              onChanged={() => { void change.reload(); onChanged(); }} />
+              onChanged={() => { void change.reload(); onChanged(); notifyTorrentChanged(); }} />
             <TuningImpact impact={c.impact} unit={unit} />
             {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}
             {isOpen ? (
@@ -126,8 +129,28 @@ function RunChange({ id, unit, onChanged }: { id: number; unit: string | null; o
   );
 }
 
+const BUNDLE_PARAM = "bundle:guardrails";
+
+/** before → after; a guardrail bundle stores one value per preference ({"pref:max_connec": 50000, …}). */
+function RunValues({ run }: { run: TuningRun }) {
+  const { t } = useI18n();
+  const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+  if (isMap(run.before_value) && isMap(run.after_value)) {
+    const after = run.after_value;
+    return (
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {Object.entries(run.before_value).map(([k, b]) => (
+          <li key={k}><span className="mono">{k.replace(/^pref:/, "")}</span>: {typeof b === "number" && b <= 0 ? t("torrent.unlimited") : formatOpValue(b)} → {formatOpValue(after[k])}</li>
+        ))}
+      </ul>
+    );
+  }
+  return <>{formatOpValue(run.before_value)} → {formatOpValue(run.after_value)}</>;
+}
+
 function RunRow({ run, onChanged }: { run: TuningRun; onChanged: () => void }) {
   const { t, duration, dateTime, num } = useI18n();
+  const guard = run.kind === "guardrail";
   const st = RUN_STATUS[run.status];
   const open = run.status === "proposed" || run.status === "evaluating" || run.status === "degraded_pending";
   const cmp = run.status === "evaluating" ? run.interim : run.result;
@@ -135,7 +158,7 @@ function RunRow({ run, onChanged }: { run: TuningRun; onChanged: () => void }) {
     <article className="evidence">
       <div className="evidence-head">
         <StatusChip tone={st.tone}>{t(st.key)}</StatusChip>
-        <span className="evidence-source mono">{run.param}</span>
+        <span className={run.param === BUNDLE_PARAM ? "evidence-source" : "evidence-source mono"}>{run.param === BUNDLE_PARAM ? t("torrent.tuning.bundleParam") : run.param}</span>
         <span className="grow" />
         {run.change_risk ? <RiskChip risk={run.change_risk} /> : null}
         {!open && run.change_status && CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS] ? (
@@ -145,14 +168,14 @@ function RunRow({ run, onChanged }: { run: TuningRun; onChanged: () => void }) {
         ) : null}
       </div>
       <dl className="evidence-body">
-        <dt>{t("torrent.tuning.change")}</dt><dd>{formatOpValue(run.before_value)} → {formatOpValue(run.after_value)} <span className="t-3">({t(`torrent.tuning.kind.${run.kind}` as MessageKey)})</span></dd>
+        <dt>{t("torrent.tuning.change")}</dt><dd><RunValues run={run} /> <span className="t-3">({t(`torrent.tuning.kind.${run.kind}` as MessageKey)})</span></dd>
         <dt>{t("torrent.tuning.why")}</dt><dd>{run.reason}</dd>
-        <dt>{t("torrent.tuning.metric")}</dt><dd>{run.metric_label} {run.higher_is_better ? "↑" : "↓"}</dd>
-        <dt>{t("torrent.tuning.baseline")}</dt><dd><MetricValue stats={run.baseline} unit={run.metric_unit} /></dd>
+        {guard ? null : <><dt>{t("torrent.tuning.metric")}</dt><dd>{run.metric_label} {run.higher_is_better ? "↑" : "↓"}</dd>
+        <dt>{t("torrent.tuning.baseline")}</dt><dd><MetricValue stats={run.baseline} unit={run.metric_unit} /></dd></>}
         {cmp && (cmp.n ?? 0) > 0 ? <><dt>{run.status === "evaluating" ? t("torrent.tuning.now") : t("torrent.tuning.after")}</dt><dd><MetricValue stats={cmp} unit={run.metric_unit} />{cmp.delta_pct !== null && cmp.delta_pct !== undefined ? ` · ${cmp.delta_pct > 0 ? "+" : ""}${num(cmp.delta_pct, 1)}%` : ""}</dd></> : null}
         {run.status === "evaluating" && run.seconds_left !== undefined ? (
           <><dt>{t("torrent.tuning.evaluation")}</dt><dd><Hourglass className="ico ico-sm" aria-hidden="true" /> {t("torrent.tuning.in", { time: duration(run.seconds_left) })} · {dateTime(run.evaluate_at ?? null)}</dd></>
-        ) : <><dt>{t("torrent.tuning.window")}</dt><dd>{t("torrent.tuning.hours", { h: num(run.evaluate_after_h, 1) })}</dd></>}
+        ) : <><dt>{t("torrent.tuning.window")}</dt><dd>{guard ? t("torrent.tuning.noMeasurement") : t("torrent.tuning.hours", { h: num(run.evaluate_after_h, 1) })}</dd></>}
         {run.note ? <><dt>{t("torrent.tuning.outcome")}</dt><dd>{run.note}</dd></> : null}
       </dl>
       {open && run.change_id ? <div style={{ marginTop: 8 }}><RunChange id={run.change_id} unit={run.metric_unit} onChanged={onChanged} /></div> : null}
@@ -175,7 +198,7 @@ export function TuningCard() {
     try {
       const res = await api.post<ProposeResult>("/torrent/tuning/propose");
       if (res.reason) setMessage(res.reason);
-      else toast.push("success", t("torrent.tuning.proposed"), res.auto ? `${t("torrent.tuning.auto")}: ${res.auto}` : undefined);
+      else toast.push("success", t(res.bundle ? "torrent.tuning.bundleProposed" : "torrent.tuning.proposed"), res.auto ? `${t("torrent.tuning.auto")}: ${res.auto}` : undefined);
       await runs.reload();
     } catch (e) {
       toast.push("danger", t("toast.failed", { message: errorMessage(e) }));

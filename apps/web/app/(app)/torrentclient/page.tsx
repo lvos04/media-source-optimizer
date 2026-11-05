@@ -7,6 +7,7 @@ import { Button, Card, PageHeader } from "@/components/mg/primitives";
 import { ResourceView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ConnectorList } from "@/components/mso/connector-form";
+import { SuspiciousCleanup } from "@/components/mso/torrent/cleanup-card";
 import { BottleneckCard, ClientCard, ConnectivityCard } from "@/components/mso/torrent/client-cards";
 import { PolicyCards, PreferencesCard } from "@/components/mso/torrent/policy-cards";
 import { RulesEditor } from "@/components/mso/torrent/rules-editor";
@@ -56,6 +57,7 @@ export default function TorrentClientPage() {
           </div>
         ) : (
           <div className="grid">
+            <SuspiciousCleanup onChanged={() => void overview.reload()} />
             <ClientCard data={d} />
             <ConnectivityCard data={d} />
             <BottleneckCard data={d} />

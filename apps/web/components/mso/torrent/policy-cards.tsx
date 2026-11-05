@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Button, Card, InlineState, StatusChip } from "@/components/mg/primitives";
 import { ResourceView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
-import { ChangeDialog, useRate } from "@/components/mso/torrent/shared";
+import { ChangeDialog, useRate, useTorrentChanged } from "@/components/mso/torrent/shared";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -37,6 +37,7 @@ export function PreferencesCard() {
   const { t, num } = useI18n();
   const rate = useRate();
   const prefs = useResource<PreferenceList>("/torrent/preferences", undefined, 60_000);
+  useTorrentChanged(prefs.reload);
   const show = (p: PreferenceItem) => {
     if (!p.present) return <span className="t-3">{t("torrent.prefs.absent")}</span>;
     if (p.kind === "bool") return p.value ? t("torrent.on") : t("torrent.off");
@@ -84,6 +85,7 @@ export function PolicyCards() {
   const { can } = useSession();
   const isOperator = can("operator");
   const policy = useResource<TorrentPolicy>("/torrent/policy", undefined, 60_000);
+  useTorrentChanged(policy.reload);
   const { create, pending, dialog } = usePreview(() => void policy.reload());
   return (
     <>

@@ -215,13 +215,16 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
     applier = APPLIERS[ch["target"]]()
     ops = [dict(op) for op in ch["ops"]]
     errors = []
-    reversible = [op for op in ops if op.get("result") == "toegepast" and not op.get("irreversible")]
+    # ``one_way``: cannot be undone but is not destructive (e.g. sending a release to a download client); allowed in
+    # any risk class, skipped on rollback exactly like ``irreversible``.
+    reversible = [op for op in ops if op.get("result") == "toegepast"
+                  and not (op.get("irreversible") or op.get("one_way"))]
     if not reversible:
         raise HTTPException(409, detail="Deze wijziging is niet terug te draaien (bijv. verwijderde bestanden)")
     for op in reversed(ops):
         if op.get("result") != "toegepast":
             continue
-        if op.get("irreversible"):
+        if op.get("irreversible") or op.get("one_way"):
             op["result"] = "niet_terug_te_draaien"
             continue
         try:

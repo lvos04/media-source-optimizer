@@ -10,11 +10,12 @@ const STATUS_TONE: Record<ProviderStatus, Tone> = {
   ok: "success", auth_failed: "danger", account_expired: "danger", rate_limited: "warning", block_exhausted: "danger",
   unreachable: "danger", tls_error: "danger", timeout: "warning", error: "warning", unknown: "neutral",
   missing_credentials: "warning", access_denied: "danger", sab_blocked: "warning", disabled: "neutral",
+  budget_exhausted: "warning",
 };
 const STATUS_ICON: Partial<Record<ProviderStatus, typeof KeyRound>> = {
   auth_failed: KeyRound, account_expired: KeyRound, rate_limited: Gauge, block_exhausted: Gauge,
   unreachable: Unplug, tls_error: ShieldAlert, timeout: Timer, unknown: CircleHelp,
-  missing_credentials: UserRoundPen, access_denied: Ban, sab_blocked: Ban, disabled: PowerOff,
+  missing_credentials: UserRoundPen, access_denied: Ban, sab_blocked: Ban, disabled: PowerOff, budget_exhausted: Gauge,
 };
 
 /** Provider status: colour + icon + text; detail (provider's own message) as tooltip. */

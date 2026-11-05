@@ -6,6 +6,7 @@ import { Fragment, useMemo, useState } from "react";
 import { Button, Card, InlineState, Progress, Segmented, StatusChip } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
+import { SuspiciousCleanup } from "@/components/mso/torrent/cleanup-card";
 import { ChangeDialog, DiagnosisChip, FindingList, PrivateChip, StateChip, useRate } from "@/components/mso/torrent/shared";
 import { UnavailableState } from "@/components/mso/unavailable-state";
 import { api, errorMessage } from "@/lib/api/client";
@@ -150,7 +151,7 @@ export function TorrentDownloadsTab() {
           <input className="input input--sm" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("torrent.searchPlaceholder")} aria-label={t("torrent.searchPlaceholder")} style={{ maxWidth: 260 }} />
         </div>
         {list.data?.stale ? <div style={{ padding: "0 16px 12px" }}><InlineState tone="warning">{t("torrent.staleData")}</InlineState></div> : null}
-        {suspicious ? <div style={{ padding: "0 16px 12px" }}><InlineState tone="danger" role="alert">{t("torrent.suspiciousBanner", { count: num(suspicious) })}</InlineState></div> : null}
+        {suspicious ? <div style={{ padding: "0 16px 12px" }}><SuspiciousCleanup compact onChanged={() => void list.reload()} /></div> : null}
         <ResourceView resource={list} endpoint="GET /api/v1/torrent/torrents" isEmpty={(d) => d.items.length === 0}
           empty={<StateView kind="empty" title={t("torrent.empty")} body={t("torrent.emptyBody")} />}>
           {() => items.length === 0 ? <StateView kind="empty" compact title={t("torrent.noMatch")} /> : (

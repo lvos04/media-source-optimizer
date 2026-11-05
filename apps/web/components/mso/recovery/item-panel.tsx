@@ -209,7 +209,7 @@ export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: str
                   <h3 className="card-title" style={{ fontSize: 13, marginBottom: 6 }}>{t("rec.item.history")}</h3>
                   <Timeline items={[
                     ...d.search_requests.map((r) => ({ title: t("rec.item.histRequest", { status: enumLabel(t, "rec.req.status", r.status) }), meta: `${relative(r.requested_at)} · ${r.actor}${r.error ? ` · ${r.error}` : ""}`, tone: (r.status === "sent" ? "success" : r.status === "failed" ? "danger" : "warning") as "success" | "danger" | "warning" })),
-                    ...d.sends.map((s) => ({ title: t("rec.item.histSend", { client: s.client, status: enumLabel(t, "rec.send.status", s.status) }), meta: `${relative(s.created_at)} · ${s.title}${s.error ? ` · ${s.error}` : ""}`, tone: (s.status === "sent" || s.status === "download_ok" ? "success" : "danger") as "success" | "danger" })),
+                    ...d.sends.map((s) => ({ title: t("rec.item.histSend", { client: s.client === "sabnzbd" ? "SABnzbd" : s.client === "qbittorrent" ? "qBittorrent" : s.client, status: enumLabel(t, "rec.send.status", s.status) }), meta: `${relative(s.created_at)} · ${s.title}${s.error ? ` · ${s.error}` : ""}`, tone: (s.status === "sent" || s.status === "download_ok" ? "success" : "danger") as "success" | "danger" })),
                   ]} />
                 </section>
               ) : null}

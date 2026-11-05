@@ -10,11 +10,50 @@ import { ConfidenceChip, fileToBase64, ProviderStatusChip, useRatio } from "@/co
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
 import type { SettingsPayload } from "@/lib/api/contracts";
-import type { ArticleTest, ContributionOverview, UsenetNzb } from "@/lib/api/usenet";
+import type { ArticleTest, ContributionOverview, StatBudget, UsenetNzb } from "@/lib/api/usenet";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
 type Period = "7" | "30" | "90";
+
+/** Automatic STAT sample after every NZB MSO sends: on/off + per-provider budget usage. */
+function AutoSampleStatus() {
+  const { t, num, bytes, relative } = useI18n();
+  const budget = useResource<StatBudget>("/usenet/stat-budget", undefined, 60_000);
+  const b = budget.data;
+  if (!b) return null;
+  return (
+    <div className="stack-sm" style={{ fontSize: 12.5 }}>
+      <InlineState tone={b.enabled ? "success" : "neutral"}>
+        {b.enabled ? t("usenet.avail.auto.on", { size: num(b.sample_size), when: b.last_auto_test_at ? relative(b.last_auto_test_at) : t("usenet.avail.auto.never") })
+          : t("usenet.avail.auto.off")}
+      </InlineState>
+      {b.enabled && b.providers.length ? (
+        <details>
+          <summary className="t-2" style={{ cursor: "pointer" }}>{t("usenet.avail.auto.budget")}</summary>
+          <ul className="t-3" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {b.providers.map((p) => (
+              <li key={p.slug}>
+                <strong className="t-2">{p.label}</strong>:{" "}
+                {!p.eligible ? t("usenet.avail.auto.noCreds") : (
+                  <>
+                    {t("usenet.avail.auto.usage", {
+                      conn: num(p.usage.daily.connections), connMax: num(b.limits.daily.connections),
+                      cmd: num(p.usage.daily.commands), cmdMax: num(b.limits.daily.commands),
+                      bytes: bytes(p.usage.daily.bytes), bytesMax: bytes(b.limits.daily.bytes),
+                      mconn: num(p.usage.monthly.connections), mconnMax: num(b.limits.monthly.connections),
+                    })}
+                    {p.fit < 1 ? <> · <StatusChip tone="warning">{t("usenet.avail.auto.out")}</StatusChip></> : null}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  );
+}
 
 /** Per-provider availability/overlap with coverage + confidence; never a guarantee. */
 export function AvailabilityCard() {
@@ -28,7 +67,10 @@ export function AvailabilityCard() {
         options={(["7", "30", "90"] as Period[]).map((d) => ({ value: d, label: t("usenet.avail.days", { days: d }) }))} />}
       flush>
       <div style={{ padding: "0 16px 12px" }}>
-        <InlineState tone="info">{t("usenet.avail.disclaimer")}</InlineState>
+        <div className="stack-sm">
+          <InlineState tone="info">{t("usenet.avail.disclaimer")}</InlineState>
+          <AutoSampleStatus />
+        </div>
       </div>
       <ResourceView resource={data} endpoint="GET /api/v1/usenet/contribution" isEmpty={(d) => !d.items.length}
         empty={<StateView kind="empty" compact title={t("usenet.avail.empty")} />}>

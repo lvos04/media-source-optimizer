@@ -33,7 +33,7 @@ from typing import Any
 
 from mso import changes
 from mso.changes import Applier
-from mso.db import get_db
+from mso.db import get_db, jsonb
 from mso.features.torrent import cleanup, policy
 from mso.vault import get_vault
 
@@ -56,6 +56,18 @@ def _action_done(h: str, action: str) -> bool:
 
 def _record_action(h: str, action: str) -> None:
     get_db().execute("INSERT INTO torrent_actions(hash, action) VALUES (%s,%s)", (h, action))
+
+
+def _refresh_snapshot_pref(key: str, value: Any) -> None:
+    """Keep the stored client snapshot in step with a write (apply AND rollback), so the read-only blocks
+    ("Veilige snelheidslimieten", "Instellingen relevant voor tuning") show the new value at once instead of after
+    the next ingest. Only keys MSO manages (never a secret preference)."""
+    if key not in policy.ALLOWED_PREFS:
+        return
+    get_db().execute(
+        "UPDATE torrent_client_snapshot SET preferences = COALESCE(preferences, '{}'::jsonb) || %s WHERE id=1",
+        (jsonb({key: value}),),
+    )
 
 
 def build() -> Applier:
@@ -132,6 +144,8 @@ def build() -> Applier:
         adapter().write_value(path, value)
         if policy.is_rate_path(path):
             written[path] = value
+        if kind == "pref":
+            _refresh_snapshot_pref(rest, adapter().read_value(path))
 
     def validate(path: str, value: Any) -> None:
         if cleanup.is_cleanup_path(path):

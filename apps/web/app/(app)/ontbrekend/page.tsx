@@ -9,6 +9,7 @@ import { ResourceView, StateView } from "@/components/mg/states";
 import { MgModeChip } from "@/components/mso/mediaguard/parts";
 import { BaselineCard, useCategoryLabel } from "@/components/mso/recovery/baseline-card";
 import { BlacklistCard } from "@/components/mso/recovery/blacklist-card";
+import { FallbackCard } from "@/components/mso/recovery/fallback-card";
 import { ItemPanel } from "@/components/mso/recovery/item-panel";
 import { ManualWantedDialog } from "@/components/mso/recovery/requirements-editor";
 import { useAction } from "@/lib/api/actions";
@@ -164,6 +165,7 @@ export default function MissingPage() {
           </ResourceView>
         </Card>
 
+        <FallbackCard reloadKey={bump} />
 
         <BlacklistCard reloadKey={bump} />
       </div>

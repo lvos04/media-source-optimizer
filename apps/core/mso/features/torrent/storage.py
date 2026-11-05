@@ -238,7 +238,7 @@ def report() -> dict[str, Any]:
         "hardlinks": scan["result"] if scan else None,
         "hardlinks_scanned_at": scan["updated_at"] if scan else None,
         "never": [
-            "Geen bestanden verwijderen, verplaatsen of hernoemen",
+            "Geen mediabestanden verwijderen, verplaatsen of hernoemen (alleen verdachte torrents na jouw goedkeuring)",
             "Geen seedende of gehardlinkte bestanden herschrijven (MediaGuard AV1-veiligheid)",
             "Geen seeden stoppen vóór de seedverplichting",
         ],

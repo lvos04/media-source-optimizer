@@ -198,21 +198,23 @@ def test_extreme_prefs_brought_back_within_caps(
     runs = viewer.get("/api/v1/torrent/tuning").json()
     assert runs["open_run"] is None and runs["items"][0]["status"] == "kept"
     assert "geen meting" in runs["items"][0]["note"]
-    # the read-only blocks reflect the new values after the next refresh
-    ingest()
+    # the read-only blocks ("Instellingen relevant voor tuning", "Veilige snelheidslimieten") show the new values
+    # immediately after applying — no ingest needed
     prefs = {p["key"]: p for p in viewer.get("/api/v1/torrent/preferences").json()["items"]}
+    assert viewer.get("/api/v1/torrent/policy").json()["speed"]["out_of_bounds"] == []
     assert all(prefs[k]["bounds"] == "ok" for k in ("max_connec", "max_connec_per_torrent", "max_uploads",
                                                        "max_uploads_per_torrent"))
     # the evaluator never measures a guardrail bundle
     from mso.features.torrent import tuning
 
     ev = tuning.evaluate_change(changes.get(cid))
-    assert ev["verdict"] == "insufficient" and "beleidsgrens, geen meting" in ev["message"]
+    assert ev["verdict"] == "not_applicable" and "beleidsgrens, geen meting" in ev["message"]
     assert ev["auto_rollback"] is False
     # rollback as a whole
     assert admin.post(f"/api/v1/changes/{cid}/rollback").status_code == 200
     assert (qb.st.prefs["max_connec"], qb.st.prefs["max_connec_per_torrent"], qb.st.prefs["max_uploads"],
             qb.st.prefs["max_uploads_per_torrent"]) == (50000, 100000, 200000, 40000)
+    assert viewer.get("/api/v1/torrent/policy").json()["speed"]["current_max_connec"] == 50000
     assert viewer.get("/api/v1/torrent/tuning").json()["items"][0]["status"] == "rolled_back"
 
 

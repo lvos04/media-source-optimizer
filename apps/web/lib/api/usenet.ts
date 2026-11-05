@@ -4,7 +4,9 @@ export type ProviderStatus =
   | "ok" | "auth_failed" | "account_expired" | "rate_limited" | "block_exhausted" | "unreachable"
   | "tls_error" | "timeout" | "error" | "unknown" | "missing_credentials"
   // only from SABnzbd's own server status:
-  | "access_denied" | "sab_blocked" | "disabled";
+  | "access_denied" | "sab_blocked" | "disabled"
+  // only in automatic STAT samples:
+  | "budget_exhausted";
 
 /** SABnzbd's own view of one of its servers (`mode=status` + `mode=warnings`). */
 export interface SabServerStatus {
@@ -80,7 +82,7 @@ export interface ArticleTestProvider {
   unique_available: number | null; availability: number | null;
 }
 export interface ArticleTest {
-  id: number; nzb_id: number; nzb_title?: string; trigger: "failure" | "manual"; status: "queued" | "running" | "done" | "failed";
+  id: number; nzb_id: number; nzb_title?: string; trigger: "failure" | "manual" | "auto_send"; status: "queued" | "running" | "done" | "failed";
   providers: string[]; sample_size: number; error: string | null; requested_by: string | null; job_id: number | null;
   created_at: string; finished_at: string | null;
   summary: { sample?: number; providers?: Record<string, ArticleTestProvider>; comparable_articles?: number; missing_everywhere?: number | null };
@@ -96,6 +98,8 @@ export interface PrioritySuggestion {
   ops: PriorityOp[]; method: "current_order" | "explicit_test"; notes: string[];
   insights: Array<{ slug: string; label: string; kind: "unique" | "fill" | "low_success"; text: string; confidence: ConfidenceLevel }>;
   issues: ServerIssue[];
+  /** One-click proposal "Voorstel: N kapotte servers uitschakelen" → `POST /usenet/recommendations/disable-failing`. */
+  disable: { count: number; ops: PriorityOp[]; servers: string[] };
   servers: Array<Omit<SabServer, "provider" | "period" | "daily" | "total_bytes" | "sab_status" | "low_article_success"> & { provider: string | null }>;
   risk: "toestemming_nodig"; period_days: number;
 }
@@ -113,7 +117,7 @@ export interface SabHistoryItem {
   failure_detail: string | null; certainty: "zeker" | "waarschijnlijk" | "onbekend" | null; evidence: string | null;
   likely_cause: {
     reason: string; label: string; certainty: "waarschijnlijk";
-    servers: Array<{ server: string; name: string; status: ProviderStatus }>;
+    servers: Array<{ server: string; name: string; status: ProviderStatus; label: string }>;
   } | null;
   category_source: CategorySource;
   size_bytes: number | null; finished_at: string | null; nzb_id: number | null; testable: boolean;
@@ -142,4 +146,13 @@ export interface HeaderIndexStatus {
   }>;
   groups: Array<{ name: string; last_article: number | null; last_run_at: string | null; last_error: string | null }>;
   runs_today: number; source_id: string; disclaimer: string;
+}
+
+/** `GET /usenet/stat-budget` — automatic STAT sample after every NZB MSO sends. */
+export interface StatUsage { connections: number; commands: number; bytes: number }
+export interface StatBudget {
+  enabled: boolean; sample_size: number;
+  limits: { daily: StatUsage; monthly: StatUsage };
+  providers: Array<{ slug: string; label: string; eligible: boolean; usage: { daily: StatUsage; monthly: StatUsage }; fit: number }>;
+  last_auto_test_at: string | null;
 }

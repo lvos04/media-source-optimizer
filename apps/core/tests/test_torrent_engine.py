@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -492,8 +492,15 @@ def test_autotune_applies_one_change_and_rolls_back_on_degradation(
     assert EVALUATORS["qbittorrent"] is tuning.evaluate_change
     _age(db, 49)
     _obs(db, "torrent.dl_speed_active", 1_000_000, 2)
+    # a live interim view (UI) computes the verdict but writes nothing
+    interim = tuning.evaluate_change(changes.get(run["change_id"]) | {"_interim": True})
+    assert interim["verdict"] == "worse"
+    assert db.fetchone("SELECT status FROM torrent_tuning_runs WHERE id=%s", (run["id"],))["status"] == "evaluating"
+    assert not db.scalar("SELECT count(*) FROM audit_log WHERE action='torrent.tuning_evaluated'")
     done = tuning.evaluate()
     assert done and done[0]["status"] == "rolled_back"
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='change.auto_rolled_back' AND change_id=%s",
+                     (run["change_id"],)) == 1
     assert qb.st.prefs["max_connec"] == 500
     ch = changes.get(run["change_id"])
     assert ch["status"] == "rolled_back"

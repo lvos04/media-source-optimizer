@@ -400,8 +400,9 @@ def propose(o: dict[str, Any], media_ref: str, cand: dict[str, Any], res: dict[s
         "before": BEFORE,
         "after": AFTER,
     }
-    if not auto:
-        op["irreversible"] = True  # never automatic; rollback skips it
+    # sending cannot be undone: in approval mode it is 'irreversible' (never automatic); in the opt-in auto-send
+    # mode it is 'one_way' (may be applied automatically, rollback skips it with "niet terug te draaien")
+    op["irreversible" if not auto else "one_way"] = True
     explanation = (
         f"De download '{o['title']}' is mislukt ({reason_label}). "
         + (

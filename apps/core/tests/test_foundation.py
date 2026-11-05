@@ -473,3 +473,15 @@ def test_destructive_ops_need_permission_never_automatic_and_irreversible_not_ro
     assert admin.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 200
     r = admin.post(f"/api/v1/changes/{ch['id']}/rollback")
     assert r.status_code == 409 and "niet terug te draaien" in r.json()["detail"]
+
+
+def test_one_way_ops_allowed_automatically_but_not_rolled_back(admin: Any, fake: FakeSystem,
+                                                               manage_mode: None) -> None:
+    ch = changes.create("fake", "Versturen", [{"path": "speed", "before": 100, "after": 1, "one_way": True},
+                                              {"path": "conns", "before": 50, "after": 60}], risk="automatisch_veilig")
+    assert changes.apply(ch["id"], "auto", automatic=True)["status"] == "applied"
+    r = admin.post(f"/api/v1/changes/{ch['id']}/rollback")
+    assert r.status_code == 200
+    ops = {o["path"]: o["result"] for o in r.json()["ops"]}
+    assert ops == {"speed": "niet_terug_te_draaien", "conns": "teruggedraaid"}
+    assert fake.values["speed"] == 1 and fake.values["conns"] == 50

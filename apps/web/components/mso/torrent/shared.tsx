@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertOctagon, CircleCheck, Info, Lock, TriangleAlert, Unlock } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Confidence } from "@/components/mg/domain";
 import { Modal, StatusChip, type Tone } from "@/components/mg/primitives";
@@ -103,6 +103,30 @@ export function useRate() {
   return (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${bytes(v)}/s`);
 }
 
+const TORRENT_CHANGED = "mso:torrent-changed";
+
+/** Tell every torrent block that a qBittorrent change set was approved/applied/rolled back (so read-only blocks
+ *  such as "Veilige snelheidslimieten" and "Instellingen relevant voor tuning" reload at once). */
+export function notifyTorrentChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(TORRENT_CHANGED));
+}
+
+/** Calls `reload` whenever `notifyTorrentChanged()` fires (and once more shortly after, when qBittorrent has
+ *  settled and MSO's snapshot is refreshed). */
+export function useTorrentChanged(reload: () => unknown) {
+  const ref = useRef(reload);
+  useEffect(() => { ref.current = reload; });
+  useEffect(() => {
+    const timers: number[] = [];
+    const on = () => {
+      void ref.current();
+      timers.push(window.setTimeout(() => void ref.current(), 3000));
+    };
+    window.addEventListener(TORRENT_CHANGED, on);
+    return () => { window.removeEventListener(TORRENT_CHANGED, on); timers.forEach((x) => window.clearTimeout(x)); };
+  }, []);
+}
+
 /** Change set returned by a preview endpoint, shown in a dialog with the standard ChangePreview. */
 export function ChangeDialog({ change, onClose, onChanged }: { change: ChangeSet | null; onClose: () => void; onChanged?: () => void }) {
   const { t } = useI18n();
@@ -111,7 +135,7 @@ export function ChangeDialog({ change, onClose, onChanged }: { change: ChangeSet
   if (!change || !current) return null;
   return (
     <Modal open onClose={onClose} title={current.title} description={t("torrent.changeDialogHint")}>
-      <ChangePreview change={current} card={false} onChanged={(updated) => { if (updated) setCurrent(updated); onChanged?.(); }} />
+      <ChangePreview change={current} card={false} onChanged={(updated) => { if (updated) setCurrent(updated); onChanged?.(); notifyTorrentChanged(); }} />
     </Modal>
   );
 }

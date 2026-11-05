@@ -49,6 +49,12 @@ export const messages = {
   "usenet.providers.source.sabnzbd": "bron: SABnzbd",
   "usenet.providers.source.mso": "bron: MSO-test",
   "usenet.providers.source.msoStale": "bron: verouderde MSO-test",
+  "usenet.providers.credPrompt.title": "Inloggegevens voor eigen metingen",
+  "usenet.providers.credPrompt.body": "SABnzbd geeft gebruikersnaam en wachtwoord niet door via zijn API. MSO heeft ze nodig om deze provider zelf te testen en om na elke verstuurde NZB met STAT te meten welke artikelen hier beschikbaar zijn (1 verbinding, binnen de budgetten, zonder iets te downloaden). Ze worden versleuteld opgeslagen in de kluis (AES-256-GCM) en nooit getoond, gelogd of teruggegeven.",
+  "usenet.providers.credPrompt.save": "Opslaan",
+  "usenet.providers.credPrompt.later": "Later",
+  "usenet.providers.credPrompt.saved": "Inloggegevens opgeslagen — test nu de verbinding",
+  "usenet.providers.credPrompt.testNow": "Nu testen",
   "usenet.providers.sabStatusNone": "Niet gekoppeld aan een SABnzbd-server",
 
   // provider form
@@ -99,6 +105,13 @@ export const messages = {
   "usenet.avail.method.passive": "Passief",
   "usenet.avail.method.explicit_test+passive": "Test + passief",
   "usenet.avail.method.none": "Geen metingen",
+  "usenet.avail.auto.on": "Automatisch na versturen: aan · {size} artikelen per provider per verstuurde NZB · laatste steekproef: {when}",
+  "usenet.avail.auto.off": "Automatisch meten na versturen staat uit (Instellingen → usenet → 'Beschikbaarheid automatisch meten na versturen'). Tests kunnen nog handmatig.",
+  "usenet.avail.auto.never": "nog geen",
+  "usenet.avail.auto.budget": "STAT-budget per provider",
+  "usenet.avail.auto.usage": "vandaag {conn}/{connMax} verbindingen · {cmd}/{cmdMax} commando's · {bytes}/{bytesMax} · deze maand {mconn}/{mconnMax} verbindingen",
+  "usenet.avail.auto.noCreds": "geen inloggegevens in MSO — wordt niet gemeten",
+  "usenet.avail.auto.out": "budget op",
   "usenet.avail.empty": "Nog geen providers om te vergelijken",
   "usenet.conf.high": "Hoog vertrouwen",
   "usenet.conf.medium": "Middelmatig vertrouwen",
@@ -127,6 +140,7 @@ export const messages = {
   "usenet.tests.status.failed": "Mislukt",
   "usenet.tests.trigger.failure": "na mislukte download",
   "usenet.tests.trigger.manual": "handmatig",
+  "usenet.tests.trigger.auto_send": "automatisch na versturen",
   "usenet.tests.notTestable": "Inhoud onbekend (via link verstuurd)",
 
   // priority
@@ -150,6 +164,10 @@ export const messages = {
   "usenet.prio.noOps": "Geen wijziging voorgesteld: de huidige instellingen passen bij wat MSO heeft gemeten.",
   "usenet.prio.propose": "Voorstel maken",
   "usenet.prio.proposed": "Wijzigingsvoorstel gemaakt; keur het goed en pas het toe in beheermodus",
+  "usenet.prio.disablePropose": "Voorstel: {count} kapotte server(s) uitschakelen",
+  "usenet.prio.disableHint": "Schakelt in SABnzbd uit: {servers}. Vereist goedkeuring door een beheerder; na toepassen controleert MSO in SABnzbd dat ze echt uit staan. Terugdraaien zet ze weer aan.",
+  "usenet.prio.disableProposed": "Voorstel gemaakt: bekijk het hieronder, keur het goed en pas het toe in beheermodus",
+  "usenet.prio.disableTitle": "Kapotte servers uitschakelen",
   "usenet.prio.insights": "Waarnemingen",
   "usenet.prio.yes": "ja",
   "usenet.prio.no": "nee",
@@ -200,6 +218,8 @@ export const messages = {
   "usenet.hi.run.budget_reached": "Budget bereikt",
   "usenet.hi.run.failed": "Mislukt",
   "usenet.hi.run.skipped": "Overgeslagen",
+  "usenet.hi.endpointOn": "Staat achter het Newznab-endpoint van MSO als kleine eigen bron: zonder zoekterm geeft hij de nieuwste herkenbare releases, en een NZB wordt opgebouwd uit de opgeslagen berichtkoppen (alleen wat de index zag, dus mogelijk onvolledig).",
+  "usenet.hi.endpointOff": "Uit: het Newznab-endpoint gebruikt de header-index niet als bron.",
   "usenet.hi.stored": "{stored} opgeslagen · {bytes} ontvangen",
 
   // provider status
@@ -217,6 +237,7 @@ export const messages = {
   "usenet.status.access_denied": "Toegang geweigerd",
   "usenet.status.sab_blocked": "Tijdelijk geblokkeerd",
   "usenet.status.disabled": "Uitgeschakeld",
+  "usenet.status.budget_exhausted": "STAT-budget op",
 
   // downloads tab
   "usenet.dl.queue": "Wachtrij (SABnzbd)",
@@ -250,6 +271,23 @@ export const messages = {
   "usenet.dl.catSource.nzb": "via MSO verstuurd",
   "usenet.dl.likelyCause": "Waarschijnlijke oorzaak: {cause}",
   "usenet.dl.likelyCauseServers": "serverfouten in SABnzbd ({servers})",
+  "usenet.dl.queueStatus.Downloading": "Downloaden",
+  "usenet.dl.queueStatus.Queued": "In wachtrij",
+  "usenet.dl.queueStatus.Paused": "Gepauzeerd",
+  "usenet.dl.queueStatus.Fetching": "Ophalen",
+  "usenet.dl.queueStatus.Grabbing": "NZB ophalen",
+  "usenet.dl.queueStatus.Propagating": "Wacht op verspreiding",
+  "usenet.dl.queueStatus.Checking": "Controleren",
+  "usenet.dl.queueStatus.QuickCheck": "Snelle controle",
+  "usenet.dl.queueStatus.Verifying": "Verifiëren",
+  "usenet.dl.queueStatus.Repairing": "Repareren",
+  "usenet.dl.queueStatus.Extracting": "Uitpakken",
+  "usenet.dl.queueStatus.Moving": "Verplaatsen",
+  "usenet.dl.queueStatus.Running": "Script draait",
+  "usenet.dl.queueStatus.Completed": "Voltooid",
+  "usenet.dl.queueStatus.Failed": "Mislukt",
+  "usenet.dl.queueStatus.Idle": "Inactief",
+  "usenet.dl.queueStatus.Deleted": "Verwijderd",
   "usenet.dl.sabMessage": "SABnzbd: {message}",
 
   // category mapping

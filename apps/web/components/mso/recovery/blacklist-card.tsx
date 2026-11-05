@@ -54,7 +54,7 @@ export function BlacklistCard({ reloadKey }: { reloadKey?: number }) {
                   <tr key={e.id}>
                     <td data-label={t("rec.bl.release")}>
                       <span className="mono" style={{ overflowWrap: "anywhere" }}>{e.release_key}</span>
-                      <div className="hint">{[e.protocol, e.media_ref].filter(Boolean).join(" · ") || "—"}</div>
+                      <div className="hint">{[e.protocol === "usenet" ? "Usenet" : e.protocol === "torrent" ? "Torrent" : null, e.media_ref].filter(Boolean).join(" · ") || "—"}</div>
                     </td>
                     <td data-label={t("rec.bl.reason")}>{e.reason}<div className="hint">{e.created_by} · {relative(e.created_at)}</div></td>
                     <td data-label={t("rec.bl.failures")} className="num">{num(e.failures)}</td>

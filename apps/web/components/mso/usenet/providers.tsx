@@ -1,7 +1,7 @@
 "use client";
 
-import { Pencil, PlugZap, Server, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { KeyRound, Pencil, PlugZap, Server, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, Field, InlineState, Modal, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
@@ -14,6 +14,82 @@ import type { ProviderInput, ProviderPreset, ProviderTestResult, SabServerList, 
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
+const DISMISS_KEY = (slug: string) => `mso.usenet.credPrompt.dismissed.${slug}`;
+
+function readDismissed(slug: string): boolean {
+  try {
+    return window.localStorage.getItem(DISMISS_KEY(slug)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** One-time inline prompt for the provider's username/password (SABnzbd doesn't expose them). Admin only;
+ *  stored write-only in the AES-256-GCM vault via `PUT /usenet/providers/{slug}`. */
+function CredentialPrompt({ p, onSaved }: { p: UsenetProvider; onSaved: () => void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { can } = useSession();
+  const [dismissed, setDismissed] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setDismissed(readDismissed(p.slug)), [p.slug]);
+  if (dismissed || !can("admin")) return <InlineState tone="warning">{t("usenet.providers.credentialsHint")}</InlineState>;
+  const id = (s: string) => `usenet-cred-${p.slug}-${s}`;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/usenet/providers/${encodeURIComponent(p.slug)}`, { username, password });
+      setUsername("");
+      setPassword("");
+      toast.push("success", t("usenet.providers.credPrompt.saved"), p.label);
+      onSaved();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const later = () => {
+    try {
+      window.localStorage.setItem(DISMISS_KEY(p.slug), "1");
+    } catch {
+      /* private mode: only for this view */
+    }
+    setDismissed(true);
+  };
+
+  return (
+    <div className="stack-sm" style={{ border: "1px solid var(--mg-border-soft)", borderRadius: "var(--mg-r)", padding: 12 }}>
+      <strong className="row" style={{ gap: 6 }}><KeyRound className="ico" aria-hidden="true" />{t("usenet.providers.credPrompt.title")}</strong>
+      <p className="t-2" style={{ margin: 0, fontSize: 12.5, whiteSpace: "normal" }}>{t("usenet.providers.credPrompt.body")}</p>
+      <div className="grid" style={{ gap: 8 }}>
+        <div className="span-6">
+          <Field label={t("usenet.form.username")} htmlFor={id("user")}>
+            <input id={id("user")} className="input" autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} />
+          </Field>
+        </div>
+        <div className="span-6">
+          <Field label={t("usenet.form.password")} htmlFor={id("pass")}>
+            <input id={id("pass")} className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+        </div>
+      </div>
+      {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}
+      <div className="row wrap">
+        <Button size="sm" variant="primary" onClick={() => void save()} pending={saving} disabled={!username.trim() || !password}>
+          {t("usenet.providers.credPrompt.save")}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={later}>{t("usenet.providers.credPrompt.later")}</Button>
+      </div>
+    </div>
+  );
+}
+
 function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () => void; onChanged: () => void }) {
   const { t, num, bytes, relative, dateTime } = useI18n();
   const ratio = useRatio();
@@ -22,10 +98,12 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
   const { can } = useSession();
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
 
   const test = async () => {
     setTesting(true);
     setMessage(null);
+    setJustSaved(false);
     try {
       const res = await api.post<ProviderTestResult>(`/usenet/providers/${encodeURIComponent(p.slug)}/test`);
       setMessage(res.status === "ok" ? t("usenet.providers.testOk") : res.message);
@@ -65,7 +143,16 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
     >
       <div className="stack-sm">
         {!p.enabled ? <StatusChip tone="neutral">{t("usenet.providers.disabled")}</StatusChip> : null}
-        {!p.credentials_complete ? <InlineState tone="warning">{t("usenet.providers.credentialsHint")}</InlineState> : null}
+        {!p.credentials_complete ? <CredentialPrompt p={p} onSaved={() => { setJustSaved(true); onChanged(); }} /> : null}
+        {justSaved && p.credentials_complete ? (
+          <div className="row wrap" role="status">
+            <InlineState tone="success">{t("usenet.providers.credPrompt.saved")}</InlineState>
+            <Button size="sm" variant="primary" icon={PlugZap} onClick={() => void test()} pending={testing}
+              disabled={!can("operator") || !p.enabled} title={!p.enabled ? t("usenet.providers.disabled") : undefined}>
+              {t("usenet.providers.credPrompt.testNow")}
+            </Button>
+          </div>
+        ) : null}
         {mt.state === "current" && mt.status !== "ok" && mt.detail ? (
           <InlineState tone={mt.status === "rate_limited" || mt.status === "timeout" ? "warning" : "danger"}>{mt.detail}</InlineState>
         ) : null}

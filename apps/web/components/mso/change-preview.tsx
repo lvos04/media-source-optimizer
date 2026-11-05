@@ -102,7 +102,7 @@ function Impact({ impact }: { impact: unknown }) {
 }
 
 /** Op with the hard-rule flags from `mso/changes.py` (removing/disabling, not reversible) and its apply result. */
-type FlaggedOp = ChangeOp & { destructive?: boolean; irreversible?: boolean; result?: string };
+type FlaggedOp = ChangeOp & { destructive?: boolean; irreversible?: boolean; one_way?: boolean; result?: string };
 
 const OP_RESULT: Record<string, string> = {
   toegepast: "toegepast", al_ingesteld: "was al zo", teruggedraaid: "teruggedraaid", niet_terug_te_draaien: "niet teruggedraaid (onomkeerbaar)",
@@ -110,7 +110,7 @@ const OP_RESULT: Record<string, string> = {
 
 function OpMarker({ op }: { op: FlaggedOp }) {
   const { t } = useI18n();
-  if (op.irreversible) return <StatusChip tone="danger" icon={OctagonAlert}>{t("change.irreversible")}</StatusChip>;
+  if (op.irreversible || op.one_way) return <StatusChip tone="danger" icon={OctagonAlert}>{t("change.irreversible")}</StatusChip>;
   if (op.destructive) return <StatusChip tone="danger" icon={Ban}>{t("change.disables")}</StatusChip>;
   return null;
 }
@@ -166,7 +166,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
   const dangerous = ops.filter((op) => op.destructive || op.irreversible);
   const irreversibleCount = ops.filter((op) => op.irreversible).length;
   // rollback only restores ops that were written and are reversible (backend: changes.rollback)
-  const reversible = ops.filter((op) => !op.irreversible && (op.result === undefined || op.result === "toegepast"));
+  const reversible = ops.filter((op) => !op.irreversible && !(op as FlaggedOp).one_way && (op.result === undefined || op.result === "toegepast"));
   const canRollback = change.status === "applied" && reversible.length > 0;
   const rollbackBlocked = change.status === "applied" && reversible.length === 0;
   const { visible: visibleImpact, technical } = splitImpact(change.impact);
@@ -188,7 +188,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
             keyWidth={180}
             rows={change.ops.map((op, i) => ({
               key: `${op.path}-${i}`,
-              label: <>{op.label}<span className="change-ops-path">{op.path}</span>{(op as FlaggedOp).destructive || (op as FlaggedOp).irreversible ? <span style={{ display: "block", marginTop: 4 }}><OpMarker op={op as FlaggedOp} /></span> : null}{(op as FlaggedOp).result && OP_RESULT[(op as FlaggedOp).result as string] ? <span className="t-3" style={{ display: "block", fontSize: 11.5 }}>{OP_RESULT[(op as FlaggedOp).result as string]}</span> : null}</>,
+              label: <>{op.label}<span className="change-ops-path">{op.path}</span>{(op as FlaggedOp).destructive || (op as FlaggedOp).irreversible || (op as FlaggedOp).one_way ? <span style={{ display: "block", marginTop: 4 }}><OpMarker op={op as FlaggedOp} /></span> : null}{(op as FlaggedOp).result && OP_RESULT[(op as FlaggedOp).result as string] ? <span className="t-3" style={{ display: "block", fontSize: 11.5 }}>{OP_RESULT[(op as FlaggedOp).result as string]}</span> : null}</>,
               before: formatOpValue(op.before),
               after: formatOpValue(op.after),
               change: JSON.stringify(op.before) === JSON.stringify(op.after) ? "same" : op.before === null || op.before === undefined ? "added" : op.after === null || op.after === undefined ? "removed" : "changed",

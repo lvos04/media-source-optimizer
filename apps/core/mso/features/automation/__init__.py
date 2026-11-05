@@ -32,6 +32,7 @@ TARGET_AREA: dict[str, str] = {
     "deluge": "torrent",
     "prowlarr": "indexers",
     "mediaguard": "mediaguard",
+    "download_send": "recovery",
 }
 
 for _area, _label in AREAS.items():

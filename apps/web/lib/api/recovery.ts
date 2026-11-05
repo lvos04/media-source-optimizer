@@ -152,3 +152,19 @@ export interface RecoveryItem {
     manual_send: { available: boolean; reason: string | null; category: string };
   };
 }
+
+/** `GET /recovery/fallbacks` — failed downloads the analysis looked at (1.4.0). */
+export type FallbackStatus = "waiting" | "skipped" | "no_candidate" | "proposed" | "sent" | "failed" | "discarded";
+export interface FallbackRow {
+  id: number; outcome_id: number; failed_release_key: string | null; failed_title: string; protocol: "usenet" | "torrent" | null;
+  failure_reason: string | null; failure_label: string; media_ref: string | null;
+  mapping: "send" | "mediaguard_ids" | "mediaguard_title" | "outcome_meta" | null; status: FallbackStatus; reason: string | null;
+  change_id: number | null; change_status: string | null; change_risk: string | null;
+  candidate_release_key: string | null; candidate_title: string | null;
+  next_attempt_at: string | null; created_at: string; updated_at: string;
+}
+export interface FallbackList {
+  items: FallbackRow[];
+  settings: { fallback_on_failure: boolean; auto_send_fallback: boolean; allow_manual_send_connected: boolean; searches_per_run: number };
+  mediaguard_mode: MgMode;
+}

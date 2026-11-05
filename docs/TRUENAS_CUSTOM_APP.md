@@ -7,7 +7,7 @@ geen YAML, geen databasewachtwoord, geen omgevingsvariabelen, geen tweede of der
 | Wat | Waarde |
 |---|---|
 | Image | `ghcr.io/lvos04/media-source-optimizer` |
-| Tag | `1.4.0` (altijd een vaste versie, nooit `latest`) |
+| Tag | `1.5.0` (altijd een vaste versie, nooit `latest`) |
 | Poort | `38081` → `38081` |
 | Opslag | één map (dataset) → `/appdata` |
 | Gebruiker | niets invullen: MSO regelt de rechten zelf |
@@ -45,7 +45,7 @@ submappen (`postgres`, `secrets`, `backups`, `work`) en verder niets.
 |---|---|---|
 | Application Name | | `media-source-optimizer` |
 | Image Configuration | Repository | `ghcr.io/lvos04/media-source-optimizer` |
-| | Tag | `1.4.0` |
+| | Tag | `1.5.0` |
 | | Pull Policy | *Pull the image if it is not already present on host* |
 | Container Configuration | Timezone | jouw tijdzone (bijv. `Europe/Amsterdam`) |
 | | Restart Policy | *Unless Stopped* |
@@ -68,7 +68,7 @@ Open `http://<ip-van-truenas>:38081`. De setup-wizard vraagt om:
 1. een beheerdersaccount;
 2. de URL en sleutel van Prowlarr, SABnzbd, qBittorrent en optioneel MediaGuard. Gebruik het **LAN-IP van TrueNAS**
    met de poort van die app, bijv. `http://192.168.1.10:9696`. Gebruik geen `localhost`: dat wijst naar de MSO-container zelf;
-3. de modus (laat **Alleen-lezen** staan tot je de adviezen hebt bekeken).
+3. de modus: **Alleen-lezen** om eerst rond te kijken, of meteen **Autopilot** voor set it and forget it (zie USER_GUIDE §4).
 
 ## Optioneel
 

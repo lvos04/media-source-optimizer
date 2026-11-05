@@ -45,7 +45,27 @@ De knop **Automatisering pauzeren** in de bovenbalk stopt direct alle automatisc
 - **Kosten & besparing**: vul je abonnementen in. *Wat als ik dit uitschakel?* kijkt alleen terug naar wat
   MSO heeft waargenomen en toont een bandbreedte met dekking — het is geen garantie. MSO zegt nooit iets op.
 
-## 4. Problemen oplossen (vanaf 1.4.0)
+## 4. Autopilot — set it and forget it (vanaf 1.5.0)
+
+Kies onder **Instellingen → Systeem → Bedrijfsmodus** (of in de setupwizard) **Autopilot**. MSO lost dan zelf alles op
+wat terug te draaien is, controleert elke wijziging bij de bron, meet het effect en draait terug bij verslechtering:
+
+| Wat | Wanneer |
+|---|---|
+| qBittorrent: uitvoerbare bestanden (`.exe`, `.scr`, `.zipx` …) nooit downloaden | direct (je eigen patronen blijven staan) |
+| qBittorrent: extreme waarden naar de veilige grens, daarna tuning per waarde met meting | direct / per meetperiode |
+| qBittorrent: tracker opnieuw aanmelden bij trackerfouten; recheck bij ontbrekende bestanden | begrensd per uur |
+| SABnzbd: server uit bij *account verlopen* (direct) of *inloggen/toegang geweigerd* (na 6 u) — nooit de laatste werkende | daarna 1× per dag een proef-aanzet, met oplopende wachttijd |
+| SABnzbd: mislukte downloads door serverproblemen opnieuw proberen | zodra alleen werkende servers over zijn (max 20/u, 100/dag) |
+| Mislukte downloads: MediaGuard vragen opnieuw te zoeken (MediaGuard blijft eigenaar) | binnen MSO- en MediaGuard-quota |
+| Synchronisaties, kosten-import, back-ups | volgens schema (Systeem → *Automatische taken*) |
+
+**Nooit automatisch:** verwijderen. De opruiming van verdachte torrents (met bestanden) staat altijd kant-en-klaar onder
+**Overzicht → Wacht op jou** en kost één klik. Op het Overzicht zie je onder **Wat MSO deed** wat Autopilot de laatste 24 uur
+of 7 dagen heeft gedaan; Automatisering → *Samenvatting* toont het per dag. Met **Automatisering pauzeren** (bovenbalk) stop
+je alles direct.
+
+## 5. Problemen oplossen met één goedkeuring
 
 MSO meldt problemen niet alleen, maar maakt er een **voorstel** van dat je met één goedkeuring uitvoert. Alles wat
 iets verwijdert of uitschakelt heeft altijd risico **Toestemming nodig**: voorbeeld → goedkeuren → toepassen →
@@ -64,7 +84,7 @@ fouten geeft, krijgt een advies. *Automatisch versturen* van fallback-kandidaten
 standaard **uit**. Voor MediaGuard-items komt er pas een voorstel als `herstel.allow_manual_send_connected` aan staat;
 anders blijft MediaGuard de enige die verstuurt.
 
-## 5. Providers en beschikbaarheid
+## 6. Providers en beschikbaarheid
 
 SABnzbd geeft wachtwoorden van servers niet door. Wil je dat MSO zelf meet welke provider jouw artikelen heeft, vul dan
 op de providerkaart eenmalig gebruikersnaam en wachtwoord in. Ze worden versleuteld opgeslagen (AES-256-GCM) en nooit
@@ -75,14 +95,14 @@ waarvan het inloggegevens heeft: 1 verbinding per provider, binnen een instelbaa
 commando's, kB). De tabel *Beschikbaarheid en overlap* vult zich daarmee (gecontroleerd, beschikbaar, uniek, dekking,
 vertrouwen). Dat geldt alleen voor jouw eigen artikelen en is geen garantie voor retentie.
 
-## 6. Kosten
+## 7. Kosten
 
 Providers (uit SABnzbd) en indexers (uit Prowlarr) verschijnen automatisch als dienst met *Prijs ontbreekt*. Je vult
 alleen prijs, periode en verlengdatum in. Daarna zie je per dienst de kosten per geslaagde GB en per geslaagde download,
 en bij providers welk deel van de gemeten artikelen alleen die provider had. MSO belooft geen besparing en zegt nooit
 iets op.
 
-## 7. Controle na een wijziging
+## 8. Controle na een wijziging
 
 Na het toepassen meet MSO tijdens een meetperiode. Daarbij gelden:
 - standaard 24 uur, of de periode van het voorstel;
@@ -104,26 +124,26 @@ Bij *slechter* draait MSO de wijziging automatisch terug als de bijbehorende ins
 uit). In de audit staat dat als `change.auto_rolled_back`, met de reden. Staat de instelling uit, dan krijg je een
 voorstel om terug te draaien.
 
-## 8. Prowlarr: MSO als indexer
+## 9. Prowlarr: MSO als indexer
 
 Onder **NZB-indexers** / **Torrent-indexers** staat het paneel *Newznab/Torznab-endpoint* met de URL en de
 API-sleutel (tonen/roteren door beheerder). *Registreer in Prowlarr* maakt een voorstel (toestemming nodig);
 na goedkeuren en toepassen staat MSO als indexer in Prowlarr. MSO voorkomt dat Prowlarr ↔ MSO elkaar
 eindeloos bevragen. Zet `MSO_PUBLIC_URL` als Prowlarr MSO via een ander adres bereikt dan je browser.
 
-## 9. AI-adviseur (optioneel)
+## 10. AI-adviseur (optioneel)
 
 Standaard uit en budget € 0. Aanzetten onder **Automatisering → AI-adviseur**: API-sleutel, model,
 maandbudget. De adviseur legt alleen uit en doet suggesties (risico *advies*); hij voert nooit iets uit.
 Zonder AI krijg je dezelfde uitleg van de ingebouwde regels.
 
-## 10. Back-up en herstel
+## 11. Back-up en herstel
 
 **Back-up & updates**: maak een back-up (standaard zonder geheimen), of herstel er een (typ de
 bestandsnaam ter bevestiging). Vóór elk herstel maakt MSO automatisch een vangnet-back-up. Een beschadigde
 back-up wordt geweigerd en de database blijft dan ongewijzigd.
 
-## 11. Rollen
+## 12. Rollen
 
 *Kijker* leest alles; *operator* test, verstuurt handmatig en past toe/draait terug; *beheerder* beheert
 koppelingen, instellingen, gebruikers, modus, goedkeuringen en back-ups.

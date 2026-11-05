@@ -2,7 +2,7 @@
 // (MSO: steps admin → connectors → operating mode → summary; language/theme step dropped.)
 "use client";
 
-import { ArrowLeft, ArrowRight, CircleCheck, Eye, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, CircleCheck, Eye, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -106,6 +106,9 @@ function SetupWizard() {
             </label>
             <label className="choice accept-box"><input type="radio" name="mode" checked={mode === "manage"} onChange={() => setMode("manage")} />
               <span><strong className="row" style={{ gap: 6 }}><ShieldCheck className="ico ico-sm" aria-hidden="true" />{t("setup.modeManage")}</strong><span className="t-2">{t("setup.modeManageBody")}</span></span>
+            </label>
+            <label className="choice accept-box"><input type="radio" name="mode" checked={mode === "autopilot"} onChange={() => setMode("autopilot")} />
+              <span><strong className="row" style={{ gap: 6 }}><Bot className="ico ico-sm" aria-hidden="true" />{t("setup.modeAutopilot")}</strong><span className="t-2">{t("setup.modeAutopilotBody")}</span></span>
             </label>
           </div>
           <div className="row-between">
@@ -217,7 +220,7 @@ function Summary({ mode }: { mode: OperatingMode }) {
         </div>
       ))}
       {connectors.error ? <><dt>{t("setup.stepConnectors")}</dt><dd className="t-danger">{connectors.error.message}</dd></> : null}
-      <dt>{t("setup.summaryMode")}</dt><dd><strong>{mode === "manage" ? t("setup.modeManage") : t("setup.modeReadOnly")}</strong></dd>
+      <dt>{t("setup.summaryMode")}</dt><dd><strong>{mode === "autopilot" ? t("setup.modeAutopilot") : mode === "manage" ? t("setup.modeManage") : t("setup.modeReadOnly")}</strong></dd>
     </dl>
   );
 }

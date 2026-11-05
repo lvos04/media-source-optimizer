@@ -38,6 +38,8 @@ export const messages = {
   "setup.modeReadOnly": "Alleen-lezen (aanbevolen)",
   "setup.modeReadOnlyBody": "MSO meet, vergelijkt en doet voorstellen met een voorvertoning. Er wordt niets gewijzigd in Prowlarr, SABnzbd, qBittorrent of MediaGuard.",
   "setup.modeManage": "Beheermodus",
+  "setup.modeAutopilot": "Autopilot (set it and forget it)",
+  "setup.modeAutopilotBody": "MSO lost zelf op wat terug te draaien is: tuning met meting en terugdraaien, kapotte servers uit/aan, mislukte downloads opnieuw, zoekverzoeken via MediaGuard, preventie in qBittorrent. Verwijderen gebeurt nooit automatisch — dat blijft één klik van jou. Je kunt dit later wijzigen.",
   "setup.modeManageBody": "Voorstellen kunnen na goedkeuring worden toegepast. Wijzigingen met risico ‘Toestemming nodig’ wachten altijd op jouw akkoord en zijn terug te draaien.",
   "setup.summaryTitle": "Samenvatting",
   "setup.summarySub": "Controleer je keuzes en rond de installatie af.",

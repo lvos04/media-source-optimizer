@@ -2,6 +2,46 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.5.0] — 2026-11-05
+
+Set it and forget it. Verwerkt ronde 4 van de echte TrueNAS-test (1.4.0).
+
+### Nieuw
+- **Autopilot**, een derde bedrijfsmodus naast Alleen-lezen en Beheermodus, ook te kiezen in de setupwizard.
+  - MSO past alles wat terug te draaien is zelf toe, controleert het bij de bron, meet het effect en draait terug bij
+    verslechtering.
+  - Uitschakelen mag automatisch alleen in Autopilot.
+  - **Verwijderen nooit automatisch**, in geen enkele modus.
+- **Preventie**: qBittorrent downloadt geen uitvoerbare bestanden meer (`excluded_file_names`). Je eigen patronen blijven
+  staan, de wijziging is terug te draaien, en patronen die video of mappen zouden raken worden geweigerd.
+- **Malware**: één opruimvoorstel staat altijd klaar en blijft actueel ("Wacht op jou"); nooit automatisch.
+- **Usenet**:
+  - kapotte servers automatisch uit (nooit de laatste werkende), met proef-heraanzet en oplopende wachttijd;
+  - mislukte downloads door serverproblemen worden automatisch opnieuw geprobeerd (begrensd).
+- **Herstel**: in Autopilot vraagt MSO MediaGuard automatisch opnieuw te zoeken (MediaGuard blijft eigenaar, quota
+  gelden). Items die MediaGuard niet meer wil, worden stil overgeslagen.
+- **Tuning**: in Autopilot gaan de extreme waarden automatisch naar de veilige grens; daarna volgt tuning per waarde met
+  meting en terugdraaien.
+- **Overzicht**:
+  - "Wat MSO deed" (24 uur en 7 dagen) en "Wacht op jou";
+  - Automatisering → Samenvatting per dag;
+  - Systeem → Automatische taken.
+
+### Opgelost (ronde 4)
+- De beschikbaarheidstabel is nooit meer leeg: zonder inloggegevens gebruikt MSO de serverstatistiek van SABnzbd,
+  gemarkeerd als passief.
+- Gratis publieke torrent-indexers vragen geen prijs meer en staan standaard verborgen bij Kosten.
+- De MediaGuard-quotumkaart toont actuele cijfers.
+- Teruggedraaide wijzigingen tonen "n.v.t. (teruggedraaid)" bij Controle.
+- De verdachte bestandsnaam staat niet meer dubbel in het opruimvoorstel.
+- Uitleg bij de categorie "standaard (*)" in Downloads.
+- Nederlandse 404-pagina.
+
+### Bekend
+- Sonarr/Radarr-blokkade voor releases die niet meer in de wachtrij staan, vereist een nieuwe MediaGuard-route (zie
+  `docs/dev/MEDIAGUARD_BLOCKLIST_REQUEST.md`). Tot die tijd voorkomt de preventie-instelling dat de bestanden opnieuw
+  binnenkomen.
+
 ## [1.4.0] — 2026-11-05
 
 Van melden naar oplossen. Elk probleem wordt een voorstel dat je met één goedkeuring uitvoert en dat MSO na het

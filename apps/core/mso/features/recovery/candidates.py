@@ -5,8 +5,10 @@ Requirements = category + exact numbering (anime absolute numbering included) + 
 (``GET /api/v1/policy/effective``) + optional *tightening* by the user. Nothing can loosen them.
 
 Usenet↔torrent fallback: a candidate of either protocol is only accepted when it passes the quality gate,
-is not blacklisted and — for torrents — passes the download/seed policy (Slice C's
-``mso.features.torrent.policy.check_release`` when present, otherwise a conservative built-in check).
+is not blacklisted, is not a fake release (no program or double extension in the name, plausible size for the
+claimed resolution — :mod:`mso.domain.releasegate`) and — for torrents — passes the download/seed policy (Slice C's
+``mso.features.torrent.policy.check_release`` when present, otherwise a conservative built-in check). The actual
+file list is checked once more just before sending (``actions.send``).
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from fastapi import HTTPException
 
 from mso import settings_registry as sr
 from mso.db import get_db, jsonb
-from mso.domain import categories
+from mso.domain import categories, releasegate
 from mso.domain.release import NormalizedRelease, ParsedTitle, QualityRequirements, check_quality, parse_title
 from mso.features.recovery import blacklist
 
@@ -417,8 +419,20 @@ def evaluate(r: NormalizedRelease, b: dict[str, Any], *, blacklisted: bool) -> d
         bl,
     )
     reasons += bl
+    fake = releasegate.release_problems(r, media_category=cat)
+    row(
+        "authenticity",
+        "Echte release",
+        "geen programma (.exe/.scr/…) in naam of bestanden; grootte past bij de resolutie",
+        "nep-release"
+        if fake
+        else "geen programma in de naam · " + ("grootte plausibel" if r.size_bytes else "grootte onbekend"),
+        fake,
+    )
+    reasons += fake
     if r.protocol == "torrent":
         pol, pol_src = _torrent_policy(r)
+        pol = [x for x in pol if x not in fake]  # the fake-release verdict already has its own row
         row(
             "torrent_policy",
             "Download-/seedbeleid",

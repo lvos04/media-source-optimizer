@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Field, InlineState, Modal } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
+import { isFake } from "@/components/mso/search/parts";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
 import type { SearchItem, SendResult, SendTargets } from "@/lib/api/search";
@@ -49,7 +50,7 @@ export function SendDialog({ item, onClose, onSent }: { item: SearchItem; onClos
     <Modal open onClose={onClose} icon={Send} title={t("zoeken.sendTitle")} description={item.title}
       footer={<>
         <Button onClick={onClose}>{t("action.cancel")}</Button>
-        <Button variant="primary" icon={Send} pending={pending} disabled={!target?.available || !category}
+        <Button variant="primary" icon={Send} pending={pending} disabled={!target?.available || !category || isFake(item)}
           title={!target?.available ? target?.reason ?? undefined : undefined} onClick={() => void send()} data-testid="send-confirm">
           {target ? t("zoeken.sendTo", { client: target.label }) : t("zoeken.send")}
         </Button>
@@ -67,6 +68,9 @@ export function SendDialog({ item, onClose, onSent }: { item: SearchItem; onClos
       ) : null}
       <p className="hint" style={{ marginTop: 10 }}>{t("zoeken.sendHint")}</p>
       {item.false_positive_flags.includes("geblokkeerd") ? <InlineState tone="danger">{t("zoeken.sendBlocked")}</InlineState> : null}
+      {isFake(item) ? (
+        <InlineState tone="danger" role="alert"><strong>{t("releasegate.sendBlocked")}</strong> {t("releasegate.sendBlockedBody")}</InlineState>
+      ) : null}
       {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}
     </Modal>
   );

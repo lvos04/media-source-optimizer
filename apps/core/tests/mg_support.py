@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from msomocks import mediaguard as mgmock
+from msomocks import newznab as nzmock
 
 from mso.domain.release import NormalizedRelease, parse_title
 
@@ -148,8 +149,10 @@ def install_search(monkeypatch: Any, items: list[NormalizedRelease]) -> list[Any
         r = by_token.get(token)
         if r is None:
             raise LookupError("Resultaat niet (meer) beschikbaar; zoek opnieuw")
-        if r.protocol == "torrent":
-            return types.SimpleNamespace(content=b"d8:announce...e", filename=None, final_url=None)
+        if r.protocol == "torrent":  # a real .torrent: MSO checks its file list before sending (release gate)
+            files = r.extra.get("torrent_files")
+            data = nzmock.torrent_bytes(r.release_key, r.title, files=files)
+            return types.SimpleNamespace(content=data, filename=None, final_url=r.extra.get("final_url"))
         return types.SimpleNamespace(content=b"<nzb/>", filename=f"{r.title}.nzb", final_url=None)
 
     mod.search = search  # type: ignore[attr-defined]

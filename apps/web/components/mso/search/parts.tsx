@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, ChevronDown, ChevronUp, CircleSlash, Clock, Gauge, KeyRound, Repeat, Search, ShieldAlert, Tag, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Ban, ChevronDown, ChevronUp, CircleSlash, Clock, Gauge, KeyRound, Repeat, Search, ShieldAlert, ShieldX, Tag, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Trace } from "@/components/mg/domain";
@@ -70,15 +70,36 @@ export function ReleaseRibbon({ p }: { p: ParsedTitle }) {
   return <span className="qribbon" aria-label={label} title={label}>{parts.map(([text, cls]) => <span key={text} className={cls} aria-hidden="true">{text}</span>)}</span>;
 }
 
-export function FlagChips({ flags }: { flags: string[] }) {
+/** Fake release: a program (or a double extension like .mkv.exe) in the name. MSO never sends it. */
+export const FAKE_FLAG = "uitvoerbaar";
+
+export function isFake(it: Pick<SearchItem, "false_positive_flags">): boolean {
+  return it.false_positive_flags.includes(FAKE_FLAG);
+}
+
+/** Label of a search flag (fake-release texts live in nl/releasegate.ts). */
+export function flagLabel(f: string, t: Formatters["t"]): string {
+  if (f === FAKE_FLAG) return t("releasegate.flag");
+  return t(`zoeken.flag.${f}` as MessageKey) || f;
+}
+
+const FLAG_ORDER = (f: string) => (f === FAKE_FLAG ? 0 : f === "geblokkeerd" ? 1 : 2);
+
+export function FlagChips({ flags, details }: { flags: string[]; details?: string[] }) {
   const { t } = useI18n();
   if (!flags.length) return null;
   return (
     <span className="row wrap" style={{ gap: 4 }}>
-      {flags.map((f) => (
-        <StatusChip key={f} tone={f === "geblokkeerd" ? "danger" : "warning"} icon={f === "geblokkeerd" ? Ban : ShieldAlert}>
-          {t(`zoeken.flag.${f}` as MessageKey) || f}
-        </StatusChip>
+      {[...flags].sort((a, b) => FLAG_ORDER(a) - FLAG_ORDER(b)).map((f) => (
+        f === FAKE_FLAG ? (
+          <StatusChip key={f} tone="danger" icon={ShieldX} title={[t("releasegate.flagHelp"), ...(details ?? [])].join(" — ")}>
+            <span data-testid="flag-uitvoerbaar">{flagLabel(f, t)}</span>
+          </StatusChip>
+        ) : (
+          <StatusChip key={f} tone={f === "geblokkeerd" ? "danger" : "warning"} icon={f === "geblokkeerd" ? Ban : ShieldAlert}>
+            {flagLabel(f, t)}
+          </StatusChip>
+        )
       ))}
     </span>
   );

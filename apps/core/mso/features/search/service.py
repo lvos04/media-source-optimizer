@@ -3,6 +3,10 @@ timeouts and an honest per-source status report, then normalise, classify (4 Med
 apart via source scopes), language-filter, flag likely false positives, dedupe by protocol identity (never by
 title) and paginate.
 
+Fake releases (a program or a double extension like ``.mkv.exe`` in the name — :mod:`mso.domain.releasegate`) get
+the flag ``uitvoerbaar`` and rank last; MSO's own Newznab/Torznab feed leaves them out entirely, so Sonarr/Radarr
+behind it never grab them.
+
 Contract (AGENT_BRIEF): ``search(query, *, trace=None, actor='system') -> SearchResult``.
 """
 
@@ -21,7 +25,7 @@ from typing import Any
 from mso.connectors import base as cb
 from mso.db import get_db, jsonb
 from mso.domain import categories as C
-from mso.domain import outcomes
+from mso.domain import outcomes, releasegate
 from mso.domain.release import NormalizedRelease, dedupe, is_episodic, query_year, title_similarity
 from mso.features.search import origin
 from mso.features.search import settings as S
@@ -546,6 +550,7 @@ def _languages_ok(r: NormalizedRelease, required: list[str], excluded: list[str]
 
 
 WEAK_FLAGS = ("categorie_onzeker", "geobfusceerd", "verdacht_klein", "taal_onbekend")
+FAKE_FLAG = "uitvoerbaar"  # fake release: program/double extension in the name; ranked last, never in the feed
 
 
 def _flags(r: NormalizedRelease, query: SearchQuery) -> None:
@@ -575,6 +580,10 @@ def _flags(r: NormalizedRelease, query: SearchQuery) -> None:
         f.append("geen_seeders")
     if is_blacklisted(r.release_key):
         f.append("geblokkeerd")
+    fake = releasegate.executable_hint(r.title, media_category=r.media_category)
+    if fake:
+        f.append(FAKE_FLAG)
+        r.extra["release_gate"] = [releasegate.describe(m) for m in fake]
     ids_match = bool(
         (query.imdb_id and r.imdb_id and "imdb_wijkt_af" not in f)
         or (query.tvdb_id and r.tvdb_id and "tvdb_wijkt_af" not in f)
@@ -649,6 +658,8 @@ def _rank(r: NormalizedRelease, sources: dict[str, dict[str, Any]]) -> float:
     if r.protocol == "torrent" and r.seeders:
         s += min(0.05, math.log10(1 + r.seeders) / 80)
     if "geblokkeerd" in r.false_positive_flags:
+        s -= 1
+    if FAKE_FLAG in r.false_positive_flags:
         s -= 1
     return s
 
@@ -753,6 +764,7 @@ DROP_TEXT = {
     "category": "categorie",
     "not_a_movie": "serie-aflevering in filmcategorie",
     "language": "taal",
+    "fake": "nep-release (uitvoerbaar bestand)",
 }
 
 
@@ -1014,6 +1026,11 @@ def _search(
                 continue
             r.trace = [*tr.visited, sid] + ([r.source_id] if r.source_id != sid else [])
             _flags(r, query)
+            if origin_trace is not None and FAKE_FLAG in r.false_positive_flags:
+                # a Newznab/Torznab consumer (Prowlarr → Sonarr/Radarr) would grab it unattended: never offered
+                dropped["fake"] = dropped.get("fake", 0) + 1
+                dropped_by_child[r.source_id] = dropped_by_child.get(r.source_id, 0) + 1
+                continue
             merged.append(r)
         if dropped and sid in by_task:
             by_task[sid].message = (by_task[sid].message + " " if by_task[sid].message else "") + _dropped_text(

@@ -6,6 +6,11 @@
   is a direct, user-initiated action: audited, rate limited, idempotent per item+release, and it re-runs the
   full quality gate on the server — a candidate that fails MediaGuard's requirements is always refused. MSO
   never changes a media library; by default the download lands in a separate ``mso-<category>`` category.
+- Release gate (every send: manual, approved change set, Autopilot): after fetching, the actual payload is checked
+  before the client gets it (:func:`mso.domain.releasegate.check_download`: .torrent file list, magnet name, NZB
+  file names). A fake (program, double extension like ``.mkv.exe``, password-protected archive) is refused with
+  "Beleid weigert deze release: bevat uitvoerbaar bestand …", audited as ``recovery.send_refused`` and — when the
+  file list itself proves it — put on the blacklist so MSO never picks it again.
 """
 
 from __future__ import annotations
@@ -20,8 +25,11 @@ from mso import settings_registry as sr
 from mso.audit import audit
 from mso.connectors import base as cb
 from mso.db import get_db
+from mso.domain import releasegate
 from mso.features.recovery import blacklist, candidates
 from mso.security import redact
+
+FAKE_BLACKLIST_TTL_H = 24 * 365 * 10  # a proven fake never becomes good (same as the malware cleanup)
 
 
 def client_category(media_category: str) -> str:
@@ -30,8 +38,8 @@ def client_category(media_category: str) -> str:
 
 def _dispatch(protocol: str, token: str, *, category: str, title: str) -> tuple[str, str | None]:
     """Fetch the NZB/.torrent through Slice A (``fetch_download(token)``: SSRF guard, size cap, indexer secret
-    re-injected server-side) and hand it to the client via the Slice B/C contracts.
-    Returns (client, client_ref)."""
+    re-injected server-side), check its payload (release gate: raises ``releasegate.Refused``) and hand it to the
+    client via the Slice B/C contracts. Returns (client, client_ref)."""
     try:
         search = importlib.import_module("mso.features.search.service")
     except ModuleNotFoundError as exc:
@@ -43,6 +51,7 @@ def _dispatch(protocol: str, token: str, *, category: str, title: str) -> tuple[
             raise HTTPException(409, detail="SABnzbd-koppeling niet beschikbaar in deze installatie") from exc
         sab = mod.SabClient.from_config()
         fetched = search.fetch_download(token)
+        releasegate.check_download("usenet", fetched, title=title, media=True)
         name = getattr(fetched, "filename", None) or f"{title}.nzb"
         return "sabnzbd", sab.add_nzb(fetched.content, name, category=category)
     try:
@@ -51,6 +60,7 @@ def _dispatch(protocol: str, token: str, *, category: str, title: str) -> tuple[
         raise HTTPException(409, detail="qBittorrent-koppeling niet beschikbaar in deze installatie") from exc
     qb = mod.QbitClient.from_config()
     fetched = search.fetch_download(token)
+    releasegate.check_download("torrent", fetched, title=title, media=True)
     if getattr(fetched, "final_url", None):
         qb.add_torrent(url=fetched.final_url, category=category, paused=False, tags=["mso-herstel"])
     else:
@@ -155,6 +165,14 @@ def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual") -
         }
     try:
         client, ref = _dispatch(r.protocol, token, category=category, title=r.title)
+    except releasegate.Refused as exc:
+        db.execute(
+            "UPDATE recovery_sends SET status='failed', error=%s, idempotency_key=%s, updated_at=now() "
+            "WHERE id=%s",
+            (exc.message[:500], f"{key}:failed:{row['id']}", row["id"]),
+        )
+        _refuse_fake(exc, r, media_ref=media_ref, release_key=release_key, actor=actor, via=via)
+        raise HTTPException(422, detail=exc.message) from exc
     except LookupError as exc:  # Slice A's result cache expired
         db.execute(
             "UPDATE recovery_sends SET status='failed', error=%s, idempotency_key=%s, updated_at=now() "
@@ -204,6 +222,40 @@ def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual") -
         "send": done,
         "message": f"Verstuurd naar {client} in categorie '{category}'. MSO wijzigt de bibliotheek niet.",
     }
+
+
+def _refuse_fake(
+    exc: releasegate.Refused, r: Any, *, media_ref: str, release_key: str, actor: str, via: str
+) -> None:
+    """Audit a release-gate refusal; a fake proven by the fetched file list goes on the blacklist (all its
+    identities: the indexer's release key and the infohash read from the .torrent)."""
+    keys = list(dict.fromkeys([release_key, *exc.keys])) if exc.content else []
+    for k in keys:
+        try:
+            blacklist.add(
+                k,
+                f"nep-release: {exc.reasons[0]}"[:300],
+                FAKE_BLACKLIST_TTL_H,
+                media_ref=media_ref,
+                protocol=r.protocol,
+                actor=actor,
+            )
+        except ValueError:  # pragma: no cover - only for an empty key
+            continue
+    audit(
+        actor,
+        "recovery.send_refused",
+        (f"Versturen geweigerd, nep-release: {r.title}" if exc.content or exc.evidence.get("matches")
+         else f"Versturen geweigerd, bestanden niet te controleren: {r.title}"),
+        target=media_ref,
+        detail={
+            "release_key": release_key,
+            "reasons": exc.reasons,
+            "checked": exc.evidence,
+            "blacklisted": keys,
+            "via": via,
+        },
+    )
 
 
 def sends(media_ref: str | None = None, limit: int = 100) -> list[dict[str, Any]]:

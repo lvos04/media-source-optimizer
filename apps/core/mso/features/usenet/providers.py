@@ -23,6 +23,7 @@ from fastapi import HTTPException
 from mso import jobs
 from mso import settings_registry as sr
 from mso.audit import audit
+from mso.connectors import base as cb
 from mso.db import get_db, jsonb
 from mso.domain import outcomes
 from mso.features.usenet.nntp import NNTPClient, NNTPError, check_login
@@ -205,8 +206,12 @@ def public(
         "password": vault.status(secret_name(slug, "password")),
     }
     complete = all(v == "ingesteld" for v in cred.values())
+    extra = _server_extras(row, block_usage or {})
+    block = extra["block"]
     used = (block_usage or {}).get(row["sab_server"] or "") if row["kind"] == "block" else None
     size_b = int(row["block_size_gb"] * 1024**3) if row["block_size_gb"] else None
+    if row["kind"] == "block" and block:  # 1.6.0: SABnzbd quota or usage since the block size was set
+        used, size_b = block["used_bytes"], block["size_bytes"]
     return {
         "slug": slug,
         "source_id": source_id(slug, row["kind"]),
@@ -236,7 +241,38 @@ def public(
         "mso_test": mso_test(row, sab, complete),
         "health": health(row, sab, complete),
         "updated_at": row["updated_at"],
+        # 1.6.0: block remaining + forecast, account expiry (SABnzbd) and SABnzbd's own server test
+        "block": block,
+        "expiry": extra["expiry"],
+        "sab_test": extra["sab_test"],
     }
+
+
+def _server_extras(row: dict[str, Any], totals: dict[str, int]) -> dict[str, Any]:
+    from mso.features.usenet import accounts, servertest  # lazy: both import this module
+
+    server = row.get("sab_server")
+    acc = get_db().fetchone("SELECT * FROM usenet_server_accounts WHERE server=%s", (server,)) if server else None
+    return {
+        "block": accounts.block_info(server, account=acc, provider=row, totals=totals),
+        "expiry": accounts.expiry_info(acc),
+        "sab_test": servertest.public(servertest.latest(server)) if server else None,
+    }
+
+
+def _set_block_baseline(slug: str) -> None:
+    """Block size set or changed: from now on the block usage counts from SABnzbd's current total for the linked
+    server (instead of SABnzbd's all-time counter). Without a known total the old behaviour stays."""
+    from mso.features.usenet import history  # lazy
+
+    row = get(slug)
+    total = history.server_totals().get(row["sab_server"]) if row["kind"] == "block" and row["block_size_gb"] and \
+        row["sab_server"] else None
+    get_db().execute(
+        "UPDATE usenet_providers SET block_baseline_bytes=%s, block_baseline_at=CASE WHEN %s::bigint IS NULL THEN NULL "
+        "ELSE now() END WHERE slug=%s",
+        (total, total, slug),
+    )
 
 
 def _mirror(row: dict[str, Any]) -> None:
@@ -291,6 +327,8 @@ def create(data: dict[str, Any], *, username: str | None, password: str | None, 
     )
     _set_credentials(slug, username, password)
     _sync_credential_status(slug)
+    if vals["kind"] == "block" and vals["block_size_gb"]:
+        _set_block_baseline(slug)
     row = get(slug)
     _mirror(row)
     audit(
@@ -319,6 +357,8 @@ def update(
     )
     _set_credentials(slug, username, password)
     _sync_credential_status(slug)
+    if any(vals[k] != cur[k] for k in ("kind", "block_size_gb", "sab_server")):
+        _set_block_baseline(slug)
     row = get(slug)
     if row["kind"] != cur["kind"]:  # source id changes with the kind; keep the old one but disabled
         outcomes.upsert_source(
@@ -458,6 +498,10 @@ def session(row: dict[str, Any]) -> Iterator[NNTPClient]:
 def check(slug: str, *, actor: str = "system") -> dict[str, Any]:
     row = get(slug)
     user, password = credentials(slug)
+    if (not user or not password) and row["sab_server"] and actor != "system":
+        via_sab = _check_via_sab(row, actor)
+        if via_sab is not None:
+            return via_sab
     if not user or not password:
         # Nothing was tested: never report this as a refused login.
         if row["status"] != "missing_credentials":
@@ -526,6 +570,39 @@ def check(slug: str, *, actor: str = "system") -> dict[str, Any]:
             detail={"before": row["status"], "after": result["status"], "message": result["message"]},
         )
     return {**result, "tested": True, "provider": public(get(slug))}
+
+
+def _check_via_sab(row: dict[str, Any], actor: str) -> dict[str, Any] | None:
+    """'Testen' without credentials in MSO (1.6.0): SABnzbd's own server test of the linked server — SABnzbd logs in
+    with the password it stores itself. The provider's own MSO status is not touched (that stays "MSO test with
+    credentials"). None when SABnzbd is not configured/reachable (the old 'missing_credentials' answer follows)."""
+    from mso.connectors.sabnzbd import SabClient, SabError
+    from mso.features.usenet import autoheal, servertest  # lazy: both import this module
+
+    try:
+        with SabClient.from_config() as client:
+            test = servertest.run(client, row["sab_server"], trigger="user", actor=actor)
+            follow = autoheal.after_user_test(client, row["sab_server"], test)
+    except (SabError, cb.ConnectorNotConfigured) as exc:
+        LOGGER.info("SABnzbd-servertest voor provider %s niet mogelijk: %s", row["slug"], type(exc).__name__)
+        return None
+    if test["result"] == "unsupported":
+        return None
+    status = test["result"]
+    message = "SABnzbd kan inloggen (SABnzbd's eigen servertest geslaagd)" if test["ok"] else (
+        test.get("message") or servertest.label(test["result"]) or "")
+    return {
+        "status": status,
+        "message": message,
+        "capabilities": [],
+        "latency_ms": None,
+        "code": None,
+        "tested": True,
+        "source": "sabnzbd",
+        "test": test,
+        "change": follow.get("change"),
+        "provider": public(get(row["slug"])),
+    }
 
 
 # ------------------------------------------------------------------ periodic checks
@@ -599,11 +676,13 @@ def import_from_sab(actor: str) -> list[dict[str, Any]]:
             validate_host(s["host"], s["port"] or 563)
         except HTTPException:
             continue
+        quota = s.get("quota_bytes")  # a quota in SABnzbd = a block account (1.6.0)
         row = create(
             {
                 "slug": slug,
                 "label": s["displayname"] or s["name"],
-                "kind": "unlimited",
+                "kind": "block" if quota else "unlimited",
+                "block_size_gb": round(quota / 1024**3, 2) if quota else None,
                 "host": s["host"],
                 "port": s["port"] or 563,
                 "ssl": s["ssl"],
@@ -616,6 +695,12 @@ def import_from_sab(actor: str) -> list[dict[str, Any]]:
             password=None,
             actor=actor,
         )
+        if quota:  # SABnzbd's own baseline: its total when the quota was set
+            get_db().execute(
+                "UPDATE usenet_providers SET block_baseline_bytes=%s, block_baseline_at=now() WHERE slug=%s",
+                (int(s.get("usage_at_start") or 0), slug),
+            )
+            row = get(slug)
         existing.add(slug)
         created.append(row)
     if created:

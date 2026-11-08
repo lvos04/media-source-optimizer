@@ -126,6 +126,47 @@ def classify_message(text: str) -> str | None:
     return None
 
 
+# ------------------------------------------------------------------ SABnzbd's own server test (1.6.0)
+TEST_LABELS = {
+    "ok": "Test geslaagd",
+    "auth_failed": "Inloggen geweigerd",
+    "account_expired": "Account verlopen",
+    "access_denied": "Toegang geweigerd",
+    "block_exhausted": "Blok op / limiet",
+    "rate_limited": "Te veel verbindingen",
+    "unreachable": "Onbereikbaar",
+    "tls_error": "TLS-fout",
+    "unknown": "Onbekend",
+    "unsupported": "Test niet beschikbaar",
+}
+_TEST_NEEDS_LOGIN = re.compile(r"requires username and password", re.I)
+_TEST_CONFIG = re.compile(r"password masked|hostname is not set|no connections set|invalid server details", re.I)
+_TEST_UNREACHABLE = re.compile(r"is not valid|could not connect|timed out|time-out|operates as a web server", re.I)
+
+
+def classify_test(result: dict[str, Any]) -> str:
+    """:meth:`SabClient.test_server` → ``ok`` / ``auth_failed`` / ``account_expired`` / ``access_denied`` /
+    ``block_exhausted`` / ``rate_limited`` (too many connections: not a dead account) / ``unreachable`` /
+    ``tls_error`` / ``unknown`` / ``unsupported``. SABnzbd passes the provider's own NNTP answer on unchanged
+    ("502 Authentication Failed", "482 Account expired"); its own texts ("Timed out", 'Server address "h:563" is not
+    valid.') are matched first so a port number is never read as an NNTP code."""
+    if not result.get("supported"):
+        return "unsupported"
+    if result.get("ok") is True:
+        return "ok"
+    if result.get("ok") is None:
+        return "unknown"
+    text = str(result.get("message") or "")
+    if _TEST_NEEDS_LOGIN.search(text):
+        return "auth_failed"
+    if _TEST_CONFIG.search(text):
+        return "unknown"
+    if _TEST_UNREACHABLE.search(text):
+        return "unreachable"
+    st = classify_message(text)
+    return st if st in TEST_LABELS else "unknown"
+
+
 def short_name(name: str) -> str:
     """"reader.xsnews.nl" → "xsnews"; names that aren't host names are kept."""
     n = (name or "").strip()
@@ -465,10 +506,18 @@ def refresh(client: SabClient | None = None) -> dict[str, Any]:
     states = evaluate(servers, live, warns)
     persist(states)
     _sync_recommendations(states)
+    try:  # account data SABnzbd keeps per server: expiry/block reminders, Kosten pre-fill (1.6.0)
+        from mso.features.usenet import accounts  # lazy: accounts imports this module
+
+        acc: dict[str, Any] | None = accounts.sync(servers)
+    except Exception as exc:  # never let this break the server status
+        LOGGER.info("SABnzbd-accountgegevens overgeslagen: %s", type(exc).__name__)
+        acc = None
     return {
         "servers": len(states),
         "failing": sorted(s["server"] for s in states if s["status"] in FAILING),
         "status_available": live is not None,
+        "accounts": acc,
     }
 
 

@@ -293,8 +293,9 @@ sr.define(
     max=168,
     unit="uur",
     category=CAT,
-    help="Alleen in Autopilot: MSO zet een automatisch uitgeschakelde server na zoveel uur als proef weer aan. "
-    "Keert de fout terug, dan gaat hij weer uit en verdubbelt de wachttijd (backoff).",
+    help="Alleen in Autopilot en alleen als SABnzbd de servertest niet aanbiedt: MSO zet een automatisch "
+    "uitgeschakelde server na zoveel uur als proef weer aan. Keert de fout terug, dan gaat hij weer uit en verdubbelt "
+    "de wachttijd (backoff). Met de servertest zet MSO een server pas weer aan als de test slaagt.",
 )
 sr.define(
     "usenet.auto_probe_max_interval_h",
@@ -316,8 +317,8 @@ sr.define(
     max=20,
     category=CAT,
     advanced=True,
-    help="Daarna probeert MSO de server niet meer zelf; 'Opnieuw proberen' op de pagina Usenet-providers blijft "
-    "beschikbaar.",
+    help="Alleen zonder servertest: daarna zet MSO de server niet meer als proef aan; 'Opnieuw proberen' op de "
+    "pagina Usenet-providers blijft beschikbaar.",
 )
 sr.define(
     "usenet.probe_watch_h",
@@ -358,4 +359,34 @@ sr.define(
     category=CAT,
     advanced=True,
     help="Oudere mislukte downloads in de SABnzbd-geschiedenis worden niet meer automatisch opnieuw geprobeerd.",
+)
+
+# ------------------------------------------------------------------ server tests + account data (1.6.0)
+sr.define(
+    "usenet.server_test_interval_h",
+    "Uitgeschakelde server testen elke",
+    "int",
+    6,
+    min=1,
+    max=48,
+    unit="uur",
+    category=CAT,
+    help="MSO laat SABnzbd een server die MSO heeft uitgezet regelmatig testen met SABnzbd's eigen servertest "
+    "(dezelfde als 'Test server' in SABnzbd; SABnzbd gebruikt zijn eigen opgeslagen wachtwoord, MSO ziet het nooit). "
+    "Pas als de test slaagt gaat de server in Autopilot weer aan. De test verandert niets en draait in elke "
+    "bedrijfsmodus.",
+)
+sr.define(
+    "usenet.server_test_slow_interval_h",
+    "Testen na een week zonder geslaagde test",
+    "int",
+    24,
+    min=6,
+    max=168,
+    unit="uur",
+    category=CAT,
+    advanced=True,
+    help="Staat een server langer dan een week uit en slaagt de test nog steeds niet, dan test MSO minder vaak. MSO "
+    "geeft nooit op: minstens één keer per week. Bij 'account verlopen' test MSO wekelijks (zo ziet MSO een "
+    "verlenging) en meteen zodra je de server in SABnzbd aanpast.",
 )

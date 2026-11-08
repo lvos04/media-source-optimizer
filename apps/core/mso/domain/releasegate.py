@@ -4,7 +4,8 @@ Fake releases copy real titles and real group names ("Criminal Minds S19E06 1080
 "... x265-MeGusta.scr"), so blocking groups does not help. What gives them away is the payload: a media download
 never contains a program, script or shortcut, and a 1080p episode is never a few megabytes. The rules are the
 same as the post-download scan (:func:`mso.features.torrent.diagnostics.payload_scan`), so a release that passes
-this gate is never flagged as a suspicious torrent after it arrives in qBittorrent.
+this gate is never flagged as a suspicious torrent after it arrives in qBittorrent. One deliberate exception: the
+BD-J menu programs of a real Blu-ray disc layout (``BDMV/JAR/*.jar``) are not held against a release here.
 
 - :func:`executable_hint` — programs/scripts/shortcuts and double extensions (``.mkv.exe``) in a release name
   and/or file list (the strong signals; used for search flags and candidate rejection).
@@ -36,6 +37,10 @@ MAX_FILES = 5000  # file names collected from one .torrent (payload_scan itself 
 MAX_NZB_NAMES = 2000
 WEAK_EXT = {"zipx"}  # unusual archive: suspicious in a media download, but not a program
 _QUOTED_RE = re.compile(r"\"([^\"/\\]{1,300})\"")
+# Blu-ray Java (BD-J) menus: every full disc with interactive menus has BDMV/JAR/<id>.jar. Not a PC program (the
+# player runs it in its own sandbox), so a disc layout is not a fake.
+_BDJ_RE = re.compile(r"(?i)(?:^|[/\\])BDMV[/\\]JAR[/\\](?:[^/\\]+[/\\])*[^/\\]+\.jar$")
+_BDMV_RE = re.compile(r"(?i)(?:^|[/\\])BDMV[/\\](?:index\.bdmv|STREAM[/\\][^/\\]+\.m2ts)$")
 
 
 class Refused(Exception):
@@ -99,9 +104,11 @@ def describe(match: dict[str, Any]) -> str:
 
 
 def _file_dicts(files: Iterable[Any] | None) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for f in files or []:
-        out.append({"name": str(f.get("name") or "")} if isinstance(f, dict) else {"name": str(f)})
+    """``{name}`` dicts for ``payload_scan``, without the BD-J menu programs of a real Blu-ray disc layout
+    (``BDMV/JAR/*.jar`` next to ``BDMV/index.bdmv`` or ``BDMV/STREAM/*.m2ts``)."""
+    out = [{"name": str(f.get("name") or "")} if isinstance(f, dict) else {"name": str(f)} for f in files or []]
+    if any(_BDMV_RE.search(f["name"]) for f in out):
+        out = [f for f in out if not _BDJ_RE.search(f["name"])]
     return out
 
 
@@ -137,9 +144,10 @@ def payload_problems(
 ) -> tuple[list[str], list[dict[str, Any]], int]:
     """Everything the post-download scan would flag (programs, double extensions, unusual archives, password hints
     next to an archive). Returns ``(reasons, matches, files_checked)``."""
-    scan = diagnostics.payload_scan(name or "", _file_dicts(files), media=_media(name, media, media_category))
+    names = list(files or [])
+    scan = diagnostics.payload_scan(name or "", _file_dicts(names), media=_media(name, media, media_category))
     matches = list(scan["matches"])
-    return [describe(m) for m in matches], matches, int(scan.get("files_checked") or 0)
+    return [describe(m) for m in matches], matches, min(len(names), diagnostics.PAYLOAD_MAX_FILES)
 
 
 # ------------------------------------------------------------------ size sanity
@@ -310,7 +318,8 @@ def check_download(
     title_hits = executable_hint(title, media=is_media)
     if protocol == "usenet":
         names = nzb_file_names(bytes(getattr(fetched, "content", b"") or b""))
-        hits = executable_hint("", names, media=is_media)
+        # an obfuscated title without a category says nothing: release-like file names make it media as well
+        hits = executable_hint("", names, media=is_media or any(is_media_release(n) for n in names))
         if title_hits or hits:
             found = title_hits + hits
             raise Refused(

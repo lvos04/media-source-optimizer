@@ -228,7 +228,8 @@ def _refuse_fake(
     exc: releasegate.Refused, r: Any, *, media_ref: str, release_key: str, actor: str, via: str
 ) -> None:
     """Audit a release-gate refusal; a fake proven by the fetched file list goes on the blacklist (all its
-    identities: the indexer's release key and the infohash read from the .torrent)."""
+    identities: the indexer's release key and the infohash read from the .torrent) and stops being a stored
+    candidate."""
     keys = list(dict.fromkeys([release_key, *exc.keys])) if exc.content else []
     for k in keys:
         try:
@@ -242,6 +243,7 @@ def _refuse_fake(
             )
         except ValueError:  # pragma: no cover - only for an empty key
             continue
+    candidates.mark_fake(keys, exc.reasons)  # no longer offered as "Voldoet" nor recommended
     audit(
         actor,
         "recovery.send_refused",

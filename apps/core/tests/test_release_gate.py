@@ -68,6 +68,23 @@ def test_payload_problems_include_weak_signals_like_the_post_download_scan() -> 
     assert g.payload_problems("Movie.2020.1080p", ["Movie/movie.mkv", "Movie/Password.txt"], media=True)[0] == []
 
 
+def test_bluray_disc_menu_programs_are_not_a_fake() -> None:
+    """A full Blu-ray disc with BD-J menus always has BDMV/JAR/<id>.jar: not a PC program, never a fake."""
+    disc = ["Movie.2020.COMPLETE.BLURAY-GRP/BDMV/index.bdmv", "Movie.2020.COMPLETE.BLURAY-GRP/BDMV/STREAM/00001.m2ts",
+            "Movie.2020.COMPLETE.BLURAY-GRP/BDMV/JAR/00000.jar",
+            "Movie.2020.COMPLETE.BLURAY-GRP/BDMV/JAR/00000/menu.jar"]
+    assert g.executable_hint("Movie.2020.COMPLETE.BLURAY-GRP", disc) == []
+    assert g.payload_problems("Movie.2020.COMPLETE.BLURAY-GRP", disc, media=True)[0] == []
+    data = mock_nz.torrent_bytes("x", "Movie.2020.COMPLETE.BLURAY-GRP",
+                                 files=[(f.split("/", 1)[1], 9) for f in disc])
+    assert g.check_download("torrent", _fetched(data), title="Movie.2020.COMPLETE.BLURAY-GRP").files_checked == 4
+    # outside a disc layout a .jar is still a program, and a disc does not excuse other programs
+    assert g.executable_hint("Movie.2020.1080p", ["Movie/BDMV/JAR/00000.jar"]) != []
+    assert [g.describe(m) for m in g.executable_hint("Movie.2020.COMPLETE.BLURAY", [*disc, "Movie/Play.exe"])] == [
+        'bevat uitvoerbaar bestand "Play.exe"'
+    ]
+
+
 # ------------------------------------------------------------------ unit: size sanity
 @pytest.mark.parametrize(
     "title,size,cat,bad",
@@ -189,6 +206,12 @@ def test_check_download_torrent_magnet_nzb() -> None:
     assert exc.value.content and '"Show.S01E01.1080p.mkv.exe"' in exc.value.message
     nzb_ok = mock_nz.nzb_bytes("x", "T", [("Show.S01E01.1080p.part01.rar", 1)])
     assert g.check_download("usenet", _fetched(nzb_ok), title="Show.S01E01.1080p.WEB.h264-GRP").files_checked == 1
+    # obfuscated title without a category (Zoeken: media=None): release-like file names still make it media
+    with pytest.raises(g.Refused) as exc:
+        g.check_download("usenet", _fetched(nzb), title="a8f3c1d9e07b", media=None)
+    assert exc.value.content and '"Show.S01E01.1080p.mkv.exe"' in exc.value.message
+    app_nzb = mock_nz.nzb_bytes("x", "T", [("setup.exe", 1)])
+    assert g.check_download("usenet", _fetched(app_nzb), title="a8f3c1d9e07b", media=None).files_checked == 1
 
 
 # ------------------------------------------------------------------ candidates (recovery)
@@ -241,6 +264,11 @@ def test_recovery_send_refuses_fake_payload_and_blacklists_it(operator: Any, db:
     sent = install_clients(monkeypatch)
     ref = _manual(operator, media_category="tv", title="Criminal Minds", season_number=19, episode_number=6)
     assert [c["title"] for c in _cands(operator, ref)["accepted"]] == [sneaky.title]  # the title looks clean
+    from mso.features.recovery import tasks
+
+    tasks.make_recommendations()
+    rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key=%s", (f"recovery:cand:{ref}",))
+    assert rec["status"] == "open" and f"'{sneaky.title}'" in rec["explanation"]
     r = operator.post(f"/api/v1/recovery/items/{ref}/send", json={"release_key": sneaky.release_key})
     assert r.status_code == 422, r.text
     assert r.json()["detail"] == (
@@ -260,6 +288,21 @@ def test_recovery_send_refuses_fake_payload_and_blacklists_it(operator: Any, db:
     assert blacklist.is_blacklisted(sneaky.release_key) and blacklist.is_blacklisted(payload_key)
     entry = db.fetchone("SELECT * FROM recovery_blacklist WHERE release_key=%s", (sneaky.release_key,))
     assert entry["reason"].startswith("nep-release: bevat uitvoerbaar bestand") and entry["media_ref"] == ref
+    # the stored candidate is no longer offered as "Voldoet" (item panel) ...
+    stored = operator.get(f"/api/v1/recovery/items/{ref}").json()["candidates"]
+    assert [(c["release_key"], c["passed"], c["score"]) for c in stored] == [(sneaky.release_key, False, None)]
+    assert stored[0]["reasons"][-1].startswith('nep-release: bevat uitvoerbaar bestand "Criminal.Minds')
+    auth = next(e for e in stored[0]["evidence"] if e["key"] == "authenticity")
+    assert auth["ok"] is False and auth["actual"] == "nep-release (bestanden gecontroleerd vóór verzenden)"
+    # ... nor recommended: the open recommendation is rewritten now and not recreated by the next analysis
+    rec = db.fetchone("SELECT * FROM recommendations WHERE id=%s", (rec["id"],))
+    assert rec["status"] == "open" and rec["title"] == f"Fallback-kandidaat bleek nep-release ({ref})"
+    assert "bleek bij de controle vóór verzenden een nep-release (bevat uitvoerbaar bestand" in rec["explanation"]
+    assert "Verstuur handmatig" not in rec["explanation"]
+    tasks.make_recommendations()
+    assert db.fetchone("SELECT title FROM recommendations WHERE id=%s", (rec["id"],))["title"] == rec["title"]
+    r = operator.post(f"/api/v1/recovery/items/{ref}/send", json={"release_key": sneaky.release_key})
+    assert r.status_code == 422 and "blacklist" in r.json()["detail"]
     # never picked again: the next candidate search rejects it as blacklisted
     again = _cands(operator, ref)
     assert not again["accepted"] and any("blacklist" in x for x in again["rejected"][0]["reasons"])
@@ -382,6 +425,9 @@ def test_search_flags_fakes_and_ranks_them_last(viewer: Any, torznab: Any) -> No
     assert "uitvoerbaar" in exe["false_positive_flags"]
     assert exe["extra"]["release_gate"] == ["releasenaam is een uitvoerbaar bestand (.exe)"]
     assert res["items"][-1]["title"] == EXE_TITLE  # despite the most grabs/seeders
+    for sort in ("seeders", "age", "size"):  # last in every sort order, not only by relevance
+        ordered = search(viewer, q="Criminal Minds", category="tv", protocol="torrent", sort=sort)["items"]
+        assert ordered[-1]["title"] == EXE_TITLE, (sort, [i["title"] for i in ordered])
     # a clean title is not flagged (its payload is only known after fetching: checked at send)
     assert "uitvoerbaar" not in by_title["Criminal.Minds.S19E06.1080p.WEB.h264-GRACE"]["false_positive_flags"]
     assert "uitvoerbaar" not in by_title["Criminal.Minds.S19E06.1080p.WEB.h264-NTb"]["false_positive_flags"]
@@ -406,8 +452,9 @@ def test_search_send_gate_over_http(viewer: Any, operator: Any, torznab: Any, qb
     assert not qbit.torrents  # nothing reached qBittorrent
     row = db.fetchone("SELECT * FROM search_sends WHERE release_key=%s", (keys[sneaky],))
     assert row["status"] == "failed" and "uitvoerbaar" in row["error"]
-    audits = db.fetchall("SELECT * FROM audit_log WHERE action='search.send_refused' ORDER BY id")
+    audits = db.fetchall("SELECT * FROM audit_log WHERE action='recovery.send_refused' ORDER BY id")
     assert len(audits) == 2 and audits[0]["detail"]["checked"]["kind"] == "title"
+    assert {(a["detail"]["via"], a["detail"]["client"]) for a in audits} == {("search", "qbittorrent")}
     assert audits[1]["detail"]["checked"]["kind"] == "files" and keys[sneaky] in audits[1]["detail"]["blacklisted"]
     assert TZ_KEY not in str(audits)
     # the proven fake is blocked from now on (also as a recovery candidate)
@@ -465,6 +512,34 @@ def test_recovery_over_http_refuses_fake_and_sends_real(operator: Any, torznab: 
     t = next(iter(qbit.torrents.values()))
     assert t["name"] == "Criminal.Minds.S19E06.1080p.WEB.h264-NTb" and t["category"] == "mso-tv"
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='recovery.sent'") == 1
+
+
+def test_fake_proven_from_zoeken_stops_being_a_recovery_candidate(
+    viewer: Any, operator: Any, torznab: Any, qbit: Any, db: Any
+) -> None:
+    sneaky = "Criminal.Minds.S19E06.1080p.WEB.h264-GRACE"
+    ref = _manual(operator, media_category="tv", title="Criminal Minds", season_number=19, episode_number=6)
+    acc = {c["title"]: c for c in _cands(operator, ref)["accepted"]}
+    assert sneaky in acc and "Criminal.Minds.S19E06.1080p.WEB.h264-NTb" in acc
+    from mso.features.recovery import tasks
+
+    tasks.make_recommendations()
+    rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key=%s", (f"recovery:cand:{ref}",))
+    assert f"bv. '{sneaky}'" in rec["explanation"]  # the fake has the most seeders, so it is the example
+    item = next(i for i in search(viewer, q="Criminal Minds", category="tv", protocol="torrent")["items"]
+                if i["title"] == sneaky)
+    r = operator.post("/api/v1/search/send", json={"token": item["token"], "category": "tv"})
+    assert r.status_code == 422, r.text
+    stored = {c["title"]: c for c in operator.get(f"/api/v1/recovery/items/{ref}").json()["candidates"]}
+    assert stored[sneaky]["passed"] is False and stored[sneaky]["score"] is None
+    assert stored["Criminal.Minds.S19E06.1080p.WEB.h264-NTb"]["passed"] is True  # the real one stays offered
+    real = "1 release(s) voldoen aan alle kwaliteitseisen, bv. 'Criminal.Minds.S19E06.1080p.WEB.h264-NTb'."
+    rec = db.fetchone("SELECT * FROM recommendations WHERE id=%s", (rec["id"],))
+    assert rec["status"] == "open" and rec["explanation"].startswith(real)  # rewritten with the remaining one
+    assert f"'{sneaky}' bleek bij de controle vóór verzenden een nep-release" in rec["explanation"]
+    tasks.make_recommendations()  # the next analysis refreshes it as usual
+    rec = db.fetchone("SELECT * FROM recommendations WHERE id=%s", (rec["id"],))
+    assert rec["explanation"].startswith(real) and sneaky not in rec["explanation"]
 
 
 def test_own_torznab_feed_leaves_fakes_out(admin: Any, client: Any, torznab: Any) -> None:

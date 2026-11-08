@@ -4,8 +4,8 @@ apart via source scopes), language-filter, flag likely false positives, dedupe b
 title) and paginate.
 
 Fake releases (a program or a double extension like ``.mkv.exe`` in the name — :mod:`mso.domain.releasegate`) get
-the flag ``uitvoerbaar`` and rank last; MSO's own Newznab/Torznab feed leaves them out entirely, so Sonarr/Radarr
-behind it never grab them.
+the flag ``uitvoerbaar`` and rank last in every sort order; MSO's own Newznab/Torznab feed leaves them out entirely,
+so Sonarr/Radarr behind it never grab them.
 
 Contract (AGENT_BRIEF): ``search(query, *, trace=None, actor='system') -> SearchResult``.
 """
@@ -659,8 +659,6 @@ def _rank(r: NormalizedRelease, sources: dict[str, dict[str, Any]]) -> float:
         s += min(0.05, math.log10(1 + r.seeders) / 80)
     if "geblokkeerd" in r.false_positive_flags:
         s -= 1
-    if FAKE_FLAG in r.false_positive_flags:
-        s -= 1
     return s
 
 
@@ -1063,15 +1061,19 @@ def _search(
                 _record(child)
     reports = _order_reports(reports)
     items = dedupe(merged)
+
+    def real(r: NormalizedRelease) -> bool:  # fakes last in every sort order (they tend to have the most seeders)
+        return FAKE_FLAG not in r.false_positive_flags
+
     if sort == "age":
-        items.sort(key=lambda r: r.publish_date or datetime.min.replace(tzinfo=UTC), reverse=True)
+        items.sort(key=lambda r: (real(r), r.publish_date or datetime.min.replace(tzinfo=UTC)), reverse=True)
     elif sort == "size":
-        items.sort(key=lambda r: r.size_bytes or 0, reverse=True)
+        items.sort(key=lambda r: (real(r), r.size_bytes or 0), reverse=True)
     elif sort == "seeders":
-        items.sort(key=lambda r: r.seeders or 0, reverse=True)
+        items.sort(key=lambda r: (real(r), r.seeders or 0), reverse=True)
     else:
         items.sort(
-            key=lambda r: (_rank(r, sources), r.publish_date or datetime.min.replace(tzinfo=UTC)),
+            key=lambda r: (real(r), _rank(r, sources), r.publish_date or datetime.min.replace(tzinfo=UTC)),
             reverse=True,
         )
     total = len(items)

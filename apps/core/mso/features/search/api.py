@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from datetime import datetime
 from typing import Any, Literal
@@ -289,21 +290,21 @@ class SendBody(BaseModel):
 FAKE_BLACKLIST_TTL_H = 24 * 365 * 10  # a proven fake never becomes good (same as the malware cleanup)
 
 
-def _blacklist_module() -> Any:
-    """Slice D's release blacklist when installed (search also works without the recovery module)."""
+def _recovery_module(name: str) -> Any:
+    """A Slice D recovery module (``blacklist``, ``candidates``) when installed (search also works without it)."""
     try:
-        from mso.features.recovery import blacklist
+        return importlib.import_module(f"mso.features.recovery.{name}")
     except ImportError:
         return None
-    return blacklist
 
 
 def _refuse(row: dict[str, Any], exc: releasegate.Refused, *, actor: str, client: str) -> HTTPException:
-    """Audit a release-gate refusal (``search.send_refused``); a fake proven by the fetched file list goes on the
-    release blacklist (shown as 'geblokkeerd' in later searches, never a recovery candidate)."""
+    """Audit a release-gate refusal (``recovery.send_refused``, like a refusal from Ontbrekend & herstel, with
+    ``via='search'``); a fake proven by the fetched file list goes on the release blacklist (shown as
+    'geblokkeerd' in later searches, never a recovery candidate) and stops being a stored recovery candidate."""
     keys = list(dict.fromkeys([row["release_key"], *exc.keys])) if exc.content else []
     listed: list[str] = []
-    bl = _blacklist_module() if keys else None
+    bl = _recovery_module("blacklist") if keys else None
     for k in keys if bl is not None else []:
         try:
             bl.add(
@@ -312,16 +313,18 @@ def _refuse(row: dict[str, Any], exc: releasegate.Refused, *, actor: str, client
             listed.append(k)
         except ValueError:  # pragma: no cover - only for an empty key
             continue
+    if listed and (cands := _recovery_module("candidates")) is not None:
+        cands.mark_fake(listed, exc.reasons)
     fake = exc.content or bool(exc.evidence.get("matches"))
     audit(
         actor,
-        "search.send_refused",
-        f"Versturen naar {client} geweigerd, "
+        "recovery.send_refused",
+        f"Versturen naar {client} geweigerd (Zoeken), "
         + ("nep-release" if fake else "bestanden niet te controleren")
         + f": {row['title']}",
         target=row["source_id"],
         detail={"release_key": row["release_key"], "reasons": exc.reasons, "checked": exc.evidence,
-                "blacklisted": listed},
+                "blacklisted": listed, "via": "search", "client": client},
     )
     return HTTPException(422, detail=exc.message)
 

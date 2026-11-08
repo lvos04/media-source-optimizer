@@ -274,6 +274,10 @@ def _fmt_parsed_num(p: ParsedTitle) -> str:
     return " · ".join(parts) or "onbekend"
 
 
+AUTH_REQUIRED = "geen programma (.exe/.scr/…) in naam of bestanden; grootte past bij de resolutie"
+AUTH_PROVEN = "nep-release (bestanden gecontroleerd vóór verzenden)"  # set by mark_fake after the pre-send check
+
+
 def evaluate(r: NormalizedRelease, b: dict[str, Any], *, blacklisted: bool) -> dict[str, Any]:
     """Authoritative verdict = ``check_quality`` + extra MediaGuard rules + blacklist + torrent policy.
     Evidence rows (requirement vs candidate) are computed per dimension for the UI."""
@@ -423,7 +427,7 @@ def evaluate(r: NormalizedRelease, b: dict[str, Any], *, blacklisted: bool) -> d
     row(
         "authenticity",
         "Echte release",
-        "geen programma (.exe/.scr/…) in naam of bestanden; grootte past bij de resolutie",
+        AUTH_REQUIRED,
         "nep-release"
         if fake
         else "geen programma in de naam · " + ("grootte plausibel" if r.size_bytes else "grootte onbekend"),
@@ -654,4 +658,69 @@ def stored_candidates(media_ref: str) -> list[dict[str, Any]]:
         "release->'seeders' AS seeders FROM recovery_candidates WHERE media_ref=%s "
         "ORDER BY passed DESC, score DESC NULLS LAST, id",
         (media_ref,),
+    )
+
+
+
+def mark_fake(keys: list[str], reasons: list[str]) -> list[str]:
+    """A release proven fake by its fetched file list (release gate, :func:`actions.send` / Zoeken → Verstuur)
+    stops being a stored candidate at once: ``passed=false``, no score, the reasons on its "Echte release" evidence
+    row. Otherwise the item panel keeps offering it as "Voldoet" and the recovery analysis keeps recommending it
+    until the candidate TTL runs out. An open "Fallback-kandidaat gevonden" recommendation that names it is
+    rewritten (the next analysis refreshes it as usual). Returns the affected media refs."""
+    keys = [k for k in dict.fromkeys(keys) if k]
+    if not keys:
+        return []
+    db = get_db()
+    proven = [f"nep-release: {x}" for x in reasons] or ["nep-release"]
+    rows = db.fetchall(
+        "SELECT id, media_ref, title, reasons, evidence FROM recovery_candidates WHERE release_key = ANY(%s)",
+        (keys,),
+    )
+    for c in rows:
+        ev = [dict(e) for e in (c["evidence"] or []) if isinstance(e, dict)]
+        auth = next((e for e in ev if e.get("key") == "authenticity"), None)
+        if auth is None:
+            auth = {"key": "authenticity", "label": "Echte release", "required": AUTH_REQUIRED}
+            ev.append(auth)
+        auth.update(actual=AUTH_PROVEN, ok=False, reasons=list(dict.fromkeys([*(auth.get("reasons") or []),
+                                                                              *proven])))
+        db.execute(
+            "UPDATE recovery_candidates SET passed=false, score=NULL, reasons=%s, evidence=%s WHERE id=%s",
+            (jsonb(list(dict.fromkeys([*(c["reasons"] or []), *proven]))), jsonb(ev), c["id"]),
+        )
+    for ref, title in dict.fromkeys((c["media_ref"], c["title"]) for c in rows):
+        _rewrite_recommendation(ref, title, reasons[0] if reasons else "")
+    return list(dict.fromkeys(c["media_ref"] for c in rows))
+
+
+def _rewrite_recommendation(media_ref: str, fake_title: str, reason: str) -> None:
+    """Rewrite an open "Fallback-kandidaat gevonden" recommendation (``recovery:cand:<ref>``) that names a release
+    just proven fake. Status stays open: the next analysis overwrites title and text when a candidate passes."""
+    db = get_db()
+    rec = db.fetchone(
+        "SELECT id, explanation FROM recommendations WHERE dedupe_key=%s AND status='open'",
+        (f"recovery:cand:{media_ref}",),
+    )
+    if rec is None or f"'{fake_title}'" not in (rec["explanation"] or ""):
+        return
+    left = db.fetchone(
+        "SELECT count(*) AS n, (array_agg(title ORDER BY score DESC NULLS LAST))[1] AS title "
+        "FROM recovery_candidates WHERE media_ref=%s AND passed AND expires_at > now()",
+        (media_ref,),
+    )
+    found = (
+        f"'{fake_title}' bleek bij de controle vóór verzenden een nep-release" + (f" ({reason})" if reason else "")
+        + " en staat nu op de blacklist."
+    )
+    if left and left["n"]:
+        title = f"Fallback-kandidaat gevonden ({media_ref})"
+        text = f"{left['n']} release(s) voldoen aan alle kwaliteitseisen, bv. '{left['title']}'. {found}"
+    else:
+        title = f"Fallback-kandidaat bleek nep-release ({media_ref})"
+        text = f"{found} Er voldoet nu geen andere release; zoek opnieuw kandidaten in Ontbrekend & herstel."
+    db.execute(
+        "UPDATE recommendations SET title=%s, explanation=%s, evidence=evidence || %s, updated_at=now() "
+        "WHERE id=%s",
+        (title, text, jsonb({"fake_release": fake_title}), rec["id"]),
     )

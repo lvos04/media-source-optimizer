@@ -19,7 +19,8 @@ export const messages = {
   "usenetserver.testVia": "Test via SABnzbd: SABnzbd logt in met zijn eigen opgeslagen wachtwoord (geen inloggegevens in MSO nodig)",
   "usenetserver.testNeedsLink": "Koppel een SABnzbd-server of vul inloggegevens in om te kunnen testen",
   "usenetserver.expiry": "Vervaldatum (SABnzbd)",
-  "usenetserver.expiresIn": "verloopt {when}",
+  "usenetserver.expiresTomorrow": "verloopt morgen",
+  "usenetserver.expiresInDays": "verloopt over {n} dagen",
   "usenetserver.expiresToday": "verloopt vandaag",
   "usenetserver.expiredOn": "verlopen op {date}",
   "usenetserver.expiryValue": "{date} · {when}",
@@ -31,4 +32,5 @@ export const messages = {
   "usenetserver.blockSourceSab": "Bron: quotum in SABnzbd",
   "usenetserver.blockSourceMso": "Bron: blokgrootte hier en de byteteller van SABnzbd sinds {date}",
   "usenetserver.blockSourceLegacy": "Bron: blokgrootte hier en de byteteller van SABnzbd sinds de laatste reset daar",
+  "usenetserver.blockLegacyHint": "Geen voorspelling of herinnering: deze blokgrootte is van vóór 1.6.0 en de teller van SABnzbd loopt sinds de laatste reset daar. Pas de provider aan en sla de blokgrootte op (bij een deels gebruikt blok: het restant) — vanaf dan telt MSO het verbruik van dit blok.",
 };

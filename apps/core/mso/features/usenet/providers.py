@@ -357,8 +357,9 @@ def update(
     )
     _set_credentials(slug, username, password)
     _sync_credential_status(slug)
-    if any(vals[k] != cur[k] for k in ("kind", "block_size_gb", "sab_server")):
-        _set_block_baseline(slug)
+    legacy_block = vals["kind"] == "block" and cur.get("block_baseline_bytes") is None and "block_size_gb" in data
+    if legacy_block or any(vals[k] != cur[k] for k in ("kind", "block_size_gb", "sab_server")):
+        _set_block_baseline(slug)  # 1.6.0: also when a block from before 1.6.0 (no baseline) is saved again
     row = get(slug)
     if row["kind"] != cur["kind"]:  # source id changes with the kind; keep the old one but disabled
         outcomes.upsert_source(
@@ -676,13 +677,15 @@ def import_from_sab(actor: str) -> list[dict[str, Any]]:
             validate_host(s["host"], s["port"] or 563)
         except HTTPException:
             continue
-        quota = s.get("quota_bytes")  # a quota in SABnzbd = a block account (1.6.0)
+        # a quota in SABnzbd = a block account (1.6.0); a quota below ~5 MB rounds to 0 GB (block_size_gb > 0)
+        size_gb = round((s.get("quota_bytes") or 0) / 1024**3, 2)
+        quota = size_gb > 0
         row = create(
             {
                 "slug": slug,
                 "label": s["displayname"] or s["name"],
                 "kind": "block" if quota else "unlimited",
-                "block_size_gb": round(quota / 1024**3, 2) if quota else None,
+                "block_size_gb": size_gb if quota else None,
                 "host": s["host"],
                 "port": s["port"] or 563,
                 "ssl": s["ssl"],

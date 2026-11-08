@@ -109,7 +109,9 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
       const res = await api.post<ProviderTestResult>(`/usenet/providers/${encodeURIComponent(p.slug)}/test`);
       setMessage(res.source === "sabnzbd" ? res.message : res.status === "ok" ? t("usenet.providers.testOk") : res.message);
       const tone = res.status === "ok" ? "success" : !res.tested || res.status === "rate_limited" ? "info" : "danger";
-      toast.push(tone, `${p.label}: ${t(`usenet.status.${res.status}` as MessageKey)}`, res.status === "ok" ? undefined : res.message);
+      // SABnzbd's test has its own labels (e.g. "Onbekend"); usenet.status.unknown would read "Nog niet getest"
+      const label = res.source === "sabnzbd" && res.test?.label ? res.test.label : t(`usenet.status.${res.status}` as MessageKey);
+      toast.push(tone, `${p.label}: ${label}`, res.status === "ok" ? undefined : res.message);
       if (res.change?.auto_applied) toast.push("success", t("usenetserver.testOn", { name: p.label }));
       else if (res.change) toast.push("info", t("usenetserver.testProposal", { name: p.label }), res.change.auto_reason ?? undefined);
       onChanged();

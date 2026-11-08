@@ -8,7 +8,9 @@ SABnzbd. MSO reads them with ``get_config`` (:meth:`SabClient.servers`) and:
   itself, so MSO remembers the last date it saw (``usenet_server_accounts``);
 - shows what is left of a block (SABnzbd quota: total − ``usage_at_start``; otherwise the block size entered under
   Usenet-providers minus SABnzbd's total when that size was set) with a run-out forecast from the daily usage of the
-  last 14 days, and reminds when the block is nearly used up (≥ 90 % or ≤ 7 days left);
+  last 14 days, and reminds when the block is nearly used up (≥ 90 % or ≤ 7 days left). A block size from before
+  1.6.0 has no such baseline (``legacy``): its usage is SABnzbd's counter since the last reset there, so it is shown
+  but never forecast or reminded about (saving the block size once sets the baseline);
 - fills an EMPTY renewal date under Kosten for the service linked to that server (and moves a date it filled itself
   along when SABnzbd's date changes); a date the owner entered is never overwritten. Only MSO's own data is written.
 
@@ -70,13 +72,19 @@ def load() -> dict[str, dict[str, Any]]:
 
 def persist(servers: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Store SABnzbd's account fields; keep the last expiry date after SABnzbd cleared it. Returns the rows as they
-    were BEFORE this call (the previous SABnzbd expiry date matters for the Kosten pre-fill)."""
+    were BEFORE this call (the previous SABnzbd expiry date matters for the Kosten pre-fill).
+
+    SABnzbd itself clears ``expire_date`` only on or after the day (``downloader.check_server_expiration``), so an
+    empty date is SABnzbd's own clear only when the remembered date is today or earlier. A remembered date in the
+    future that disappears was removed by the owner (e.g. a plan without end date): it is forgotten."""
     db = get_db()
     before = load()
+    today = _today()
     names = []
     for s in servers:
         names.append(s["name"])
-        exp = _date(s.get("expire_date")) or (before.get(s["name"]) or {}).get("expire_date")
+        prev = _date((before.get(s["name"]) or {}).get("expire_date"))
+        exp = _date(s.get("expire_date")) or (prev if prev is not None and prev <= today else None)
         db.execute(
             "INSERT INTO usenet_server_accounts(server,expire_date,quota_bytes,usage_at_start,updated_at) "
             "VALUES (%s,%s,%s,%s,now()) ON CONFLICT (server) DO UPDATE SET expire_date=EXCLUDED.expire_date, "
@@ -113,26 +121,34 @@ def block_info(
     totals: dict[str, int],
 ) -> dict[str, Any] | None:
     """What is left of a block for SABnzbd server ``server``: SABnzbd's own quota when set, otherwise the block size
-    of the linked provider (kind ``block``) minus SABnzbd's total when that size was set."""
-    total = totals.get(server or "")
+    of the linked provider (kind ``block``) minus SABnzbd's total when that size was set. None without a linked
+    SABnzbd server (no counter will ever arrive).
+
+    ``legacy``: a block size from before 1.6.0 without baseline. ``used`` is then SABnzbd's counter since its last
+    reset — not the usage of this block — so there is no forecast and ``low`` stays False (no false reminder)."""
+    if not server:
+        return None
+    total = totals.get(server)
     since = None
+    legacy = False
     if account and account.get("quota_bytes"):
         size, source = int(account["quota_bytes"]), "sabnzbd"
         base = int(account.get("usage_at_start") or 0)
     elif provider and provider.get("kind") == "block" and provider.get("block_size_gb"):
         size, source = int(float(provider["block_size_gb"]) * GB), "mso"
+        legacy = provider.get("block_baseline_bytes") is None
         base = int(provider.get("block_baseline_bytes") or 0)
         since = provider.get("block_baseline_at")
     else:
         return None
     used = max(0, int(total) - base) if total is not None else None
     remaining = max(0, size - used) if used is not None else None
-    avg = daily_average(server) if server else None
+    avg = daily_average(server)
     days_left = None
-    if remaining is not None and avg:
+    if remaining is not None and avg and not legacy:
         days_left = round(remaining / avg, 1)
     low = False
-    if used is not None and size:
+    if used is not None and size and not legacy:
         low = used / size >= BLOCK_WARN_RATIO or (days_left is not None and days_left <= BLOCK_WARN_DAYS)
     return {
         "source": source,
@@ -144,6 +160,7 @@ def block_info(
         "days_left": days_left,
         "run_out_date": (_today() + timedelta(days=int(days_left))).isoformat() if days_left is not None else None,
         "baseline_at": since,
+        "legacy": legacy,
         "low": low,
     }
 
@@ -248,7 +265,7 @@ def sync_block_reminders(servers: list[dict[str, Any]], accounts: dict[str, dict
     for s in servers:
         prefix = f"usenet.block_low:{s['name']}:"
         info = block_info(s["name"], account=accounts.get(s["name"]), provider=linked.get(s["name"]), totals=totals)
-        if not info or not info["low"] or not s.get("enable"):
+        if not info or info["legacy"] or not info["low"] or not s.get("enable"):
             _resolve_prefix(prefix)
             continue
         baseline = (accounts.get(s["name"]) or {}).get("usage_at_start") if info["source"] == "sabnzbd" else (
@@ -272,7 +289,7 @@ def sync_block_reminders(servers: list[dict[str, Any]], accounts: dict[str, dict
             f"MSO de server in Autopilot uit. Bron: {source}.",
             subject=f"sabnzbd:{s['name']}",
             impact="Als het blok op is, vult deze server geen ontbrekende artikelen meer aan",
-            evidence={"server": s["name"], **{k: v for k, v in info.items() if k != "baseline_at"}},
+            evidence={"server": s["name"], **{k: v for k, v in info.items() if k not in ("baseline_at", "legacy")}},
         )
         keys.append(key)
     return keys

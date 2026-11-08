@@ -44,7 +44,7 @@ export interface ProviderTestResult {
   status: ProviderStatus; message: string; capabilities: string[]; latency_ms: number | null; code: number | null;
   tested: boolean; provider: UsenetProvider;
   /** 1.6.0: "sabnzbd" = no credentials in MSO, SABnzbd's own server test of the linked server was used. */
-  source?: "sabnzbd"; change?: ServerTestChange | null;
+  source?: "sabnzbd"; change?: ServerTestChange | null; test?: ServerTest & { supported: boolean };
 }
 /** `POST /usenet/providers/import-sab` */
 export interface ProviderImportResult { items: UsenetProvider[]; note: string | null }
@@ -129,6 +129,8 @@ export interface BlockInfo {
   source: "sabnzbd" | "mso"; size_bytes: number; used_bytes: number | null; remaining_bytes: number | null;
   used_ratio: number | null; avg_daily_bytes: number | null; days_left: number | null; run_out_date: string | null;
   baseline_at: string | null; low: boolean;
+  /** Block size from before 1.6.0 without baseline: usage = SABnzbd's counter since its last reset (no forecast). */
+  legacy?: boolean;
 }
 export interface ServerAccounts {
   items: Record<string, { expiry: ExpiryInfo | null; block: BlockInfo | null; updated_at: string | null }>;

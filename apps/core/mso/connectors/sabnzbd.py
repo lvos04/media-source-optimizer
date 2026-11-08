@@ -262,11 +262,15 @@ class SabClient:
 
         Returns ``{"supported": bool, "ok": bool | None, "message": str}``; ``supported`` is False when SABnzbd
         does not offer the call or its configuration is locked, ``ok`` is None when SABnzbd gave no verdict.
-        Raises :class:`SabError` when SABnzbd itself is unreachable or refuses the API key, or the server does
-        not exist."""
+        Raises :class:`SabError` when SABnzbd itself is unreachable or refuses the API key, or (code ``not_found``)
+        the server does not exist.
+
+        ``pipelining_requests`` is sent as at least 5: SABnzbd ≥ 5.1 adds a "helpful warning" ("Server … took N ms
+        to respond … 'Articles per request'") to its warning list after every passing test slower than 50 ms with
+        fewer than 5 articles per request. It only feeds that hint; a single login test sends no article requests."""
         raw = next((s for s in self._raw_servers() if str(s.get("name", "")) == name), None)
         if raw is None:
-            raise SabError(f"SABnzbd-server '{name}' bestaat niet", "invalid")
+            raise SabError(f"SABnzbd-server '{name}' bestaat niet", "not_found")
         username = str(raw.get("username") or "").strip()
         data: dict[str, Any] = {
             "server": name,
@@ -278,9 +282,10 @@ class SabClient:
             # never a real password: SABnzbd resolves the masked value from its own config (needs ``server``)
             "password": "**********" if raw.get("password") else "",
         }
-        for key in ("ssl_verify", "ssl_ciphers", "pipelining_requests"):
+        for key in ("ssl_verify", "ssl_ciphers"):
             if raw.get(key) not in (None, ""):
                 data[key] = raw[key]
+        data["pipelining_requests"] = max(5, _int(raw.get("pipelining_requests"), 2))
         raw.clear()
         old = self._http.timeout
         self._http.timeout = httpx.Timeout(self.TEST_TIMEOUT_S, connect=5.0)

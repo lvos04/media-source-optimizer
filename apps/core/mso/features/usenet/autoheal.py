@@ -13,9 +13,12 @@
    and one calm 'Wacht op jou' item, never a probe. A change of the server in SABnzbd (host/port/SSL/username/expiry/
    quota) → test right away; "Testen" on the Usenet page → test now. "Te veel verbindingen" is not a failed test.
 3. Back on only after a passing test, through ``propose_and_apply`` (automatic in Autopilot, otherwise a proposal), or
-   when the user switches it on in SABnzbd / uses "Opnieuw proberen". The server is then watched: a new definitive
-   error → confirming test → off again. "Werkt weer" (``recovered_at``) only once SABnzbd really used the server
-   (bytes or articles for that server rose since the re-enable) without new errors.
+   when the user switches it on in SABnzbd / uses "Opnieuw proberen". A proposal the owner discarded is not made
+   again by the next scheduled passing test — only after a failing test, a change of the server in SABnzbd, a newer
+   own MSO test or "Testen". The server is then watched: a new definitive error → confirming test → off again (an
+   inconclusive test — unreachable/unknown/TLS — waits an hour and decides only after the usual 6 h). "Werkt weer"
+   (``recovered_at``) only once SABnzbd really used the server (bytes or articles for that server rose since the
+   re-enable) without new errors.
 4. Fallback when SABnzbd does not offer the test: the 1.5.0 probe (enable again after ``usenet.auto_probe_interval_h``
    with backoff, given up after ``usenet.auto_probe_max``) — never for an expired account.
 
@@ -51,6 +54,8 @@ CONFIRM_MAX_AGE_FLAPPING = timedelta(hours=6)
 TESTS_PER_TICK = 6  # each SABnzbd test blocks a few seconds; the rest follows in the next round (5 min)
 ACCOUNT_PROBLEMS = set(serverstatus.DISABLE_SUGGESTED)
 NOT_USED_YET = "test geslaagd en server aan; SABnzbd heeft hem nog niet gebruikt"
+DECLINED = ("test geslaagd; je verwierp het voorstel om de server weer in te schakelen. MSO stelt het opnieuw voor na "
+            "een wijziging in SABnzbd, een mislukte test of met 'Testen'")
 FP_SECRET = "usenet.server_config_fp_key"  # noqa: S105 - vault entry name, not a secret
 
 
@@ -154,6 +159,38 @@ def error_after(server: str, ts: datetime) -> dict[str, Any] | None:
         "SELECT status, message, last_at FROM usenet_sab_server_events WHERE server=%s AND status = ANY(%s) "
         "AND last_at > %s ORDER BY last_at DESC LIMIT 1",
         (server, sorted(serverstatus.DISABLE_SUGGESTED), ts),
+    )
+
+
+def _first_error_after(server: str, ts: datetime) -> datetime | None:
+    """When the definitive account errors SABnzbd reported for ``server`` after ``ts`` started (not before ``ts``)."""
+    first = get_db().scalar(
+        "SELECT min(GREATEST(first_at, %s)) FROM usenet_sab_server_events WHERE server=%s AND status = ANY(%s) "
+        "AND last_at > %s",
+        (ts, server, sorted(serverstatus.DISABLE_SUGGESTED), ts),
+    )
+    return first
+
+
+def _declined(server: str, since: datetime | None) -> bool:
+    """The owner (not MSO) discarded the 'weer inschakelen' proposal for ``server`` after ``since`` (the switch-off)
+    and no failing test followed: a scheduled passing test does not propose it again."""
+    ids = [r["id"] for r in get_db().fetchall(
+        "SELECT id FROM change_sets WHERE target='sabnzbd' AND dedupe_key=%s AND status='discarded'"
+        + (" AND created_at > %s" if since else ""),
+        (f"usenet.auto_on:{server}", since) if since else (f"usenet.auto_on:{server}",),
+    )]
+    if not ids:
+        return False
+    at = get_db().scalar(
+        "SELECT max(ts) FROM audit_log WHERE action='change.discarded' AND change_id = ANY(%s) AND actor <> %s",
+        (ids, ACTOR),
+    )
+    if at is None:
+        return False
+    return not get_db().scalar(
+        "SELECT count(*) FROM usenet_server_tests WHERE server=%s AND at > %s AND NOT (result = ANY(%s))",
+        (server, at, sorted(servertest.ALIVE | {"unsupported"})),
     )
 
 
@@ -330,14 +367,17 @@ def _after_test(server: str, row: dict[str, Any], test: dict[str, Any], now: dat
         if row.get("status") == "given_up":
             f["status"] = "disabled"  # never given up while SABnzbd can test it
     _save(server, **f)
-    return {**row, **f}
+    # servertest.run already stored these on the row; keep the returned dict in step with the database
+    return {**row, **f, "last_test_result": result, "last_test_at": test.get("at") or row.get("last_test_at")}
 
 
 def _sync_expired_notice(server: str, name: str, row: dict[str, Any] | None) -> None:
-    """One calm 'Wacht op jou' item per expired account MSO switched off; resolved when it is back on or gone."""
+    """One calm 'Wacht op jou' item per expired account MSO switched off; resolved when it is back on or gone, or
+    once SABnzbd's test passes again (renewal recognised; the server may still wait for a proposal)."""
     key = f"usenet.server_expired:{server}"
     db = get_db()
-    if not (row and row.get("status") in ("disabled", "given_up") and row.get("reason") == EXPIRED):
+    if not (row and row.get("status") in ("disabled", "given_up") and row.get("reason") == EXPIRED
+            and row.get("last_test_result") not in servertest.ALIVE):
         db.execute("UPDATE recommendations SET status='resolved', updated_at=now() WHERE dedupe_key=%s "
                    "AND status='open'", (key,))
         return
@@ -540,6 +580,7 @@ def _tick(c: SabClient) -> dict[str, Any]:
                            "recovered": [], "kept_last": [], "kept_on": [], "tested": [], "pending": []}
     changed = False
     watch = timedelta(hours=_h("usenet.probe_watch_h", 2))
+    limit = timedelta(hours=_h("usenet.auto_disable_after_h", 6))
     max_probes = int(_h("usenet.auto_probe_max", 5))
     budget = [TESTS_PER_TICK]
     cache: dict[str, Any] = {}
@@ -572,6 +613,15 @@ def _tick(c: SabClient) -> dict[str, Any]:
                           f"{(servertest.label(test['result']) or '').lower()}; de server blijft aan")
                     out["kept_on"].append(server)
                     continue
+                if verdict == "inconclusive" and test:
+                    # like step 2: switching off before the usual wait needs a confirming test
+                    started = _first_error_after(server, row["probe_started_at"]) or now
+                    if now - started < limit:
+                        _save(server, next_test_at=now + CONFIRM_MAX_AGE,
+                              last_result=f"SABnzbd meldt '{err_label.lower()}'; SABnzbd's eigen servertest: "
+                              f"{(servertest.label(test['result']) or '').lower()}; MSO test over een uur opnieuw")
+                        out["kept_on"].append(server)
+                        continue
                 probes = int(row["probes"] or 0) + 1
                 out["probe_failed"].append(server)
                 audit(ACTOR, "usenet.server_probe_failed", f"{name} geeft opnieuw '{err_label}'", target="sabnzbd",
@@ -632,9 +682,8 @@ def _tick(c: SabClient) -> dict[str, Any]:
                 changed = True
                 continue
             fp = by_name[server].get("fingerprint")
-            cfg_changed = bool(fp and row.get("config_fp") and fp != row["config_fp"])
-            if fp and fp != row.get("config_fp"):
-                _save(server, config_fp=fp)
+            old_fp = row.get("config_fp")
+            cfg_changed = bool(fp and old_fp and fp != old_fp)
             own_at = _own_test_at(server, row.get("disabled_at"))
             own_new = own_at is not None and (row.get("last_test_at") is None or own_at > row["last_test_at"])
             due = cfg_changed or own_new or row.get("next_test_at") is None or row["next_test_at"] <= now
@@ -645,6 +694,10 @@ def _tick(c: SabClient) -> dict[str, Any]:
                 if test:
                     out["tested"].append(server)
                     row = _after_test(server, row, test, now)
+            # a changed fingerprint is stored only once a test actually ran (budget used up or a transient SABnzbd
+            # error this round: the "test right away" trigger stays for the next round)
+            if fp and fp != old_fp and (test is not None or not cfg_changed):
+                _save(server, config_fp=fp)
             result = test["result"] if test else None
             unsupported = (result or row.get("last_test_result")) == "unsupported"
             passed = result == "ok" or (unsupported and own_at is not None)
@@ -653,6 +706,11 @@ def _tick(c: SabClient) -> dict[str, Any]:
                 and row.get("next_probe_at") and row["next_probe_at"] <= now
             )
             if not (passed or probe_due):
+                _sync_expired_notice(server, name, row)
+                continue
+            if result == "ok" and trigger == "schedule" and _declined(server, row.get("disabled_at")):
+                if row.get("last_result") != DECLINED:
+                    _save(server, last_result=DECLINED)
                 _sync_expired_notice(server, name, row)
                 continue
             if result == "ok":
@@ -682,7 +740,6 @@ def _tick(c: SabClient) -> dict[str, Any]:
     # 2) failing, enabled servers → off (Autopilot only), after SABnzbd's own test confirms the problem
     if auto:
         state_rows = rows()
-        limit = timedelta(hours=_h("usenet.auto_disable_after_h", 6))
         confirmed: dict[str, tuple[dict[str, Any] | None, bool]] = {}
         for server in sorted(enabled_now):
             st = sab.get(server) or {}
@@ -806,6 +863,10 @@ def run() -> dict[str, Any]:
         except Exception as exc:
             LOGGER.warning("autopilot servers: %s", type(exc).__name__)
             out["servers"] = {"error": str(getattr(exc, "detail", exc))[:300]}
+        try:  # an open 'wisselende resultaten' advice resolves even when the server is not tested again
+            servertest.sync_open_flapping()
+        except Exception as exc:  # pragma: no cover - advice only
+            LOGGER.info("flapping-advies overgeslagen: %s", type(exc).__name__)
         out["retry_sync"] = retry.sync()
         try:
             res = retry.propose(client)

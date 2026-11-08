@@ -246,6 +246,20 @@ class SabState:
         err = self.account_errors.get(target["name"])
         if err:
             return False, err.split("reported: ", 1)[-1].rstrip(".") if "reported: " in err else err
+        # SABnzbd ≥ 5.1: after a passing test slower than 50 ms with fewer than 5 articles per request, a "helpful
+        # warning" lands in the warning list (the mock's provider always answers in 481 ms)
+        try:
+            pipelining = int(str(kw.get("pipelining_requests", "2")).strip() or 2)
+        except ValueError:
+            pipelining = 2
+        if pipelining < 5:
+            self.warnings.append({
+                "text": f"Server {host} took 481 ms to respond. On high-latency connections, increasing 'Articles per "
+                "request' to a value between 5 and 10 can improve download speed. See: "
+                "https://sabnzbd.org/wiki/advanced/nntp-pipelining\nTo prevent all helpful warnings, disable "
+                "Special setting 'helpful_warnings'.",
+                "type": "WARNING", "time": int(time.time()),
+            })
         return True, "Connection Successful!"
 
     def status(self) -> dict[str, Any]:

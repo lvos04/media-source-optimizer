@@ -72,14 +72,16 @@ export function expiryFromDate(isoDate: string | null | undefined): ExpiryInfo |
   return { expire_date: isoDate, days_left: Math.round((Date.UTC(y, m - 1, d) - today) / 86_400_000) };
 }
 
-/** Account expiry from SABnzbd: chip that turns warning ≤ 14 days, danger ≤ 1 day or past. */
+/** Account expiry from SABnzbd: chip that turns warning ≤ 14 days, danger ≤ 1 day or past. Worded from the calendar
+ *  days (`days_left`), the same count as the reminders — never from the time of day. */
 export function ExpiryNote({ expiry }: { expiry: ExpiryInfo | null | undefined }) {
-  const { t, date, relative } = useI18n();
+  const { t, date, num } = useI18n();
   if (!expiry) return null;
   const d = expiry.days_left;
   const tone: Tone = d <= 1 ? "danger" : d <= 14 ? "warning" : "neutral";
   const when = d < 0 ? t("usenetserver.expiredOn", { date: date(expiry.expire_date) })
-    : d === 0 ? t("usenetserver.expiresToday") : t("usenetserver.expiresIn", { when: relative(`${expiry.expire_date}T00:00:00`) });
+    : d === 0 ? t("usenetserver.expiresToday") : d === 1 ? t("usenetserver.expiresTomorrow")
+      : t("usenetserver.expiresInDays", { n: num(d) });
   return <StatusChip tone={tone} icon={CalendarClock} title={date(expiry.expire_date)}>{when}</StatusChip>;
 }
 
@@ -100,9 +102,10 @@ export function BlockMeter({ block }: { block: BlockInfo }) {
       ) : null}
       {block.remaining_bytes !== null ? (
         <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>
-          {block.days_left !== null && block.run_out_date
-            ? t("usenetserver.blockForecast", { days: num(Math.floor(block.days_left)), date: date(block.run_out_date) })
-            : t("usenetserver.blockNoForecast")}
+          {block.legacy ? t("usenetserver.blockLegacyHint")
+            : block.days_left !== null && block.run_out_date
+              ? t("usenetserver.blockForecast", { days: num(Math.floor(block.days_left)), date: date(block.run_out_date) })
+              : t("usenetserver.blockNoForecast")}
         </span>
       ) : null}
       <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal" }}>

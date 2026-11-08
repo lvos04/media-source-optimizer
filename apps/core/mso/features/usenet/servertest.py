@@ -157,6 +157,20 @@ def flapping(server: str, *, now: datetime | None = None) -> bool:
     )
 
 
+def sync_open_flapping() -> list[str]:
+    """Re-check every server with an open 'wisselende resultaten' advice (cheap, no SABnzbd call): a healthy server is
+    rarely tested again, so without this the advice would never resolve. Returns the servers still flapping."""
+    still = []
+    for r in get_db().fetchall(
+        "SELECT dedupe_key FROM recommendations WHERE status='open' AND dedupe_key LIKE 'usenet.server\\_flapping:%%'"
+    ):
+        server = r["dedupe_key"].split(":", 1)[1]
+        _sync_flapping(server)
+        if flapping(server):
+            still.append(server)
+    return still
+
+
 def _sync_flapping(server: str) -> None:
     """One calm advice per flapping server; resolved by itself when the pattern is gone for 7 days."""
     key = f"usenet.server_flapping:{server}"
@@ -206,7 +220,7 @@ def test_now(server: str, p: Principal = Depends(require("operator"))) -> dict[s
             test = run(client, server, trigger="user", actor=p.actor)
             follow = autoheal.after_user_test(client, server, test)
     except SabError as exc:
-        if exc.code == "invalid":
+        if exc.code == "not_found":  # only the unknown server; a broken SABnzbd answer ('invalid') is a 502
             raise HTTPException(404, detail="SABnzbd-server niet gevonden") from exc
         raise HTTPException(502, detail=str(exc)) from exc
     return {"server": server, "test": test, **follow}

@@ -62,14 +62,17 @@ Branch `wp/B`, migratie **0602** (`0602_v160_server_tests.sql`, met werkende `mi
   ronde (elke test blokkeert enkele seconden).
 - **Weer aan**: alleen na een geslaagde test, via `propose_and_apply` (Autopilot automatisch; anders één voorstel
   `usenet.auto_on:<server>` in "Wacht op jou"; Alleen-lezen past niets toe). Een latere mislukte test verwerpt dat
-  voorstel. "Opnieuw proberen" (gebruiker) blijft direct aanzetten.
+  voorstel. Verwerpt de eigenaar het voorstel, dan maakt de volgende geplande geslaagde test het niet opnieuw; pas na
+  een mislukte test, een wijziging van de server in SABnzbd, een nieuwere eigen MSO-test of **Testen**.
+  "Opnieuw proberen" (gebruiker) blijft direct aanzetten.
 - **Hersteld**: `recovered_at`/status `recovered` pas als SABnzbd de server echt gebruikte (bytes of artikelen voor
   die server gestegen sinds het aanzetten, uit live `server_stats`) zonder nieuwe accountfout; tot die tijd
   "test geslaagd en server aan; SABnzbd heeft hem nog niet gebruikt". Statistiek-reset in SABnzbd → nieuwe basis.
 - **Verlopen account**: geen proefronde, één rustig "Wacht op jou"-item `usenet.server_expired:<server>`
   (aanbeveling, risico `toestemming_nodig`: verlengen of in SABnzbd verwijderen is jouw keuze; wordt niet elke ronde
-  ververst; opgelost zodra de server weer aan is of uit SABnzbd verdwijnt), wekelijkse test, nieuwe vervaldatum in
-  SABnzbd = meteen testen (verlenging herkennen).
+  ververst; opgelost zodra de server weer aan is, uit SABnzbd verdwijnt of SABnzbd's test weer slaagt — ook als het
+  weer-aanzetten nog op een voorstel wacht), wekelijkse test, nieuwe vervaldatum in SABnzbd = meteen testen
+  (verlenging herkennen).
 - **Terugval**: biedt SABnzbd de test niet aan (of is de configuratie vergrendeld), dan de 1.5.0-proef met backoff
   en `given_up` na `usenet.auto_probe_max` — nooit voor een verlopen account; elke week kijkt MSO opnieuw of de test
   beschikbaar is. Bestaande `given_up`-rijen uit 1.5.0 worden weer getest en dan `disabled`.
@@ -83,8 +86,10 @@ Branch `wp/B`, migratie **0602** (`0602_v160_server_tests.sql`, met werkende `mi
   risico `toestemming_nodig` → "Wacht op jou"); vorige stap wordt opgelost, een weggeklikte stap blijft weg, de
   tekst wordt alleen ververst als hij verandert.
 - Blokrestant: SABnzbd-quotum (totaal − `usage_at_start`), anders de blokgrootte van de provider minus SABnzbd's
-  totaal op het moment dat die grootte werd ingesteld (nieuw: `usenet_providers.block_baseline_bytes/_at`; zonder
-  basis het oude gedrag). Voorspelling uit het gemiddelde dagverbruik van de laatste 14 volle dagen (dagen zonder
+  totaal op het moment dat die grootte werd ingesteld (nieuw: `usenet_providers.block_baseline_bytes/_at`). Een
+  blokgrootte van vóór 1.6.0 heeft geen basis (`legacy`): het verbruik is dan SABnzbd's teller sinds de laatste reset,
+  dus wel getoond, maar zonder voorspelling en zonder herinnering; de blokgrootte opnieuw opslaan zet de basis.
+  Zonder gekoppelde SABnzbd-server geen blokinfo (geen teller). Voorspelling uit het gemiddelde dagverbruik van de laatste 14 volle dagen (dagen zonder
   verkeer tellen als 0, minimaal 3 dagen). Herinnering `usenet.block_low:…` bij ≥ 90 % of ≤ 7 dagen.
 - Kosten: een **lege** verlengdatum van de gekoppelde dienst wordt ingevuld met SABnzbd's vervaldatum (audit
   `costs.renewal_prefilled`); een datum die MSO zelf invulde schuift mee met SABnzbd, een eigen datum van de
@@ -163,7 +168,9 @@ Branch `wp/B`, migratie **0602** (`0602_v160_server_tests.sql`, met werkende `mi
   verlopen, toont het wat er van een blok over is met een voorspelling wanneer het op is, en vult het een lege
   verlengdatum onder Kosten in. Servers met een quotum worden bij importeren een blokaccount.
 - Het blokverbruik telt vanaf het moment dat je de blokgrootte invult (niet meer SABnzbd's totaal sinds de laatste
-  reset).
+  reset). Een blokgrootte van vóór 1.6.0 geeft geen voorspelling of herinnering tot je hem opnieuw opslaat.
+- SABnzbd's vooraankondiging "Server … is expiring in N day(s)" en zijn snelheidstip na een servertest gelden niet
+  meer als serverfout.
 
 ## Tekst voor USER_GUIDE (Nederlands)
 
@@ -184,7 +191,55 @@ controleren of iemand anders het account gebruikt.
 **Vervaldatum en blok.** Vul in SABnzbd (Config → Servers) bij een server de vervaldatum en/of het quotum in. MSO
 herinnert je dan 14, 7 en 1 dag vóór het verlopen, toont bij de provider wat er van het blok over is en wanneer het
 bij het huidige verbruik op is, en vult een lege verlengdatum onder Kosten in (een datum die je zelf invulde blijft
-staan). Zonder quotum in SABnzbd telt het blokverbruik vanaf het moment dat je de blokgrootte bij de provider invult.
+staan). Zonder quotum in SABnzbd telt het blokverbruik vanaf het moment dat je de blokgrootte bij de provider invult. Had je
+de blokgrootte al vóór 1.6.0 ingevuld, sla hem dan één keer opnieuw op (bij een deels gebruikt blok: het restant);
+tot dan toont MSO het verbruik zonder voorspelling of herinnering.
+
+**Voorstel verworpen?** Verwerp je het voorstel om een server weer in te schakelen, dan komt het niet bij elke
+geslaagde test terug. MSO stelt het pas opnieuw voor na een mislukte test, een wijziging van de server in SABnzbd of
+als je zelf op **Testen** klikt.
+
+## Review-ronde (onafhankelijke review, alle bevindingen verwerkt)
+- **Major — valse "Blok bijna op" na de upgrade**: een blokprovider van vóór 1.6.0 (geen `block_baseline_bytes`)
+  rekende met SABnzbd's teller sinds de laatste reset. `accounts.block_info` markeert dat nu als `legacy`: verbruik
+  wordt getoond (met de bestaande "sinds de laatste reset"-bron), maar `low` blijft False en er is geen voorspelling;
+  `sync_block_reminders` slaat het over. De reviewer schreef dat opnieuw opslaan de basis al zet — dat klopte niet bij
+  een ongewijzigde waarde; `providers.update` zet de basis nu ook als een blok zonder basis met `block_size_gb` wordt
+  opgeslagen. De blokmeter zegt wat je moet doen (`usenetserver.blockLegacyHint`: bij een deels gebruikt blok het
+  restant invullen).
+- **Latency-hint van SABnzbd 5.1** (nagekeken in de actuele `api.test_nntp_server_dict`): na elke geslaagde test
+  > 50 ms met `pipelining_requests` < 5 zet SABnzbd "Server h took N ms to respond … 'Articles per request'" in zijn
+  waarschuwingslijst; 400–599 ms werd daar als NNTP-code gelezen. MSO stuurt nu `pipelining_requests = max(5,
+  ingesteld)` (alleen voor de hint; één inlogtest vraagt geen artikelen) en `classify_message` negeert die hint. De
+  mock geeft de hint nu ook (zoals 5.1), zodat dit over HTTP getest is.
+- **Extra gevonden bij het nakijken**: SABnzbd's eigen vooraankondiging "Server X is expiring in 3 day(s)"
+  (`downloader.check_server_expiration`, vanaf 5 dagen vooraf) werd als **account verlopen** geclassificeerd (rode
+  status + advies terwijl het account nog werkt). `classify_message` negeert die nu ook; MSO's eigen 14/7/1-dagen-
+  herinneringen dekken het, en een echt verlopen account meldt de provider zelf (482/"expired").
+- **Vervaldatum weggehaald door de eigenaar**: `accounts.persist` onthoudt de laatste datum alleen nog als die
+  vandaag of eerder is (SABnzbd wist hem alleen op/na de dag zelf); een toekomstige datum die verdwijnt wordt vergeten.
+- **"Meteen testen" na een wijziging in SABnzbd** ging verloren als die ronde geen test kon (budget/tijdelijke fout):
+  `config_fp` wordt nu pas opgeslagen nadat er echt getest is.
+- **Voorstel komt niet elke 6 uur terug** na verwerpen (zie "Weer aan" hierboven); herkend via `audit_log`
+  (`change.discarded` door een gebruiker, niet door MSO zelf) en geen mislukte test sindsdien.
+- **Heringeschakelde server + nieuwe fout + onduidelijke test** (onbereikbaar/onbekend/TLS) ging meteen uit; nu net als
+  stap 2: een uur later opnieuw testen en pas uit na de gewone 6 uur fout.
+- **Verlopen-melding** lost op zodra de test slaagt, ook als het weer aanzetten nog een voorstel is.
+- **Import met minuscuul quotum** (< ~5 MB, bijv. "500") gaf `block_size_gb = 0.0` → CheckViolation (HTTP 500 en elk
+  uur een mislukte `costs.import_services`): zo'n server wordt nu als onbeperkt geïmporteerd.
+- **Wisselende-resultaten-advies** lost ook op zonder nieuwe test: `servertest.sync_open_flapping()` na elke
+  Autopilot-ronde (alleen een DB-controle).
+- **Blokprovider zonder gekoppelde server**: geen blokinfo meer (de oude meter zegt weer "Geen SABnzbd-teller").
+- **Web**: vervaldatum in kalenderdagen ("verloopt morgen", "verloopt over 10 dagen" — gelijk aan de herinnering,
+  nooit "over 9 uur"); de toast van **Testen** via SABnzbd toont SABnzbd's testlabel (bijv. "Onbekend" i.p.v. "Nog
+  niet getest").
+- **404 alleen voor een onbekende server**: `test_server` gebruikt nu foutcode `not_found`; een kapot SABnzbd-antwoord
+  (bijv. een loginpagina van een reverse proxy, code `invalid`) wordt 502.
+- **Classificatie**: "is not valid" alleen nog in SABnzbd's eigen zin (`Server address "…" is not valid`), zodat
+  "481 Username is not valid" van een provider "inloggen geweigerd" blijft.
+- Tests: 9 nieuwe tests in `tests/test_usenet_server_tests.py`. In dezelfde (nieuwe) testfile is
+  `test_expiry_reminders_14_7_1_days_deduplicated` aangepast: de mock wiste de vervaldatum een dag te vroeg; nu op de
+  dag zelf, zoals SABnzbd. Geen bestaande (1.5.0-)test extra gewijzigd.
 
 ## Open punten
 - Integratie: `api.py` is niet aangeraakt; de nieuwe endpoints staan in de routers van `servertest.py` en
@@ -199,3 +254,8 @@ staan). Zonder quotum in SABnzbd telt het blokverbruik vanaf het moment dat je d
   met code doorgeeft; de classificatie werkt ook zonder code (op trefwoorden).
 - Een wachtwoordwijziging alleen in SABnzbd is niet zichtbaar in `get_config` (gemaskeerd): die ziet MSO bij de
   volgende test (≤ 6 u) of direct via **Testen**.
+- De eigen SABnzbd-verbindingstest van de connector (`_failing_servers`) past de regel "achterhaald na een geslaagde
+  test" nog niet toe; daar kan zo'n server tot de volgende test (≤ 6 u) als falend staan.
+- De i18n-sleutel `usenetserver.expiresIn` is vervangen door `expiresTomorrow`/`expiresInDays` (alleen in dit pakket
+  gebruikt).
+- Niet gedraaid (integratiestap): Playwright en visuele controle op 1440/390 px in licht en donker.

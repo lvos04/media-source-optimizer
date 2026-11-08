@@ -99,12 +99,17 @@ _UNREACHABLE = re.compile(
 )
 _TLS = re.compile(r"certificate|\bssl\b|\btls\b|handshake", re.I)
 _SERVER_WORDS = re.compile(r"server|login|account|authenticat|access|connect", re.I)
+# SABnzbd's own informational warnings that say nothing about the account (1.6.0): the latency hint SABnzbd ≥ 5.1
+# adds after a passing server test ("Server h took 481 ms to respond … 'Articles per request' …" — the number must
+# never be read as an NNTP code) and the advance notice "Server X is expiring in 3 day(s)" (the account still works;
+# MSO's own 14/7/1-day reminders cover it, and a really expired account is reported by the provider itself).
+_SAB_NOTICE = re.compile(r"took \d+ ms to respond|articles per request|is expiring in -?\d+ day", re.I)
 
 
 def classify_message(text: str) -> str | None:
     """SABnzbd server message → status, or ``None`` when it says nothing about the server's health."""
     t = (text or "").strip()
-    if not t:
+    if not t or _SAB_NOTICE.search(t):
         return None
     m = _CODE.search(t)
     code = int(m.group(1)) if m else 0
@@ -141,7 +146,10 @@ TEST_LABELS = {
 }
 _TEST_NEEDS_LOGIN = re.compile(r"requires username and password", re.I)
 _TEST_CONFIG = re.compile(r"password masked|hostname is not set|no connections set|invalid server details", re.I)
-_TEST_UNREACHABLE = re.compile(r"is not valid|could not connect|timed out|time-out|operates as a web server", re.I)
+# SABnzbd's own wording only: a provider answer such as "481 Username is not valid" must reach classify_message
+_TEST_UNREACHABLE = re.compile(
+    r"server address \".*\" is not valid|could not connect to|^timed out|operates as a web server", re.I
+)
 
 
 def classify_test(result: dict[str, Any]) -> str:

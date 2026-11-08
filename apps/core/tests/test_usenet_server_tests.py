@@ -78,7 +78,7 @@ def test_connector_test_server_uses_sabnzbds_stored_password(app: Any, admin: An
             c.test_server("bestaat.niet")
     assert ok == {"supported": True, "ok": True, "message": "Connection Successful!"}
     assert bad["supported"] is True and bad["ok"] is False and bad["message"] == "502 Authentication Failed"
-    assert exc.value.code == "invalid"
+    assert exc.value.code == "not_found"
     sent = sab.test_calls[0]
     # exactly what SABnzbd's own 'Test server' button sends: the masked password + the server name
     assert sent["server"] == EW and sent["host"] == EW and set(sent["password"]) == {"*"}
@@ -428,11 +428,15 @@ def test_expiry_reminders_14_7_1_days_deduplicated(app: Any, db: Any, admin: Any
     _refresh()
     k1 = f"usenet.server_expiry:{EW}:{exp.isoformat()}:1"
     assert keys()[k1] == "open" and "morgen" in _rec(db, k1)["title"]
-    # SABnzbd clears the date on the day itself: MSO remembers it, the reminders resolve
+    eweka["expire_date"] = today.isoformat()
+    _refresh()
+    k0 = f"usenet.server_expiry:{EW}:{today.isoformat()}:1"
+    assert keys()[k0] == "open" and "vandaag" in _rec(db, k0)["title"]
+    # SABnzbd clears the date on the day itself (check_server_expiration): MSO remembers it, the reminders resolve
     eweka["expire_date"] = ""
     _refresh()
-    assert keys()[k1] == "resolved"
-    assert db.scalar("SELECT expire_date FROM usenet_server_accounts WHERE server=%s", (EW,)) == exp
+    assert keys()[k0] == "resolved" and keys()[k1] == "resolved"
+    assert db.scalar("SELECT expire_date FROM usenet_server_accounts WHERE server=%s", (EW,)) == today
     # a switched-off server gets no reminder
     eweka["expire_date"] = (today + timedelta(days=3)).isoformat()
     eweka["enable"] = 0
@@ -539,3 +543,211 @@ def test_mock_test_server_contract_matches_sabnzbd(app: Any) -> None:
     assert st.test_server({"host": EW, "connections": "1", "username": "fout", "password": "*****",
                            "server": EW}) == (False, "481 Authentication failed")
     assert time.time() > 0
+
+
+# ------------------------------------------------------------------ review fixes (1.6.0 WP-B)
+def test_latency_hint_and_expiry_notice_are_not_server_errors(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    """SABnzbd ≥ 5.1 adds "Server h took N ms to respond … 'Articles per request'" after a passing test with fewer
+    than 5 articles per request; MSO sends at least 5, and such hints (and "is expiring in N day(s)") never count."""
+    from mso.features.usenet import serverstatus
+
+    sab = _start(serve, admin)
+    _srv(sab, EW)["pipelining_requests"] = 2
+    with _client() as c:
+        assert c.test_server(EW)["ok"] is True
+    assert sab.test_calls[-1]["pipelining_requests"] == "5" and sab.warnings == []
+    _srv(sab, EW)["pipelining_requests"] = 8
+    with _client() as c:
+        c.test_server(EW)
+    assert sab.test_calls[-1]["pipelining_requests"] == "8"
+    # the hint SABnzbd would add for a slower client (481 ms used to read as NNTP code 481 → "inloggen geweigerd")
+    sab.test_server({"host": EW, "connections": "1", "username": "user1", "password": "*****", "server": EW})
+    sab.warnings.append({"text": "Server Eweka is expiring in 3 day(s)", "type": "WARNING", "time": int(time.time())})
+    assert len(sab.warnings) == 2
+    _refresh()
+    assert db.scalar("SELECT status FROM usenet_sab_servers WHERE server=%s", (EW,)) == "ok"
+    assert db.scalar("SELECT count(*) FROM usenet_sab_server_events WHERE server=%s", (EW,)) == 0
+    for text in ("Server news.x.test took 502 ms to respond. On high-latency connections, increasing 'Articles "
+                 "per request' to a value between 5 and 10 can improve download speed.",
+                 "Server X is expiring in 0 day(s)"):
+        assert serverstatus.classify_message(text) is None, text
+    # a provider's own wording with "is not valid" is a refused login, not "onbereikbaar"
+    assert serverstatus.classify_test({"supported": True, "ok": False, "message": "481 Username is not valid"}) == (
+        "auth_failed")
+
+
+def test_unknown_server_is_404_and_broken_sabnzbd_answer_is_502(
+    app: Any, admin: Any, operator: Any, serve: Any, monkeypatch: Any
+) -> None:
+    from mso.connectors.sabnzbd import SabClient, SabError
+
+    _start(serve, admin)
+    assert operator.post("/api/v1/usenet/sab/servers/bestaat.niet/test").status_code == 404
+
+    def broken(self: Any, name: str) -> dict[str, Any]:
+        raise SabError("SABnzbd gaf geen geldig antwoord", "invalid")  # e.g. a reverse-proxy login page
+
+    monkeypatch.setattr(SabClient, "test_server", broken)
+    r = operator.post(f"/api/v1/usenet/sab/servers/{EW}/test")
+    assert r.status_code == 502 and "niet gevonden" not in r.text
+
+
+def test_legacy_block_without_baseline_gives_no_false_reminder(
+    app: Any, db: Any, admin: Any, viewer: Any, serve: Any
+) -> None:
+    from mso.domain import outcomes
+
+    _start(serve, admin)
+    gb = 1024**3
+    r = admin.post("/api/v1/usenet/providers", json={"slug": "nh", "label": "NH", "host": "127.0.0.1", "port": 1119,
+                                                      "ssl": False, "kind": "block", "block_size_gb": 100,
+                                                      "sab_server": NH})
+    assert r.status_code == 200, r.text
+    # a block size from before 1.6.0: no baseline; SABnzbd's counter since its last reset is far above the block
+    db.execute("UPDATE usenet_providers SET block_baseline_bytes=NULL, block_baseline_at=NULL WHERE slug='nh'")
+    outcomes.observe("sabnzbd", "sab.server_total_bytes", float(950 * gb), {"server": NH})
+    today = date.today()
+    for d in range(1, 15):
+        db.execute("INSERT INTO usenet_server_stats(server,day,bytes) VALUES (%s,%s,%s)",
+                   (NH, today - timedelta(days=d), 5 * gb))
+    _refresh()
+    assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key LIKE 'usenet.block\\_low:%%'") == 0
+    info = viewer.get("/api/v1/usenet/sab/accounts").json()["items"][NH]["block"]
+    assert info["legacy"] is True and info["low"] is False and info["days_left"] is None
+    assert info["used_bytes"] == 950 * gb  # still shown, with the "sinds de laatste reset" note
+    # saving the block size (here: what is left of it) sets the baseline: from now on it counts
+    r = admin.put("/api/v1/usenet/providers/nh", json={"block_size_gb": 100})
+    assert r.status_code == 200, r.text
+    assert db.scalar("SELECT block_baseline_bytes FROM usenet_providers WHERE slug='nh'") == 950 * gb
+    p = {x["slug"]: x for x in viewer.get("/api/v1/usenet/providers").json()["items"]}["nh"]
+    assert p["block"]["legacy"] is False and p["block"]["used_bytes"] == 0 and p["block"]["days_left"] == 20.0
+    # a block provider without a linked SABnzbd server has no counter at all (old meter text)
+    r = admin.post("/api/v1/usenet/providers", json={"slug": "los", "label": "Los", "host": "127.0.0.1", "port": 1119,
+                                                      "ssl": False, "kind": "block", "block_size_gb": 50})
+    assert r.status_code == 200, r.text
+    p = {x["slug"]: x for x in viewer.get("/api/v1/usenet/providers").json()["items"]}["los"]
+    assert p["block"] is None and p["block_used_bytes"] is None
+
+
+def test_future_expiry_removed_by_owner_is_forgotten(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    sab = _start(serve, admin)
+    future = date.today() + timedelta(days=200)
+    _srv(sab, EW)["expire_date"] = future.isoformat()
+    _refresh()
+    assert db.scalar("SELECT expire_date FROM usenet_server_accounts WHERE server=%s", (EW,)) == future
+    _srv(sab, EW)["expire_date"] = ""  # the owner moved to a plan without end date
+    _refresh()
+    assert db.scalar("SELECT expire_date FROM usenet_server_accounts WHERE server=%s", (EW,)) is None
+
+
+def test_import_tiny_quota_imports_unlimited(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    sab = _start(serve, admin)
+    _srv(sab, BLOCK).update(quota="500", usage_at_start=0)  # SABnzbd reads "500" as 500 bytes
+    _srv(sab, BLOCK)["host"] = "127.0.0.1"
+    r = admin.post("/api/v1/usenet/providers/import-sab")
+    assert r.status_code == 200, r.text
+    row = db.fetchone("SELECT kind, block_size_gb FROM usenet_providers WHERE sab_server=%s", (BLOCK,))
+    assert row["kind"] == "unlimited" and row["block_size_gb"] is None
+
+
+def test_config_change_still_tests_right_away_after_a_skipped_round(
+    app: Any, db: Any, admin: Any, serve: Any, monkeypatch: Any
+) -> None:
+    from mso import state
+    from mso.features.usenet import autoheal
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    assert _enabled(sab)[XS] == 0
+    fp = _row(db, XS)["config_fp"]
+    sab.fix_account(XS)
+    _srv(sab, XS)["expire_date"] = (date.today() + timedelta(days=365)).isoformat()  # renewed in SABnzbd
+    monkeypatch.setattr(autoheal, "TESTS_PER_TICK", 0)  # no test possible this round (budget/transient error)
+    out = _pass()
+    assert out["servers"]["tested"] == [] and _row(db, XS)["config_fp"] == fp  # trigger kept for the next round
+    monkeypatch.setattr(autoheal, "TESTS_PER_TICK", 6)
+    out = _pass()
+    assert out["servers"]["switched_on"] == [XS] and _enabled(sab)[XS] == 1
+    assert db.scalar("SELECT trigger FROM usenet_server_tests WHERE server=%s ORDER BY id DESC LIMIT 1",
+                     (XS,)) == "config_changed"
+
+
+def test_discarded_proposal_not_repeated_and_expired_notice_resolves(
+    app: Any, db: Any, admin: Any, operator: Any, serve: Any
+) -> None:
+    from mso import changes, state
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    notice = f"usenet.server_expired:{XS}"
+    assert _enabled(sab)[XS] == 0 and _rec(db, notice)["status"] == "open"
+    state.set_state("mode", "manage")
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    _pass()
+
+    def previews() -> list[dict[str, Any]]:
+        return db.fetchall("SELECT * FROM change_sets WHERE dedupe_key=%s AND status='preview'",
+                           (f"usenet.auto_on:{XS}",))
+
+    assert len(previews()) == 1
+    # the renewal is recognised: 'account verlopen' resolves while the server waits for the proposal
+    assert _rec(db, notice)["status"] == "resolved"
+    _pass()
+    assert _rec(db, notice)["status"] == "resolved"
+    changes.discard(previews()[0]["id"], "admin")  # the owner does not want it back on
+    _test_due(db, XS)
+    out = _pass()
+    assert previews() == [] and not out["servers"]["pending"] and XS in out["servers"]["tested"]
+    assert "verwierp" in _row(db, XS)["last_result"]
+    # a failing test breaks the series: the next passing test proposes again
+    sab.set_server_error(XS, f"Server {XS} reported: 482 Account expired.")
+    _test_due(db, XS)
+    _pass()
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    _pass()
+    assert len(previews()) == 1
+    # 'Testen' is an explicit request: it proposes even right after a discard
+    changes.discard(previews()[0]["id"], "admin")
+    body = operator.post(f"/api/v1/usenet/sab/servers/{XS}/test").json()
+    assert body["test"]["ok"] is True and body["change"] is not None and len(previews()) == 1
+
+
+def test_probing_server_inconclusive_test_waits_before_switching_off(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    from mso import state
+
+    sab = _start(serve, admin)
+    db.execute("INSERT INTO usenet_server_autoheal(server,status,reason,probe_started_at) VALUES "
+               "(%s,'probing','auth_failed',now() - interval '3 hours')", (NH,))
+    sab.set_server_error(NH, f"Server {NH} reported: 502 Authentication Failed")
+    sab.test_results[NH] = (False, "Timed out")  # inconclusive: says nothing about the account
+    state.set_state("mode", "autopilot")
+    out = _pass()
+    assert NH in out["servers"]["kept_on"] and _enabled(sab)[NH] == 1
+    row = _row(db, NH)
+    assert row["status"] == "probing" and "over een uur opnieuw" in row["last_result"]
+    assert timedelta(minutes=55) < row["next_test_at"] - datetime.now(UTC) <= timedelta(hours=1)
+    # still inconclusive after the usual 6 h of errors → off, as for any other failing server
+    db.execute("UPDATE usenet_server_autoheal SET probe_started_at = now() - interval '8 hours', "
+               "next_test_at = now() - interval '1 minute' WHERE server=%s", (NH,))
+    db.execute("UPDATE usenet_sab_server_events SET first_at = now() - interval '7 hours' WHERE server=%s", (NH,))
+    out = _pass()
+    assert out["servers"]["switched_off"] == [NH] and _enabled(sab)[NH] == 0
+
+
+def test_flapping_advice_resolves_without_a_new_test(app: Any, db: Any, admin: Any, operator: Any, serve: Any) -> None:
+    sab = _start(serve, admin)
+    operator.post(f"/api/v1/usenet/sab/servers/{NH}/test")
+    sab.test_results[NH] = (False, "502 Authentication Failed")
+    operator.post(f"/api/v1/usenet/sab/servers/{NH}/test")
+    key = f"usenet.server_flapping:{NH}"
+    assert _rec(db, key)["status"] == "open"
+    _pass()
+    assert _rec(db, key)["status"] == "open"  # the pattern is still in the 7-day window
+    db.execute("UPDATE usenet_server_tests SET at = at - interval '8 days' WHERE server=%s", (NH,))
+    sab.test_results.pop(NH)
+    _pass()  # NH is enabled and healthy: no new test, the advice resolves anyway
+    assert _rec(db, key)["status"] == "resolved"

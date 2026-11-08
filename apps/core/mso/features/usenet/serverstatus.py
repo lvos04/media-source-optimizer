@@ -482,6 +482,33 @@ def _sync_recommendations(states: list[dict[str, Any]]) -> None:
             )
 
 
+def _outdated_by_test(states: list[dict[str, Any]]) -> None:
+    """A login/account error that only comes from SABnzbd's warning list is outdated when SABnzbd's own server test
+    passed AFTER that warning (1.6.0): the server counts as working again. A new warning after the test (e.g. a
+    connection limit) keeps the error; SABnzbd's live ``servererror`` is never overridden."""
+    from mso.features.usenet import servertest  # lazy: servertest imports this module
+
+    latest = servertest.latest_all()
+    for st in states:
+        test = latest.get(st["server"])
+        if (
+            test
+            and test["result"] == "ok"
+            and st["status"] in DISABLE_SUGGESTED
+            and st["source"] == "warnings"
+            and st["message_at"] is not None
+            and test["at"] > st["message_at"]
+        ):
+            st.update(
+                status="ok",
+                label=LABELS["ok"],
+                explanation="SABnzbd's eigen servertest slaagde na de laatste foutmelding; die melding is achterhaald.",
+                message=None,
+                source="test",
+                message_at=test["at"],
+            )
+
+
 def refresh(client: SabClient | None = None) -> dict[str, Any]:
     """Read SABnzbd's server state + warnings, persist, sync recommendations."""
     own = client is None
@@ -504,6 +531,7 @@ def refresh(client: SabClient | None = None) -> dict[str, Any]:
         if own:
             c.close()
     states = evaluate(servers, live, warns)
+    _outdated_by_test(states)
     persist(states)
     _sync_recommendations(states)
     try:  # account data SABnzbd keeps per server: expiry/block reminders, Kosten pre-fill (1.6.0)

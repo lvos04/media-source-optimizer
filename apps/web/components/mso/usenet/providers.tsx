@@ -7,6 +7,7 @@ import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, Field, InlineState, Modal, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
+import { BlockMeter, ExpiryNote, ServerTestLine } from "@/components/mso/usenet/server-test";
 import { ProviderStatusChip, SabStatusCell, useRatio } from "@/components/mso/usenet/shared";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
@@ -106,9 +107,11 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
     setJustSaved(false);
     try {
       const res = await api.post<ProviderTestResult>(`/usenet/providers/${encodeURIComponent(p.slug)}/test`);
-      setMessage(res.status === "ok" ? t("usenet.providers.testOk") : res.message);
-      const tone = res.status === "ok" ? "success" : !res.tested ? "info" : "danger";
+      setMessage(res.source === "sabnzbd" ? res.message : res.status === "ok" ? t("usenet.providers.testOk") : res.message);
+      const tone = res.status === "ok" ? "success" : !res.tested || res.status === "rate_limited" ? "info" : "danger";
       toast.push(tone, `${p.label}: ${t(`usenet.status.${res.status}` as MessageKey)}`, res.status === "ok" ? undefined : res.message);
+      if (res.change?.auto_applied) toast.push("success", t("usenetserver.testOn", { name: p.label }));
+      else if (res.change) toast.push("info", t("usenetserver.testProposal", { name: p.label }), res.change.auto_reason ?? undefined);
       onChanged();
     } catch (e) {
       toast.push("danger", errorMessage(e));
@@ -131,8 +134,9 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
       footer={
         <div className="row wrap">
           <Button size="sm" icon={PlugZap} onClick={() => void test()} pending={testing}
-            disabled={!can("operator") || !p.enabled || !p.credentials_complete}
-            title={!can("operator") ? t("usenet.operatorOnly") : !p.enabled ? t("usenet.providers.disabled") : !p.credentials_complete ? t("usenet.providers.needsCredentials") : undefined}>
+            disabled={!can("operator") || !p.enabled || (!p.credentials_complete && !p.sab_server)}
+            title={!can("operator") ? t("usenet.operatorOnly") : !p.enabled ? t("usenet.providers.disabled")
+              : !p.credentials_complete ? t(p.sab_server ? "usenetserver.testVia" : "usenetserver.testNeedsLink") : undefined}>
             {t("usenet.providers.test")}
           </Button>
           <Button size="sm" variant="ghost" icon={Pencil} onClick={onEdit} disabled={!can("admin")} title={can("admin") ? undefined : t("usenet.adminOnly")}>
@@ -174,6 +178,18 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
               </span>
             ) : <ProviderStatusChip status={mt.status} detail={mt.detail} />}
           </dd>
+          {p.sab_server ? (
+            <>
+              <dt>{t("usenetserver.sabTest")}</dt>
+              <dd><ServerTestLine test={p.sab_test} /></dd>
+            </>
+          ) : null}
+          {p.expiry ? (
+            <>
+              <dt>{t("usenetserver.expiry")}</dt>
+              <dd><ExpiryNote expiry={p.expiry} /></dd>
+            </>
+          ) : null}
           <dt>{t("usenet.providers.lastCheck")}</dt><dd>{relative(p.last_check_at)}</dd>
           <dt>{t("usenet.providers.lastOk")}</dt><dd>{relative(p.last_ok_at)}</dd>
           <dt>{t("usenet.providers.connections")}</dt>
@@ -188,7 +204,7 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
             </StatusChip>
           </dd>
         </dl>
-        {p.kind === "block" ? (
+        {p.block ? <BlockMeter block={p.block} /> : p.kind === "block" ? (
           <div className="meter-row" title={t("usenet.providers.blockUsageHint")}>
             <span>{t("usenet.providers.blockUsage")}</span>
             <span className="t-2">

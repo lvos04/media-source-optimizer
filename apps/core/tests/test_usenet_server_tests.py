@@ -196,6 +196,7 @@ def test_confirming_test_keeps_a_working_server_on(app: Any, db: Any, admin: Any
     sab = _start(serve, admin, server_errors="field")
     sab.fix_account(NH)  # the owner fixed the password; SABnzbd's warning list still shows the old error
     sab.set_server_error(NH, f"Server {NH} reported: 502 Authentication Failed")
+    sab.server_errors[NH] = ""  # only in the warning list, as SABnzbd does after its retry pause
     sab.account_errors.pop(NH)
     sab.test_results["nl.thundernews.test"] = (False, "481 Too many connections")  # alive, at its connection limit
     state.set_state("mode", "autopilot")
@@ -209,6 +210,15 @@ def test_confirming_test_keeps_a_working_server_on(app: Any, db: Any, admin: Any
     n = len(sab.test_calls)
     _pass()
     assert len(sab.test_calls) == n
+    # the passing test is newer than SABnzbd's warning: the warning is outdated, the server counts as working
+    st = db.fetchone("SELECT status, source FROM usenet_sab_servers WHERE server=%s", (NH,))
+    assert st["status"] == "ok" and st["source"] == "test"
+    assert _rec(db, f"usenet.sab_server:{NH}")["status"] == "resolved"
+    # a NEW warning after the test (e.g. a connection limit at peak time) counts again
+    sab.warnings.append({"text": f"Server {NH} reported: 502 Authentication Failed", "type": "WARNING",
+                         "time": int(time.time()) + 5})
+    _refresh()
+    assert db.scalar("SELECT status FROM usenet_sab_servers WHERE server=%s", (NH,)) == "auth_failed"
 
 
 def test_failing_again_soon_after_recovery_goes_off_without_waiting(app: Any, db: Any, admin: Any, serve: Any) -> None:

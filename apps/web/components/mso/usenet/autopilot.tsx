@@ -8,6 +8,7 @@ import { ResourceView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview } from "@/components/mso/change-preview";
 import { useMode, useWriteGate } from "@/components/mso/mode-gate";
+import { TestServerButton } from "@/components/mso/usenet/server-test";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -17,22 +18,35 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 const AP_TONE: Record<ServerAutopilot["status"], Tone> = { disabled: "warning", probing: "accent", recovered: "success", given_up: "danger" };
 const RS_TONE: Record<RetryRow["status"], Tone> = { proposed: "info", retried: "accent", verified: "success", failed: "danger" };
 
-/** Autopilot state of one SABnzbd server: chip + next probe / trigger. */
+/** Autopilot state of one SABnzbd server: chip + next SABnzbd test (or, without the test, next probe) / trigger. */
 export function ServerAutopilotCell({ ap }: { ap: ServerAutopilot | null | undefined }) {
   const { t, relative, num } = useI18n();
   if (!ap) return null;
+  const off = ap.status === "disabled" || ap.status === "given_up";
+  const tested = ap.test_supported !== false;
+  const trigger = ap.probe_trigger === "server_test" ? t("usenetserver.trigger.server_test")
+    : ap.probe_trigger ? t(`usenet.ap.trigger.${ap.probe_trigger}` as MessageKey) : null;
   return (
     <div className="stack-sm" style={{ gap: 2, marginTop: 4 }}>
       <StatusChip tone={AP_TONE[ap.status]} pending={ap.status === "probing"} title={ap.last_result ?? undefined}>
         {t(`usenet.ap.st.${ap.status}` as MessageKey)}{ap.reason_label ? ` · ${ap.reason_label.toLowerCase()}` : ""}
       </StatusChip>
-      <span className="t-3" style={{ fontSize: 12 }}>
+      <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>
         {[
-          ap.status === "disabled" && ap.next_probe_at ? t("usenet.ap.nextProbe", { when: relative(ap.next_probe_at) }) : null,
-          ap.status === "probing" && ap.probe_trigger ? t(`usenet.ap.trigger.${ap.probe_trigger}` as MessageKey) : null,
-          ap.probes ? t("usenet.ap.probes", { n: num(ap.probes) }) : null,
+          off && tested && ap.next_test_at ? t("usenetserver.nextTest", { when: relative(ap.next_test_at) }) : null,
+          off && !tested && ap.next_probe_at ? t("usenet.ap.nextProbe", { when: relative(ap.next_probe_at) }) : null,
+          ap.status === "probing" ? trigger : null,
+          ap.status === "probing" && ap.waiting_for_use ? t("usenetserver.waitingForUse") : null,
+          off && tested && ap.tests_failed ? t("usenetserver.testsFailed", { n: num(ap.tests_failed) }) : null,
+          !tested && ap.probes ? t("usenet.ap.probes", { n: num(ap.probes) }) : null,
         ].filter(Boolean).join(" · ")}
       </span>
+      {ap.last_test_at && ap.last_test_label ? (
+        <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>
+          {t("usenetserver.lastTest", { when: relative(ap.last_test_at), label: ap.last_test_label.toLowerCase() })}
+        </span>
+      ) : null}
+      {off && !tested ? <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>{t("usenetserver.noTest")}</span> : null}
     </div>
   );
 }
@@ -108,7 +122,7 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
           return (
             <div className="stack">
               <InlineState tone={autopilot ? "success" : "info"}>
-                {autopilot ? t("usenet.ap.on", { hours: num(d.auto_disable_after_h), probe: num(d.probe_interval_h) }) : t("usenet.ap.off")}
+                {autopilot ? t("usenetserver.apOn", { hours: num(d.auto_disable_after_h), test: num(d.test_interval_h ?? 6) }) : t("usenet.ap.off")}
               </InlineState>
               <div>
                 <span className="eyebrow">{t("usenet.ap.servers")}</span>
@@ -121,7 +135,10 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
                           <ServerAutopilotCell ap={ap} />
                         </div>
                         {ap.status === "disabled" || ap.status === "given_up" ? (
-                          <RetryServerButton server={name} name={name} onDone={async () => { await data.reload(); onChanged?.(); }} />
+                          <div className="row wrap" style={{ gap: 6 }}>
+                            <TestServerButton server={name} name={name} onDone={async () => { await data.reload(); onChanged?.(); }} />
+                            <RetryServerButton server={name} name={name} onDone={async () => { await data.reload(); onChanged?.(); }} />
+                          </div>
                         ) : null}
                       </li>
                     ))}

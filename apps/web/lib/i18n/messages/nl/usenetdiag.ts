@@ -11,6 +11,8 @@ export const messages = {
   "usenetdiag.facts.repairFailedShort": "herstel mislukt ({n} blokken tekort)",
   "usenetdiag.facts.unpackFailed": "uitpakken mislukt: {line}",
   "usenetdiag.facts.environment": "Ligt aan SABnzbd of de opslag ({problem}), niet aan de servers of de release.",
+  "usenetdiag.facts.environmentRepeated": "Ligt aan SABnzbd of de opslag ({problem}): dezelfde melding kwam bij {n} verschillende releases voor. Niet aan de servers of de release; MSO zoekt er geen andere release voor.",
+  "usenetdiag.facts.unknown": "Oorzaak niet bekend; zie het SABnzbd-logbestand. Herhaalt het zich bij andere releases, dan ligt het waarschijnlijk aan SABnzbd of de opslag.",
   "usenetdiag.facts.release": "Ligt aan deze release ({problem}); een andere release kan wel lukken.",
   "usenetdiag.facts.age": "Leeftijd van de post: {days} dagen",
   "usenetdiag.facts.servers": "Gedownload van: {servers}",
@@ -25,6 +27,8 @@ export const messages = {
   // retry (Usenet-providers → Autopilot)
   "usenetdiag.retry.efficacy": "Laatste {days} dagen: opnieuw geprobeerd {n} · gelukt {pct}",
   "usenetdiag.retry.efficacyNone": "Laatste {days} dagen: nog geen afgeronde pogingen.",
+  "usenetdiag.retry.efficacySince": "Sinds de nieuwe regels ({when}): opnieuw geprobeerd {n} · gelukt {pct}",
+  "usenetdiag.retry.efficacySinceNone": "Sinds de nieuwe regels ({when}): nog geen afgeronde pogingen.",
   "usenetdiag.retry.efficacyRunning": "{n} loopt nog",
   "usenetdiag.retry.rule": "MSO probeert een mislukte download alleen opnieuw als er artikelen ontbraken (of SABnzbd zelf een serverprobleem noemde) én de dekking daarna verbeterde: een server werkt weer of er kwam een nieuwe bij. Downloads met complete data waarvan het uitpakken mislukte, probeert MSO niet opnieuw.",
   "usenetdiag.retry.lastGain": "Laatste verbetering van de dekking: {what} ({when}).",

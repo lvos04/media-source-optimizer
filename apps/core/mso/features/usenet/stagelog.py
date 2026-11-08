@@ -54,6 +54,10 @@ PROBLEM_LABELS = {
     "executable": "uitvoerbaar bestand (ongewenste extensie)",
 }
 ENVIRONMENT = {"disk_full", "no_permission", "file_too_large", "move_failed", "unpacker_error"}
+# The line itself names an environment cause. ``unpacker_error`` (e.g. 7-Zip's "Unpacking failed, see logfile") names
+# none: it only counts as SABnzbd/the storage once the same line repeats across different releases
+# (:mod:`mso.features.usenet.unpack`, ``meta.classification.repeated``).
+CERTAIN_ENVIRONMENT = ENVIRONMENT - {"unpacker_error"}
 REPAIR_LABELS = {"gelukt": "gelukt", "mislukt": "mislukt", "niet_nodig": "niet nodig"}
 
 _I = re.IGNORECASE
@@ -178,10 +182,11 @@ def problem_of(line: str | None) -> str | None:
     """The problem one SABnzbd failure line names, or ``unpacker_error`` for an unpack failure without a cause."""
     if not line:
         return None
+    text = _strip_set(_clean(line))  # a set name ("[The.Encrypted.Files.2019]") never names the problem
     for key, pattern in _PROBLEM_RULES:
-        if pattern.search(line):
+        if pattern.search(text):
             return key
-    return "unpacker_error" if _UNPACK_FAILED.search(_strip_set(line)) else None
+    return "unpacker_error" if _UNPACK_FAILED.search(text) else None
 
 
 def signature(problem: str | None, line: str | None) -> str | None:
@@ -213,6 +218,7 @@ def parse(stage_log: list[dict[str, Any]] | None, fail_message: str | None = Non
     repair_states: list[str] = []
     unpack_fail: str | None = None
     unpack_ok = False
+    unwanted_removed = False  # "Removed N files with unwanted extensions": informational, runs after a failed unpack
     problems: list[str] = []
 
     for stage in stages:
@@ -264,7 +270,7 @@ def parse(stage_log: list[dict[str, Any]] | None, fail_message: str | None = Non
                 elif _UNPACK_OK.search(plain):
                     unpack_ok = True
                 elif _UNWANTED_REMOVED.search(plain):
-                    problems.append("executable")
+                    unwanted_removed = True
 
     if msg and _ABORTED.search(msg):
         facts.aborted = True
@@ -283,9 +289,14 @@ def parse(stage_log: list[dict[str, Any]] | None, fail_message: str | None = Non
         facts.unpack = "mislukt"
         facts.unpack_line = redact_line(unpack_fail)
         kind = problem_of(unpack_fail) or "unpacker_error"
-        problems.append(kind)
+        if kind == "unpacker_error":
+            problems.append(kind)  # names no cause: a specific problem from another stage says more
+        else:
+            problems.insert(0, kind)  # what stopped the unpack is the problem
     elif unpack_ok:
         facts.unpack = "gelukt"
+    if unwanted_removed and not unpack_fail:
+        problems.append("executable")
 
     incomplete_articles = (facts.missing_articles or 0) + (facts.malformed_articles or 0)
     if facts.repair == "mislukt":
@@ -371,6 +382,7 @@ def _n(v: int) -> str:
 
 
 __all__ = [
+    "CERTAIN_ENVIRONMENT",
     "CLASSIFIER_VERSION",
     "ENVIRONMENT",
     "PROBLEM_LABELS",

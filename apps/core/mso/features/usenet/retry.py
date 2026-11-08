@@ -20,7 +20,9 @@ proposal "N mislukte downloads opnieuw proberen".
 Effectiveness brake (:func:`check_brake`): when at least :data:`BRAKE_MIN_ATTEMPTS` finished retries in
 :data:`BRAKE_WINDOW_DAYS` days succeeded less than :data:`BRAKE_MIN_RATIO` of the time, retrying pauses itself
 (audit ``usenet.retry_paused``, an in-app explanation) until the coverage improves again or an operator presses
-"Hervatten" (audit ``usenet.retry_resumed``).
+"Hervatten" (audit ``usenet.retry_resumed``). Only retries chosen under these rules count: rows created before
+migration 0601 (1.5.0 retried every failure near a server problem, mostly complete-data unpack failures) never pause
+1.6.0 before it made a single attempt.
 """
 
 from __future__ import annotations
@@ -54,6 +56,7 @@ BRAKE_REC_KEY = "usenet.retry_paused"
 BRAKE_MIN_ATTEMPTS = 10
 BRAKE_WINDOW_DAYS = 14
 BRAKE_MIN_RATIO = 0.30
+RULES_MIGRATION = 601  # retries chosen before this migration (1.5.0 rules) are not judged by the brake
 COVERAGE_WAIT = (
     "Wacht op betere dekking: opnieuw proberen vraagt dezelfde artikelen aan dezelfde servers en helpt pas als er "
     "sinds het mislukken een server hersteld is of een nieuwe server bij is gekomen."
@@ -120,6 +123,25 @@ def status_for(o: dict[str, Any], events: list[dict[str, Any]] | None = None) ->
     if basis(o) is None or not sr.get("usenet.retry_failed_downloads") or brake_state().get("paused"):
         return None
     return "candidate" if after_gain(o, coverage.last_gain_at()) else None
+
+
+def recovery_text(o: dict[str, Any], status: str) -> str:
+    """What recovery says about a failed download that SABnzbd retries (``status`` from :func:`status_for`:
+    ``candidate`` or ``retried``), by why the retry can help (:func:`basis`)."""
+    done = status == "retried"
+    if basis(o) == "missing":
+        return (
+            "Artikelen ontbraken; sinds het mislukken is de dekking verbeterd (server hersteld of nieuwe server), dus "
+            + ("MSO liet SABnzbd deze download opnieuw proberen." if done
+               else "MSO laat SABnzbd deze download opnieuw proberen.")
+            + " Pas als dat ook mislukt, zoekt herstel een andere release."
+        )
+    return (
+        "Mislukt door een serverprobleem (inloggen/account) in SABnzbd; een andere release lost dit niet op. "
+        + ("MSO laat SABnzbd deze download opnieuw proberen." if done
+           else "MSO laat SABnzbd deze download opnieuw proberen nu de dekking verbeterd is (server hersteld of "
+           "nieuwe server).")
+    )
 
 
 def readiness(servers: list[dict[str, Any]], sab: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -234,6 +256,17 @@ def _open_bundle() -> dict[str, Any] | None:
     )
 
 
+def _discard_bundle(bundle: dict[str, Any]) -> None:
+    """Discard an open bundle proposal and MSO's own 'proposed' bookkeeping rows for it (never a retried row)."""
+    try:
+        changes.discard(bundle["id"], ACTOR)
+    except HTTPException:
+        pass
+    get_db().execute(
+        "DELETE FROM usenet_retries WHERE change_id=%s AND status='proposed' AND retried_at IS NULL", (bundle["id"],)
+    )
+
+
 def propose(client: SabClient | None = None, *, actor: str = ACTOR) -> dict[str, Any]:
     """Create/refresh the bundle change "N mislukte downloads opnieuw proberen" and apply it when Autopilot (or the
     Usenet 'automatisch veilig' toggle) allows. Returns ``{status, change?, count, reason?}``."""
@@ -266,10 +299,7 @@ def propose(client: SabClient | None = None, *, actor: str = ACTOR) -> dict[str,
                     "before": RETRY_BEFORE, "after": RETRY_AFTER, "one_way": True})
     existing = _open_bundle()
     if existing and sorted(o["path"] for o in existing["ops"]) != sorted(o["path"] for o in ops):
-        try:
-            changes.discard(existing["id"], ACTOR)
-        except HTTPException:
-            pass
+        _discard_bundle(existing)
     n = len(ops)
     more = len(cand["items"]) - n
     title = f"{n} mislukte download{'s' if n != 1 else ''} opnieuw proberen"
@@ -334,11 +364,15 @@ def sync() -> dict[str, int]:
 
 def overview(limit: int = 50) -> dict[str, Any]:
     db = get_db()
-    counts = {
-        r["status"]: int(r["n"])
-        for r in db.fetchall("SELECT status, count(*) AS n FROM usenet_retries GROUP BY status")
-    }
     bundle = _open_bundle()
+    counts = {  # 'proposed' = in the open bundle proposal (a discarded proposal leaves nothing proposed)
+        r["status"]: int(r["n"])
+        for r in db.fetchall(
+            "SELECT status, count(*) AS n FROM usenet_retries WHERE status <> 'proposed' OR change_id = %s "
+            "GROUP BY status",
+            (bundle["id"] if bundle else None,),
+        )
+    }
     gain = coverage.last_gain(db)
     return {
         "enabled": bool(sr.get("usenet.retry_failed_downloads")),
@@ -370,17 +404,26 @@ def _ts(v: Any) -> datetime | None:
         return None
 
 
+def rules_since() -> datetime | None:
+    """When the 1.6.0 retry rules took effect (migration 0601 applied); ``None`` when unknown."""
+    return get_db().scalar("SELECT applied_at FROM schema_migrations WHERE version=%s", (RULES_MIGRATION,))
+
+
 def efficacy(since: datetime | None = None) -> dict[str, Any]:
     """Finished retries (verified / failed again) in the last :data:`BRAKE_WINDOW_DAYS` days (or since ``since`` when
-    that is later) and their success share."""
-    start = _now() - timedelta(days=BRAKE_WINDOW_DAYS)
+    that is later) and their success share. Only retries chosen under the 1.6.0 rules count (:func:`rules_since`);
+    ``since_kind`` says what limits the period: ``window``, ``rules`` (the upgrade) or ``resumed``."""
+    start, kind = _now() - timedelta(days=BRAKE_WINDOW_DAYS), "window"
+    rules = rules_since()
     if since and since > start:
-        start = since
+        start, kind = since, "resumed"
+    if rules and rules > start:
+        start, kind = rules, "rules"
     row = get_db().fetchone(
         "SELECT count(*) FILTER (WHERE status IN ('verified','failed')) AS done, "
         "count(*) FILTER (WHERE status='verified') AS ok, count(*) FILTER (WHERE status='retried') AS running "
-        "FROM usenet_retries WHERE retried_at IS NOT NULL AND retried_at > %s",
-        (start,),
+        "FROM usenet_retries WHERE retried_at IS NOT NULL AND retried_at > %s AND created_at >= %s",
+        (start, rules or datetime(1970, 1, 1, tzinfo=UTC)),
     ) or {}
     done, ok = int(row.get("done") or 0), int(row.get("ok") or 0)
     return {
@@ -391,6 +434,7 @@ def efficacy(since: datetime | None = None) -> dict[str, Any]:
         "ratio": round(ok / done, 4) if done else None,
         "window_days": BRAKE_WINDOW_DAYS,
         "since": start.isoformat(timespec="seconds"),
+        "since_kind": kind,
         "min_attempts": BRAKE_MIN_ATTEMPTS,
         "min_ratio": BRAKE_MIN_RATIO,
     }
@@ -447,10 +491,7 @@ def _pause(eff: dict[str, Any], prev: dict[str, Any]) -> dict[str, Any]:
     state.set_state(BRAKE_KEY, st)
     bundle = _open_bundle()
     if bundle:
-        try:
-            changes.discard(bundle["id"], ACTOR)
-        except HTTPException:
-            pass
+        _discard_bundle(bundle)
     audit(ACTOR, "usenet.retry_paused",
           f"Automatisch opnieuw proberen gepauzeerd: {eff['verified']} van {eff['attempts']} pogingen gelukt",
           target="sabnzbd", detail=eff)
@@ -491,8 +532,9 @@ def resume(actor: str, *, trigger: str = "user", gain: dict[str, Any] | None = N
     )
     audit(actor, "usenet.retry_resumed", f"Automatisch opnieuw proberen hervat: {why}", target="sabnzbd",
           detail={"trigger": trigger, "gain_server": (gain or {}).get("server")})
-    get_db().execute(
-        "UPDATE recommendations SET status='resolved', updated_at=now() WHERE dedupe_key=%s AND status='open'",
+    get_db().execute(  # also when accepted: a later pause shows the advisory again
+        "UPDATE recommendations SET status='resolved', updated_at=now() WHERE dedupe_key=%s "
+        "AND status IN ('open','accepted')",
         (BRAKE_REC_KEY,),
     )
     return new

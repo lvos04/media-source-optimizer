@@ -54,17 +54,21 @@ function FactsLine({ facts }: { facts: StageFacts }) {
     facts.age_days !== null ? t("usenetdiag.facts.age", { days: num(facts.age_days) }) : null,
     facts.servers.length ? t("usenetdiag.facts.servers", { servers: facts.servers.map((sv) => `${sv.name} ${bytes(sv.bytes)}`).join(", ") }) : null,
   ].filter(Boolean).join(" · ");
+  // an unpack-program error ("see logfile") names no cause: only a repeat across releases makes it SABnzbd/the storage
   const hint = facts.data_complete === true && facts.problem_label
-    ? facts.environment ? t("usenetdiag.facts.environment", { problem: facts.problem_label })
+    ? facts.repeated && facts.repeated.releases > 1 && facts.environment
+      ? t("usenetdiag.facts.environmentRepeated", { problem: facts.problem_label, n: num(facts.repeated.releases) })
+      : facts.environment ? t("usenetdiag.facts.environment", { problem: facts.problem_label })
+      : facts.problem === "unpacker_error" ? t("usenetdiag.facts.unknown")
       : RELEASE_PROBLEMS.has(facts.problem ?? "") ? t("usenetdiag.facts.release", { problem: facts.problem_label }) : null
     : null;
   return (
     <>
-      <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal", overflowWrap: "anywhere" }}
-        title={[t("usenetdiag.facts.title"), detail].filter(Boolean).join(" — ")}>
+      <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal", overflowWrap: "anywhere" }} title={t("usenetdiag.facts.title")}>
         {parts.join(" · ")}
       </span>
       {hint ? <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal" }}>{hint}</span> : null}
+      {detail ? <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal", overflowWrap: "anywhere" }}>{detail}</span> : null}
     </>
   );
 }
@@ -98,6 +102,17 @@ function ReasonCell({ item }: { item: SabHistoryItem }) {
       {item.failure_detail ? (
         <span className="t-3 pre-wrap" style={{ fontSize: 11.5, wordBreak: "break-word" }}>{t("usenet.dl.sabMessage", { message: item.failure_detail })}</span>
       ) : null}
+    </div>
+  );
+}
+
+/** 1.6.0: the last reclassification (once after the upgrade, or with the button). */
+function ReclassifyLast({ last }: { last: ReclassifyStatus["last"] | undefined }) {
+  const { t, num, relative } = useI18n();
+  if (!last) return null;
+  return (
+    <div className="t-3" style={{ padding: "10px 16px 0", fontSize: 12 }}>
+      {t("usenetdiag.reclassifyLast", { when: relative(last.at), changed: num(last.changed), checked: num(last.checked) })}
     </div>
   );
 }
@@ -174,6 +189,7 @@ export function UsenetDownloadsTab() {
   const [busy, setBusy] = useState(false);
   const queue = useResource<SabQueue>("/usenet/sab/queue", undefined, 15_000);
   const history = useResource<SabHistory>("/usenet/sab/history", { limit: 100, failed_only: filter === "failed" }, 60_000);
+  const reclassified = useResource<ReclassifyStatus>("/usenet/sab/reclassify");
 
   const refresh = async () => {
     setBusy(true);
@@ -228,11 +244,12 @@ export function UsenetDownloadsTab() {
       <Card title={t("usenet.dl.history")} icon={History} className="span-12" flush
         actions={
           <div className="row wrap" style={{ gap: 8 }}>
-            <ReclassifyButton onDone={() => history.reload()} />
+            <ReclassifyButton onDone={async () => { await Promise.all([history.reload(), reclassified.reload()]); }} />
             <Segmented label={t("usenet.dl.history")} value={filter} onChange={setFilter}
               options={[{ value: "all", label: t("usenet.dl.filter.all") }, { value: "failed", label: t("usenet.dl.filter.failed") }]} />
           </div>
         }>
+        <ReclassifyLast last={reclassified.data?.last} />
         <ResourceView resource={history} endpoint="GET /api/v1/usenet/sab/history" isEmpty={(d) => !d.items.length}
           empty={<StateView kind="empty" compact title={t("usenet.dl.historyEmpty")} />}>
           {(d) => (

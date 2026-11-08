@@ -15,6 +15,8 @@ export interface StageFacts {
   problem: string | null;
   problem_label: string | null;
   environment: boolean;
+  /** The same unpack-program line came back for several releases → SABnzbd/the storage (relabelled). */
+  repeated: { count: number; releases: number } | null;
   age_days: number | null;
   servers: Array<{ name: string; bytes: number }>;
   summary: string | null;
@@ -25,13 +27,14 @@ export type SabHistoryItemWithFacts = SabHistoryItem & { facts?: StageFacts | nu
 export interface ReclassifyResult {
   checked: number; changed: number; unchanged: number; not_in_sab: number; data_complete: number;
   server_cause_removed: number; server_cause_kept: number; archive_read: boolean; sab_failed_jobs: number;
-  reasons_before: Record<string, number>; reasons_after: Record<string, number>; trigger: string; at: string;
+  reasons_before: Record<string, number>; reasons_after: Record<string, number>; environment_relabeled?: number;
+  trigger: string; at: string;
 }
 export interface ReclassifyStatus { last: ReclassifyResult | null }
 
 export interface RetryEfficacy {
   attempts: number; verified: number; failed: number; running: number; ratio: number | null; window_days: number;
-  since: string; min_attempts: number; min_ratio: number;
+  since: string; since_kind: "window" | "rules" | "resumed"; min_attempts: number; min_ratio: number;
 }
 export interface RetryBrake {
   paused: boolean; paused_at: string | null; reason: string | null; attempts: number | null; verified: number | null;

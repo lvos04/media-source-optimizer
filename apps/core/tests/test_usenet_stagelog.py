@@ -70,6 +70,7 @@ def test_seven_zip_see_logfile_only_in_fail_message() -> None:
     assert f.data_complete is True and f.missing_articles == 0 and f.repair == "niet_nodig"
     assert f.unpack == "mislukt" and f.unpack_line == "Unpacking failed, see logfile"
     assert f.problem == "unpacker_error" and "unpacker_error" in stagelog.ENVIRONMENT
+    assert "unpacker_error" not in stagelog.CERTAIN_ENVIRONMENT  # names no cause by itself
 
 
 @pytest.mark.parametrize(
@@ -97,6 +98,43 @@ def test_unpack_problem_kinds(line: str, problem: str) -> None:
 
     f = stagelog.parse(_log(("Download", ["Downloaded in 1 min"]), ("Unpack", [line])), None)
     assert f.unpack == "mislukt" and f.problem == problem and f.data_complete is True
+
+
+def test_unpack_failure_wins_over_removed_unwanted_files() -> None:
+    """postproc.remove_unwanted_files runs right after unpacker(), also after a failed unpack: its informational line
+    never hides what stopped the unpack."""
+    from mso.features.usenet import failures, stagelog
+
+    log = _log(("Download", ["Downloaded in 1 min"]),
+               ("Unpack", ["[R] Unpacking failed, write error or disk is full? Permission denied",
+                           "Removed 2 files with unwanted extensions"]))
+    f = stagelog.parse(log, "Unpacking failed, write error or disk is full? Permission denied")
+    assert f.problem == "no_permission" and "executable" not in f.problems
+    c = failures.classify("Unpacking failed, write error or disk is full? Permission denied", log, facts=f)
+    assert c.reason == "client_failure"  # not "schijf vol", not a release problem
+    # without an unpack failure the removal is still recorded
+    ok = stagelog.parse(_log(("Download", ["Downloaded in 1 min"]),
+                             ("Unpack", ["[R] Unpacked 3 files/folders in 4 seconds",
+                                         "Removed 2 files with unwanted extensions"])))
+    assert ok.unpack == "gelukt" and ok.problems == ["executable"]
+    # a specific problem from another stage beats an unpack failure that names no cause
+    pw = stagelog.parse(_log(("Download", ["Downloaded in 1 min"]),
+                             ("Repair", ["[R] RAR-based verification failed: Passworded"])),
+                        "Unpacking failed, see logfile")
+    assert pw.problem == "password"
+
+
+def test_set_names_never_name_the_problem() -> None:
+    from mso.features.usenet import stagelog
+
+    f = stagelog.parse(_log(("Download", ["Downloaded in 1 min"]),
+                            ("Unpack", ["[The.Encrypted.Files.2019.1080p] Unpacking failed, disk full"])), None)
+    assert f.problem == "disk_full"
+    g = stagelog.parse(_log(("Download", ["Downloaded in 1 min"]),
+                            ("Unpack", ["[Corrupt.CRC.Checksum.2020] Unpacking failed, see logfile"])), None)
+    assert g.problem == "unpacker_error"
+    assert stagelog.problem_of("[Movie.Password.Protected.2021] Failed moving /a/b/c to /x/y/z") == "move_failed"
+    assert stagelog.problem_of("[Movie.Exe.2020] Unpacking failed, archive requires a password") == "password"
 
 
 def test_dutch_sabnzbd_texts() -> None:

@@ -96,9 +96,13 @@ function RetryDiagnosis({ retry, onChanged }: { retry: UsenetAutopilot["retry"] 
     <>
       {eff ? (
         <span className="t-2" style={{ fontSize: 13 }}>
-          {eff.attempts
-            ? t("usenetdiag.retry.efficacy", { days: num(eff.window_days), n: num(eff.attempts), pct: pct((eff.ratio ?? 0) * 100) })
-            : t("usenetdiag.retry.efficacyNone", { days: num(eff.window_days) })}
+          {eff.since_kind === "rules"
+            ? eff.attempts
+              ? t("usenetdiag.retry.efficacySince", { when: relative(eff.since), n: num(eff.attempts), pct: pct((eff.ratio ?? 0) * 100) })
+              : t("usenetdiag.retry.efficacySinceNone", { when: relative(eff.since) })
+            : eff.attempts
+              ? t("usenetdiag.retry.efficacy", { days: num(eff.window_days), n: num(eff.attempts), pct: pct((eff.ratio ?? 0) * 100) })
+              : t("usenetdiag.retry.efficacyNone", { days: num(eff.window_days) })}
           {eff.running ? ` · ${t("usenetdiag.retry.efficacyRunning", { n: num(eff.running) })}` : ""}
         </span>
       ) : null}
@@ -139,6 +143,7 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
       const res = await api.post<RetryProposeResult>("/usenet/retries/propose", {});
       const key = res.change_status === "applied" ? "applied" : res.change_status === "preview" ? "preview" : res.status;
       if ((res.status === "waiting" || res.status === "paused") && res.reason) toast.push("info", res.reason);
+      else if (res.status === "paused") toast.push("info", t("usenetdiag.retry.checked.paused"));
       else if (["applied", "preview", "nothing", "quota", "off"].includes(key)) {
         toast.push(key === "applied" ? "success" : "info", t(`usenet.ap.checked.${key}` as MessageKey, { count: num(res.count) }));
       } else if (res.auto_reason) toast.push("info", res.auto_reason);

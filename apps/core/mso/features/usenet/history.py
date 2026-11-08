@@ -22,7 +22,7 @@ from mso.connectors.sabnzbd import SabClient, SabError
 from mso.db import get_db, jsonb
 from mso.domain import outcomes
 from mso.domain.categories import MEDIA_CATEGORIES
-from mso.features.usenet import failures, nzbs, serverstatus, stagelog
+from mso.features.usenet import failures, nzbs, serverstatus, stagelog, unpack
 from mso.security import redact
 
 LOGGER = logging.getLogger(__name__)
@@ -102,7 +102,11 @@ def map_slot(
     mapping: dict[str, str | None],
     retention: list[int] | None,
     server_events: list[dict[str, Any]] | None = None,
+    active_env: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """One SABnzbd history slot → a ``download_outcomes`` row. ``active_env`` = the active repeated unpack/environment
+    errors (:func:`mso.features.usenet.unpack.active_map`): a new download with that error is labelled as SABnzbd/the
+    storage right away instead of as a release problem."""
     status = FINAL.get(str(slot.get("status")), "active")
     nzo_id = str(slot.get("nzo_id"))
     known = nzbs.by_nzo(nzo_id)
@@ -129,6 +133,9 @@ def map_slot(
         meta["classification"] = {"certainty": cls.certainty, "evidence": cls.evidence}
         if cls.likely_cause:
             meta["classification"]["likely_cause"] = cls.likely_cause
+        env = (active_env or {}).get(facts.signature or "") if facts is not None else None
+        if env is not None and reason == "unpack_failed":
+            reason, meta["classification"] = unpack.relabeled(facts.as_dict(), env)  # type: ignore[union-attr]
         # 1.6.0: SABnzbd's processing log as facts; version 2 marks rows classified with them
         meta["classifier_version"] = stagelog.CLASSIFIER_VERSION
         if facts is not None:
@@ -197,9 +204,10 @@ def ingest(*, force: bool = False) -> dict[str, Any]:
                 LOGGER.info("SABnzbd-serverstatus niet beschikbaar: %s", exc)
             events = serverstatus.load_events()
     mapping = category_map()
+    active_env = unpack.active_map() if any(str(s.get("status")) == "Failed" for s in todo) else None
     new_failed: list[str] = []
     for slot in todo:
-        row = map_slot(slot, mapping=mapping, retention=retention, server_events=events)
+        row = map_slot(slot, mapping=mapping, retention=retention, server_events=events, active_env=active_env)
         before = db.fetchone(
             "SELECT status FROM download_outcomes WHERE client='sabnzbd' AND client_ref=%s",
             (row["client_ref"],),
@@ -219,18 +227,16 @@ def ingest(*, force: bool = False) -> dict[str, Any]:
         "last_error=NULL, ingested_total=ingested_total+%s WHERE id=1",
         (_int_or_none(hist.get("last_history_update")), max_completed, len(todo)),
     )
+    if new_failed:  # before the (slow) article tests: recovery must see the relabelled downloads
+        try:
+            unpack.check()
+        except Exception:  # pragma: no cover - the advisory never breaks the ingest
+            LOGGER.info("controle uitpakfouten overgeslagen", exc_info=True)
     if new_failed and sr.get("usenet.auto_test_failed"):
         from mso.features.usenet import articles
 
         for nzo in new_failed:
             articles.maybe_test_failed(nzo)
-    if new_failed:
-        from mso.features.usenet import unpack
-
-        try:
-            unpack.check()
-        except Exception:  # pragma: no cover - the advisory never breaks the ingest
-            LOGGER.info("controle uitpakfouten overgeslagen", exc_info=True)
     return {"changed": True, "ingested": len(todo), "failed_new": len(new_failed)}
 
 
@@ -387,10 +393,10 @@ def reclassify(actor: str = "system", *, trigger: str = "upgrade") -> dict[str, 
             LOGGER.info("SABnzbd-serverstatus niet beschikbaar: %s", exc)
     events = serverstatus.load_events(days=400)
     mapping = category_map()
+    active_env = unpack.active_map()
     counts = {"checked": 0, "changed": 0, "unchanged": 0, "not_in_sab": 0, "data_complete": 0,
               "server_cause_removed": 0, "server_cause_kept": 0}
-    before: Counter[str] = Counter()
-    after: Counter[str] = Counter()
+    old: dict[int, tuple[str, str | None]] = {}
     for r in db.fetchall(
         "SELECT id, client_ref, failure_reason, failure_detail, meta FROM download_outcomes "
         "WHERE client='sabnzbd' AND status='failed' ORDER BY id"
@@ -399,36 +405,41 @@ def reclassify(actor: str = "system", *, trigger: str = "upgrade") -> dict[str, 
         if slot is None:
             counts["not_in_sab"] += 1
             continue
-        new = map_slot(slot, mapping=mapping, retention=retention, server_events=events)
+        new = map_slot(slot, mapping=mapping, retention=retention, server_events=events, active_env=active_env)
         if new["status"] != "failed":
             continue
-        counts["checked"] += 1
         old_meta = dict(r["meta"] or {})
         new_meta = {k: v for k, v in old_meta.items() if k not in _CLS_KEYS}
         new_meta.update({k: new["meta"][k] for k in _CLS_KEYS if k in new["meta"]})
-        old_reason, new_reason = r["failure_reason"] or "unknown", new["failure_reason"] or "unknown"
-        before[old_reason] += 1
-        after[new_reason] += 1
-        if (new_meta.get("stage") or {}).get("data_complete") is True:
-            counts["data_complete"] += 1
-        if _cause(old_meta) and not _cause(new_meta):
-            counts["server_cause_removed"] += 1
-        elif _cause(new_meta):
-            counts["server_cause_kept"] += 1
-        if old_reason != new_reason or _cause(old_meta) != _cause(new_meta):
-            counts["changed"] += 1
-        else:
-            counts["unchanged"] += 1
+        old[r["id"]] = (r["failure_reason"] or "unknown", _cause(old_meta))
         db.execute(
             "UPDATE download_outcomes SET failure_reason=%s, failure_detail=%s, meta=%s WHERE id=%s",
             (new["failure_reason"], new["failure_detail"], jsonb(new_meta), r["id"]),
         )
+    # the unpack advisory first: a repeated unpack/environment error relabels its downloads (not a release problem)
+    unpack_result = unpack.check()
+    before: Counter[str] = Counter()
+    after: Counter[str] = Counter()
+    for r in db.fetchall("SELECT id, failure_reason, meta FROM download_outcomes WHERE id = ANY(%s)", (list(old),)):
+        old_reason, old_cause = old[r["id"]]
+        new_reason, new_cause = r["failure_reason"] or "unknown", _cause(r["meta"])
+        counts["checked"] += 1
+        before[old_reason] += 1
+        after[new_reason] += 1
+        if ((r["meta"] or {}).get("stage") or {}).get("data_complete") is True:
+            counts["data_complete"] += 1
+        if old_cause and not new_cause:
+            counts["server_cause_removed"] += 1
+        elif new_cause:
+            counts["server_cause_kept"] += 1
+        counts["changed" if old_reason != new_reason or old_cause != new_cause else "unchanged"] += 1
     result = {
         **counts,
         "archive_read": archive_read,
         "sab_failed_jobs": len(slots),
         "reasons_before": dict(before),
         "reasons_after": dict(after),
+        "environment_relabeled": unpack_result.get("relabeled", 0),
         "trigger": trigger,
         "at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
@@ -441,9 +452,7 @@ def reclassify(actor: str = "system", *, trigger: str = "upgrade") -> dict[str, 
         target="sabnzbd",
         detail=result,
     )
-    from mso.features.usenet import unpack
-
-    result["unpack"] = unpack.check()
+    result["unpack"] = unpack_result
     try:
         from mso.features.recovery import fallback
     except ImportError:  # recovery module disabled
@@ -511,9 +520,11 @@ def history_view(limit: int = 50, failed_only: bool = False) -> dict[str, Any]:
         hist = client.history(limit=limit, failed_only=failed_only) or {}
     mapping = category_map()
     events = serverstatus.load_events()
+    slots = hist.get("slots") or []
+    active_env = unpack.active_map() if any(str(s.get("status")) == "Failed" for s in slots) else None
     items = []
-    for s in hist.get("slots") or []:
-        row = map_slot(s, mapping=mapping, retention=None, server_events=events)
+    for s in slots:
+        row = map_slot(s, mapping=mapping, retention=None, server_events=events, active_env=active_env)
         known = nzbs.by_nzo(row["client_ref"])
         cls = row["meta"].get("classification") or {}
         cause = cls.get("likely_cause")
@@ -543,7 +554,7 @@ def history_view(limit: int = 50, failed_only: bool = False) -> dict[str, Any]:
                 }
                 if cause
                 else None,
-                "facts": _public_facts(row["meta"].get("stage")) if row["status"] == "failed" else None,
+                "facts": _public_facts(row["meta"].get("stage"), cls) if row["status"] == "failed" else None,
                 "size_bytes": row["size_bytes"],
                 "finished_at": row["finished_at"],
                 "nzb_id": known["id"] if known else None,
@@ -557,11 +568,14 @@ def history_view(limit: int = 50, failed_only: bool = False) -> dict[str, Any]:
     }
 
 
-def _public_facts(stage: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The stage-log facts shown per failed download (Downloads → Usenet)."""
+def _public_facts(stage: dict[str, Any] | None, cls: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """The stage-log facts shown per failed download (Downloads → Usenet). ``environment``: SABnzbd/the storage, not
+    the release — when SABnzbd's line names such a cause, or (an unpack-program error, whose line names none) when the
+    same line came back for several releases (``repeated``, :mod:`mso.features.usenet.unpack`)."""
     if not stage:
         return None
     problem = stage.get("problem")
+    rep = (cls or {}).get("repeated") or None
     return {
         "data_complete": stage.get("data_complete"),
         "missing_articles": stage.get("missing_articles"),
@@ -573,7 +587,8 @@ def _public_facts(stage: dict[str, Any] | None) -> dict[str, Any] | None:
         "unpack_line": stage.get("unpack_line"),
         "problem": problem,
         "problem_label": stagelog.PROBLEM_LABELS.get(problem or ""),
-        "environment": problem in stagelog.ENVIRONMENT,
+        "environment": problem in stagelog.CERTAIN_ENVIRONMENT or bool(rep and problem in stagelog.ENVIRONMENT),
+        "repeated": {"count": rep.get("count"), "releases": rep.get("releases")} if rep else None,
         "age_days": stage.get("age_days"),
         "servers": stage.get("servers") or [],
         "summary": stagelog.summary_nl(stage),

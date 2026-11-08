@@ -31,7 +31,7 @@ from mso.security import configure_logging, limiter, redact
 from mso.vault import Vault, set_vault
 
 LOGGER = logging.getLogger(__name__)
-CORE_MODULES = ["mso.api.foundation", "mso.backups"]
+CORE_MODULES = ["mso.api.foundation", "mso.backups", "mso.retention"]
 
 
 def _allowed(name: str) -> bool:
@@ -62,12 +62,22 @@ def load_modules() -> list[ModuleType]:
 
 
 def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Database:
-    """Shared by API and worker: DB pool, migrations, vault, connector rows."""
+    """Shared by API and worker: DB pool, migrations, vault, connector rows.
+
+    Pending migrations get a ``pre-upgrade`` backup first (only when there is something to keep and enough free
+    space; never blocks the start)."""
     settings = get_settings()
     db = db or Database(settings.database_url)
     set_db(db)
     if migrate:
+        from mso import backups
+
+        backups.pre_upgrade_backup(db)
         migrate_up(db)
+        try:
+            backups.flush_pre_upgrade(db)
+        except Exception as exc:
+            LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
     set_vault(Vault(db))
     load_modules()
     connectors.ensure_rows()

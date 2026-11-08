@@ -11,6 +11,7 @@ Robustness rules (each fixes a classic self-hosting failure):
 - A stale postmaster.pid from an unclean stop is removed (we are the only process in a fresh container).
 - The database password problem does not exist: PostgreSQL listens on a unix socket in /tmp only.
 - Children that crash are restarted with backoff; SIGTERM stops web → api → worker → database cleanly.
+- Before pending migrations a ``pre-upgrade`` backup is made (if there is room); a failure never blocks the start.
 """
 
 from __future__ import annotations
@@ -272,7 +273,11 @@ def main() -> None:
     pg = postgres_child()
     pg.start()
     wait_for_db(pg)
-    if run_once("migraties", [sys.executable, "-m", "mso", "migrate"]) != 0:
+    # safety net for upgrades: a dump before pending migrations (only when there are any and the disk has room).
+    # It never blocks the start: on failure the step logs a clear line and MSO starts as usual.
+    if run_once("back-up vóór upgrade", [sys.executable, "-m", "mso", "backup", "--pre-upgrade"]) != 0:
+        log("back-up vóór upgrade mislukt (zie log hierboven); MSO start gewoon door")
+    if run_once("migraties", [sys.executable, "-m", "mso", "migrate", "--no-backup"]) != 0:
         pg.stop()
         fail("databasemigratie mislukt; de vorige versie van de database is ongewijzigd. Zie docs/MIGRATION.md.")
 

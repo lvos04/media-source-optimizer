@@ -7,15 +7,18 @@ the ``connectors`` table; credentials live only in the vault under ``connector.<
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
+from mso.connectors import monitor
 from mso.db import get_db, jsonb
-from mso.security import check_url, redact
+from mso.security import UnsafeTarget, check_url, redact
 from mso.vault import get_vault
 
 LOGGER = logging.getLogger(__name__)
@@ -89,10 +92,12 @@ def ensure_rows() -> None:
 
 
 def load_config(cid: str, *, require_enabled: bool = True) -> ConnectorConfig:
+    monitor.note_lookup(cid)
     row = get_db().fetchone("SELECT * FROM connectors WHERE id=%s", (cid,))
     spec = SPECS.get(cid)
     if row is None or spec is None or not row["url"] or (require_enabled and not row["enabled"]):
         raise ConnectorNotConfigured(cid)
+    _remember_url(cid, row["url"])
     vault = get_vault()
     secrets = {f.name: v for f in spec.secret_fields if (v := vault.get(secret_name(cid, f.name)))}
     return ConnectorConfig(id=cid, url=row["url"], secrets=secrets, options=row["options"] or {},
@@ -120,16 +125,30 @@ def public_view(row: dict[str, Any]) -> dict[str, Any]:
         "enabled": row["enabled"], "options": row["options"], "status": row["status"], "version": row["version"],
         "capabilities": row["capabilities"], "last_checked_at": row["last_checked_at"],
         "last_error": row["last_error"], "secret_fields": fields,
+        "status_since": row.get("status_since"), "last_ok_at": row.get("last_ok_at"),
+        "failure_kind": row.get("failure_kind"),
         "optional": spec.optional if spec else True, "description": spec.description if spec else "",
     }
 
 
 def record_test(cid: str, result: TestResult) -> None:
+    kind = None if result.ok else ("auth" if result.status == "auth_failed" else
+                                   "timeout" if "time-out" in (result.message or "").lower() else
+                                   "offline" if result.status == "offline" else None)
+    prev = get_db().scalar("SELECT status FROM connectors WHERE id=%s", (cid,))
     get_db().execute(
         "UPDATE connectors SET status=%s, version=COALESCE(%s, version), capabilities=%s, last_checked_at=now(), "
-        "last_error=%s WHERE id=%s",
+        "last_error=%s, failure_kind=%s, "
+        "last_ok_at=CASE WHEN %s THEN now() ELSE last_ok_at END, "
+        "status_since=CASE WHEN status IS DISTINCT FROM %s OR status_since IS NULL THEN now() ELSE status_since END "
+        "WHERE id=%s",
         (result.status, result.version, jsonb(result.capabilities), None if result.ok else redact(result.message),
-         cid))
+         kind, result.ok, result.status, cid))
+    if prev in monitor.DOWN or result.status in monitor.DOWN:
+        try:
+            monitor.sync_alert(cid)
+        except Exception as exc:  # never let the alert bookkeeping break a test
+            LOGGER.warning("melding voor %s niet bijgewerkt: %s", cid, redact(str(exc)))
 
 
 def run_test(spec: ConnectorSpec, cfg: ConnectorConfig) -> TestResult:
@@ -154,11 +173,77 @@ def run_test(spec: ConnectorSpec, cfg: ConnectorConfig) -> TestResult:
     return res
 
 
+# ------------------------------------------------------------------ background monitoring hooks (see monitor.py)
+_URLS: dict[str, str] = {}  # normalised base URL -> connector id (filled by load_config)
+_URLS_LOCK = threading.Lock()
+
+
+def _norm_url(url: str) -> str:
+    try:
+        p = urlsplit(url.strip())
+    except ValueError:
+        return url.strip().rstrip("/").lower()
+    return f"{p.scheme.lower()}://{p.netloc.lower()}{p.path.rstrip('/')}"
+
+
+def _remember_url(cid: str, url: str) -> None:
+    key = _norm_url(url)
+    if _URLS.get(key) != cid:
+        with _URLS_LOCK:
+            for k in [k for k, v in _URLS.items() if v == cid]:
+                del _URLS[k]  # the connector moved to another URL
+            _URLS[key] = cid
+
+
+def connector_for_url(url: str, *, prefix: bool = False) -> str | None:
+    """Connector id whose configured base URL is ``url`` (or, with ``prefix``, a prefix of it)."""
+    key = _norm_url(url)
+    cid = _URLS.get(key)
+    if cid is not None or not prefix:
+        return cid
+    for base, c in list(_URLS.items()):
+        if key == base or key.startswith(base + "/"):
+            return c
+    return None
+
+
+class MonitoredClient(httpx.Client):
+    """``httpx.Client`` that reports every response and transport error of a monitored connector to the
+    background-monitoring scope of the running job (no effect outside a job)."""
+
+    def __init__(self, cid: str, **kw: Any) -> None:
+        super().__init__(**kw)
+        self.mso_connector = cid
+
+    def send(self, request: httpx.Request, **kw: Any) -> httpx.Response:  # type: ignore[override]
+        try:
+            response = super().send(request, **kw)
+        except httpx.TransportError as exc:
+            kind = monitor.transport_kind(exc)
+            if kind is not None:
+                monitor.note_error(self.mso_connector, kind)
+            raise
+        monitor.note_response(self.mso_connector, request, response)
+        return response
+
+
 def http_client(base_url: str, *, timeout: float = 15.0, headers: dict[str, str] | None = None,
                 follow_redirects: bool = False, **kw: Any) -> httpx.Client:
-    """Outbound HTTP client for LAN services: SSRF-checked base URL, sane timeouts, no redirects by default."""
-    base = check_url(base_url)
+    """Outbound HTTP client for LAN services: SSRF-checked base URL, sane timeouts, no redirects by default.
+
+    For SABnzbd / qBittorrent / Prowlarr (looked up by base URL) the client also feeds background monitoring."""
+    cid = connector_for_url(base_url)
+    monitored = cid if cid in monitor.MONITORED else None
+    try:
+        base = check_url(base_url)
+    except UnsafeTarget as exc:
+        if monitored and exc.code == "dns_failure":
+            monitor.note_error(monitored, "offline", redact(str(exc)))
+        raise
     h = {"User-Agent": USER_AGENT}
     h.update(headers or {})
-    return httpx.Client(base_url=base, timeout=httpx.Timeout(timeout, connect=5.0), headers=h,
-                        follow_redirects=follow_redirects, **kw)
+    opts: dict[str, Any] = {"base_url": base, "timeout": httpx.Timeout(timeout, connect=5.0), "headers": h,
+                            "follow_redirects": follow_redirects, **kw}
+    if monitored:
+        return MonitoredClient(monitored, **opts)
+    return httpx.Client(**opts)

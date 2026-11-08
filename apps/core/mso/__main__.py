@@ -51,19 +51,47 @@ def _worker(_: argparse.Namespace) -> None:
     worker.run_forever()
 
 
+def _say(msg: str) -> None:
+    print(f"[mso] {msg}", flush=True)
+
+
 def _migrate(args: argparse.Namespace) -> None:
-    from mso.db import Database, migrate_down, migrate_up, schema_version
+    from mso import backups
+    from mso.db import Database, migrate_down, migrate_up, schema_version, set_db
 
     db = Database(get_settings().database_url, max_size=2)
+    set_db(db)
     if args.down is not None:
         print("teruggedraaid:", migrate_down(db, args.down))
     else:
+        if not args.no_backup:
+            # safety net before the schema changes (compose 'migrate' service; the all-in-one supervisor makes it
+            # as a separate step and passes --no-backup). Never blocks the upgrade.
+            backups.pre_upgrade_backup(db, target=args.to, log=_say)
         print("toegepast:", migrate_up(db, args.to))
+        try:
+            backups.flush_pre_upgrade(db)
+        except Exception as exc:  # the audit row is a nicety; the migration itself succeeded
+            LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
     print("schemaversie:", schema_version(db))
 
 
 def _backup(args: argparse.Namespace) -> None:
     from mso import backups
+
+    if args.pre_upgrade:
+        # runs BEFORE the migrations, against the old schema: no init_runtime (that would migrate first)
+        from mso.db import Database, set_db
+
+        db = Database(get_settings().database_url, max_size=2)
+        set_db(db)
+        try:
+            res = backups.pre_upgrade_backup(db, log=_say)
+            if res["status"] in ("not_needed", "exists"):
+                _say(f"back-up vóór upgrade: niet nodig ({res.get('reason')})")
+        finally:
+            db.close()
+        return  # never a non-zero exit: a missing pre-upgrade backup must not block the start
     from mso.app import init_runtime
 
     init_runtime()
@@ -84,9 +112,12 @@ def main(argv: list[str] | None = None) -> None:
     m = sub.add_parser("migrate")
     m.add_argument("--to", type=int, default=None)
     m.add_argument("--down", type=int, default=None, help="draai terug tot en met deze versie")
+    m.add_argument("--no-backup", action="store_true", help="geen automatische back-up vóór openstaande migraties")
     m.set_defaults(fn=_migrate)
     b = sub.add_parser("backup")
     b.add_argument("--include-secrets", action="store_true")
+    b.add_argument("--pre-upgrade", action="store_true",
+                   help="alleen als er openstaande migraties zijn: back-up vóór de upgrade (faalt nooit hard)")
     b.set_defaults(fn=_backup)
     args = p.parse_args(argv)
     args.fn(args)

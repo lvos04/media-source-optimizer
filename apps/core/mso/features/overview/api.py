@@ -25,27 +25,62 @@ def _age(db: Database, sql: str, params: Any = None) -> int | None:
     return int(v) if v is not None else None
 
 
+def _human_duration(seconds: int | None) -> str:
+    from mso.connectors.monitor import human_duration
+
+    return human_duration(seconds)
+
+
+def connector_line(item: dict[str, Any]) -> str | None:
+    """One honest Dutch sentence for a connector that is down, e.g. "qBittorrent onbereikbaar sinds 2 d 4 u"."""
+    if not item.get("configured") or item.get("status") not in ("offline", "auth_failed"):
+        return None
+    since = f" sinds {_human_duration(item['down_for_s'])}" if item.get("down_for_s") is not None else ""
+    if item["status"] == "auth_failed":
+        return f"{item['label']}: API-sleutel of inloggegevens geweigerd{since}"
+    if item.get("failure_kind") == "timeout":
+        return f"{item['label']} reageert niet (time-out){since}"
+    return f"{item['label']} onbereikbaar{since}"
+
+
 def connectors_block(db: Database) -> dict[str, Any]:
     rows = db.fetchall(
-        "SELECT id, kind, label, url, enabled, status, version, last_checked_at, last_error, "
-        "extract(epoch FROM now() - last_checked_at)::bigint AS stale_s FROM connectors ORDER BY id"
+        "SELECT id, kind, label, url, enabled, status, version, last_checked_at, last_error, status_since, "
+        "last_ok_at, failure_kind, "
+        "extract(epoch FROM now() - last_checked_at)::bigint AS stale_s, "
+        "extract(epoch FROM now() - status_since)::bigint AS since_s FROM connectors ORDER BY id"
     )
+    # failed background jobs whose error was an outage of this connector (not a bug in the job): shown as the
+    # connector's state instead of as a pile of failed jobs
+    outage_jobs = {
+        r["connector_id"]: int(r["n"])
+        for r in db.fetchall(
+            "SELECT connector_id, count(*) AS n FROM jobs WHERE status='failed' AND connector_id IS NOT NULL "
+            "AND updated_at > now() - interval '24 hours' GROUP BY connector_id"
+        )
+    }
     items = []
     for r in rows:
         configured = bool(r["enabled"] and r["url"])
-        items.append(
-            {
-                "id": r["id"],
-                "kind": r["kind"],
-                "label": r["label"],
-                "configured": configured,
-                "status": r["status"] if configured else "not_configured",
-                "version": r["version"],
-                "last_checked_at": r["last_checked_at"],
-                "stale_s": r["stale_s"],
-                "message": r["last_error"],
-            }
-        )
+        status = r["status"] if configured else "not_configured"
+        item = {
+            "id": r["id"],
+            "kind": r["kind"],
+            "label": r["label"],
+            "configured": configured,
+            "status": status,
+            "version": r["version"],
+            "last_checked_at": r["last_checked_at"],
+            "stale_s": r["stale_s"],
+            "message": r["last_error"],
+            "status_since": r["status_since"] if configured else None,
+            "last_ok_at": r["last_ok_at"],
+            "failure_kind": r["failure_kind"] if status in ("offline", "auth_failed") else None,
+            "down_for_s": r["since_s"] if configured and status in ("offline", "auth_failed") else None,
+            "job_failures_24h": outage_jobs.get(r["id"], 0),
+        }
+        item["summary"] = connector_line(item)
+        items.append(item)
     configured = [i for i in items if i["configured"]]
     return {
         "available": bool(configured),
@@ -55,6 +90,7 @@ def connectors_block(db: Database) -> dict[str, Any]:
             s: sum(1 for i in configured if i["status"] == s)
             for s in ("healthy", "degraded", "offline", "auth_failed", "unknown")
         },
+        "outage_job_failures_24h": sum(outage_jobs.values()),
     }
 
 
@@ -312,11 +348,13 @@ def health_summary(conn: dict[str, Any], jobs: dict[str, Any], failures: dict[st
     issues = []
     for c in conn["items"]:
         if c["configured"] and c["status"] in ("offline", "auth_failed", "degraded"):
-            issues.append(f"{c['label']}: {status_label(c['status'])}")
+            issues.append(c.get("summary") or f"{c['label']}: {status_label(c['status'])}")
     if not jobs["worker"]["healthy"]:
         issues.append("Worker niet actief" if not jobs["worker"]["seen"] else "Worker-hartslag verouderd")
-    if jobs["failing_24h"]:
-        issues.append(f"{jobs['failing_24h']} mislukte taak/taken (24 u)")
+    # jobs that failed because a connector was down are already said above ("… onbereikbaar sinds …")
+    other_failed = max(0, int(jobs["failing_24h"]) - int(conn.get("outage_job_failures_24h") or 0))
+    if other_failed:
+        issues.append(f"{other_failed} mislukte taak/taken (24 u)")
     if not conn["available"]:
         status = "unknown"
     elif any(c["configured"] and c["status"] in ("offline", "auth_failed") for c in conn["items"]):

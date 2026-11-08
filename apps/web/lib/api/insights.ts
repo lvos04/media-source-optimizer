@@ -6,6 +6,9 @@ export interface Unavailable { available: boolean; reason?: string | null }
 export interface OverviewConnector {
   id: string; kind: string; label: string; configured: boolean; status: string; version: string | null;
   last_checked_at: string | null; stale_s: number | null; message: string | null;
+  /** Background monitoring (1.6.0): since when the current status holds, last success, auth | offline | timeout. */
+  status_since?: string | null; last_ok_at?: string | null; failure_kind?: "auth" | "offline" | "timeout" | null;
+  down_for_s?: number | null; job_failures_24h?: number; summary?: string | null;
 }
 export interface FailureLocation { kind: "source" | "provider" | "client"; id: string; label: string; count: number; reasons: Record<string, number> }
 export interface Overview {

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from mso.connectors import monitor
 from mso.db import Database, get_db, jsonb
 from mso.security import redact
 
@@ -120,6 +121,22 @@ def claim(worker_id: str, kinds: list[str] | None = None, db: Database | None = 
         return dict(job)
 
 
+def _monitor_end(token: Any, exc: BaseException | None, db: Database) -> None:
+    """Background connector monitoring verdict for this job; a recovered connector gets a full round at once."""
+    try:
+        recovered = monitor.end(token, exc, db=db)
+    except Exception:
+        LOGGER.warning("koppelingsbewaking: verwerken van de taakuitkomst mislukt", exc_info=False)
+        return
+    for cid in recovered:
+        try:
+            n = run_connector_round(cid, db)
+            if n:
+                LOGGER.info("%s werkt weer: %d taak/taken meteen ingepland", monitor.label(cid), n)
+        except Exception:
+            LOGGER.warning("volledige ronde na herstel van %s niet ingepland", cid)
+
+
 def run_one(job: dict[str, Any], db: Database | None = None) -> str:
     db = db or get_db()
     fn = HANDLERS.get(job["kind"])
@@ -128,29 +145,37 @@ def run_one(job: dict[str, Any], db: Database | None = None) -> str:
         db.execute("UPDATE jobs SET status='failed', error=%s, updated_at=now() WHERE id=%s",
                    (f"geen handler voor '{job['kind']}'", job["id"]))
         return "failed"
+    token = monitor.begin(job["kind"])
     try:
         result = fn(ctx)
     except JobCancelled:
+        _monitor_end(token, None, db)
         db.execute("UPDATE jobs SET locked_by=NULL, updated_at=now() WHERE id=%s", (job["id"],))
         return "cancelled"
     except Exception as exc:
         msg = redact(f"{type(exc).__name__}: {exc}")
         LOGGER.warning("job %s (%s) mislukt: %s", job["id"], job["kind"], msg)
         LOGGER.debug("%s", redact(traceback.format_exc()))
+        try:
+            connector = monitor.job_failure_connector(exc)
+        except Exception:
+            connector = None
+        _monitor_end(token, exc, db)
         permanent = isinstance(exc, PermanentJobError)
         if not permanent and job["attempts"] < job["max_attempts"]:
             backoff = min(3600, (2 ** job["attempts"]) * 15) * (0.8 + random.random() * 0.4)
             db.execute(
-                "UPDATE jobs SET status='queued', locked_by=NULL, error=%s, "
+                "UPDATE jobs SET status='queued', locked_by=NULL, error=%s, connector_id=%s, "
                 "run_after=now() + make_interval(secs => %s), updated_at=now() WHERE id=%s AND status='running'",
-                (msg, backoff, job["id"]))
+                (msg, connector, backoff, job["id"]))
             return "retry"
-        db.execute("UPDATE jobs SET status='failed', locked_by=NULL, error=%s, updated_at=now() "
-                   "WHERE id=%s AND status='running'", (msg, job["id"]))
+        db.execute("UPDATE jobs SET status='failed', locked_by=NULL, error=%s, connector_id=%s, updated_at=now() "
+                   "WHERE id=%s AND status='running'", (msg, connector, job["id"]))
         return "failed"
+    _monitor_end(token, None, db)
     db.execute(
-        "UPDATE jobs SET status='done', locked_by=NULL, progress=1, result=%s, error=NULL, updated_at=now() "
-        "WHERE id=%s AND status='running'", (jsonb(result if result is not None else {}), job["id"]))
+        "UPDATE jobs SET status='done', locked_by=NULL, progress=1, result=%s, error=NULL, connector_id=NULL, "
+        "updated_at=now() WHERE id=%s AND status='running'", (jsonb(result if result is not None else {}), job["id"]))
     return "done"
 
 
@@ -176,6 +201,10 @@ class Schedule:
 
 
 SCHEDULES: list[Schedule] = []
+# connectors a schedule's ``enabled`` hook looked up (e.g. ``cb.is_configured("qbittorrent")``): while one of them is
+# down (offline / key refused) the schedule runs at most every ``monitor.THROTTLE_S``; on recovery it runs at once
+SCHEDULE_DEPS: dict[str, set[str]] = {}
+_LAST_SCHEDULED: dict[str, float] = {}  # kind -> time.time() of the last scheduler enqueue (this process)
 
 
 def every(kind: str, seconds: int, payload: dict[str, Any] | None = None,
@@ -183,23 +212,71 @@ def every(kind: str, seconds: int, payload: dict[str, Any] | None = None,
     SCHEDULES.append(Schedule(kind, seconds, payload or {}, enabled or (lambda: True)))
 
 
+def _enabled(sched: Schedule) -> bool:
+    with monitor.capture_lookups() as used:
+        on = bool(sched.enabled())
+    SCHEDULE_DEPS[sched.kind] = {c for c in used if c in monitor.MONITORED}
+    return on
+
+
+def _enqueue_slot(sched: Schedule, now: int, db: Database) -> bool:
+    slot = now // sched.every_s
+    key = f"sched:{sched.kind}:{slot}"
+    if db.scalar("SELECT count(*) FROM jobs WHERE idempotency_key=%s", (key,)):
+        return False
+    enqueue(sched.kind, sched.payload, idempotency_key=key, max_attempts=1, created_by="scheduler", db=db)
+    _LAST_SCHEDULED[sched.kind] = time.time()
+    return True
+
+
 def enqueue_due_schedules(db: Database | None = None) -> int:
-    """Idempotent per time slot: the key ``sched:<kind>:<slot>`` prevents duplicate runs across restarts."""
+    """Idempotent per time slot: the key ``sched:<kind>:<slot>`` prevents duplicate runs across restarts.
+
+    A schedule that depends on a connector that is down runs at most every 15 minutes (it is also the probe that
+    notices the recovery), instead of producing a failed job every slot."""
     db = db or get_db()
     n = 0
     now = int(time.time())
+    try:
+        down = set(monitor.down_connectors(db))
+    except Exception:
+        down = set()
     for sched in SCHEDULES:
         try:
-            if not sched.enabled():
+            if not _enabled(sched):
                 continue
         except Exception:
             LOGGER.warning("schema-controle voor %s mislukt; overgeslagen", sched.kind)
             continue
-        slot = now // sched.every_s
-        before = db.scalar("SELECT count(*) FROM jobs WHERE idempotency_key=%s", (f"sched:{sched.kind}:{slot}",))
-        if not before:
-            enqueue(sched.kind, sched.payload, idempotency_key=f"sched:{sched.kind}:{slot}", max_attempts=1,
-                    created_by="scheduler", db=db)
+        if down & SCHEDULE_DEPS.get(sched.kind, set()) and sched.every_s < monitor.THROTTLE_S:
+            last = _LAST_SCHEDULED.get(sched.kind)
+            if last is not None and now - last < monitor.THROTTLE_S:
+                continue
+        if _enqueue_slot(sched, now, db):
+            n += 1
+    return n
+
+
+def run_connector_round(cid: str, db: Database | None = None) -> int:
+    """A connector works again: enqueue every enabled schedule that depends on it right away (once per slot)."""
+    db = db or get_db()
+    now = int(time.time())
+    n = 0
+    for sched in SCHEDULES:
+        deps = SCHEDULE_DEPS.get(sched.kind)
+        try:
+            if deps is None:
+                if not _enabled(sched):
+                    continue
+                deps = SCHEDULE_DEPS.get(sched.kind, set())
+                if cid not in deps:
+                    continue
+            elif cid not in deps or not _enabled(sched):
+                continue
+        except Exception:
+            LOGGER.warning("schema-controle voor %s mislukt; overgeslagen", sched.kind)
+            continue
+        if _enqueue_slot(sched, now, db):
             n += 1
     return n
 

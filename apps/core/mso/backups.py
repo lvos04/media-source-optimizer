@@ -50,10 +50,12 @@ UPGRADE_KIND, UPGRADE_KEEP = "pre-upgrade", 3
 PRE_UPGRADE_LOCK = 727002  # advisory lock: api, worker and `mso migrate` never dump twice for one upgrade
 PRE_UPGRADE_STATE = "backup.pre_upgrade_pending"
 SPACE_ALERT_KEY = "backup.space"
-# jobs that refill the refetchable tables after a restore (only those whose handler is loaded are queued)
-RESYNC_JOBS: tuple[tuple[str, dict[str, Any]], ...] = (
-    ("mediaguard.sync", {"force": True, "actor": "herstel"}),
-    ("torrent.ingest", {}),
+# jobs that refill the refetchable tables after a restore (only those whose handler is loaded are queued);
+# (job kind, payload, connector it reads from): only queued when that connector is configured, so a restore on a
+# usenet-only install never leaves a failed 'torrent.ingest' behind
+RESYNC_JOBS: tuple[tuple[str, dict[str, Any], str], ...] = (
+    ("mediaguard.sync", {"force": True, "actor": "herstel"}, "mediaguard"),
+    ("torrent.ingest", {}, "qbittorrent"),
 )
 
 
@@ -283,8 +285,10 @@ def resync_after_restore(db: Database | None = None) -> list[str]:
         db.execute("UPDATE usenet_hi_groups SET last_article=NULL WHERE last_article IS NOT NULL")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     queued = []
-    for kind, payload in RESYNC_JOBS:
-        if kind not in jobs.HANDLERS:
+    from mso.connectors import base as cb
+
+    for kind, payload, connector in RESYNC_JOBS:
+        if kind not in jobs.HANDLERS or not cb.is_configured(connector):
             continue
         jobs.enqueue(kind, payload, idempotency_key=f"restore-resync:{kind}:{stamp}", max_attempts=2,
                      created_by="herstel", db=db)

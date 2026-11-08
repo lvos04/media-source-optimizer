@@ -205,6 +205,8 @@ function Changes({ o }: { o: Overview }) {
 function SystemCard({ o }: { o: Overview }) {
   const { t, num, duration } = useI18n();
   const w = o.jobs.worker;
+  // failures caused by a connector outage are shown as that connector's state ("… onbereikbaar sinds …"), not here
+  const failing = Math.max(0, o.jobs.failing_24h - (o.connectors.outage_job_failures_24h ?? 0));
   return (
     <Card className="span-4" title={t("overview.system")} icon={ShieldCheck}>
       <dl className="kv">
@@ -221,7 +223,7 @@ function SystemCard({ o }: { o: Overview }) {
         <dt>{t("overview.worker")}</dt>
         <dd><StatusChip tone={w.healthy ? "success" : "warning"}>{w.healthy ? t("overview.workerOk") : w.seen ? t("overview.workerStale") : t("overview.workerNever")}</StatusChip></dd>
         <dt>{t("overview.jobsFailing")}</dt>
-        <dd>{o.jobs.failing_24h ? <Link href="/systeem"><StatusChip tone="danger">{num(o.jobs.failing_24h)}</StatusChip></Link> : <StatusChip tone="success">0</StatusChip>}</dd>
+        <dd>{failing ? <Link href="/systeem"><StatusChip tone="danger">{num(failing)}</StatusChip></Link> : <StatusChip tone="success">0</StatusChip>}</dd>
         <dt>{t("overview.queue")}</dt>
         <dd>{t("overview.queueValue", { queued: num(o.jobs.queued), running: num(o.jobs.running) })}</dd>
       </dl>

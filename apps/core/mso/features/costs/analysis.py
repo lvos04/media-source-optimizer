@@ -568,22 +568,35 @@ def analyse(service: dict[str, Any], period_days: int, db: Database | None = Non
 def _latency(sid: str | None, period_days: int, db: Database) -> dict[str, Any]:
     if not sid:
         return {"available": False, "n": 0}
+    # percentiles need the individual measurements, which are kept for the raw retention window only (older ones
+    # are rolled up per hour): a longer period is measured over that window and says so
+    from mso import retention
+
+    window = min(int(period_days), int(retention.raw_retention(db)["effective_days"]))
+    note = (
+        f"Gemeten over de laatste {window} dagen: oudere losse metingen zijn alleen per uur samengevat bewaard."
+        if window < period_days
+        else None
+    )
     row = db.fetchone(
         "SELECT count(*) AS n, percentile_cont(0.5) WITHIN GROUP (ORDER BY value) AS p50, "
         "percentile_cont(0.95) WITHIN GROUP (ORDER BY value) AS p95, array_agg(DISTINCT metric) AS metrics "
         "FROM observations WHERE subject=%s AND metric ILIKE '%%latency%%' AND value IS NOT NULL "
         "AND ts >= now() - make_interval(days => %s)",
-        (sid, period_days),
+        (sid, window),
     )
     n = int(row["n"] or 0) if row else 0
     if not n:
-        return {"available": False, "n": 0, "reason": "Geen latentiemetingen in deze periode"}
+        return {"available": False, "n": 0, "reason": "Geen latentiemetingen in deze periode", "window_days": window,
+                "note": note}
     return {
         "available": True,
         "n": n,
         "p50_ms": round(row["p50"], 1),
         "p95_ms": round(row["p95"], 1),
         "metrics": [m for m in (row["metrics"] or []) if m],
+        "window_days": window,
+        "note": note,
     }
 
 

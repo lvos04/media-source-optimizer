@@ -266,10 +266,15 @@ def snapshot_server_stats() -> dict[str, Any]:
 
 
 def server_totals() -> dict[str, int]:
-    """Latest SABnzbd all-time byte counter per server (since SABnzbd's last statistics reset)."""
+    """Latest SABnzbd all-time byte counter per server (since SABnzbd's last statistics reset). When SABnzbd sent no
+    statistics for longer than the raw retention window, the newest hourly rollup (its maximum) is the last value."""
     rows = get_db().fetchall(
-        "SELECT DISTINCT ON (labels->>'server') labels->>'server' AS server, value FROM observations "
-        "WHERE subject='sabnzbd' AND metric='sab.server_total_bytes' ORDER BY labels->>'server', ts DESC"
+        "SELECT DISTINCT ON (server) server, value FROM ("
+        "SELECT labels->>'server' AS server, value, ts FROM observations "
+        "WHERE subject='sabnzbd' AND metric='sab.server_total_bytes' UNION ALL "
+        "SELECT labels->>'server', max, hour FROM observations_hourly "
+        "WHERE subject='sabnzbd' AND metric='sab.server_total_bytes'"
+        ") t ORDER BY server, ts DESC"
     )
     return {r["server"]: int(r["value"] or 0) for r in rows}
 

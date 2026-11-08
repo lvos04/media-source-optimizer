@@ -7,7 +7,9 @@ What it cleans (settings under Instellingen → Systeem; defaults in brackets):
 - raw ``observations`` older than ``retention.observations_raw_days`` [30 d] are first rolled up into
   ``observations_hourly`` (min/max/avg/median/sum/count per hour), which is kept ``retention.observations_hourly_days``
   [400 d]. The raw window is automatically extended when an evaluation or a score looks further back
-  (``raw_retention``), so no evaluation ever loses its baseline;
+  (``raw_retention``), so no evaluation ever loses its baseline. Informational readers that accept longer periods
+  read the rollup for the older part (usenet NNTP-check failures, SABnzbd byte counter) or say over which window
+  they measured (cost latency percentiles need individual measurements);
 - ``automation_log`` [180 d] and ``login_attempts`` [90 d];
 - safety backups (``backups.prune_safety``) and stale connector alerts.
 

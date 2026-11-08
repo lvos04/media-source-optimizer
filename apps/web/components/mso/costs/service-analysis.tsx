@@ -53,7 +53,8 @@ export function ServiceAnalysis({ serviceId, label, periodDays, className = "spa
                   </>
                 ) : null}
                 <dt>{t("costs.a.latency")}</dt>
-                <dd>{a.latency.available ? t("costs.a.latencyValue", { p50: num(a.latency.p50_ms), p95: num(a.latency.p95_ms), n: num(a.latency.n) }) : <span className="t-3">{a.latency.reason ?? "—"}</span>}</dd>
+                <dd>{a.latency.available ? t("costs.a.latencyValue", { p50: num(a.latency.p50_ms), p95: num(a.latency.p95_ms), n: num(a.latency.n) }) : <span className="t-3">{a.latency.reason ?? "—"}</span>}
+                  {a.latency.note ? <div className="hint" style={{ marginTop: 4 }}>{a.latency.note}</div> : null}</dd>
                 <dt>{t("costs.a.recovered")}</dt><dd className="num">{a.recovered.available ? num(a.recovered.count) : "—"}</dd>
                 {a.block ? (
                   <>

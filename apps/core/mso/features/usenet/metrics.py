@@ -89,10 +89,16 @@ def provider_contribution(period_days: int) -> list[dict[str, Any]]:
         )
     }
     checks: dict[str, dict[str, int]] = {}
+    # raw checks plus, past the raw retention window, the hourly rollups (values are 0/1, so the failed checks of an
+    # hour are n_values - sum): a period of up to 365 days keeps counting every check
     for r in db.fetchall(
+        "SELECT subject, status, sum(n)::bigint AS n FROM ("
         "SELECT subject, labels->>'status' AS status, count(*) AS n FROM observations "
-        "WHERE metric='nntp.check_ok' AND value=0 AND ts > now() - %s::interval GROUP BY 1, 2",
-        (since,),
+        "WHERE metric='nntp.check_ok' AND value=0 AND ts > now() - %s::interval GROUP BY 1, 2 UNION ALL "
+        "SELECT subject, labels->>'status', sum(n_values - COALESCE(sum, 0)) FROM observations_hourly "
+        "WHERE metric='nntp.check_ok' AND hour > now() - %s::interval GROUP BY 1, 2"
+        ") c GROUP BY 1, 2 HAVING sum(n) > 0",
+        (since, since),
     ):
         checks.setdefault(r["subject"], {})[r["status"] or "unknown"] = int(r["n"])
     total_articles = int(groups["total"] or 0)

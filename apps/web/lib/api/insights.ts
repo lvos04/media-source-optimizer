@@ -14,7 +14,9 @@ export interface FailureLocation { kind: "source" | "provider" | "client"; id: s
 export interface Overview {
   mode: OperatingMode; paused: boolean; automation_allowed: boolean;
   health: { status: "healthy" | "degraded" | "offline" | "unknown"; issues: string[] };
-  connectors: Unavailable & { items: OverviewConnector[]; counts: Record<string, number> };
+  connectors: Unavailable & { items: OverviewConnector[]; counts: Record<string, number>;
+    /** 1.6.0: failed jobs (24 h) caused by a connector outage; shown as the connector's state, not as failures. */
+    outage_job_failures_24h?: number };
   downloads: Unavailable & { active: { usenet: number; torrent: number }; total_active?: number; stale_s: number | null };
   failures: Unavailable & {
     last_24h: number; last_7d: number; finished_7d?: number; failure_rate_7d?: number | null;
@@ -79,7 +81,9 @@ export interface Analysis {
   usage: { bytes: number; gb: number; successful_downloads: number; failed_downloads: number; bytes_method: string };
   unique: { value: number | null; method: string | null; confidence: ConfidenceLabel; note: string; range?: Range; coverage?: number | null;
     articles?: Record<string, unknown>; articles_note?: string };
-  latency: { available: boolean; n: number; p50_ms?: number; p95_ms?: number; reason?: string };
+  latency: { available: boolean; n: number; p50_ms?: number; p95_ms?: number; reason?: string;
+    /** 1.6.0: measured over this many days (the raw retention window); `note` says so when shorter than the period. */
+    window_days?: number; note?: string | null };
   failures_by_reason: Array<{ reason: string; label: string; count: number }>;
   recovered: { count: number; available: boolean; method?: string };
   block: { size_gb: number | null; used_gb: number | null; remaining_gb: number | null; observed_gb_per_month: number | null; est_months_left: number | null; note: string } | null;

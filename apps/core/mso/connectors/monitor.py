@@ -8,8 +8,9 @@ How it works (no feature module needs to know about it):
 - At the end of the job one verdict per connector is stored (``record``):
   an uncaught connector error (``SabError`` code ``auth``/``timeout``/``unreachable``, ``QbitAuthError``,
   ``ProwlarrError`` code ``auth``/``timeout``/``unavailable``, raw ``httpx`` transport errors) → ``auth_failed`` or
-  ``offline`` (``failure_kind`` auth | offline | timeout); otherwise at least one successful response (2xx/3xx, not a
-  login handshake) → healthy; only failures (refused, time-out, HTTP 401/403) → down.
+  ``offline`` (``failure_kind`` auth | offline | timeout); otherwise at least one successful response (2xx, not a
+  login handshake) → healthy; only failures (refused, time-out, HTTP 401/403, a redirect instead of an API answer)
+  → down. A read time-out of a slow aggregate search (Prowlarr waits for every indexer) is not an outage.
 - ``status_since`` changes only when the status changes; ``last_ok_at`` is the last success.
 - ``last_error`` is always redacted: no API key, password or user name ever reaches it.
 - A "Wacht op jou" item (open recommendation, area ``system``) appears only when the key has been refused for more
@@ -53,6 +54,9 @@ FAILURE_TEXT = {
 
 # login handshakes prove nothing about the key that is used afterwards (qBittorrent answers 200 "Fails.")
 _LOGIN_PATHS = ("/auth/login", "/login")
+# requests that may legitimately take long: Prowlarr's aggregate search waits for every indexer, so a *read* time-out
+# there says something about slow indexers, not about Prowlarr (a connect time-out still counts as unreachable)
+SLOW_PATHS = ("/api/v1/search",)
 
 
 @dataclass
@@ -132,8 +136,36 @@ def note_response(cid: str, request: httpx.Request, response: httpx.Response) ->
         ev = scope.ev(cid)
         if response.status_code in (401, 403):
             ev.failure = ("auth", failure_message(cid, "auth") + f" (HTTP {response.status_code})")
-        elif response.status_code < 400 and not path.endswith(_LOGIN_PATHS):
-            ev.ok += 1
+        elif 200 <= response.status_code < 300:
+            if not path.endswith(_LOGIN_PATHS):
+                ev.ok += 1
+        elif 300 <= response.status_code < 400:
+            # the clients never follow redirects: an API call answered with a redirect (SSO / reverse proxy login
+            # page, http → https) means MSO is not talking to the API at all
+            ev.failure = ("offline", redirect_message(cid, response.status_code))
+
+
+def redirect_message(cid: str, status: int) -> str:
+    return (f"{label(cid)} stuurt API-verzoeken door (HTTP {status}) in plaats van te antwoorden; staat er een "
+            "inlogpagina of proxy voor, of klopt http/https in het adres niet?")
+
+
+def slow_timeout(exc: BaseException) -> bool:
+    """A read/write time-out of a request that may legitimately take long (see ``SLOW_PATHS``)."""
+    if not isinstance(exc, httpx.TimeoutException) or isinstance(exc, httpx.ConnectTimeout | httpx.PoolTimeout):
+        return False
+    try:
+        path = exc.request.url.path or ""
+    except (AttributeError, RuntimeError):
+        return False
+    return path.rstrip("/").endswith(SLOW_PATHS)
+
+
+def note_transport_error(cid: str, exc: BaseException) -> None:
+    """Called by ``base.MonitoredClient`` for every transport error of a monitored connector."""
+    kind = transport_kind(exc)
+    if kind is not None and not slow_timeout(exc):
+        note_error(cid, kind)
 
 
 def note_error(cid: str, kind: str, message: str | None = None) -> None:
@@ -181,6 +213,8 @@ def classify_exception(exc: BaseException) -> tuple[str, str, str] | None:
     (key refused, unreachable, time-out); None for anything else (a bug, bad input, a 5xx answer …)."""
     from mso.connectors import base
 
+    if any(slow_timeout(e) for e in _chain(exc)):
+        return None  # a slow aggregate search timed out: the indexers are slow, the connector itself answers
     for e in _chain(exc):
         if isinstance(e, base.ConnectorNotConfigured):
             return None
@@ -295,6 +329,15 @@ def record(cid: str, ok: bool, kind: str | None = None, message: str | None = No
     return transition
 
 
+def resolve_stale_alerts(down: set[str] | list[str], db: Database | None = None) -> None:
+    """Resolve open connector items whose connector is no longer down (disabled, address cleared, or fixed
+    outside a job). ``down`` must be the complete current result of ``down_connectors``."""
+    db = db or get_db()
+    db.execute("UPDATE recommendations SET status='resolved', updated_at=now() WHERE dedupe_key LIKE %s "
+               "AND status='open' AND NOT (dedupe_key = ANY(%s))",
+               (ALERT_KEY + "%", [ALERT_KEY + c for c in down if c in MONITORED]))
+
+
 def down_connectors(db: Database | None = None) -> dict[str, dict[str, Any]]:
     """Enabled, configured connectors that are currently down (offline / key refused)."""
     db = db or get_db()
@@ -306,10 +349,13 @@ def down_connectors(db: Database | None = None) -> dict[str, dict[str, Any]]:
 
 def sync_alert(cid: str, *, db: Database | None = None, status: str | None = None,
                since: datetime | None = None) -> None:
-    """Open / refresh / resolve the "Wacht op jou" item for one connector."""
+    """Open / refresh / resolve the "Wacht op jou" item for one connector (SABnzbd, qBittorrent, Prowlarr only:
+    MediaGuard has its own status probe and is not retried every 15 minutes)."""
     db = db or get_db()
     key = ALERT_KEY + cid
-    if status is None:
+    if cid not in MONITORED:
+        status, since = "not_monitored", None
+    elif status is None:
         row = db.fetchone("SELECT status, status_since, enabled, url FROM connectors WHERE id=%s", (cid,))
         if row is None:
             return
@@ -344,7 +390,9 @@ def sync_alert(cid: str, *, db: Database | None = None, status: str | None = Non
         prev = conn.execute("SELECT status, evidence FROM recommendations WHERE dedupe_key=%s FOR UPDATE",
                             (key,)).fetchone()
         same_episode = prev is not None and (prev["evidence"] or {}).get("since") == evidence["since"]
-        new_status = "dismissed" if prev is not None and prev["status"] == "dismissed" and same_episode else "open"
+        # the owner's decision (weggeklikt / geaccepteerd) holds for the whole outage; a new outage asks again
+        keep = prev is not None and same_episode and prev["status"] in ("dismissed", "accepted")
+        new_status = prev["status"] if keep else "open"
         conn.execute(
             "INSERT INTO recommendations(area,subject,title,explanation,impact,risk,confidence,dedupe_key,evidence,"
             "status) VALUES ('system',%s,%s,%s,%s,'toestemming_nodig',1.0,%s,%s,%s) "
@@ -362,6 +410,7 @@ def sync_alert(cid: str, *, db: Database | None = None, status: str | None = Non
 
 
 __all__ = [
-    "DOWN", "MONITORED", "THROTTLE_S", "begin", "capture_lookups", "classify_exception", "down_connectors", "end",
-    "human_duration", "job_failure_connector", "note_error", "note_lookup", "note_response", "record", "sync_alert",
+    "DOWN", "MONITORED", "SLOW_PATHS", "THROTTLE_S", "begin", "capture_lookups", "classify_exception",
+    "down_connectors", "end", "human_duration", "job_failure_connector", "note_error", "note_lookup", "note_response",
+    "note_transport_error", "record", "resolve_stale_alerts", "slow_timeout", "sync_alert",
 ]

@@ -88,6 +88,44 @@ def test_raw_window_extends_to_the_longest_reader(app: Any, db: Any) -> None:
     assert retention.rollup_observations(db)["observations_raw"] == 0  # an evaluation may still need it
 
 
+def test_readers_past_the_raw_window_use_the_hourly_rollup(app: Any, db: Any, admin: Any) -> None:
+    """Readers with periods up to 365 d: NNTP check failures keep counting (exact via the rollup), the SABnzbd byte
+    counter keeps its last value, and the cost latency says it is measured over the raw window only."""
+    if "usenet.history_poll_s" not in sr.REGISTRY or "costs.default_period_days" not in sr.REGISTRY:
+        pytest.skip("usenet/kosten niet geladen")
+    from mso.features.costs import analysis
+    from mso.features.usenet import history, metrics
+
+    r = admin.post("/api/v1/usenet/providers", json={"slug": "eweka", "label": "Eweka", "host": "127.0.0.1",
+                                                     "port": 1, "ssl": False, "connections": 4})
+    assert r.status_code == 200, r.text
+    now = datetime.now(UTC)
+    old = now - timedelta(days=40)
+    refused = '{"status": "auth_failed", "code": 481}'
+    for i in range(3):
+        _obs(db, old + timedelta(minutes=i), 0.0, "provider:eweka", "nntp.check_ok", refused)
+    for i in range(2):
+        _obs(db, old + timedelta(minutes=10 + i), 1.0, "provider:eweka", "nntp.check_ok", '{"status": "ok"}')
+    _obs(db, now - timedelta(days=1), 0.0, "provider:eweka", "nntp.check_ok", refused)
+    for v in (100.0, 200.0):
+        _obs(db, old + timedelta(minutes=20), v, "sabnzbd", "sab.server_total_bytes", '{"server": "news.eweka"}')
+    _obs(db, now - timedelta(days=2), 15.0, "provider:eweka", "nntp.latency_ms")
+    retention.rollup_observations(db)
+    assert not db.scalar("SELECT count(*) FROM observations WHERE ts < now() - interval '31 days'")
+
+    def failures(days: int) -> dict[str, int]:
+        return next(c for c in metrics.provider_contribution(days) if c["slug"] == "eweka")["failures_by_reason"]
+
+    assert failures(90) == {"auth_failed": 4}  # 3 rolled up + 1 raw; the ok checks never count as failures
+    assert failures(30) == {"auth_failed": 1}
+    assert history.server_totals() == {"news.eweka": 200}  # SABnzbd silent > 30 d: last known value
+    _obs(db, now - timedelta(hours=1), 300.0, "sabnzbd", "sab.server_total_bytes", '{"server": "news.eweka"}')
+    assert history.server_totals() == {"news.eweka": 300}
+    lat = analysis._latency("provider:eweka", 90, db)
+    assert lat["available"] and lat["n"] == 1 and lat["window_days"] == 30 and "30 dagen" in lat["note"]
+    assert analysis._latency("provider:eweka", 30, db)["note"] is None
+
+
 def test_retention_job_cleans_logs_vacuums_and_never_touches_audit(app: Any, db: Any, worker: Any) -> None:
     db.execute("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',now() - interval '181 days'), "
                "('run','ok',now() - interval '10 days')")
@@ -154,11 +192,17 @@ def test_backup_excludes_refetchable_data_and_resyncs_after_restore(app: Any, db
     res = backups.restore_backup(b["id"], "test")
     assert db.scalar("SELECT count(*) FROM release_cache") == 0 and db.scalar("SELECT count(*) FROM settings") == 1
     assert db.scalar("SELECT last_article FROM usenet_hi_groups") is None  # header index starts fresh
-    expected = [k for k, _ in backups.RESYNC_JOBS if k in jobs.HANDLERS]
-    assert res["resync"] == expected
+    # nothing configured (e.g. a usenet-only install): no resync job that could only fail
+    assert res["resync"] == []
+    assert not db.scalar("SELECT count(*) FROM jobs WHERE created_by='herstel'")
+    assert not db.scalar("SELECT to_regclass('public.mso_restore_audit_keep') IS NOT NULL")
+    # qBittorrent configured → its ingest is queued after a restore; MediaGuard (not configured) is not
+    db.execute("UPDATE connectors SET url='http://qbit.lan:8080', enabled=true WHERE id='qbittorrent'")
+    expected = ["torrent.ingest"] if "torrent.ingest" in jobs.HANDLERS else []
+    assert backups.resync_after_restore(db) == expected
     for kind in expected:
         assert db.scalar("SELECT status FROM jobs WHERE kind=%s ORDER BY id DESC LIMIT 1", (kind,)) == "queued"
-    assert not db.scalar("SELECT to_regclass('public.mso_restore_audit_keep') IS NOT NULL")
+    assert not db.scalar("SELECT count(*) FROM jobs WHERE kind='mediaguard.sync' AND created_by='herstel'")
 
 
 def test_low_disk_space_skips_dump_with_waiting_item(app: Any, db: Any, worker: Any,

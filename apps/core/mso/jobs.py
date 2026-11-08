@@ -241,6 +241,11 @@ def enqueue_due_schedules(db: Database | None = None) -> int:
         down = set(monitor.down_connectors(db))
     except Exception:
         down = set()
+    else:
+        try:  # a connector that was disabled / emptied while down: its "Wacht op jou" item goes at once
+            monitor.resolve_stale_alerts(down, db)
+        except Exception:
+            LOGGER.warning("koppelingsmeldingen niet bijgewerkt", exc_info=False)
     for sched in SCHEDULES:
         try:
             if not _enabled(sched):

@@ -219,9 +219,7 @@ class MonitoredClient(httpx.Client):
         try:
             response = super().send(request, **kw)
         except httpx.TransportError as exc:
-            kind = monitor.transport_kind(exc)
-            if kind is not None:
-                monitor.note_error(self.mso_connector, kind)
+            monitor.note_transport_error(self.mso_connector, exc)
             raise
         monitor.note_response(self.mso_connector, request, response)
         return response

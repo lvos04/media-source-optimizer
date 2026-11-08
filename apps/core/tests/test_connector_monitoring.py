@@ -333,3 +333,101 @@ def test_overview_counts_only_non_outage_job_failures(app: Any, db: Any, viewer:
     assert o["connectors"]["outage_job_failures_24h"] == 2
     assert "1 mislukte taak/taken (24 u)" in o["health"]["issues"]
     assert any(i.startswith("SABnzbd onbereikbaar sinds") for i in o["health"]["issues"])
+
+
+# ------------------------------------------------------------------ review fixes (1.6.0)
+async def _redirect_app(scope: Any, receive: Any, send: Any) -> None:
+    """An SSO / reverse proxy in front of the API: every call is answered with a redirect to a login page."""
+    if scope["type"] != "http":
+        return
+    await send({"type": "http.response.start", "status": 302, "headers": [(b"location", b"https://sso.lan/login")]})
+    await send({"type": "http.response.body", "body": b""})
+
+
+def test_redirect_instead_of_an_api_answer_is_down(app: Any, db: Any, admin: Any, serve: Any, worker: Any) -> None:
+    url = serve(_redirect_app)
+    assert admin.put("/api/v1/connectors/sabnzbd", json={"url": url, "secrets": {"api_key": SAB_KEY}}).status_code \
+        == 200
+    db.execute("UPDATE connectors SET status='healthy', status_since=now() WHERE id='sabnzbd'")
+    job = _run(worker, "usenet.sab_ingest", {"force": True})
+    assert job["status"] == "failed"
+    row = _row(db, "sabnzbd")
+    assert row["status"] == "offline" and row["failure_kind"] == "offline" and row["last_ok_at"] is None
+    assert "HTTP 302" in row["last_error"] and "inlogpagina" in row["last_error"]
+    # unit: only 2xx counts as evidence that the connector works
+    token = monitor.begin("test")
+    req = httpx.Request("GET", url + "/api")
+    monitor.note_response("sabnzbd", req, httpx.Response(304, request=req))
+    monitor.end(token, None, db=db)
+    assert _row(db, "sabnzbd")["status"] == "offline"
+
+
+def test_slow_prowlarr_search_timeout_is_not_an_outage(app: Any, db: Any, serve: Any, worker: Any,
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    from slice_a_helpers import configure_prowlarr
+
+    from mso.connectors.prowlarr import ProwlarrClient
+
+    async def prowlarr(scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            return
+        if scope["path"].endswith("/api/v1/search"):
+            await asyncio.sleep(3)  # every indexer is slow: Prowlarr itself is fine
+        await send({"type": "http.response.start", "status": 200,
+                    "headers": [(b"content-type", b"application/json")]})
+        await send({"type": "http.response.body", "body": b"[]"})
+
+    url = serve(prowlarr)
+    configure_prowlarr(url)
+    db.execute("UPDATE connectors SET status='healthy', status_since=now() WHERE id='prowlarr'")
+
+    def search_job(ctx: Any) -> dict[str, Any]:
+        return {"n": len(ProwlarrClient.from_config(timeout=0.5).search(query="Some.Show.S01E01"))}
+
+    monkeypatch.setitem(jobs.HANDLERS, "test.slow_search", search_job)
+    job = _run(worker, "test.slow_search")
+    assert job["status"] == "failed" and "time-out" in job["error"] and job["connector_id"] is None
+    row = _row(db, "prowlarr")
+    assert row["status"] == "healthy" and row["failure_kind"] is None
+    # a connect time-out on the same path, or a read time-out on any other call, still means "reageert niet"
+    search = httpx.Request("GET", url + "/api/v1/search")
+    other = httpx.Request("GET", url + "/api/v1/indexer")
+    assert monitor.classify_exception(httpx.ReadTimeout("x", request=search)) is None
+    assert monitor.classify_exception(httpx.ConnectTimeout("x", request=search))[:2] == ("prowlarr", "timeout")
+    assert monitor.classify_exception(httpx.ReadTimeout("x", request=other))[:2] == ("prowlarr", "timeout")
+
+
+def test_owner_decision_holds_for_the_outage_and_stale_items_resolve(app: Any, db: Any, admin: Any,
+                                                                     worker: Any) -> None:
+    url = f"http://127.0.0.1:{_closed_port()}"
+    admin.put("/api/v1/connectors/sabnzbd", json={"url": url, "secrets": {"api_key": SAB_KEY}})
+    _run(worker, "usenet.sab_ingest", {"force": True})
+    db.execute("UPDATE connectors SET status_since = now() - interval '25 hours' WHERE id='sabnzbd'")
+    _run(worker, "usenet.sab_ingest", {"force": True})
+    rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key='connector.down:sabnzbd'")
+    assert rec["status"] == "open"
+    # accepted by the owner: the next failing job (≤ 15 min later) neither reopens it nor audits it again
+    assert admin.post(f"/api/v1/automation/recommendations/{rec['id']}/accept").status_code == 200
+    _run(worker, "usenet.sab_ingest", {"force": True})
+    assert db.scalar("SELECT status FROM recommendations WHERE id=%s", (rec["id"],)) == "accepted"
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='connector.down'") == 1
+    # a new outage (after a recovery) asks again
+    db.execute("UPDATE connectors SET status='healthy', status_since=now() WHERE id='sabnzbd'")
+    db.execute("UPDATE connectors SET status='offline', status_since=now() - interval '26 hours' WHERE id='sabnzbd'")
+    monitor.sync_alert("sabnzbd", db=db)
+    assert db.scalar("SELECT status FROM recommendations WHERE id=%s", (rec["id"],)) == "open"
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='connector.down'") == 2
+    # the owner switches the connector off while it is down: the item goes with the next scheduler tick
+    assert admin.put("/api/v1/connectors/sabnzbd", json={"enabled": False}).status_code == 200
+    jobs.enqueue_due_schedules(db)
+    assert db.scalar("SELECT status FROM recommendations WHERE id=%s", (rec["id"],)) == "resolved"
+
+
+def test_mediaguard_gets_no_connector_alert(app: Any, db: Any) -> None:
+    db.execute("UPDATE connectors SET url='http://mg.lan:8000', enabled=true, status='healthy' WHERE id='mediaguard'")
+    cb.record_test("mediaguard", cb.TestResult(False, "auth_failed", "MediaGuard weigert de sleutel"))
+    db.execute("UPDATE connectors SET status_since = now() - interval '2 days' WHERE id='mediaguard'")
+    cb.record_test("mediaguard", cb.TestResult(False, "auth_failed", "MediaGuard weigert de sleutel"))
+    monitor.sync_alert("mediaguard", db=db)
+    assert not db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key LIKE 'connector.down:%'")
+    assert _row(db, "mediaguard")["failure_kind"] == "auth"  # the status itself is still tracked

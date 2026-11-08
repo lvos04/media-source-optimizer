@@ -462,14 +462,25 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
 
 
 # ------------------------------------------------------------------ crash recovery
-def _waiting_item(ch: dict[str, Any], title: str, explanation: str, outcome: str, db: Database) -> None:
-    """One "Wacht op jou" item per interrupted change (recommendation without change link, so the inbox lists it)."""
+def _waiting_item(ch: dict[str, Any], title: str, explanation: str, outcome: str, db: Database, *,
+                  once: bool = False) -> None:
+    """One "Wacht op jou" item per interrupted change (recommendation without change link, so the inbox lists it).
+
+    ``once``: a waiting state the reconciler sees every round (alleen-lezen) — create the item the first time only
+    (no refresh every 2 minutes, no re-opening after the owner dismissed it). Otherwise (the final outcome) the item
+    is refreshed and opened again, so the outcome is shown even when the waiting item was dismissed."""
     from mso.domain.outcomes import recommend
 
+    key = f"change.interrupted:{ch['id']}"
+    if once and db.scalar("SELECT 1 FROM recommendations WHERE dedupe_key=%s", (key,)):
+        return
     area = (ch.get("impact") or {}).get("area") if isinstance(ch.get("impact"), dict) else None
-    recommend(area or "automation", title, explanation, risk="toestemming_nodig", subject=ch["target"],
-              dedupe_key=f"change.interrupted:{ch['id']}",
-              evidence={"change_id": ch["id"], "outcome": outcome, "kind": "change_interrupted"}, db=db)
+    rec_id = recommend(area or "automation", title, explanation, risk="toestemming_nodig", subject=ch["target"],
+                       dedupe_key=key,
+                       evidence={"change_id": ch["id"], "outcome": outcome, "kind": "change_interrupted"}, db=db)
+    if not once:
+        db.execute("UPDATE recommendations SET status='open', updated_at=now() WHERE id=%s AND status<>'open'",
+                   (rec_id,))
 
 
 def _resolve_item(change_id: int, db: Database) -> None:
@@ -533,20 +544,25 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
                               for o in ops], "automatic": bool(ch.get("applied_auto")), "interrupted": True})
         _resolve_item(ch["id"], db)
         return "afgerond"
-    if state.mode() not in ("manage", "autopilot"):
+    written = [op for op in ops if op.get("result") == "toegepast"]
+    if any(reversible(op) for op in written) and state.mode() not in ("manage", "autopilot"):
+        # something MSO can put back was written, but alleen-lezen never writes: wait (one item) for beheermodus.
+        # Nothing reversible written (cut off before the first write, or only one_way ops) → handled below
+        # without any write, so the change does not block its dedupe key in 'applying'.
         _persist_ops(db, ch["id"], ops, "applying")
         _waiting_item(ch, f"Onderbroken wijziging wacht op beheermodus: {title}",
                       f"MSO werd herstart terwijl '{title}' werd toegepast; een deel is al ingesteld. In alleen-lezen "
                       "schrijft MSO niets, ook niet om dat terug te zetten. Zet beheermodus aan: dan zet MSO de al "
-                      "geschreven waarden terug naar hoe ze waren.", "wacht_op_beheermodus", db)
+                      "geschreven waarden terug naar hoe ze waren.", "wacht_op_beheermodus", db, once=True)
         return "wacht_op_beheermodus"
-    written = [op for op in ops if op.get("result") == "toegepast"]
     errors = _restore(applier, written) if applier is not None else []
     for op in ops:
         if op.get("result") == "niet_toegepast":
             op["result"] = "niet_uitgevoerd"
     kept = [o["label"] for o in written if o.get("result") == "toegepast"]  # one_way: cannot be undone
     parts = ["Onderbroken tijdens toepassen (herstart)"]
+    if not written:
+        parts.append("onderbroken vóór de eerste schrijfactie; niets ingesteld")
     if any(o.get("result") == "teruggedraaid" for o in written):
         parts.append("al geschreven waarden teruggezet en gecontroleerd")
     if kept:
@@ -558,7 +574,7 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
     err = " · ".join(parts)
     db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s WHERE id=%s AND status='applying'",
                (err[:1000], jsonb(ops), ch["id"]))
-    outcome = "deels" if (errors or unclear) else "teruggezet"
+    outcome = "deels" if (errors or unclear) else ("niets_ingesteld" if not written else "teruggezet")
     if errors or unclear or kept or not ch.get("applied_auto"):
         _waiting_item(ch, f"Wijziging onderbroken: {title}",
                       f"MSO werd herstart terwijl '{title}' werd toegepast. {err}. "

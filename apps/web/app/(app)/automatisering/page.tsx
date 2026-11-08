@@ -1,7 +1,8 @@
 "use client";
 
 import { Play } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { Button, Card, PageHeader, Tabs } from "@/components/mg/primitives";
 import { AiCard } from "@/components/mso/automation/ai-card";
@@ -24,6 +25,16 @@ const TABS = ["aanbevelingen", "wijzigingen", "controle", "veiligheid", "samenva
 type Tab = (typeof TABS)[number];
 const RISKS: Risk[] = ["advies", "automatisch_veilig", "toestemming_nodig"];
 
+/** Follows `?tab=` — also on a soft navigation to this same route (e.g. the noodrem banner's "Bekijken" while already
+ * here), where the page stays mounted and a mount-only read would miss it. Own Suspense boundary for useSearchParams. */
+function TabFromUrl({ onTab }: { onTab: (tab: Tab) => void }) {
+  const q = useSearchParams().get("tab");
+  useEffect(() => {
+    if (q && (TABS as readonly string[]).includes(q)) onTab(q as Tab);
+  }, [q, onTab]);
+  return null;
+}
+
 export default function AutomationPage() {
   const { t } = useI18n();
   const { can } = useSession();
@@ -38,8 +49,6 @@ export default function AutomationPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const q = params.get("tab");
-    if (q && (TABS as readonly string[]).includes(q)) setTab(q as Tab);
     // deep link from "Wat MSO deed" / "Wacht op jou": ?tab=wijzigingen&change=<id>
     const change = Number(params.get("change"));
     if (Number.isInteger(change) && change > 0) setFocusChange(change);
@@ -57,6 +66,7 @@ export default function AutomationPage() {
 
   return (
     <>
+      <Suspense fallback={null}><TabFromUrl onTab={setTab} /></Suspense>
       <PageHeader title={t("nav.automation")} sub={t("automation.sub")}
         actions={<Button icon={Play} disabled={!runAllowed} title={runReason} pending={pending === "run"}
           onClick={async () => { await run("run", "post", "/automation/run", undefined, t("automation.runQueued")); void status.reload(); }}>{t("automation.runNow")}</Button>} />

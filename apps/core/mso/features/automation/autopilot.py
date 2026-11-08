@@ -67,6 +67,17 @@ def area_on(area: str | None) -> bool:
     return state.autopilot() or area_toggle(area)
 
 
+def slice_on(ch: dict[str, Any]) -> bool:
+    """A slice's own switch for unattended apply of its own changes, besides the area toggles: qBittorrent tuning
+    steps follow ``torrent.autotune_enabled`` (beheermodus). Ignores mode/pause, like :func:`area_on`."""
+    if ch.get("source") == "tuning" and ch.get("target") == "qbittorrent" and "torrent.autotune_enabled" in sr.REGISTRY:
+        try:
+            return bool(sr.get("torrent.autotune_enabled"))
+        except Exception:
+            return False
+    return False
+
+
 def enabled(area: str) -> bool:
     """May MSO act on its own in ``area`` right now? True when not read-only, not paused, not held by the noodrem
     and either Autopilot is active or the area's 'automatisch veilig toepassen' toggle is on."""
@@ -127,7 +138,7 @@ def why_not(ch: dict[str, Any], area: str | None) -> str | None:
         return "automatisering gepauzeerd"
     if any(op.get("destructive") for op in ops) and not state.autopilot():
         return "uitschakelen gebeurt alleen automatisch in Autopilot"
-    if not area_on(area):
+    if not area_on(area) and not slice_on(ch):
         return "automatisch toepassen staat uit voor dit onderdeel"
     if ch.get("target") and overrides.active_for_ops(str(ch["target"]), ops):
         return OVERRIDE_REASON
@@ -237,6 +248,9 @@ def note_failure(ch: dict[str, Any], error: str, area: str | None, db: Database 
                       "last_error": err},
             db=db,
         )
+        # A new parking episode of the same change (after "Opnieuw automatisch proberen", a successful apply or a
+        # changed preview resolved the old item) must show up again: recommend() keeps the old status on upsert.
+        db.execute("UPDATE recommendations SET status='open', updated_at=now() WHERE id=%s", (rec_id,))
         audit(ACTOR, "automation.parked", f"Automatisch toepassen geparkeerd na {failures} pogingen: {ch['title']}",
               target=ch.get("target"), change_id=ch.get("id"), detail={"key": key, "error": err})
     db.execute(
@@ -372,8 +386,8 @@ def engage_hold(reason: str, counts: dict[str, Any], db: Database | None = None)
 def resume_hold(actor: str, db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
     current = state.hold()
-    if current is None:
-        raise HTTPException(409, detail="Autopilot staat niet stil door de noodrem")
+    if current is None:  # idempotent: resumed meanwhile (another tab, another operator) — nothing to do
+        return _hold_value()
     value = {**current, "active": False, "resumed_at": datetime.now(UTC).isoformat(), "resumed_by": actor}
     state.set_state(state.HOLD_KEY, value, db)
     _resolve_rec(current.get("rec_id"), db)
@@ -384,7 +398,8 @@ def resume_hold(actor: str, db: Database | None = None) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ apply
-def apply_one(ch: dict[str, Any], area: str | None, db: Database | None = None) -> tuple[bool, str | None]:
+def apply_one(ch: dict[str, Any], area: str | None, db: Database | None = None, *,
+              actor: str = ACTOR) -> tuple[bool, str | None]:
     """Apply one change automatically (no checks beyond :func:`changes.apply`'s, plus the cooldown). Logs + audits;
     a failure enters the cooldown and may engage the noodrem. Returns (applied, error)."""
     db = db or get_db()
@@ -392,12 +407,12 @@ def apply_one(ch: dict[str, Any], area: str | None, db: Database | None = None) 
     if cd is not None:
         return False, cd["reason"]
     try:
-        changes.apply(ch["id"], ACTOR, automatic=True, db=db)
+        changes.apply(ch["id"], actor, automatic=True, db=db)
     except changes.ChangeBusy as exc:  # someone else is applying it right now: not a failure of the change
         return False, str(exc.detail)
     except HTTPException as exc:
         log("apply", "failed", f"'{ch['title']}': {exc.detail}", ch["id"], area, db)
-        audit(ACTOR, "automation.apply_failed", f"Automatisch toepassen mislukt: {ch['title']}",
+        audit(actor, "automation.apply_failed", f"Automatisch toepassen mislukt: {ch['title']}",
               target=ch["target"], change_id=ch["id"], detail={"error": str(exc.detail), "area": area})
         note_failure(ch, str(exc.detail), area, db)
         check_brake(db)
@@ -406,9 +421,33 @@ def apply_one(ch: dict[str, Any], area: str | None, db: Database | None = None) 
     db.execute("UPDATE recommendations SET status='accepted', updated_at=now() WHERE change_id=%s "
                "AND status='open'", (ch["id"],))
     log("apply", "applied", f"Automatisch toegepast: {ch['title']}", ch["id"], area, db)
-    audit(ACTOR, "automation.applied", f"Automatisch toegepast: {ch['title']}", target=ch["target"],
+    audit(actor, "automation.applied", f"Automatisch toegepast: {ch['title']}", target=ch["target"],
           change_id=ch["id"], detail={"area": area, "autopilot": state.autopilot()})
     return True, None
+
+
+def apply_unattended(change_id: int, *, area: str | None, actor: str = ACTOR,
+                     db: Database | None = None) -> tuple[bool, str | None]:
+    """For a slice that applies its own change right after creating it (e.g. qBittorrent tuning in beheermodus with
+    ``torrent.autotune_enabled``): exactly the checks of every other automatic apply — :func:`why_not` (mode,
+    pause, noodrem, owner override, switched on), the cooldown after failures and the hourly cap (failed attempts
+    included) — and the same bookkeeping (automation log, failure ledger, noodrem count). A change held back by
+    the cooldown or the cap stays a proposal; the periodic ``automation.apply_safe`` picks it up later. Returns
+    (applied, reason)."""
+    db = db or get_db()
+    ch = changes.get(change_id, db)
+    if ch["status"] == "applied":
+        return True, None
+    reason = why_not(ch, area)
+    if reason is None and (cd := cooldown(ch, db)) is not None:
+        reason = cd["reason"]
+    if reason is None and budget_left(db) <= 0:
+        cap = int(sr.get("automation.max_per_hour"))
+        reason = f"limiet van {cap} automatische wijzigingen per uur bereikt; volgt later"
+        log("apply", "rate_limited", f"Limiet van {cap} per uur bereikt; '{ch['title']}' wacht", ch["id"], area, db)
+    if reason is not None:
+        return False, reason
+    return apply_one(ch, area, db, actor=actor)
 
 
 def propose_and_apply(target: str, title: str, ops: list[dict[str, Any]], *, explanation: str,
@@ -443,5 +482,5 @@ def propose_and_apply(target: str, title: str, ops: list[dict[str, Any]], *, exp
     return changes.get(ch["id"], db) | {"auto_applied": ok, "auto_reason": err}
 
 
-__all__ = ["apply_one", "area_on", "budget_left", "check_brake", "cooldown", "enabled", "propose_and_apply",
-           "resume_hold", "why_not"]
+__all__ = ["apply_one", "apply_unattended", "area_on", "budget_left", "check_brake", "cooldown", "enabled",
+           "propose_and_apply", "resume_hold", "slice_on", "why_not"]

@@ -371,6 +371,13 @@ def _auto_apply(change_id: int) -> str:
 
         auto, reason = apply_auto(change_id)
         return auto or f"niet automatisch toegepast: {reason}"
+    from mso.features.torrent.autopilot import _ap
+
+    # beheermodus + autotune: the same cooldown, hourly cap, failure count and noodrem as other automatic applies
+    ap = _ap()
+    if ap is not None and hasattr(ap, "apply_unattended"):
+        ok, why = ap.apply_unattended(change_id, area="torrent", actor="autotune")
+        return "toegepast" if ok else f"niet automatisch toegepast: {why}"
     try:
         changes.apply(change_id, "autotune", automatic=True)
         return "toegepast"

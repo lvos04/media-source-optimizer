@@ -11,7 +11,7 @@ from mso import changes, jobs, state
 from mso import settings_registry as sr
 from mso.audit import audit
 from mso.auth import Principal, require
-from mso.db import get_db
+from mso.db import Database, get_db
 from mso.features.automation import AREAS, EVALUATORS, autopilot, engine
 
 router = APIRouter(prefix="/api/v1/automation", tags=["automatisering"])
@@ -289,13 +289,20 @@ def safety(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "applying": db.fetchall(
             "SELECT id, target, title, apply_started_at, applied_auto FROM change_sets WHERE status='applying' "
             "ORDER BY id"),
-        "undo": {w: len(undo_candidates(w)["items"]) for w in UNDO_WINDOWS},
+        "undo": undo_counts(db),
     }
+
+
+@router.get("/hold")
+def hold(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Just the noodrem state (one small query): what the app-wide banner polls on every page."""
+    return {"mode": state.mode(), "hold": state.hold()}
 
 
 @router.post("/hold/resume")
 def hold_resume(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
-    """'Hervatten' after the noodrem: automatic writes go on (the counters start again from now)."""
+    """'Hervatten' after the noodrem: automatic writes go on (the counters start again from now). Idempotent: when
+    the hold was already lifted (another tab or operator), nothing changes and the current state is returned."""
     autopilot.resume_hold(p.actor)
     return safety(p)
 
@@ -320,6 +327,26 @@ def _undo_window(window: str) -> tuple[int, str]:
     return UNDO_WINDOWS[window]
 
 
+def _truthy(field: str) -> str:  # a JSON op flag as Python's truthiness sees it (true, 1, "x"; not false/0/null/"")
+    return f"coalesce(o->>'{field}', '') NOT IN ('', 'false', '0')"
+
+
+_UNDOABLE_SQL = (  # the same rule as undo_candidates(): no deletion, at least one applied reversible op
+    f"status='applied' AND applied_auto AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(ops) o "
+    f"WHERE {_truthy('irreversible')}) AND EXISTS (SELECT 1 FROM jsonb_array_elements(ops) o "
+    f"WHERE o->>'result' = 'toegepast' AND NOT {_truthy('irreversible')} AND NOT {_truthy('one_way')})"
+)
+
+
+def undo_counts(db: Database | None = None) -> dict[str, int]:
+    """How many automatic changes "Autopilot terugdraaien" would list per window — one query, no per-row lookups
+    (the full list with values is :func:`undo_candidates`)."""
+    row = (db or get_db()).fetchone(
+        "SELECT count(*) FILTER (WHERE applied_at > now() - interval '24 hours') AS h24, count(*) AS d7 "
+        f"FROM change_sets WHERE {_UNDOABLE_SQL} AND applied_at > now() - interval '7 days'")
+    return {"24h": int(row["h24"] or 0) if row else 0, "7d": int(row["d7"] or 0) if row else 0}
+
+
 def undo_candidates(window: str) -> dict[str, Any]:
     """Reversible changes Autopilot/automation applied by itself in the window (newest first). Deletions never:
     they are never applied automatically, and their ops are not reversible anyway."""
@@ -336,7 +363,10 @@ def undo_candidates(window: str) -> dict[str, Any]:
         entry = {"id": r["id"], "title": r["title"], "target": r["target"], "applied_at": r["applied_at"],
                  "area": engine.change_area(dict(r)),
                  "ops": [{"label": op.get("label"), "path": op.get("path"), "now": op.get("after"),
-                          "back_to": op.get("observed_before"), "switches_on": bool(op.get("destructive"))}
+                          "back_to": op.get("observed_before"), "switches_on": bool(op.get("destructive")),
+                          # MSO switched it ON (e.g. autoheal re-enabled a server that tested fine): undoing it
+                          # switches something that works OFF again
+                          "switches_off": engine.turns_on(op)}
                          for op in back]}
         if back:
             items.append(entry)

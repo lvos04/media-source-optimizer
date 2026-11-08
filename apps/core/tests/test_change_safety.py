@@ -38,6 +38,7 @@ class Fake:
         self.fail: set[tuple[str, Any]] = set()  # (path, value) writes that raise
         self.ignore: set[str] = set()  # writes that are accepted but change nothing (verification fails)
         self.crash_after: str | None = None
+        self.crash_before: str | None = None  # dies before the write reaches the source
         self.read_fail = False
         self.writes: list[tuple[str, Any]] = []
 
@@ -48,6 +49,8 @@ class Fake:
             return self.values.get(path)
 
         def write(path: str, value: Any) -> None:
+            if self.crash_before == path:
+                raise Crash()
             self.writes.append((path, value))
             if (path, value) in self.fail:
                 raise RuntimeError("schrijven geweigerd")
@@ -366,6 +369,11 @@ def test_reconcile_never_writes_in_read_only(db: Any, fake: Fake, manage_mode: N
     assert len(fake.writes) == writes and changes.get(ch["id"])["status"] == "applying"
     rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key=%s", (f"change.interrupted:{ch['id']}",))
     assert "beheermodus" in rec["title"]
+    # the next rounds (every 2 min) do not refresh it, and a dismissed item stays dismissed while it waits
+    db.execute("UPDATE recommendations SET status='dismissed' WHERE id=%s", (rec["id"],))
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "wacht_op_beheermodus"}
+    again = db.fetchone("SELECT * FROM recommendations WHERE id=%s", (rec["id"],))
+    assert again["status"] == "dismissed" and again["updated_at"] == rec["updated_at"]
     state.set_state("mode", "manage")
     assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "teruggezet"}
     assert fake.values["speed"] == 100
@@ -501,6 +509,7 @@ def test_noodrem_after_failures_and_hervatten(admin: Any, operator: Any, viewer:
     s = viewer.get("/api/v1/automation/safety").json()
     assert s["hold"]["active"] is True and s["brake"]["failures"] == 5 and s["brake"]["max_failures"] == 5
     assert viewer.get("/api/v1/automation/status").json()["hold"]["active"] is True
+    assert viewer.get("/api/v1/automation/hold").json()["hold"]["active"] is True  # what the banner polls
     # a person can still apply by hand during the hold
     assert admin.post(f"/api/v1/changes/{blocked['id']}/apply").status_code == 200
 
@@ -510,7 +519,11 @@ def test_noodrem_after_failures_and_hervatten(admin: Any, operator: Any, viewer:
     assert state.automation_allowed() is True and state.autopilot() is True
     assert db.scalar("SELECT status FROM recommendations WHERE id=%s", (rec_id,)) == "resolved"
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='autopilot.resumed'") == 1
-    assert operator.post("/api/v1/automation/hold/resume").status_code == 409
+    # idempotent: a second "Hervatten" (other tab, stale banner) is no error and changes nothing
+    again = operator.post("/api/v1/automation/hold/resume")
+    assert again.status_code == 200 and again.json()["hold"] is None
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='autopilot.resumed'") == 1
+    assert viewer.get("/api/v1/automation/hold").json() == {"mode": "autopilot", "hold": None}
     assert autopilot.check_brake() is None  # counters start again after Hervatten
 
 
@@ -554,7 +567,10 @@ def test_undo_autopilot_window(admin: Any, operator: Any, viewer: Any, db: Any, 
     assert [i["id"] for i in day["items"]] == [b["id"], a["id"]]  # newest first; manual ones not listed
     assert [i["id"] for i in day["not_undoable"]] == [one_way["id"]]
     assert day["items"][1]["ops"][0] == {"label": "Snelheid", "path": "speed", "now": 80, "back_to": 100,
-                                         "switches_on": False}
+                                         "switches_on": False, "switches_off": False}
+    # MSO switched the server ON: undoing it switches it off again — marked, so the list and dialog can warn
+    assert day["items"][0]["ops"][0]["switches_off"] is True
+    assert viewer.get("/api/v1/automation/safety").json()["undo"] == {"24h": 2, "7d": 3}  # cheap counts agree
     week = viewer.get("/api/v1/automation/undo?window=7d").json()
     assert {i["id"] for i in week["items"]} == {a["id"], b["id"], old["id"]}
     assert viewer.get("/api/v1/automation/undo?window=1y").status_code == 422
@@ -750,3 +766,95 @@ def test_undo_autopilot_puts_servers_back_and_respects_it_over_http(
     off = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s AND status='preview'", (f"usenet.auto_off:{xs}",))
     assert off is not None and autopilot.why_not(dict(off), "usenet") == autopilot.OVERRIDE_REASON
     assert any(p.get("reason") == autopilot.OVERRIDE_REASON for p in out["pending"])
+
+
+# ------------------------------------------------------------------ review fixes
+def test_parked_again_after_reset_reopens_the_inbox_item(operator: Any, db: Any, fake: Fake) -> None:
+    from mso.features.overview.autopilot import waiting
+
+    state.set_state("mode", "autopilot")
+    sr.put({"automation.brake_failures": 20}, "test")  # 6 failures in this test: keep the noodrem out of it
+    fake.fail.add(("speed", 80))
+
+    def park() -> dict[str, Any]:
+        _propose(SPEED, "spd")
+        for _ in range(2):
+            db.execute("UPDATE automation_failures SET next_attempt_at = now() - interval '1 minute'")
+            _propose(SPEED, "spd")
+        return dict(db.fetchone("SELECT * FROM automation_failures WHERE key='spd'"))
+
+    row = park()
+    assert row["parked"] is True
+    rec_id = row["rec_id"]
+    assert operator.post("/api/v1/automation/failures/reset", json={"key": "spd"}).status_code == 200
+    assert db.scalar("SELECT status FROM recommendations WHERE id=%s", (rec_id,)) == "resolved"
+    row = park()  # the same change fails 3x again: a new parking episode
+    assert row["parked"] is True and row["rec_id"] == rec_id
+    assert db.scalar("SELECT status FROM recommendations WHERE id=%s", (rec_id,)) == "open"
+    assert db.scalar("SELECT count(*) FROM recommendations WHERE status='open'") == 1
+    assert [i["id"] for i in waiting()["items"]].count(f"rec:{rec_id}") == 1
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='automation.parked'") == 2
+
+
+def test_reconcile_in_read_only_with_nothing_written_finishes(db: Any, fake: Fake, manage_mode: None) -> None:
+    ch = _create(TWO, key="twee")
+    fake.crash_before = "speed"  # cut off after the 'applying' journal, before the first write
+    with pytest.raises(Crash):
+        changes.apply(ch["id"], "beheerder")
+    assert changes.get(ch["id"])["status"] == "applying" and fake.writes == []
+    fake.crash_before = None
+    state.set_state("mode", "read_only")
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "niets_ingesteld"}
+    c = changes.get(ch["id"])
+    assert c["status"] == "failed" and "niets ingesteld" in c["error"] and fake.writes == []
+    assert {o["result"] for o in c["ops"]} == {"niet_uitgevoerd"}
+    rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key=%s", (f"change.interrupted:{ch['id']}",))
+    assert "beheermodus" not in rec["title"]  # no "een deel is al ingesteld … zet beheermodus aan"
+    assert _create(TWO, key="twee")["id"] != ch["id"]  # the dedupe key is free for a new proposal
+
+
+def test_tuning_in_manage_mode_follows_cooldown_cap_and_ledger(db: Any, fake: Fake, manage_mode: None) -> None:
+    """qBittorrent tuning applies its own step in beheermodus (torrent.autotune_enabled, not an area toggle): the
+    same cooldown, hourly cap and failure bookkeeping as every other automatic apply."""
+    from mso.features.automation import autopilot, engine
+    from mso.features.torrent import tuning
+
+    original = changes.APPLIERS.get("qbittorrent")
+    changes.register_applier("qbittorrent", fake.applier)
+    try:
+        def step() -> dict[str, Any]:
+            return changes.create("qbittorrent", "Tuning: snelheid", [dict(SPEED[0])], risk="automatisch_veilig",
+                                  source="tuning", actor="autotune", dedupe_key="torrent-tuning:speed")
+
+        first = step()
+        assert tuning._auto_apply(first["id"]).startswith("niet automatisch toegepast: automatisch toepassen staat uit")
+        sr.put({"torrent.autotune_enabled": True}, "test")
+        assert autopilot.slice_on(first) and not autopilot.area_on("torrent")
+        fake.fail.add(("speed", 80))
+        assert tuning._auto_apply(first["id"]).startswith("niet automatisch toegepast")
+        assert changes.get(first["id"])["status"] == "failed"
+        row = db.fetchone("SELECT * FROM automation_failures")
+        assert row["failures"] == 1 and row["key"] == "torrent-tuning:speed"
+        assert db.scalar("SELECT count(*) FROM automation_log WHERE kind='apply' AND result='failed'") == 1
+        assert db.scalar("SELECT actor FROM audit_log WHERE action='automation.apply_failed'") == "autotune"
+
+        writes = len(fake.writes)
+        second = step()  # the next tuning round proposes the same step: it waits instead of failing again
+        assert "afkoeling" in tuning._auto_apply(second["id"])
+        assert len(fake.writes) == writes and changes.get(second["id"])["status"] == "preview"
+
+        fake.fail.clear()  # after the wait the periodic round picks it up (autotune counts as switched on)
+        db.execute("UPDATE automation_failures SET next_attempt_at = now() - interval '1 minute'")
+        assert engine.apply_safe()["applied"] == [second["id"]]
+        assert fake.values["speed"] == 80 and db.scalar("SELECT count(*) FROM automation_failures") == 0
+
+        sr.put({"automation.max_per_hour": 2}, "test")  # 1 failed + 1 applied this hour: the cap is reached
+        third = changes.create("qbittorrent", "Tuning: verbindingen", [{"path": "conns", "before": 50,
+                               "after": 60}], risk="automatisch_veilig", source="tuning", actor="autotune",
+                               dedupe_key="torrent-tuning:conns")
+        assert "limiet van 2" in tuning._auto_apply(third["id"])
+        assert fake.values["conns"] == 50 and changes.get(third["id"])["status"] == "preview"
+    finally:
+        changes.APPLIERS.pop("qbittorrent", None)
+        if original is not None:
+            changes.register_applier("qbittorrent", original)

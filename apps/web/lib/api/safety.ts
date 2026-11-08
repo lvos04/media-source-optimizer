@@ -1,6 +1,7 @@
 // 1.6.0 WP-E1 — core safety of changes and Autopilot. Contracts for:
 //   GET  /api/v1/automation/safety          (viewer)   noodrem, afkoeling, onderbroken wijzigingen
-//   POST /api/v1/automation/hold/resume     (operator) Hervatten na de noodrem
+//   GET  /api/v1/automation/hold            (viewer)   alleen de noodremstand (de app-brede banner)
+//   POST /api/v1/automation/hold/resume     (operator) Hervatten na de noodrem (idempotent)
 //   POST /api/v1/automation/failures/reset  (operator) Opnieuw automatisch proberen
 //   GET  /api/v1/automation/undo?window=24h|7d (viewer)   Autopilot terugdraaien: voorbeeld
 //   POST /api/v1/automation/undo            (operator) Autopilot terugdraaien: uitvoeren (niet in alleen-lezen)
@@ -25,9 +26,21 @@ export interface SafetyStatus {
   undo: Record<UndoWindow, number>;
 }
 
+/** GET /automation/hold — the banner polls only this (one small query on every page). */
+export interface HoldState { mode: string; hold: AutopilotHold | null }
+
+/** Fired after "Hervatten" anywhere, so the banner and Automatisering → Veiligheid refresh together. */
+export const HOLD_CHANGED_EVENT = "mso:hold-changed";
+
+export function notifyHoldChanged() {
+  window.dispatchEvent(new Event(HOLD_CHANGED_EVENT));
+}
+
 export type UndoWindow = "24h" | "7d";
 
-export interface UndoOp { label: string | null; path: string; now: unknown; back_to: unknown; switches_on: boolean }
+/** ``switches_on``: MSO switched it off, undoing switches it on again. ``switches_off``: MSO switched it on (e.g.
+ * autoheal re-enabled a server that tested fine), undoing switches a working thing off again. */
+export interface UndoOp { label: string | null; path: string; now: unknown; back_to: unknown; switches_on: boolean; switches_off: boolean }
 export interface UndoItem { id: number; title: string; target: string; applied_at: string; area: string | null; ops: UndoOp[]; reason?: string }
 export interface UndoPreview { window: UndoWindow; label: string; items: UndoItem[]; not_undoable: UndoItem[]; override_days: number }
 

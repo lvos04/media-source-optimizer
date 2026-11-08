@@ -136,6 +136,9 @@ def _turns_on(op: dict[str, Any]) -> bool:
     return flag(before) is False and flag(after) is True
 
 
+turns_on = _turns_on  # public name for other modules (e.g. the "Autopilot terugdraaien" preview)
+
+
 def _rollback_disables(ch: dict[str, Any]) -> bool:
     """A rollback that would itself switch something off (it enabled something: False → True, 0 → 1) is a 'disable'
     and therefore needs explicit approval — never automatic."""

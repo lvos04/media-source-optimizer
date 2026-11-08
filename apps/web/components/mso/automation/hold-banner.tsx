@@ -1,37 +1,46 @@
 "use client";
 
 import { OctagonPause, PlayCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button, LinkButton } from "@/components/mg/primitives";
 import { useToast } from "@/components/mg/toast";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
-import type { SafetyStatus } from "@/lib/api/safety";
+import { HOLD_CHANGED_EVENT, notifyHoldChanged, type HoldState, type SafetyStatus } from "@/lib/api/safety";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
 /**
  * Noodrem banner (1.6.0): shown app-wide while MSO has paused its OWN automatic writes after too many automatic
- * rollbacks or failed automatic applies (GET /automation/safety, polled every minute). "Hervatten" (operator+)
- * → POST /automation/hold/resume. Renders nothing while loading, on an error or when there is no hold.
+ * rollbacks or failed automatic applies (GET /automation/hold — one small query — polled every minute and refreshed
+ * on {@link HOLD_CHANGED_EVENT}). "Hervatten" (operator+) → POST /automation/hold/resume, then the event, so
+ * Automatisering → Veiligheid updates too. Renders nothing while loading, on an error or when there is no hold.
  */
 export function AutopilotHoldBanner() {
   const { t, relative } = useI18n();
   const { can } = useSession();
   const toast = useToast();
-  const safety = useResource<SafetyStatus>("/automation/safety", undefined, 60_000);
+  const state = useResource<HoldState>("/automation/hold", undefined, 60_000);
   const [pending, setPending] = useState(false);
-  const hold = safety.data?.hold;
+  const { reload } = state;
+  useEffect(() => {
+    const onChange = () => void reload();
+    window.addEventListener(HOLD_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(HOLD_CHANGED_EVENT, onChange);
+  }, [reload]);
+  const hold = state.data?.hold;
   if (!hold?.active) return null;
   const resume = async () => {
     setPending(true);
     try {
       const next = await api.post<SafetyStatus>("/automation/hold/resume");
-      safety.setData(() => next);
+      state.setData(() => ({ mode: next.mode, hold: next.hold }));
+      notifyHoldChanged();
       toast.push("success", t("safety.hold.resumed"));
     } catch (e) {
       toast.push("danger", t("toast.failed", { message: errorMessage(e) }));
+      void reload();
     } finally {
       setPending(false);
     }

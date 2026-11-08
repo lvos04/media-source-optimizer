@@ -1,7 +1,7 @@
 "use client";
 
 import { Hourglass, OctagonPause, PlayCircle, RotateCcw, ShieldCheck, TimerReset, Undo2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, InlineState, Segmented, StatusChip } from "@/components/mg/primitives";
@@ -11,7 +11,7 @@ import { formatOpValue } from "@/components/mso/change-preview";
 import { useAction } from "@/lib/api/actions";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource, type Resource } from "@/lib/api/hooks";
-import type { CooldownItem, SafetyStatus, UndoPreview, UndoResult, UndoWindow } from "@/lib/api/safety";
+import { HOLD_CHANGED_EVENT, notifyHoldChanged, type CooldownItem, type SafetyStatus, type UndoPreview, type UndoResult, type UndoWindow } from "@/lib/api/safety";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useWriteGate } from "@/lib/mode";
 import { useSession } from "@/lib/session";
@@ -22,6 +22,13 @@ const WINDOWS: UndoWindow[] = ["24h", "7d"];
  * wijzigingen (GET /automation/safety, GET/POST /automation/undo). */
 export function SafetyPanel({ onOpenChange }: { onOpenChange: (id: number) => void }) {
   const safety = useResource<SafetyStatus>("/automation/safety", undefined, 30_000);
+  const { reload } = safety;
+  // "Hervatten" in the app-wide banner (or here) → refresh, so no stale hold with a working "Hervatten" stays behind
+  useEffect(() => {
+    const onChange = () => void reload();
+    window.addEventListener(HOLD_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(HOLD_CHANGED_EVENT, onChange);
+  }, [reload]);
   return (
     <>
       <BrakeCard safety={safety} />
@@ -42,6 +49,7 @@ function BrakeCard({ safety }: { safety: Resource<SafetyStatus> }) {
     try {
       const next = await api.post<SafetyStatus>("/automation/hold/resume");
       safety.setData(() => next);
+      notifyHoldChanged();
       toast.push("success", t("safety.hold.resumed"));
     } catch (e) {
       toast.push("danger", t("toast.failed", { message: errorMessage(e) }));
@@ -92,6 +100,7 @@ function UndoCard({ onDone, onOpenChange }: { onDone: () => void; onOpenChange: 
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UndoResult | null>(null);
   const items = preview.data?.items ?? [];
+  const switchesOff = items.some((i) => i.ops.some((o) => o.switches_off));
 
   const submit = async () => {
     setPending(true);
@@ -146,6 +155,7 @@ function UndoCard({ onDone, onOpenChange }: { onDone: () => void; onOpenChange: 
                           <li key={`${o.path}-${idx}`}>
                             {o.label ?? o.path}: {formatOpValue(o.now)} → {formatOpValue(o.back_to)}
                             {o.switches_on ? <> <StatusChip tone="info">{t("safety.undo.switchesOn")}</StatusChip></> : null}
+                            {o.switches_off ? <> <StatusChip tone="warning">{t("safety.undo.switchesOff")}</StatusChip></> : null}
                           </li>
                         ))}
                       </ul>
@@ -172,7 +182,8 @@ function UndoCard({ onDone, onOpenChange }: { onDone: () => void; onOpenChange: 
             </div>
             <DangerDialog open={confirm} onClose={() => { setConfirm(false); setError(null); }} onConfirm={() => void submit()} icon={Undo2}
               title={t("safety.undo.dialogTitle")} confirmLabel={t("safety.undo.confirm")} pending={pending} error={error}
-              description={t("safety.undo.dialogBody", { count: num(d.items.length), window: t(`safety.undo.window.${win}` as MessageKey).toLowerCase(), days: num(d.override_days) })}
+              description={t("safety.undo.dialogBody", { count: num(d.items.length), window: t(`safety.undo.window.${win}` as MessageKey).toLowerCase(), days: num(d.override_days) })
+                + (switchesOff ? ` ${t("safety.undo.dialogSwitchesOff")}` : "")}
               impact={[{ label: t("safety.undo.window"), value: t(`safety.undo.window.${win}` as MessageKey) }, { label: t("safety.undo.title"), value: num(d.items.length) }]} />
           </>
         )}

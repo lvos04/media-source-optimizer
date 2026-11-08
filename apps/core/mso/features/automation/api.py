@@ -287,6 +287,7 @@ SCHEDULE_LABELS: dict[str, tuple[str, str]] = {
     "usenet.sab_server_status": ("Status Usenet-servers + Autopilot (servers uit/aan, opnieuw proberen)", "Usenet"),
     "usenet.provider_checks": ("Usenet-providers controleren", "Usenet"),
     "usenet.headerindex_run": ("Header-index bijwerken", "Usenet"),
+    "usenet.categories_check": ("SABnzbd-categorieën controleren ('*' verklaren)", "Usenet"),
     "mediaguard.sync": ("MediaGuard synchroniseren", "MediaGuard"),
     "recovery.analyze": ("Ontbrekend & herstel analyseren", "Herstel"),
     "torrent.ingest": ("qBittorrent-torrents inlezen", "Torrent"),

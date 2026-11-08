@@ -48,6 +48,42 @@ ALLOWED_WRITES: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 QUEUE_BLOCK_RE = re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$")
 FASTAPI_NOT_FOUND = "Not Found"
+INSTANCE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+CATEGORY_FIELDS = ("tvCategory", "movieCategory")  # Sonarr / Radarr download-client field (MediaGuard engine.py)
+MG_OWNED_PREFIX = "MediaGuard · "  # MediaGuard provisioning templates.PREFIX
+HEALTH_MAX = 50
+
+
+def _valid_instance_id(v: Any) -> bool:
+    return isinstance(v, str) and bool(INSTANCE_ID_RE.match(v))
+
+
+def _instance_segment(instance_id: str) -> str:
+    if not _valid_instance_id(instance_id):
+        raise ValueError("ongeldige MediaGuard-instantie")
+    return instance_id
+
+
+def _opt_str(v: Any) -> str | None:
+    s = str(v).strip() if v is not None else ""
+    return s[:100] or None
+
+
+def _health_items(raw: Any) -> list[dict[str, Any]]:
+    out = []
+    for h in raw if isinstance(raw, list) else []:
+        if not isinstance(h, dict):
+            continue
+        out.append(
+            {
+                "source": str(h.get("source") or "")[:100],
+                "type": str(h.get("type") or "")[:20].lower(),
+                "message": redact(str(h.get("message") or "")).strip()[:500],
+            }
+        )
+        if len(out) >= HEALTH_MAX:
+            break
+    return out
 
 
 class MediaGuardError(Exception):
@@ -248,6 +284,105 @@ class MediaGuardClient:
         r = self.request("GET", path, params=params, auth=auth)
         self.raise_for(r)
         return r.json()
+
+    # ------------------------------------------------------------------ reads for the SABnzbd-category diagnosis
+    # (1.6.0). All GET, rol viewer. MediaGuard already masks provider secrets; on top of that MSO keeps only an
+    # explicit whitelist of fields, so host names, user names, URLs and (masked) keys never reach MSO's database,
+    # API or UI. Errors are the usual MediaGuardError (forbidden / route_missing / not_found / offline).
+    def instances(self) -> list[dict[str, Any]]:
+        """``GET /api/v1/instances`` → per Sonarr/Radarr instance: id, app, media_type, name, archived/suspended,
+        MediaGuard's ``download_category`` and its cached health messages (redacted)."""
+        out = []
+        for inst in self.get(f"{API}/instances") or []:
+            if not isinstance(inst, dict) or not _valid_instance_id(inst.get("id")):
+                continue
+            out.append(
+                {
+                    "id": str(inst["id"]),
+                    "app": str(inst.get("app") or ""),
+                    "media_type": str(inst.get("media_type") or ""),
+                    "name": str(inst.get("name") or inst["id"])[:100],
+                    "archived": bool(inst.get("archived")),
+                    "suspended": bool(inst.get("suspended")),
+                    "download_category": _opt_str(inst.get("download_category")),
+                    "health": _health_items(inst.get("health")),
+                }
+            )
+        return out
+
+    def download_clients(self, instance_id: str) -> list[dict[str, Any]]:
+        """``GET /api/v1/instances/{id}/download-clients`` (MediaGuard ``manage.py`` provider list, secrets
+        masked) → name, implementation, protocol, enable, priority and the category Sonarr (``tvCategory``) or
+        Radarr (``movieCategory``) sends; ``mediaguard_owned`` = MediaGuard provisioning created it
+        (name prefix ``MediaGuard · ``)."""
+        iid = _instance_segment(instance_id)
+        out = []
+        for dc in self.get(f"{API}/instances/{iid}/download-clients") or []:
+            if not isinstance(dc, dict):
+                continue
+            fields = {
+                str(f.get("name")): f.get("value") for f in dc.get("fields") or [] if isinstance(f, dict)
+            }
+            field_name = next((k for k in CATEGORY_FIELDS if k in fields), None)
+            name = str(dc.get("name") or "")[:100]
+            out.append(
+                {
+                    "id": dc.get("id") if isinstance(dc.get("id"), int) else None,
+                    "name": name,
+                    "implementation": str(dc.get("implementation") or "")[:40],
+                    "protocol": str(dc.get("protocol") or "")[:20],
+                    "enable": bool(dc.get("enable", True)),
+                    "priority": dc.get("priority") if isinstance(dc.get("priority"), int) else None,
+                    "category_field": field_name,
+                    "category": (_opt_str(fields.get(field_name)) if field_name else None),
+                    "mediaguard_owned": name.startswith(MG_OWNED_PREFIX),
+                }
+            )
+        return out
+
+    def instance_health(self, instance_id: str) -> list[dict[str, Any]]:
+        """``GET /api/v1/instances/{id}/health`` → Sonarr/Radarr's own health messages (source, type, message;
+        message redacted)."""
+        iid = _instance_segment(instance_id)
+        return _health_items(self.get(f"{API}/instances/{iid}/health"))
+
+    def provisioning_categories(self) -> dict[str, Any]:
+        """``GET /api/v1/provisioning/config`` reduced to what decides the download category: per provisioned
+        download client its name, implementation, enabled, target instances and per-instance category; per
+        instance the provisioning mode and whether the download-client section is switched off; MediaGuard's
+        resolved default category per instance. Hosts, user names and secret flags are dropped here."""
+        cfg = self.get(f"{API}/provisioning/config") or {}
+        clients = []
+        for dc in cfg.get("download_clients") or []:
+            if not isinstance(dc, dict):
+                continue
+            cats = dc.get("categories") if isinstance(dc.get("categories"), dict) else {}
+            insts = dc.get("instances")
+            clients.append(
+                {
+                    "name": str(dc.get("name") or "")[:100],
+                    "implementation": str(dc.get("implementation") or "")[:40],
+                    "enabled": bool(dc.get("enabled", True)),
+                    "instances": [str(i) for i in insts] if isinstance(insts, list) else None,
+                    "categories": {str(k): str(v) for k, v in cats.items() if v},
+                }
+            )
+        instances = {}
+        for iid, ic in (cfg.get("instances") or {}).items():
+            if not isinstance(ic, dict):
+                continue
+            instances[str(iid)] = {
+                "mode": str(ic.get("mode") or "auto"),
+                "category": _opt_str(ic.get("category")),
+                "downloadclients_disabled": "downloadclients" in (ic.get("disabled_sections") or []),
+                "downloadclients_full_manage": "downloadclients" in (ic.get("full_manage") or []),
+            }
+        defaults = {
+            str(iid): _opt_str(d.get("category"))
+            for iid, d in (cfg.get("defaults") or {}).items()
+            if isinstance(d, dict)
+        }
+        return {"download_clients": clients, "instances": instances, "default_categories": defaults}
 
     # ------------------------------------------------------------------ the single write MSO performs
     def request_search(self, mg_id: int, *, wait_seconds: float = 0) -> dict[str, Any]:

@@ -3,12 +3,13 @@
 import { FlaskConical, History, ListOrdered, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
-import { Button, Card, InlineState, LinkButton, Progress, Segmented, StatusChip, type Tone } from "@/components/mg/primitives";
+import { Button, Card, LinkButton, Progress, Segmented, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
+import { StarCategoryNote } from "@/components/mso/usenet/categories";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
-import type { SabCategories, SabHistory, SabHistoryItem, SabQueue } from "@/lib/api/usenet";
+import type { SabHistory, SabHistoryItem, SabQueue } from "@/lib/api/usenet";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
@@ -58,24 +59,10 @@ function ReasonCell({ item }: { item: SabHistoryItem }) {
   );
 }
 
-/** P5: "standaard (*)" explained in place — Sonarr/Radarr sent no category; what to set in their download client. */
+/** P5 / 1.6.0: "standaard (*)" explained in place with the diagnosed cause and a link to the fix (categories.tsx). */
 function DefaultCategoryNote({ items }: { items: SabHistoryItem[] }) {
-  const { t, num } = useI18n();
-  const cats = useResource<SabCategories>("/usenet/sab/categories");
   const n = items.filter((h) => h.category === "*").length;
-  if (!n) return null;
-  const mapped = (cats.data?.items ?? []).filter((c) => c.name !== "*" && c.media_category);
-  const examples = mapped.length
-    ? mapped.slice(0, 4).map((c) => `'${c.name}' (${t(`usenet.cat.media.${c.media_category}` as MessageKey)})`).join(", ")
-    : "'tv' (Sonarr), 'movies' (Radarr)";
-  return (
-    <div style={{ padding: "12px 16px 0" }}>
-      <InlineState tone="info">
-        <strong>{t("usenet.dl.defaultCatTitle")}</strong> {t("usenet.dl.defaultCatCount", { n: num(n), total: num(items.length) })}{" "}
-        {t("usenet.dl.defaultCatBody")} {t("usenet.dl.defaultCatFix", { examples })}
-      </InlineState>
-    </div>
-  );
+  return n ? <StarCategoryNote count={n} total={items.length} /> : null;
 }
 
 function CategoryCell({ category, media, source }: { category: string | null; media: string | null; source: SabHistoryItem["category_source"] }) {

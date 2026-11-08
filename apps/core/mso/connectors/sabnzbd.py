@@ -236,6 +236,51 @@ class SabClient:
         cats = self._call("get_cats").get("categories") or []
         return [str(c) for c in cats if str(c) not in ("*", "")]
 
+    # ---- categories in detail (1.6.0: '*' diagnosis and the ``sabnzbd_categories`` applier)
+    def category_config(self) -> list[dict[str, Any]]:
+        """``get_config&section=categories`` → ``[{name, dir, pp, script, priority, order}]`` including '*'
+        (SABnzbd lists it first, ``config.get_ordered_categories``). Categories carry no credentials."""
+        body = self._call("get_config", {"section": "categories"})
+        cats = (body.get("config") or {}).get("categories") or []
+        if isinstance(cats, dict):  # very old versions: {name: {...}}
+            cats = [dict(v, name=k) for k, v in cats.items()]
+        out = []
+        for c in cats:
+            name = str(c.get("name") or "") if isinstance(c, dict) else ""
+            if not name:
+                continue
+            out.append(
+                {
+                    "name": name,
+                    "dir": str(c.get("dir") or ""),
+                    "pp": "" if c.get("pp") is None else str(c.get("pp")),
+                    "script": str(c.get("script") or ""),
+                    "priority": _int(c.get("priority"), CATEGORY_DEFAULT_PRIORITY),
+                    "order": _int(c.get("order"), 0),
+                }
+            )
+        return out
+
+    def complete_dir(self) -> str | None:
+        """SABnzbd's folder for completed downloads (``get_config&section=misc&keyword=complete_dir``: only that
+        one value is requested)."""
+        body = self._call("get_config", {"section": "misc", "keyword": "complete_dir"})
+        value = ((body.get("config") or {}).get("misc") or {}).get("complete_dir")
+        return str(value) if value else None
+
+    def create_category(self, name: str, folder: str, *, order: int | None = None) -> None:
+        """``set_config&section=categories&keyword=<name>&dir=<folder>`` (``api.handle_cat_api``). Post-processing,
+        script and priority stay "Default", which SABnzbd resolves to the values of '*' (``misc.cat_to_opts``).
+        Only used through the ``sabnzbd_categories`` applier."""
+        name = validate_category_name(name)
+        folder = validate_category_name(folder)
+        self._call("set_config", {"section": "categories", "keyword": name, "dir": folder, "order": order})
+
+    def delete_category(self, name: str) -> None:
+        """``del_config&section=categories&keyword=<name>`` (``api.del_from_section``). Never '*'. Only used to roll
+        back a category MSO itself created."""
+        self._call("del_config", {"section": "categories", "keyword": validate_category_name(name)})
+
     # ------------------------------------------------------------------ writes (applier only)
     def set_server(self, name: str, **fields: int) -> None:
         for k, v in fields.items():
@@ -443,6 +488,83 @@ def _retry_applier() -> changes.Applier:
 
 
 changes.register_applier(RETRY_TARGET, _retry_applier)
+
+# ------------------------------------------------------------------ category applier ('*' diagnosis, 1.6.0)
+CATEGORY_TARGET = "sabnzbd_categories"
+CATEGORY_ABSENT = "ontbreekt"
+CATEGORY_DEFAULT_PRIORITY = -100  # SABnzbd DEFAULT_PRIORITY: "use the priority of '*'"
+_CATEGORY_FIRST = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
+_CATEGORY_CHARS = _CATEGORY_FIRST | frozenset(" ._+-")
+
+
+def validate_category_name(name: str) -> str:
+    """SABnzbd stores category names in lower case (``api.handle_cat_api``) and files unknown ones under '*'
+    (``misc.cat_to_opts``). MSO only creates/deletes plain names (``[a-z0-9][a-z0-9 ._+-]{0,63}``): never '*', no
+    path separators."""
+    norm = str(name or "").strip().lower()
+    ok = 0 < len(norm) <= 64 and norm[0] in _CATEGORY_FIRST and set(norm) <= _CATEGORY_CHARS
+    if not ok or norm in ("default", "none"):
+        raise ValueError(f"ongeldige SABnzbd-categorienaam '{str(name)[:70]}'")
+    return norm
+
+
+def category_present(folder: str) -> str:
+    return f"aanwezig · map {folder}" if folder else "aanwezig · standaardmap"
+
+
+def category_path_name(path: str) -> str:
+    """``categories/<name>``"""
+    if not path.startswith("categories/"):
+        raise ValueError(f"ongeldig pad '{path}'")
+    return validate_category_name(path[len("categories/") :])
+
+
+def _category_applier() -> changes.Applier:
+    """``categories/<name>``: ``ontbreekt`` ↔ ``aanwezig · map <name>``. Write = ``set_config`` (new category with
+    its own folder named like the category, which is where MediaGuard looks for its categories); read-back via
+    ``get_config&section=categories``. Rollback (``ontbreekt``) deletes the category with ``del_config``, but only
+    when it is still exactly as MSO created it and no download in SABnzbd's queue uses it."""
+    client = SabClient.from_config()
+
+    def find(name: str) -> dict[str, Any] | None:
+        return next((c for c in client.category_config() if c["name"].lower() == name), None)
+
+    def read(path: str) -> Any:
+        cat = find(category_path_name(path))
+        return CATEGORY_ABSENT if cat is None else category_present(cat["dir"])
+
+    def write(path: str, value: Any) -> None:
+        name = category_path_name(path)
+        if value == CATEGORY_ABSENT:
+            cat = find(name)
+            if cat is None:
+                return
+            if category_present(cat["dir"]) != category_present(name):
+                raise SabError(f"categorie '{name}' is buiten MSO gewijzigd; MSO verwijdert hem niet", "invalid")
+            queue = client.queue(limit=10_000)
+            using = [s for s in queue.get("slots") or [] if str(s.get("cat") or "").lower() == name]
+            if using:
+                raise SabError(
+                    f"{len(using)} download(s) in de SABnzbd-wachtrij gebruiken categorie '{name}'; "
+                    "niet verwijderd",
+                    "invalid",
+                )
+            client.delete_category(name)
+            return
+        if value != category_present(name):
+            raise SabError("MSO maakt een categorie alleen aan met een eigen map met dezelfde naam", "invalid")
+        order = max((c["order"] for c in client.category_config()), default=0) + 1
+        client.create_category(name, name, order=order)
+
+    def validate(path: str, value: Any) -> None:
+        name = category_path_name(path)
+        if value not in (CATEGORY_ABSENT, category_present(name)):
+            raise ValueError(f"waarde moet '{CATEGORY_ABSENT}' of '{category_present(name)}' zijn")
+
+    return changes.Applier(read=read, write=write, validate=validate)
+
+
+changes.register_applier(CATEGORY_TARGET, _category_applier)
 
 
 # ------------------------------------------------------------------ connector test

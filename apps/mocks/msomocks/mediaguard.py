@@ -20,6 +20,15 @@ Faults (``create_app(**faults)`` / ``--fault key=1``):
 - ``no_openapi``       ``/api/v1/openapi.json`` is not served (forces route probing)
 - ``quota_exhausted``  backfill quota has ``remaining: 0``; search answers 429 like MediaGuard
 - ``emergency_stop``   ``/status`` reports an active emergency stop
+- ``no_category_routes``        older MediaGuard without ``/instances/{id}/download-clients``,
+                                ``/instances/{id}/health`` and ``/provisioning/config`` (FastAPI 404 "Not Found",
+                                absent from OpenAPI)
+- ``category_routes_forbidden`` those three routes answer 403 (role without access)
+
+1.6.0 category diagnosis: ``app.state.download_clients`` (per instance, Sonarr/Radarr provider resources as
+``manage.py`` returns them: secrets masked as ``********``, category in ``tvCategory``/``movieCategory``),
+``app.state.arr_health`` (per instance, Sonarr/Radarr ``/api/v3/health`` items) and ``app.state.provisioning``
+(``provisioning/store.py::public_view`` shape incl. the host/username fields MSO must drop).
 """
 
 from __future__ import annotations
@@ -417,6 +426,100 @@ class PlanBody(BaseModel):
     instance_id: str | None = None
 
 
+MASK = "********"
+# provisioning/templates.py DEFAULT_CATEGORY (per media type) and PREFIX for MediaGuard-owned items
+DEFAULT_CATEGORY = {"tv": "tv", "anime": "tv-anime", "movie": "movies", "anime_movie": "movies-anime"}
+OWNED_PREFIX = "MediaGuard · "
+
+
+def seed_download_clients(iid: str) -> list[dict[str, Any]]:
+    """Sonarr/Radarr download clients as MediaGuard's provider list returns them (``mask_provider``): the
+    provisioned SABnzbd client with the per-instance category, plus qBittorrent."""
+    field = "movieCategory" if iid.startswith("radarr") else "tvCategory"
+    cat = DEFAULT_CATEGORY[MEDIA_TYPES[iid]]
+
+    def fields(extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {"name": "host", "value": "sabnzbd"},
+            {"name": "port", "value": 8080},
+            {"name": "useSsl", "value": False},
+            {"name": "urlBase", "value": ""},
+            *extra,
+        ]
+
+    return [
+        {
+            "id": 1,
+            "name": f"{OWNED_PREFIX}SABnzbd",
+            "implementation": "Sabnzbd",
+            "implementationName": "SABnzbd",
+            "protocol": "usenet",
+            "enable": True,
+            "priority": 1,
+            "removeCompletedDownloads": True,
+            "removeFailedDownloads": True,
+            "tags": [],
+            "fields": fields(
+                [
+                    {"name": "apiKey", "value": MASK, "privacy": "apiKey", "is_set": True},
+                    {"name": "username", "value": "sab-gebruiker", "privacy": "userName"},
+                    {"name": "password", "value": MASK, "privacy": "password", "is_set": True},
+                    {"name": field, "value": cat},
+                ]
+            ),
+        },
+        {
+            "id": 2,
+            "name": f"{OWNED_PREFIX}qBittorrent",
+            "implementation": "QBittorrent",
+            "implementationName": "qBittorrent",
+            "protocol": "torrent",
+            "enable": True,
+            "priority": 1,
+            "tags": [],
+            "fields": fields(
+                [
+                    {"name": "username", "value": "qb-gebruiker", "privacy": "userName"},
+                    {"name": "password", "value": MASK, "privacy": "password", "is_set": True},
+                    {"name": field, "value": cat},
+                ]
+            ),
+        },
+    ]
+
+
+def seed_provisioning() -> dict[str, Any]:
+    """``GET /api/v1/provisioning/config`` (``store.public_view``): secrets removed by MediaGuard, but host and
+    username are still there — MSO keeps only names and categories."""
+    return {
+        "indexer_mode": "prowlarr",
+        "download_clients": [
+            {
+                "name": "SABnzbd",
+                "implementation": "Sabnzbd",
+                "enabled": True,
+                "host": "sabnzbd",
+                "port": 8080,
+                "use_ssl": False,
+                "url_base": "",
+                "username": "sab-gebruiker",
+                "priority": 1,
+                "instances": None,
+                "categories": {},
+                "extra_fields": {},
+                "api_key_set": True,
+                "password_set": False,
+                "protocol": "usenet",
+            }
+        ],
+        "instances": {iid: {"root_folder": None, "category": None, "mode": "auto", "full_manage": [],
+                            "disabled_sections": []} for iid in MEDIA_TYPES},
+        "defaults": {iid: {"category": DEFAULT_CATEGORY[mt], "root_folder": f"/data/media/{mt}", "profiles": []}
+                     for iid, mt in MEDIA_TYPES.items()},
+        "seerr_connection": {"url": "", "api_key_set": False},
+    }
+
+
 def _truthy(v: Any) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -445,6 +548,10 @@ def create_app(**faults: Any) -> FastAPI:
     st.queues: dict[str, list[dict[str, Any]]] = {iid: [] for iid in MEDIA_TYPES}
     st.blocked: list[dict[str, Any]] = []
     st.faults = f
+    # 1.6.0: Sonarr/Radarr download clients + health per instance, provisioning config (category diagnosis)
+    st.download_clients = {iid: seed_download_clients(iid) for iid in MEDIA_TYPES}
+    st.arr_health: dict[str, list[dict[str, Any]]] = {iid: [] for iid in MEDIA_TYPES}
+    st.provisioning = seed_provisioning()
     for w in st.wanted:
         if w["last_reason_code"]:
             st.diagnoses[w["id"]] = {
@@ -545,7 +652,49 @@ def create_app(**faults: Any) -> FastAPI:
     # ------------------------------------------------------------------ instances/manage.py (queue)
     @app.get("/api/v1/instances")
     def instances(_: dict[str, Any] = Depends(require("viewer"))) -> list[dict[str, Any]]:
-        return [{"id": iid, "app": "radarr" if "radarr" in iid else "sonarr", "name": iid} for iid in st.queues]
+        # instances/api.py::instance_view (subset); url/api_key_set are there too and must be dropped by MSO
+        return [
+            {
+                "id": iid,
+                "app": "radarr" if "radarr" in iid else "sonarr",
+                "media_type": MEDIA_TYPES.get(iid, "tv"),
+                "name": INSTANCE_NAMES.get(iid, iid),
+                "url": f"http://{iid}:8989",
+                "status": "online",
+                "suspended": False,
+                "archived": False,
+                "download_category": None,
+                "api_key_set": True,
+                "health": copy.deepcopy(st.arr_health.get(iid, [])),
+            }
+            for iid in st.queues
+        ]
+
+    # ------------------------------------------------------------------ 1.6.0: category diagnosis (read-only)
+    def category_route_guard(instance_id: str | None = None) -> None:
+        if f.get("category_routes_forbidden"):
+            raise HTTPException(403, "Rol 'admin' vereist")
+        if instance_id is not None and instance_id not in st.queues:
+            raise HTTPException(404, f"Instantie '{instance_id}' bestaat niet")
+
+    if not f.get("no_category_routes"):
+
+        @app.get("/api/v1/instances/{instance_id}/download-clients")
+        def download_clients(
+            instance_id: str, _: dict[str, Any] = Depends(require("viewer"))
+        ) -> list[dict[str, Any]]:
+            category_route_guard(instance_id)
+            return copy.deepcopy(st.download_clients.get(instance_id, []))
+
+        @app.get("/api/v1/instances/{instance_id}/health")
+        def instance_health(instance_id: str, _: dict[str, Any] = Depends(require("viewer"))) -> list[dict[str, Any]]:
+            category_route_guard(instance_id)
+            return copy.deepcopy(st.arr_health.get(instance_id, []))
+
+        @app.get("/api/v1/provisioning/config")
+        def provisioning_config(_: dict[str, Any] = Depends(require("viewer"))) -> dict[str, Any]:
+            category_route_guard()
+            return copy.deepcopy(st.provisioning)
 
     @app.get("/api/v1/instances/{instance_id}/queue")
     def instance_queue(instance_id: str, page: int = 1, page_size: int = 50,

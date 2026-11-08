@@ -13,7 +13,7 @@ from typing import Any
 from mso import settings_registry as sr
 from mso.db import get_db
 from mso.domain import categories
-from mso.domain.outcomes import FAILURE_REASONS
+from mso.domain.outcomes import FAILURE_REASONS, outcome_at
 
 BUCKETS: list[tuple[str, str]] = [
     ("no_indexer_hit", "Geen indexerresultaat"),
@@ -109,7 +109,7 @@ def compute(days: int | None = None) -> dict[str, Any]:
         "SELECT o.media_category, o.source_id, o.failure_reason, o.protocol, s.label FROM "
         "download_outcomes o "
         "LEFT JOIN sources s ON s.id=o.source_id WHERE o.status='failed' "
-        "AND COALESCE(o.finished_at, o.observed_at) > now() - make_interval(days => %s)",
+        f"AND {outcome_at('o')} > now() - make_interval(days => %s)",
         (days,),
     )
     with_reason = 0

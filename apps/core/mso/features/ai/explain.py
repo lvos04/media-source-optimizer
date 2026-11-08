@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from mso.db import Database, get_db
-from mso.domain.outcomes import FAILURE_REASONS
+from mso.domain.outcomes import FAILURE_REASONS, outcome_at
 
 ADVICE: dict[str, str] = {
     "unpack_failed": "SABnzbd kon de download niet uitpakken; de melding noemt zelf geen oorzaak. Vaak ontbraken "
@@ -120,7 +120,7 @@ def evidence(subject: str, ref: str | None = None, db: Database | None = None) -
         raise HTTPException(422, detail="Onbekend onderwerp")
     rows = db.fetchall(
         "SELECT protocol, status, failure_reason, count(*) AS n FROM download_outcomes WHERE "
-        "COALESCE(finished_at, observed_at) > now() - interval '7 days' AND status IN ('success','failed')"
+        f"{outcome_at()} > now() - interval '7 days' AND status IN ('success','failed')"
         + where
         + " GROUP BY protocol, status, failure_reason",
         params,

@@ -42,6 +42,42 @@ def test_item_key_uses_release_normalisation() -> None:
     assert k("") is None
 
 
+def test_item_key_dated_episodes_events_and_years() -> None:
+    k = outcomes.item_key
+    # daily shows / news / wrestling: one item per air date, never one per show per year
+    assert k("WWE.Raw.2026.11.03.1080p.WEB.h264-HEEL") == k("WWE Raw 2026-11-03 720p HDTV") == "wwe raw|2026-11-03"
+    assert k("WWE.Raw.2026.11.10.1080p.WEB.h264-HEEL") == "wwe raw|2026-11-10"
+    assert k("The.Daily.Show.2026.11.03.Jane.Doe.1080p.WEB") == k("The Daily Show 2026 11 03 720p") \
+        == "daily show|2026-11-03"
+    # several games on one day: the match-up is part of the identity
+    assert k("NBA.2026.11.03.Lakers.vs.Celtics.1080p") != k("NBA.2026.11.03.Bulls.vs.Knicks.1080p")
+    # sports by round / event: no reliable identity, every attempt is its own item (never merged)
+    assert k("Formula1.2026.Round20.Brazil.Race.1080p.WEB") is None
+    assert k("Formula1.2026.Round21.Las.Vegas.Race.1080p") is None
+    assert k("MotoGP.2026.Brazil.Grand.Prix.Race.1080p") is None
+    # a year alone is a film only when the category says so or nothing numbering-like follows it
+    assert k("Movie.2019.German.DL.1080p.BluRay.x264-GRP") == k("Movie (2019) 2160p") == "movie|2019"
+    assert k("Film.2020.720p-GRP", "movies") == "film|2020"
+    assert k("Film.2020.720p-GRP", "tv") is None
+    assert k("Some.Series.Special.1080p", "tv") is None
+    # the year before the numbering is part of the show: these are different shows
+    assert k("Doctor.Who.2005.S01E01.1080p.BluRay") == "doctor who 2005|s1e1"
+    assert k("Doctor.Who.S01E01.1080p") == "doctor who|s1e1"
+    assert k("Doctor.Who.2005.S02.COMPLETE.720p") == "doctor who 2005|s2"
+
+
+def test_netto_daily_show_episodes_are_separate_items() -> None:
+    """4 failed episodes of a daily show + 1 success of another episode = 4 of 5 failed, not 0 of 1."""
+    rows = [_row("failed", NOW - timedelta(days=2), f"The.Daily.Show.2026.11.0{d}.1080p.WEB-GRP",
+                 reason="incomplete") for d in range(2, 6)]
+    rows.append(_row("success", NOW - timedelta(days=1), "The.Daily.Show.2026.11.06.1080p.WEB-GRP"))
+    rows += [_row("failed", NOW - timedelta(days=1), f"Formula1.2026.Round2{i}.Race.1080p", reason="incomplete")
+             for i in range(2)]
+    rows.append(_row("success", NOW - timedelta(hours=3), "Formula1.2026.Round22.Race.1080p"))
+    net = outcomes.failure_ratios(rows, NOW - timedelta(days=7), NOW)["net"]
+    assert (net["failed"], net["n"]) == (6, 8)
+
+
 def test_netto_counts_item_that_arrived_after_all_as_success() -> None:
     rows = []
     for i in range(1, 21):  # 20 episodes: failed once, then arrived via another release
@@ -254,12 +290,39 @@ def test_failure_goal_netto_bruto_trend_and_blocker(admin: Any, viewer: Any) -> 
     assert fr["blocker"]["text"] == (
         "Meeste mislukkingen: onvolledig (ontbrekende artikelen/blocks, repair faalde) (3 van 4).")
     assert fr["reasons"][0] == {"reason": "incomplete", "label": outcomes.FAILURE_REASONS["incomplete"], "count": 3}
+    # a start window with too little data gives no "beter/slechter dan bij de start"
+    _usenet("o1", "Oude.Serie.S01E01.1080p-GRP", "failed", 192, "incomplete")
+    _usenet("o2", "Oude.Serie.S01E02.1080p-GRP", "success", 192)
+    _usenet("o3", "Oude.Serie.S01E03.1080p-GRP", "success", 190)
+    fr = _goal(viewer.get("/api/v1/overview/goals").json(), "failure_ratio")
+    assert fr["start"]["n"] == 3 and fr["start"]["value"] == round(1 / 3, 4) and fr["start"]["insufficient"] is True
+    assert fr["status"] == "not_met" and fr["direction"] is None and fr["now"]["n"] == 24
     # the dashboard carries the compact block and the netto/bruto ratio with n
     ov = viewer.get("/api/v1/overview").json()
     assert ov["failures"]["ratio"]["net"] == {"value": round(4 / 24, 4), "failed": 4, "n": 24, "insufficient": False}
     assert ov["failures"]["ratio"]["gross"]["n"] == 44 and ov["failures"]["ratio"]["min_n"] == 20
     items = {g["key"]: g for g in ov["goals"]["items"]}
     assert items["failure_ratio"]["status"] == "not_met" and ov["goals"]["trial"]["day"] == 6
+
+
+def test_outcome_rows_bounded_and_overview_survives_a_ratio_error(db: Any, viewer: Any,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    from mso.features.overview import goals
+
+    now = datetime.now(UTC)
+    for i, h in enumerate((300, 200, 100, 10)):
+        _usenet(f"b{i}", f"Serie.S01E0{i + 1}.1080p-GRP", "success", h)
+    assert [r["client_ref"] for r in goals.outcome_rows(db, now - timedelta(hours=250), now - timedelta(hours=50))] \
+        == ["b1", "b2"]
+    assert len(goals.outcome_rows(db, now - timedelta(hours=250))) == 3
+
+    def boom(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("kapot")
+
+    monkeypatch.setattr(goals, "ratio_now", boom)
+    r = viewer.get("/api/v1/overview")
+    assert r.status_code == 200, r.text
+    assert r.json()["failures"]["ratio"] is None and r.json()["failures"]["finished_7d"] == 2
 
 
 def test_suspicious_goal_reconstruction_snapshot_and_job(admin: Any, viewer: Any, db: Any, worker: Any) -> None:
@@ -270,14 +333,20 @@ def test_suspicious_goal_reconstruction_snapshot_and_job(admin: Any, viewer: Any
         "INSERT INTO torrent_state(hash, name, diagnosis, first_seen, removed, updated_at) VALUES "
         "('a1','Oud.S01E01.mkv.exe', %s, now() - interval '10 days', true, now() - interval '2 days'),"
         "('b2','Nieuw.S01E02.exe', %s, now() - interval '1 day', false, now()),"
-        "('c3','Schoon.S01E03.mkv', '{}', now() - interval '10 days', false, now())",
-        (sus, sus),
+        "('c3','Schoon.S01E03.mkv', '{}', now() - interval '10 days', false, now()),"
+        "('d4','Weg.S01E04.scr', %s, now() - interval '2 days', true, now() - interval '1 day')",
+        (sus, sus, sus),
     )
     db.execute("INSERT INTO goal_snapshots(day, metrics) VALUES (%s, %s)",
                (today - timedelta(days=1), json.dumps({"suspicious": 7})))
     g = _goal(viewer.get("/api/v1/overview/goals").json(), "suspicious_torrents")
-    assert g["status"] == "not_met" and g["now"]["value"] == 1 and g["now"]["new_7d"] == 1
-    assert g["start"] == {"value": 1, "source": "reconstructed", "date": (today - timedelta(days=5)).isoformat()}
+    # new in 7 days counts the one already cleaned up too (does prevention work?)
+    assert g["status"] == "not_met" and g["now"]["value"] == 1 and g["now"]["new_7d"] == 2
+    start_utc = datetime.combine(today - timedelta(days=5), datetime.min.time(), ZoneInfo("Europe/Amsterdam"))
+    assert g["start"] == {"value": 1, "source": "history", "provisional": False,
+                          "date": (today - timedelta(days=5)).isoformat(),
+                          "window_from": start_utc.astimezone(UTC).isoformat(),
+                          "window_until": (start_utc + timedelta(hours=1)).astimezone(UTC).isoformat()}
     by_day = {t["date"]: t for t in g["trend"]}
     assert by_day[(today - timedelta(days=1)).isoformat()] == {
         "date": (today - timedelta(days=1)).isoformat(), "value": 7, "source": "snapshot"}
@@ -285,7 +354,7 @@ def test_suspicious_goal_reconstruction_snapshot_and_job(admin: Any, viewer: Any
     assert by_day[(today - timedelta(days=3)).isoformat()]["value"] == 1
     assert by_day[today.isoformat()]["source"] == "live"
     assert g["blocker"]["text"] == ("1 verdachte torrent(s) zonder opruimvoorstel; maak er een op Torrentclient"
-                                    " · 1 nieuw in 7 dagen.")
+                                    " · 2 nieuw in 7 dagen.")
     # hourly job stores today's values (local day), later runs overwrite the same day
     from mso import jobs
 
@@ -298,6 +367,62 @@ def test_suspicious_goal_reconstruction_snapshot_and_job(admin: Any, viewer: Any
     worker.drain()
     assert db.scalar("SELECT count(*) FROM goal_snapshots WHERE day=%s", (today,)) == 1
     assert any(s.kind == "overview.goals_snapshot" and s.every_s == 3600 for s in jobs.SCHEDULES)
+    # the job froze the start values (first hour long past); later history changes do not move them
+    frozen = db.scalar("SELECT value FROM system_state WHERE key='goals.start'")
+    assert frozen["goals"]["suspicious_torrents"]["value"] == 1 and "failing_servers" not in frozen["goals"]
+    assert "failure_ratio" not in frozen["goals"]  # nothing before the start: not frozen (history may still arrive)
+    db.execute("DELETE FROM torrent_state WHERE hash='a1'")  # e.g. pruned by retention
+    g = _goal(viewer.get("/api/v1/overview/goals").json(), "suspicious_torrents")
+    assert g["start"]["value"] == 1 and g["start"]["frozen"] is True
+    # another trial start = new start values
+    _set(admin, **{"goals.trial_start": (today - timedelta(days=4)).isoformat()})
+    g = _goal(viewer.get("/api/v1/overview/goals").json(), "suspicious_torrents")
+    assert g["start"]["value"] == 0 and "frozen" not in g["start"]
+
+
+def test_start_value_is_the_first_hour_not_a_later_snapshot(admin: Any, viewer: Any, db: Any) -> None:
+    """Trial starts today with 5 suspicious torrents; they are cleaned up and the hourly snapshot runs later that day:
+    the start value stays 5 (it is the first hour of the trial), now is 0 and the card says "beter"."""
+    from mso.features.overview import goals
+
+    today = _local_today()
+    _set(admin, **{"goals.trial_start": today.isoformat()})
+    sus = json.dumps({"findings": [{"code": "suspicious_payload"}]})
+    for i in range(5):
+        db.execute("INSERT INTO torrent_state(hash, name, diagnosis, first_seen) VALUES (%s, %s, %s, now())",
+                   (f"s{i}", f"Nep.S01E0{i}.exe", sus))
+    g = _goal(viewer.get("/api/v1/overview/goals").json(), "suspicious_torrents")
+    assert g["start"]["value"] == 5 and g["start"]["provisional"] is True and g["now"]["value"] == 5
+    db.execute("UPDATE torrent_state SET removed=true, updated_at=now()")  # cleaned up (after approval)
+    later = datetime.now(UTC) + timedelta(minutes=5)
+    snap = goals.snapshot(now=later)
+    g = _goal(goals.compute(now=later), "suspicious_torrents")
+    assert g["start"]["value"] == 5 and g["now"]["value"] == 0 and g["direction"] == "better"
+    assert snap["suspicious"] == 0 and snap["frozen_starts"] == []
+    # once the first hour has passed the hourly job freezes it
+    much_later = datetime.now(UTC) + timedelta(hours=2)
+    assert "suspicious_torrents" in goals.snapshot(now=much_later)["frozen_starts"]
+    g = _goal(goals.compute(now=much_later), "suspicious_torrents")
+    assert g["start"]["value"] == 5 and g["start"]["frozen"] is True and g["start"]["provisional"] is False
+    # a torrent that only shows up after the first hour is not part of the start
+    db.execute("INSERT INTO torrent_state(hash, name, diagnosis, first_seen) VALUES "
+               "('laat', 'Laat.S01E09.exe', %s, now() + interval '90 minutes')", (sus,))
+    assert goals.suspicious_start(db, goals.trial(db, much_later, goals.local_tz()), much_later)["value"] == 5
+
+
+def test_server_reconstruction_is_the_state_at_the_end_of_the_day(db: Any) -> None:
+    from mso.features.overview import goals
+
+    tz = ZoneInfo("Europe/Amsterdam")
+    day = _local_today() - timedelta(days=3)
+    end = goals.day_end(day, tz)
+    db.execute("INSERT INTO usenet_sab_server_events(server, status, first_at, last_at) VALUES "
+               "('a', 'auth_failed', %s, %s), ('b', 'account_expired', %s, %s), ('c', 'rate_limited', %s, %s)",
+               (end - timedelta(hours=14), end - timedelta(hours=12),  # failed in the morning, fine since
+                end - timedelta(hours=5), end - timedelta(minutes=4),  # still failing at the end of the day
+                end - timedelta(hours=5), end - timedelta(minutes=4)))  # rate limit is not a failure
+    assert goals.failing_servers_at(db, end) == 1
+    assert goals.failing_servers_at(db, end - timedelta(hours=13)) == 1  # a, not b yet
 
 
 # ------------------------------------------------------------------ over real HTTP (mocks)
@@ -381,7 +506,7 @@ def test_failing_servers_vs_switched_off_by_mso_via_sabnzbd(admin: Any, viewer: 
     assert g["available"] and g["now"]["value"] == 4 and g["disabled_by_mso"] == [] and g["disabled_text"] is None
     assert g["blocker"]["text"].startswith("Ingeschakeld maar falend: ") and g["blocker"]["link"] == "/usenet-providers"
     assert "(account verlopen)" in g["blocker"]["text"] and "goedkeuring" not in g["blocker"]["text"]
-    assert g["start"]["value"] == 4 and g["start"]["source"] == "reconstructed"
+    assert g["start"]["value"] == 4 and g["start"]["source"] == "history" and g["start"]["provisional"] is True
     # an open "kapotte servers uitschakelen" proposal is what holds the goal back
     from mso import changes
 
@@ -409,7 +534,50 @@ def test_failing_servers_vs_switched_off_by_mso_via_sabnzbd(admin: Any, viewer: 
     g = _goal(b, "failing_servers")
     assert g["status"] == "met" and g["now"]["value"] == 0 and g["blocker"] is None
     assert g["disabled_text"] == "4 uitgezet omdat ze niet werken; herstellen of verwijderen in SABnzbd is jouw keuze"
-    assert g["direction"] == "better"
+    assert g["start"]["value"] == 4 and g["direction"] == "better"  # what Autopilot switched off still counts at start
     # nothing secret leaks (SABnzbd key, user names)
     text = json.dumps(b)
     assert SAB_KEY not in text and "username" not in text
+
+
+def test_servers_switched_off_through_an_approved_change_count_as_mso(admin: Any, viewer: Any, db: Any,
+                                                                     serve: Any) -> None:
+    """Beheermodus: an approved "kapotte servers uitschakelen" change (no autoheal row) is listed as switched off by
+    MSO; a server the user switched off during a probe is not."""
+    from msomocks import sabnzbd as mock
+
+    from mso import changes, state
+    from mso.features.overview import goals
+    from mso.features.usenet import serverstatus
+
+    app = mock.create_app(api_key=SAB_KEY, server_errors="field")
+    assert admin.put("/api/v1/connectors/sabnzbd",
+                     json={"url": serve(app), "secrets": {"api_key": SAB_KEY}}).status_code == 200
+    serverstatus.refresh()
+    state.set_state("mode", "manage")
+    ch = changes.create("sabnzbd", "1 kapotte server uitschakelen in SABnzbd",
+                        [{"path": "servers/reader.xsnews.test/enable", "label": "XSNews uit", "before": 1, "after": 0,
+                          "destructive": True}],
+                        risk="toestemming_nodig", source="usenet.disable_failing",
+                        impact={"servers": ["reader.xsnews.test"],
+                                "statuses": {"reader.xsnews.test": "account_expired"}},
+                        dedupe_key="usenet.disable_failing:goals")
+    changes.approve(ch["id"], "beheerder")
+    assert changes.apply(ch["id"], "beheerder")["status"] == "applied"
+    # the user switched thundernews off in SABnzbd during a probe
+    srv = next(x for x in app.state.sab.servers if x["name"] == "nl.thundernews.test")
+    srv["enable"] = 0
+    db.execute("INSERT INTO usenet_server_autoheal(server, status, reason, disabled_at, last_result) VALUES "
+               "('nl.thundernews.test', 'disabled', 'access_denied', now(), %s)", (goals.OUTSIDE_MSO,))
+    serverstatus.refresh()
+    g = _goal(viewer.get("/api/v1/overview/goals").json(), "failing_servers")
+    off = {s["server"]: s for s in g["disabled_by_mso"]}
+    assert set(off) == {"reader.xsnews.test"}
+    assert off["reader.xsnews.test"]["via"] == "change" and off["reader.xsnews.test"]["change_id"] == ch["id"]
+    assert off["reader.xsnews.test"]["reason_label"] == "Account verlopen"
+    assert g["now"]["value"] == 2 and g["now"]["disabled_by_mso"] == 1  # newshosting + usenetbucket
+    # rolled back = on again: no longer switched off by MSO
+    changes.rollback(ch["id"], "beheerder")
+    serverstatus.refresh()
+    g = _goal(viewer.get("/api/v1/overview/goals").json(), "failing_servers")
+    assert g["disabled_by_mso"] == [] and g["now"]["value"] == 3

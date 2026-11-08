@@ -5,7 +5,9 @@
 --   counted as "failed in the last 24 h" forever. Existing failed rows are backfilled from what is known: completion
 --   time, else (torrents) the stall moment / first sighting / last progress, else start time, else last observation.
 -- goal_snapshots: one row per local day with the goal values measured that day (suspicious torrents, failing and
---   MSO-disabled SABnzbd servers, failure ratios), upserted by the hourly job overview.goals_snapshot.
+--   MSO-disabled SABnzbd servers, failure ratios), upserted by the hourly job overview.goals_snapshot: the last run of
+--   the day wins, so a row holds the end-of-day value (the trend). Start values are not taken from here: they are the
+--   first hour of the trial, frozen in system_state['goals.start'].
 -- migrate:up
 ALTER TABLE download_outcomes ADD COLUMN IF NOT EXISTS failed_at timestamptz;
 

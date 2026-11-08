@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -146,13 +147,56 @@ def recommend(
 MIN_RATIO_N = 20  # below this many items/attempts a ratio is shown as "te weinig data"
 
 
-@lru_cache(maxsize=20000)
-def item_key(title: str) -> str | None:
-    """Identity of the *wanted item* a download was for (episode, season pack, film), from the existing release
-    normalisation (:func:`mso.domain.release.title_part` + :func:`~mso.domain.release.parse_title`): the normalised
-    name part plus its numbering (S01E02, absolute anime episode, season) or, for a film, the year. Other releases,
-    qualities and retries of the same episode share the key. ``None`` when the title says too little (obfuscated,
-    no name): such an attempt is then only its own item."""
+# a date in the title (daily shows, news, wrestling, sports by date): 2026.11.03 / 2026-11-03 / 2026 11 03
+_AIR_DATE_RE = re.compile(r"(?<![0-9])((?:19|20)[0-9]{2})[ ._-](0[1-9]|1[0-2])[ ._-](0[1-9]|[12][0-9]|3[01])(?![0-9])")
+# words that make a title with only a year an event/episode rather than a film ("Formula1.2026.Round20",
+# "NFL.2026.Week.10", "MotoGP.2026.Brazil.Grand.Prix.Race")
+_EVENT_WORDS = frozenset({
+    "round", "rnd", "week", "wk", "day", "race", "stage", "leg", "game", "match", "matchday", "episode", "ep",
+    "chapter", "part", "pt", "qualifying", "quali", "practice", "sprint", "gp", "grand", "prix", "highlights",
+    "final", "semifinal", "quarterfinal", "playoffs", "playoff", "vs", "v", "night", "event",
+})
+_MATCHUP_WORDS = frozenset({"vs", "v", "at"})
+
+
+def _tokens_until_quality(text: str) -> list[str]:
+    """Words of ``text`` up to the first quality/source token (1080p, WEB-DL, x264, PROPER, …)."""
+    from mso.domain import release
+
+    out = []
+    for w in re.findall(r"[A-Za-z0-9]+", text):
+        if release._TITLE_CUT_RE.fullmatch(w) and not release._YEAR_TOKEN_RE.match(w):
+            break
+        out.append(w.lower())
+    return out
+
+
+def _numbering_start(t: str, parsed: Any) -> int | None:
+    """Where the episode/season numbering starts in the raw title (for the year-before-numbering check)."""
+    from mso.domain import release
+
+    if parsed.season is not None and parsed.episodes and (m := release.RE_SXXEXX.search(t)):
+        return m.start()
+    if parsed.season is not None and parsed.full_season and (m := release.RE_SEASON_ONLY.search(t)):
+        return m.start()
+    return None
+
+
+@lru_cache(maxsize=65536)
+def item_key(title: str, media_category: str | None = None) -> str | None:
+    """Identity of the *wanted item* a download was for, from the existing release normalisation
+    (:func:`mso.domain.release.title_part` + :func:`~mso.domain.release.parse_title`): the normalised name part plus
+
+    - S01E02 / a season pack (with the year when the title has one before the numbering: ``Doctor.Who.2005.S01E01``
+      and ``Doctor.Who.S01E01`` are different shows), or the absolute anime episode;
+    - an air date (daily shows, news, wrestling, sports by date: ``WWE.Raw.2026.11.03``), plus the match-up when the
+      title names one (``NBA.2026.11.03.Lakers.vs.Celtics``);
+    - for a film: the year. A title with only a year is a film only when ``media_category`` says so, or (category
+      unknown) when nothing numbering-like follows the year: ``Formula1.2026.Round20`` is an event, not a film.
+
+    Other releases, qualities and retries of the same episode/film share the key. ``None`` when the title says too
+    little (obfuscated, no name, an event without numbering): such an attempt is then only its own item, never
+    merged with another episode."""
     from mso.domain import release
 
     t = (title or "").strip()
@@ -162,21 +206,41 @@ def item_key(title: str) -> str | None:
     name = " ".join(release._norm_tokens(release.title_part(t)))
     if not name:
         return None
+    cat = (media_category or "").lower()
+    year_m = release.RE_YEAR.search(t)
+    num_at = _numbering_start(t, parsed)
+    series = name
+    if year_m and num_at is not None and year_m.start() < num_at and str(year_m.group(1)) not in name.split():
+        series = f"{name} {year_m.group(1)}"
     if parsed.season is not None and parsed.episodes:
-        return f"{name}|s{parsed.season}e{'-'.join(str(e) for e in parsed.episodes)}"
+        return f"{series}|s{parsed.season}e{'-'.join(str(e) for e in parsed.episodes)}"
     if parsed.absolute_episodes:
         return f"{name}|a{'-'.join(str(e) for e in parsed.absolute_episodes)}"
+    if m := _AIR_DATE_RE.search(t):
+        key = f"{name}|{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        rest = _tokens_until_quality(t[m.end():])
+        if _MATCHUP_WORDS & set(rest):
+            key += "|" + " ".join(release._norm_tokens(" ".join(rest)))
+        return key
     if parsed.season is not None and parsed.full_season:
-        return f"{name}|s{parsed.season}"
-    if parsed.year:
-        return f"{name}|{parsed.year}"
+        return f"{series}|s{parsed.season}"
+    if cat.startswith("tv"):
+        return None  # a series download without numbering or date: no reliable identity
+    if year_m:
+        if not cat.startswith("movies"):
+            rest = _tokens_until_quality(t[year_m.end():])
+            if any(any(c.isdigit() for c in w) or w in _EVENT_WORDS for w in rest):
+                return None
+        return f"{name}|{year_m.group(1)}"
     return name
 
 
 def item_keys(rows: list[dict[str, Any]], links: list[tuple[str, str]] | None = None) -> list[str]:
-    """Item key per outcome row (``title``, ``client``, ``client_ref``). ``links`` are ``(client_ref, client_ref)``
-    pairs known to be the same item (e.g. a SABnzbd retry that got a new nzo_id) and are merged as well."""
-    own = [item_key(str(r.get("title") or "")) or f"ref:{r.get('client')}:{r.get('client_ref')}" for r in rows]
+    """Item key per outcome row (``title``, ``client``, ``client_ref``, optionally ``media_category``). ``links``
+    are ``(client_ref, client_ref)`` pairs known to be the same item (e.g. a SABnzbd retry that got a new nzo_id)
+    and are merged as well."""
+    own = [item_key(str(r.get("title") or ""), r.get("media_category"))
+           or f"ref:{r.get('client')}:{r.get('client_ref')}" for r in rows]
     parent: dict[str, str] = {}
 
     def find(k: str) -> str:

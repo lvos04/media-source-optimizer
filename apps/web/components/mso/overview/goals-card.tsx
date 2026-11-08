@@ -63,7 +63,7 @@ export function GoalsCard() {
           <>
             {g.trial.start_warning ? <div style={{ padding: "12px 16px 0" }}><InlineState tone="warning">{g.trial.start_warning}</InlineState></div> : null}
             <div data-testid="goals-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 12, padding: "12px 16px" }}>
-              {g.goals.map((goal) => <GoalTile key={goal.key} goal={goal} />)}
+              {g.goals.map((goal) => <GoalTile key={goal.key} goal={goal} notStarted={g.trial.not_started} />)}
             </div>
             <TrialFooter trial={g.trial} />
           </>
@@ -85,9 +85,10 @@ function TrialFooter({ trial }: { trial: GoalsTrial }) {
   const source = t(`goals.startSource.${trial.start_source}` as MessageKey);
   return (
     <div className="row wrap t-3" style={{ gap: "4px 12px", padding: "0 16px 12px", fontSize: 12 }}>
-      <span>{t("goals.started", { date: date(localDay(trial.start_date)) })} ({source})</span>
+      <span>{t(trial.not_started ? "goals.starts" : "goals.started", { date: date(localDay(trial.start_date)) })} ({source})</span>
       <span>{t(trial.ended ? "goals.ended" : "goals.ends", { date: date(localDay(trial.end_date)) })}</span>
       <span>{t("goals.timezone", { tz: trial.timezone })}</span>
+      <span>{t("goals.startDef")}</span>
     </div>
   );
 }
@@ -100,7 +101,21 @@ function Direction({ goal }: { goal: Goal }) {
   return <StatusChip tone={tone} icon={icon}>{t(`goals.direction.${goal.direction}` as MessageKey)}</StatusChip>;
 }
 
-function GoalTile({ goal }: { goal: Goal }) {
+function StartValue({ goal, notStarted }: { goal: Goal; notStarted: boolean }) {
+  const { t } = useI18n();
+  const value = useValue();
+  const s = goal.start;
+  if (s.value === null) return <>{t(notStarted ? "goals.startNotYet" : "goals.startNone", { date: shortDay(s.date) })}</>;
+  return (
+    <>
+      {t("goals.start", { date: shortDay(s.date) })}: <strong className="num">{value(goal, s.value)}</strong>
+      {goal.unit === "ratio" && s.insufficient ? <span className="t-3"> · {t("goals.startTooFew")}</span> : null}
+      {s.provisional ? <span className="t-3"> · {t("goals.startProvisional")}</span> : null}
+    </>
+  );
+}
+
+function GoalTile({ goal, notStarted }: { goal: Goal; notStarted: boolean }) {
   const { t, num } = useI18n();
   const value = useValue();
   const Icon = ICON[goal.key];
@@ -120,11 +135,7 @@ function GoalTile({ goal }: { goal: Goal }) {
             <span className="t-3" style={{ fontSize: 12 }}>{t(`goals.target.${goal.comparison}` as MessageKey, { value: target })}</span>
           </div>
           <div className="row wrap" style={{ gap: 6, fontSize: 12.5 }}>
-            <span className="t-2">
-              {goal.start.value === null ? t("goals.startNone", { date: shortDay(goal.start.date) })
-                : <>{t("goals.start", { date: shortDay(goal.start.date) })}: <strong className="num">{value(goal, goal.start.value)}</strong>
-                  {goal.start.source === "reconstructed" ? <span className="t-3"> · {t("goals.startReconstructed")}</span> : null}</>}
-            </span>
+            <span className="t-2"><StartValue goal={goal} notStarted={notStarted} /></span>
             <Direction goal={goal} />
           </div>
           <GoalDetails goal={goal} />

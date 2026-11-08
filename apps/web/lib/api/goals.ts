@@ -15,6 +15,8 @@ export interface GoalTrendPoint {
 export interface GoalServer {
   server: string; name: string; status: string; label: string; since: string | null;
   reason?: string | null; reason_label?: string; disabled_at?: string | null; given_up?: boolean;
+  /** how MSO switched it off: Autopilot (autoheal) or an approved change */
+  via?: "autopilot" | "change"; change_id?: number;
 }
 
 export interface Goal {
@@ -37,7 +39,14 @@ export interface Goal {
     // failing servers
     disabled_by_mso?: number; probing?: number;
   };
-  start: { value: number | null; date: string; source: "computed" | "snapshot" | "reconstructed" | null; n?: number; gross?: number | null; gross_n?: number };
+  /** Start value: failure ratio over the 7 days before the start (computed); suspicious torrents / failing servers
+   * during the first hour from the start (history). provisional = that hour is still running; frozen = stored by the
+   * hourly job and never changes again. */
+  start: {
+    value: number | null; date: string; source: "computed" | "history" | null;
+    provisional?: boolean; frozen?: boolean; window_from?: string | null; window_until?: string | null;
+    n?: number; failed?: number; insufficient?: boolean; gross?: number | null; gross_n?: number;
+  };
   trend: GoalTrendPoint[];
   blocker: { text: string; link: string; reason?: string } | null;
   min_n?: number;

@@ -140,9 +140,15 @@ def failures_block(db: Database) -> dict[str, Any]:
         )
         or 0
     )
-    from mso.features.overview import goals
+    ratio_block = None
+    try:  # the dashboard never fails on the netto/bruto ratio
+        from mso.features.overview import goals
 
-    ratio = goals.ratio_now(db)
+        ratio = goals.ratio_now(db)
+        ratio_block = {"net": {k: ratio["net"][k] for k in ("value", "failed", "n", "insufficient")},
+                       "gross": ratio["gross"], "min_n": ratio["min_n"]}
+    except Exception as exc:
+        LOGGER.warning("faalratio netto/bruto niet te berekenen: %s", exc)
     return {
         "available": True,
         "reason": None,
@@ -151,8 +157,7 @@ def failures_block(db: Database) -> dict[str, Any]:
         "finished_7d": int(done_7d),
         "failure_rate_7d": round(len(rows) / done_7d, 4) if done_7d else None,
         # netto (per episode/film: arrived after all = succeeded) next to bruto (per attempt), each with n
-        "ratio": {"net": {k: ratio["net"][k] for k in ("value", "failed", "n", "insufficient")},
-                  "gross": ratio["gross"], "min_n": ratio["min_n"]},
+        "ratio": ratio_block,
         "by_reason": sorted(
             ({"reason": k, "label": FAILURE_REASONS.get(k, k)} | v for k, v in reasons.items()),
             key=lambda x: -x["last_7d"],

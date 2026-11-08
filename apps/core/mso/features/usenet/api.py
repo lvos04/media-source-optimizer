@@ -530,6 +530,31 @@ def retries_propose(p: Principal = Depends(require("operator"))) -> dict[str, An
     )
 
 
+@router.post("/retries/resume")
+def retries_resume(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """'Hervatten': end the pause of automatic retrying (the effectiveness brake). Writes nothing to SABnzbd; the next
+    pass judges new attempts from now on."""
+    if not retry.brake_state().get("paused"):
+        raise HTTPException(409, detail="Automatisch opnieuw proberen staat niet op pauze")
+    retry.resume(p.actor, trigger="user")
+    return retry.overview()
+
+
+# ------------------------------------------------------------------ 1.6.0: diagnosis from SABnzbd's processing log
+@router.get("/sab/reclassify")
+def sab_reclassify_status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Result of the last reclassification of the SABnzbd history (once after the upgrade, or on request)."""
+    return {"last": history.reclassify_status()}
+
+
+@router.post("/sab/reclassify")
+def sab_reclassify(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """Classify every failed SABnzbd download again from SABnzbd's history and archive (stage-log facts). Changes only
+    MSO's own labels; audited as ``usenet.reclassified``."""
+    _limit("usenet-reclassify", p.actor, 3)
+    return {"last": _sab(lambda: history.reclassify(p.actor, trigger="user"))}
+
+
 @router.get("/stat-budget")
 def stat_budget(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     """Automatic STAT sample after sending: on/off, per-provider usage today/this month and the budgets."""

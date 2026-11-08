@@ -1,7 +1,10 @@
 """Fake SABnzbd (``/api?mode=…&output=json&apikey=…``) for tests and the container test stack.
 
-Implements: version, queue, history (incl. fail_message, stage_log, last_history_update conditional polling),
-server_stats (per-server daily bytes + articles_tried/articles_success), get_config&section=servers,
+Implements: version, queue, history (incl. fail_message, stage_log in SABnzbd's real wording, last_history_update
+conditional polling, ``archive=1`` for jobs removed from the history as SABnzbd ≥ 4 keeps them),
+server_stats (per-server daily bytes + articles_tried/articles_success — like the real SABnzbd, whose
+``articles_success`` field holds the number of FAILED articles: ``sabnzbd/api.py`` ``_api_server_stats`` →
+``BPSMeter.amounts`` → ``article_stats_failed``), get_config&section=servers,
 set_config&section=servers, retry (failed history job back into the queue),
 status/fullstatus (per-server ``servererror``/``serveractive``), warnings
 (``[{text, type, time}]``), get_cats, addurl, addfile (multipart parsed without extra dependencies).
@@ -10,7 +13,7 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``api_key``             expected key (default ``sabkey``)
 - ``scenario``            history content: ``mixed`` (default: success, expired account, auth denied, article
                           missing, repair failed, encrypted), ``success``, ``expired``, ``auth``, ``missing``,
-                          ``empty``
+                          ``unpack`` (field report: "Unpacking failed, see logfile" with complete data), ``empty``
 - ``ignore_set_config=1`` accept set_config but don't change anything (verification failure)
 - ``broken_mode=<mode>``  that mode answers HTTP 500
 - ``server_errors=report`` like the field report: newshosting "502 Authentication Failed", block server
@@ -48,18 +51,45 @@ FAIL_MESSAGES = {
     "repair": "Repair failed, not enough repair blocks (12 short)",
     "encrypted": "Unpacking failed, archive requires a password",
     "unpack": "Unpacking failed, see logfile",
+    "crc": "Unpacking failed, CRC error",
+    "disk": "Unpacking failed, write error or disk is full?",
+    "permission": "Unpacking failed, write error or disk is full? Permission denied",
 }
+
+
+def stage_log(kind: str, name: str = "Release") -> list[dict[str, Any]]:
+    """SABnzbd's per-job processing log as ``mode=history`` returns it (``sabnzbd/api.py`` build_history →
+    ``database.unpack_history_info``): stages in STAGES order, the Download report joined with ``<br/>``
+    (``nzb/object.py`` set_download_report), set-specific lines prefixed with ``[setname]``."""
+    report = ["Downloaded in 3 min 2 sec at an average of 45.1 MB/s", "Age: 12d"]
+    if kind in ("missing", "repair"):
+        report.append(f"{1532 if kind == 'missing' else 312} articles were missing")
+    log: list[dict[str, Any]] = [
+        {"name": "Source", "actions": [f"{name}.nzb"]},
+        {"name": "Download", "actions": ["<br/>".join(report)]},
+        {"name": "Servers", "actions": ["Eweka=1.4 GB, Newshosting=12.0 MB"]},
+    ]
+    if kind == "missing":  # aborted during the download: no post-processing
+        return log
+    if kind == "repair":
+        log.append({"name": "Repair", "actions": [f"[{name}] Repair failed, not enough repair blocks (12 short)"]})
+        return log
+    if kind in ("success", "encrypted", "unpack", "crc", "disk", "permission", "expired", "auth"):
+        log.append({"name": "Repair", "actions": [f"[{name}] Quick Check OK"]})
+    unpack = {
+        "success": f"[{name}] Unpacked 3 files/folders in 4 seconds",
+        "encrypted": f"[{name}] Unpacking failed, archive requires a password",
+        "crc": f"[{name}] Unpacking failed, CRC error",
+        "disk": f"[{name}] Unpacking failed, write error or disk is full? the file /downloads/complete/{name}.mkv",
+        "permission": f"[{name}] Unpacking failed, write error or disk is full? Permission denied",
+    }.get(kind)
+    if unpack:  # 7-Zip's "see logfile" failure writes no Unpack line (newsunpack.seven_extract_core)
+        log.append({"name": "Unpack", "actions": [unpack]})
+    return log
 
 
 def _slot(i: int, name: str, cat: str, kind: str, completed: int) -> dict[str, Any]:
     failed = kind != "success"
-    stage_log = [{"name": "Download", "actions": ["Downloaded in 3 min 2 sec at an average of 45.1 MB/s"]}]
-    if kind == "repair":
-        stage_log.append(
-            {"name": "Repair", "actions": ["Repair failed, not enough repair blocks (12 short)"]}
-        )
-    if kind == "encrypted":
-        stage_log.append({"name": "Unpack", "actions": ["Unpacking failed, archive requires a password"]})
     return {
         "nzo_id": f"SABnzbd_nzo_{i:04d}",
         "name": name,
@@ -71,10 +101,11 @@ def _slot(i: int, name: str, cat: str, kind: str, completed: int) -> dict[str, A
         "downloaded": 1_500_000_000 + i if not failed else 400_000_000,
         "download_time": 180,
         "completed": completed,
-        "stage_log": stage_log,
+        "stage_log": stage_log(kind, name),
         "storage": f"/downloads/{name}",
         "url": "",
         "size": "1.4 GB",
+        "archive": False,
     }
 
 
@@ -106,6 +137,7 @@ class SabState:
     def __init__(self, scenario: str = "mixed") -> None:
         self.lock = threading.Lock()
         self.history: list[dict[str, Any]] = _history_for(scenario)
+        self.archive: list[dict[str, Any]] = []  # jobs removed from the history (SABnzbd ≥ 4 archives them)
         self.queue: list[dict[str, Any]] = []
         self.last_history_update = 1
         self.counter = itertools.count(1000)
@@ -155,21 +187,23 @@ class SabState:
         ]
         today = date.today()
         days = [(today - timedelta(days=d)).isoformat() for d in range(7)]
+        # per server and day: bytes, articles tried and articles FAILED (rendered as SABnzbd's misnamed
+        # ``articles_success`` field by :meth:`server_stats`)
         self.stats: dict[str, dict[str, Any]] = {
             "news.eweka.test": {
                 "daily": {d: 10_000_000_000 for d in days},
                 "articles_tried": {d: 14_000 for d in days},
-                "articles_success": {d: 13_860 for d in days},
+                "articles_failed": {d: 140 for d in days},
             },
             "news.newshosting.test": {
                 "daily": {d: 120_000_000 for d in days},
                 "articles_tried": {d: 140 for d in days},
-                "articles_success": {d: 98 for d in days},
+                "articles_failed": {d: 42 for d in days},
             },
             "block.example.test": {
                 "daily": {d: 5_000_000 for d in days},
                 "articles_tried": {d: 42 for d in days},
-                "articles_success": {d: 30 for d in days},
+                "articles_failed": {d: 12 for d in days},
             },
         }
 
@@ -210,6 +244,16 @@ class SabState:
             self.history.append(slot)
             self.last_history_update += 1
 
+    def archive_job(self, nzo_id: str) -> None:
+        """``mode=history&name=delete`` with archiving (SABnzbd ≥ 4 default): the job leaves the history and is
+        only returned with ``archive=1``."""
+        with self.lock:
+            for slot in list(self.history):
+                if slot["nzo_id"] == nzo_id:
+                    self.history.remove(slot)
+                    self.archive.append({**slot, "archive": True})
+                    self.last_history_update += 1
+
     def server_stats(self) -> dict[str, Any]:
         out: dict[str, Any] = {"total": 0, "month": 0, "week": 0, "day": 0, "servers": {}}
         today = date.today().isoformat()
@@ -220,7 +264,10 @@ class SabState:
                 "month": total,
                 "week": total,
                 "day": s["daily"].get(today, 0),
-                **s,
+                "daily": dict(s["daily"]),
+                "articles_tried": dict(s["articles_tried"]),
+                # the real SABnzbd puts article_stats_failed in this field (api.py _api_server_stats)
+                "articles_success": dict(s["articles_failed"]),
             }
             for k in ("total", "month", "week"):
                 out[k] += total
@@ -335,7 +382,11 @@ def create_app(**faults: Any) -> FastAPI:
                 luh = params.get("last_history_update")
                 if luh and luh.isdigit() and int(luh) == state.last_history_update:
                     return ok({"history": False})
-                items = sorted(state.history, key=lambda s: -s["completed"])
+                archive = params.get("archive") in ("1", "true")
+                items = sorted(state.archive if archive else state.history, key=lambda s: -s["completed"])
+                if params.get("nzo_ids"):
+                    wanted = set(params["nzo_ids"].split(","))
+                    items = [s for s in items if s["nzo_id"] in wanted]
                 if params.get("failed_only") in ("1", "true"):
                     items = [s for s in items if s["status"] == "Failed"]
                 start, limit = int(params.get("start", 0)), int(params.get("limit", 100))

@@ -20,17 +20,20 @@ An action counts as automatic when its actor is not a user account (``systeem``,
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import psycopg
 from fastapi import APIRouter, Depends, Query
 
 from mso import state
 from mso.auth import Principal, require
 from mso.db import Database, get_db
 
+LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/overview", tags=["overzicht"])
 
 # key -> (Dutch label, link, tone)
@@ -136,14 +139,18 @@ EVAL_TONE = {"beter": "success", "gelijk": "neutral", "slechter": "danger", "onv
 def local_tz(db: Database | None = None) -> str:
     """The local time zone for day buckets: ``TZ`` (the container's zone, Europe/Amsterdam by default). Checked
     once against PostgreSQL's own time-zone data (so a slim image without tzdata still gets local days); an
-    unknown name falls back to UTC."""
+    unknown name falls back to UTC (cached). Any other error (the database briefly unavailable) gives UTC for this
+    call only, so one hiccup after a start does not make every day bucket UTC until the next restart."""
     name = (os.environ.get("TZ") or DEFAULT_TZ).strip().lstrip(":") or DEFAULT_TZ
     if name not in _TZ_OK:
         try:
             (db or get_db()).scalar("SELECT now() AT TIME ZONE %s", (name,))
             _TZ_OK[name] = name
-        except Exception:
+        except psycopg.errors.InvalidParameterValue:  # "time zone ... not recognized"
             _TZ_OK[name] = "UTC"
+        except Exception:
+            LOGGER.warning("tijdzone %s niet te controleren; deze keer UTC", name, exc_info=True)
+            return "UTC"
     return _TZ_OK[name]
 
 
@@ -368,7 +375,8 @@ def summary(days: int, db: Database | None = None) -> dict[str, Any]:
             items.append(item)
         b = day_bucket(_day(r["local_day"]))
         b["total"] += 1
-        b["actions"] += 1
+        if cat not in NOT_ACTIONS:  # a sync or an evaluation (e.g. torrent.tuning_evaluated) is no action
+            b["actions"] += 1
         b["categories"][cat] = b["categories"].get(cat, 0) + 1
         if len(b["items"]) < 50:
             b["items"].append(item)

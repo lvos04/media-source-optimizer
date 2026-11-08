@@ -80,6 +80,7 @@ export const messages = {
   "calm.fp.restoreItems": "Wordt teruggezet",
   "calm.fp.restoreItem": "{now} → {back}",
   "calm.fp.needsApproval": "verwijderen: vraagt goedkeuring door een beheerder",
+  "calm.fp.needsApprovalAdmin": "verwijdert MSO's registratie; jouw bevestiging telt als goedkeuring",
   "calm.fp.disables": "zet iets uit",
   "calm.fp.skipItems": "Blijft staan",
   "calm.fp.confirm": "Terugzetten",

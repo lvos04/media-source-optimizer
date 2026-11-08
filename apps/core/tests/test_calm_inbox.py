@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import psycopg
 import pytest
 
 from mso import changes, jobs, state
@@ -150,6 +151,10 @@ def test_actions_total_without_syncs_and_evaluations_and_sync_status_line(
     assert cats["syncs"] == 4 and cats["evaluated"] == 1 and cats["applied"] == 1
     assert body["total"] == 6 and body["actions_total"] == 1  # 'total' unchanged, actions without bookkeeping
     assert body["by_day"][0]["actions"] == 1 and body["by_day"][0]["total"] == 6
+    # an evaluation recorded in the audit log (tuning by autotune) is no action either, also not per day
+    audit("autotune", "torrent.tuning_evaluated", "Tuning gecontroleerd: behouden", target="qbittorrent")
+    body = viewer.get("/api/v1/overview/autopilot").json()
+    assert body["actions_total"] == 1 and body["by_day"][0]["actions"] == 1 and body["by_day"][0]["total"] == 7
     s = body["syncs"]
     assert s["state"] == "ok" and s["runs"] == 4 and s["failing_now"] == []
     assert s["link"] == "/systeem#automatische-taken"
@@ -236,10 +241,20 @@ def test_local_day_buckets(app: Any, db: Any, viewer: Any, monkeypatch: pytest.M
     body = viewer.get("/api/v1/overview/autopilot?days=2").json()
     assert body["timezone"] == zone and body["by_day"][0]["date"] == local_today.isoformat()
     assert [i["id"] for i in body["by_day"][0]["items"]] == [aid]
-    # an unknown zone falls back to UTC
+    # an unknown zone falls back to UTC (and that is remembered)
     monkeypatch.setenv("TZ", "Nergens/Bestaat")
     ov._TZ_OK.clear()
-    assert ov.local_tz() == "UTC"
+    assert ov.local_tz() == "UTC" and ov._TZ_OK == {"Nergens/Bestaat": "UTC"}
+    # a database hiccup gives UTC for that one call only: the zone is checked again next time
+    monkeypatch.setenv("TZ", zone)
+    ov._TZ_OK.clear()
+
+    class _Down:
+        def scalar(self, *_a: Any, **_k: Any) -> Any:
+            raise psycopg.OperationalError("verbinding verbroken")
+
+    assert ov.local_tz(_Down()) == "UTC" and ov._TZ_OK == {}  # type: ignore[arg-type]
+    assert ov.local_tz() == zone
     ov._TZ_OK.clear()
 
 

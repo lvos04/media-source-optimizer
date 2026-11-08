@@ -69,9 +69,13 @@ export function WaitingPill() {
       <Link className="top-pill top-pill--warning" href={WAITING_HREF} title={title} data-testid="waiting-pill">
         <Hand className="ico ico-sm" aria-hidden="true" /><span><strong>{num(n)}</strong> {t("autopilot.waitTitle").toLowerCase()}</span>
       </Link>
-      <Link className="icon-btn mobile-only" href={WAITING_HREF} title={title} aria-label={label} data-testid="waiting-pill-mobile">
-        <Hand className="ico" aria-hidden="true" /><span className="dot-badge" aria-hidden="true">{n > 99 ? "99+" : n}</span>
-      </Link>
+      {/* .mobile-only sets `display: initial`, which would make an <a> inline (no 34×34 tap target, badge off): the
+          wrapper takes the show/hide, the link keeps icon-btn's inline-grid box */}
+      <span className="mobile-only" style={{ lineHeight: 0 }}>
+        <Link className="icon-btn" href={WAITING_HREF} title={title} aria-label={label} data-testid="waiting-pill-mobile">
+          <Hand className="ico" aria-hidden="true" /><span className="dot-badge" aria-hidden="true">{n > 99 ? "99+" : n}</span>
+        </Link>
+      </span>
     </>
   );
 }

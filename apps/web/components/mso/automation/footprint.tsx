@@ -18,6 +18,7 @@ import {
 import { useResource } from "@/lib/api/hooks";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useWriteGate } from "@/lib/mode";
+import { useSession } from "@/lib/session";
 
 const ENDPOINT = "GET /api/v1/automation/footprint";
 const STATUS_TONE: Record<FootprintStatus, Tone> = { actief: "success", gewijzigd: "warning", onbereikbaar: "danger", verdwenen: "neutral" };
@@ -110,6 +111,8 @@ function Irreversible({ items, className = "span-6" }: { items: FootprintView["i
 
 function PlanLists({ plan }: { plan: RestorePlan }) {
   const { t } = useI18n();
+  // an admin's confirmation in the dialog is the approval itself (applied at once); an operator only prepares it
+  const isAdmin = useSession().can("admin");
   return (
     <div className="stack-sm" style={{ marginTop: 12 }}>
       {plan.restore.length ? (
@@ -119,7 +122,7 @@ function PlanLists({ plan }: { plan: RestorePlan }) {
             {plan.restore.map((r) => (
               <li key={`${r.target}:${r.path}`}>
                 <strong>{r.target_label}</strong> · {r.label}: {t("calm.fp.restoreItem", { now: r.current_text ?? "—", back: r.after_text })}
-                {r.needs_approval ? <span className="t-3"> ({t("calm.fp.needsApproval")})</span> : r.disables ? <span className="t-3"> ({t("calm.fp.disables")})</span> : null}
+                {r.needs_approval ? <span className="t-3"> ({t(isAdmin ? "calm.fp.needsApprovalAdmin" : "calm.fp.needsApproval")})</span> : r.disables ? <span className="t-3"> ({t("calm.fp.disables")})</span> : null}
               </li>
             ))}
           </ul>

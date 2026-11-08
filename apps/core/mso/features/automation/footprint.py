@@ -10,13 +10,17 @@
   speed limits in whole KiB/s, the exclude list as trimmed lines) → ``actief`` / ``gewijzigd`` (outside MSO, now X)
   / ``onbereikbaar`` (last known value kept) / ``verdwenen`` (object removed). A change outside MSO records an
   owner override (:func:`overrides.record`, ``automation.override_days`` days, default 30), audit
-  ``footprint.overridden`` and ONE calm info item (an ``advies`` recommendation, never a decision). When MSO's value
-  is back (the owner set it again, or applied a proposal), the override is cleared.
+  ``footprint.overridden`` and ONE calm info item (an ``advies`` recommendation, never a decision) — on a new event
+  only, never extended by an unreachable run in between. When MSO's value is back because of the owner (they set
+  it again, or a person applied the newest change), the override is cleared; an automatic re-apply by MSO keeps it.
+  Restores applied outside :func:`restore_all` (approved later on Wijzigingen) are booked here too.
 - :func:`restore_plan` / :func:`restore_all` — "Alles terugzetten": one change set per system through the normal
   create → apply (drift check, write, read-back) → audit flow. Skipped, with the reason: values changed outside MSO,
   unreachable or removed objects, and values outside MSO's policy limits. Removing something (MSO's own indexer in
   Prowlarr) is ``toestemming_nodig``: applied at once only when an admin confirms, otherwise it waits for approval.
-  Restored paths get an override too, so Autopilot does not put them back on its next round.
+  A restore set is approved by the person right after it is created and discarded on any failure, so the automatic
+  round never applies it. Only the restored chain of each path counts as rolled back. Restored paths get an
+  override too, so Autopilot does not put them back on its next round.
 
 No secrets: values are the applier's own (non-secret) setting values, shown as text and redacted.
 """
@@ -226,56 +230,119 @@ def footprint_op(target: str, op: dict[str, Any]) -> bool:
             and not op.get("one_way") and not ONE_SHOT_RE.search(str(op.get("path") or "")))
 
 
-def collect(db: Database | None = None) -> dict[tuple[str, str], dict[str, Any]]:
-    """Every path MSO changed and did not roll back, with original and MSO value (no external calls)."""
-    db = db or get_db()
+def _people(db: Database) -> set[str]:
+    """Usernames of people (everything else that applies a change — automatisering, autopilot, autotune,
+    systeem:herstel … — is MSO itself)."""
+    return {str(r["username"]) for r in db.fetchall("SELECT username FROM users")}
+
+
+def _chain_back(target: str, path: str, ops: list[dict[str, Any]], link: Any) -> list[dict[str, Any]]:
+    """The MSO ops right before a point that started from value ``link``: walk back while each op set the value the
+    next one started from (compared the way the target reads it back, e.g. whole KiB/s). A restore ('Alles
+    terugzetten') ends the chain."""
+    chain: list[dict[str, Any]] = []
+    for prev in reversed(ops):
+        linked = _same(prev["after"], link) or matches(target, path, prev["before"], prev["after"], link)
+        if prev["kind"] != "mso" or not linked:
+            break  # the owner (or a restore) set another value in between: the chain starts after it
+        chain.insert(0, prev)
+        link = prev["before"]
+    return chain
+
+
+def _collect(db: Database) -> tuple[dict[tuple[str, str], dict[str, Any]], list[dict[str, Any]]]:
+    """(footprint entries, restores still to be booked). A path whose newest op is a restore is no footprint. A
+    restore that was applied outside :func:`restore_all` (a removal an admin approved later on Wijzigingen) whose
+    source changes are still ``applied`` is returned as *pending*, so :func:`refresh` books it exactly like
+    :func:`restore_all` does. A restore set that was rolled back put MSO's values back: that rollback counts as an
+    MSO op again (original = the restored value)."""
     rows = db.fetchall(
-        "SELECT id, target, title, ops, applied_at, applied_by FROM change_sets WHERE status='applied' "
-        "AND applied_at IS NOT NULL AND NOT (target = ANY(%s)) AND COALESCE(source, '') <> %s "
-        "ORDER BY applied_at, id",
+        "SELECT id, target, title, ops, source, status, applied_at, applied_by, rolled_back_at FROM change_sets "
+        "WHERE applied_at IS NOT NULL AND NOT (target = ANY(%s)) AND (status='applied' "
+        "OR (status='rolled_back' AND source=%s AND rolled_back_at IS NOT NULL)) ORDER BY applied_at, id",
         (list(ONE_WAY_TARGETS), RESTORE_SOURCE),
     )
+    undone = [r["id"] for r in rows if r["status"] == "rolled_back"]
+    undone_by = {r["change_id"]: r["actor"] for r in db.fetchall(
+        "SELECT DISTINCT ON (change_id) change_id, actor FROM audit_log WHERE action='change.rolled_back' "
+        "AND change_id = ANY(%s) ORDER BY change_id, id DESC", (undone,))} if undone else {}
     per: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    seq = 0
     for ch in rows:
         if ch["target"] not in changes.APPLIERS:
             continue  # no applier (feature not loaded): cannot be read nor restored
+        restore = ch["source"] == RESTORE_SOURCE
         for op in ch["ops"] or []:
-            if not footprint_op(ch["target"], op):
+            path = str(op.get("path") or "")
+            seq += 1
+            base = {"change_id": ch["id"], "title": ch["title"], "label": str(op.get("label") or path),
+                    "applied_by": ch["applied_by"], "seq": seq}
+            if not restore:
+                if footprint_op(ch["target"], op):
+                    per.setdefault((ch["target"], path), []).append(base | {
+                        "kind": "mso", "markable": True, "at": ch["applied_at"], "applied_at": ch["applied_at"],
+                        "before": op.get("observed_before", op.get("before")), "after": op.get("after")})
                 continue
-            per.setdefault((ch["target"], str(op["path"])), []).append({
-                "change_id": ch["id"], "title": ch["title"], "label": str(op.get("label") or op["path"]),
-                "before": op.get("observed_before", op.get("before")), "after": op.get("after"),
-                "applied_at": ch["applied_at"], "applied_by": ch["applied_by"],
-            })
+            if op.get("result") not in ("toegepast", "al_ingesteld", "teruggedraaid"):
+                continue
+            planned = op.get("before") if op.get("before") is not None else op.get("observed_before")
+            per.setdefault((ch["target"], path), []).append(base | {
+                "kind": "restore", "at": ch["applied_at"], "before": planned, "after": op.get("after")})
+            if ch["status"] == "rolled_back" and op.get("result") == "teruggedraaid":
+                seq += 1
+                per[(ch["target"], path)].append(base | {
+                    "kind": "mso", "markable": False, "seq": seq, "at": ch["rolled_back_at"],
+                    "applied_at": ch["rolled_back_at"], "applied_by": undone_by.get(ch["id"]) or ch["applied_by"],
+                    "title": f"{ch['title']} (ongedaan gemaakt)",
+                    "before": op.get("after"), "after": op.get("observed_before")})
     hashes = sorted({p.split(":")[1].lower() for t, p in per if t == "qbittorrent" and p.startswith("torrent:")})
     names = {r["hash"]: r["name"] for r in db.fetchall(
         "SELECT hash, name FROM torrent_state WHERE hash = ANY(%s)", (hashes,))} if hashes else {}
     out: dict[tuple[str, str], dict[str, Any]] = {}
+    pending: list[dict[str, Any]] = []
     for (target, path), ops in per.items():
-        chain = [ops[-1]]
-        for prev in reversed(ops[:-1]):
-            if not _same(prev["after"], chain[0]["before"]):
-                break  # the owner (or something else) set another value in between: the chain starts after it
-            chain.insert(0, prev)
-        latest = chain[-1]
+        ops.sort(key=lambda o: (o["at"], o["seq"]))
+        latest = ops[-1]
+        if latest["kind"] == "restore":
+            chain = _chain_back(target, path, ops[:-1], latest["before"])
+            if any(c.get("markable") for c in chain):  # restored, but not booked yet
+                pending.append({"target": target, "path": path, "restore_id": latest["change_id"],
+                                "applied_by": latest["applied_by"], "after": latest["after"], "chain": chain})
+            continue
+        chain = [*_chain_back(target, path, ops[:-1], latest["before"]), latest]
         if _same(chain[0]["before"], latest["after"]):
             continue  # net effect nil
         out[(target, path)] = {
             "target": target, "path": path, "label": setting_label(target, path, latest["label"], names),
             "change_id": latest["change_id"], "change_title": latest["title"],
-            "change_ids": [c["change_id"] for c in chain], "all_change_ids": sorted({o["change_id"] for o in ops}),
+            "change_ids": [c["change_id"] for c in chain],
             "applied_at": latest["applied_at"], "applied_by": latest["applied_by"],
             "original_value": chain[0]["before"], "mso_value": latest["after"],
         }
-    return out
+    return out, pending
+
+
+def collect(db: Database | None = None) -> dict[tuple[str, str], dict[str, Any]]:
+    """Every path MSO changed and did not roll back or restore, with original and MSO value (no external calls)."""
+    return _collect(db or get_db())[0]
 
 
 # ------------------------------------------------------------------ live reads
+GONE_TEXT = ("niet gevonden", "bestaat niet", "niet (meer) aanwezig", "not found")
+
+
 def _gone(exc: Exception) -> bool:
-    """The object no longer exists (torrent removed, SABnzbd server deleted) — not a connection problem."""
+    """The object no longer exists (torrent removed, SABnzbd server deleted) — not a connection problem. A connector
+    error code alone is not enough: SABnzbd uses ``invalid`` also for "gaf geen JSON terug" (a proxy or HTML error
+    page), which is the source being unreachable, not a removed server."""
     if isinstance(exc, json.JSONDecodeError | UnicodeError):
         return False
-    return isinstance(exc, LookupError | ValueError) or getattr(exc, "code", None) in ("invalid", "not_found")
+    code = getattr(exc, "code", None)
+    if code == "not_found":
+        return True
+    if code is not None:  # timeout / unreachable / http / auth / api / invalid …: only an explicit "not found" text
+        return code == "invalid" and any(t in str(exc).lower() for t in GONE_TEXT)
+    return isinstance(exc, LookupError | ValueError)
 
 
 def read_current(entries: dict[tuple[str, str], dict[str, Any]]) -> dict[tuple[str, str], tuple[str, Any, str | None]]:
@@ -361,11 +428,45 @@ def _record_override(e: dict[str, Any], current: Any, days: int, db: Database) -
                (rec_id,))
 
 
+def _owner_put_back(e: dict[str, Any], ov: dict[str, Any], people: set[str]) -> bool:
+    """MSO's value is active again *because of the owner*: they set exactly the value of the change they had
+    overridden, or a person applied the newest change. An automatic re-apply by MSO (a path that does not honour
+    overrides, e.g. tuning in manage mode) never erases the owner's choice."""
+    return (ov.get("change_id") is not None and ov.get("change_id") == e["change_id"]) or e["applied_by"] in people
+
+
+def _book_restores(pending: list[dict[str, Any]], days: int, db: Database) -> None:
+    """A restore applied outside :func:`restore_all` (e.g. the removal of MSO's own indexer that an admin approved
+    later on Wijzigingen): book it exactly like :func:`restore_all` does — MSO's changes on those paths count as
+    rolled back and the owner's choice is respected (override)."""
+    by_restore: dict[int, list[dict[str, Any]]] = {}
+    for p in pending:
+        by_restore.setdefault(p["restore_id"], []).append(p)
+    for rid, items in by_restore.items():
+        target = items[0]["target"]
+        actor = items[0]["applied_by"] or ACTOR
+        chains = {p["path"]: {c["change_id"] for c in p["chain"] if c.get("markable")} for p in items}
+        rolled_back = _mark_restored(target, chains, rid, actor, db)
+        for p in items:
+            latest = p["chain"][-1]
+            overrides.record(target, p["path"], mso_value=latest["after"], current_value=p["after"],
+                             change_id=latest["change_id"], days=days, db=db)
+            _resolve_rec(target, p["path"], db)
+        audit(actor, "footprint.restored",
+              f"Voetafdruk teruggezet in {TARGET_LABEL.get(target, target)}: {len(items)} (via Wijzigingen)",
+              target=target, change_id=rid,
+              detail={"paths": sorted(chains), "changes": sorted({c for ids in chains.values() for c in ids}),
+                      "rolled_back": rolled_back, "override_days": days})
+
+
 def refresh(db: Database | None = None) -> dict[str, Any]:
     """Re-read every footprint entry at its source and store the result (see module docstring)."""
     db = db or get_db()
     days = override_days()
-    entries = collect(db)
+    entries, pending = _collect(db)
+    if pending:
+        _book_restores(pending, days, db)
+    people = _people(db)
     prev = {(r["target"], r["path"]): dict(r) for r in db.fetchall("SELECT * FROM change_footprint")}
     reads = read_current(entries)
     counts = {s: 0 for s in STATUSES}
@@ -389,19 +490,25 @@ def refresh(db: Database | None = None) -> dict[str, Any]:
              e["applied_by"], jsonb(e["original_value"]), jsonb(e["mso_value"]), jsonb(current), status, detail),
         )
         if status == "gewijzigd":
-            new_event = (old is None or old["status"] != "gewijzigd" or old["change_id"] != e["change_id"]
+            # a new event only: first detection, after MSO's value was active, another MSO change, or another value.
+            # An unreachable/removed run in between keeps the last known value, so it is no new event (the 30 days
+            # are not extended and a dismissed info item stays dismissed).
+            new_event = (old is None or old["status"] == "actief" or old["change_id"] != e["change_id"]
                          or not _same(old["current_value"], current))
             if new_event:
                 _record_override(e, current, days, db)
                 overridden.append(e["label"])
         elif status == "actief":
-            if overrides.active(e["target"], e["path"], db):
+            ov = overrides.active(e["target"], e["path"], db)
+            if ov is None:
+                _resolve_rec(e["target"], e["path"], db)
+            elif _owner_put_back(e, dict(ov), people):
                 overrides.clear(e["target"], e["path"], db)
                 audit(ACTOR, "footprint.override_cleared",
                       f"MSO-waarde weer actief: {e['label']} in {TARGET_LABEL.get(e['target'], e['target'])}; "
                       "eigen keuze opgeheven", target=e["target"], change_id=e["change_id"],
                       detail={"path": e["path"]})
-            _resolve_rec(e["target"], e["path"], db)
+                _resolve_rec(e["target"], e["path"], db)
     for target, path in set(prev) - set(entries):
         db.execute("DELETE FROM change_footprint WHERE target=%s AND path=%s", (target, path))
         _resolve_rec(target, path, db)
@@ -419,13 +526,14 @@ jobs.every(JOB, 3600)  # read-only towards your systems: runs in every mode, als
 
 
 # ------------------------------------------------------------------ view
-def _entry_view(r: dict[str, Any], active_overrides: dict[tuple[str, str], dict[str, Any]]) -> dict[str, Any]:
+def _entry_view(r: dict[str, Any], active_overrides: dict[tuple[str, str], dict[str, Any]],
+                people: set[str]) -> dict[str, Any]:
     t, p = r["target"], r["path"]
     ov = active_overrides.get((t, p))
     return {
         "target": t, "path": p, "label": r["label"], "change_id": r["change_id"], "change_ids": r["change_ids"],
         "applied_at": r["applied_at"], "applied_by": r["applied_by"],
-        "automatic": r["applied_by"] in (ACTOR, "autopilot", "systeem", "system"),
+        "automatic": bool(r["applied_by"]) and r["applied_by"] not in people,  # MSO itself (autotune, autopilot…)
         "original_text": value_text(t, p, r["original_value"]), "mso_text": value_text(t, p, r["mso_value"]),
         "current_text": value_text(t, p, r["current_value"]),
         "status": r["status"], "status_label": STATUS_LABEL[r["status"]], "detail": r["detail"],
@@ -475,11 +583,12 @@ def view(db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
     rows = db.fetchall("SELECT * FROM change_footprint ORDER BY target, label, path")
     active = {(o["target"], o["path"]): dict(o) for o in overrides.list_active(db)}
+    people = _people(db)
     systems: dict[str, dict[str, Any]] = {}
     for r in rows:
         s = systems.setdefault(r["target"], {"target": r["target"], "label": TARGET_LABEL.get(r["target"], r["target"]),
                                              "entries": [], "counts": {k: 0 for k in STATUSES}})
-        s["entries"].append(_entry_view(dict(r), active))
+        s["entries"].append(_entry_view(dict(r), active, people))
         s["counts"][r["status"]] += 1
     totals = {k: sum(s["counts"][k] for s in systems.values()) for k in STATUSES}
     labels = {(r["target"], r["path"]): r["label"] for r in rows}
@@ -584,17 +693,23 @@ def _discard_if_open(change_id: int, actor: str) -> None:
     try:
         if changes.get(change_id)["status"] in ("preview", "approved"):
             changes.discard(change_id, actor)  # never left behind for the automatic round
-    except HTTPException:
-        pass
+    except Exception:  # already on an error path: the failure itself is reported to the person
+        LOGGER.warning("voetafdruk: terugzetvoorstel #%s niet verworpen", change_id, exc_info=True)
 
 
-def _mark_restored(target: str, paths: set[str], restore_id: int, actor: str, db: Database) -> list[int]:
-    """MSO's earlier changes on the restored paths: ops → 'teruggedraaid'; a change with nothing reversible left
-    becomes 'rolled_back' (exactly like a rollback). Returns the fully rolled back change ids."""
+def _mark_restored(target: str, chains: dict[str, set[int]], restore_id: int, actor: str, db: Database) -> list[int]:
+    """MSO's changes in the restored chain of each path (``chains``: path → change ids): ops → 'teruggedraaid'; a
+    change with nothing reversible left becomes 'rolled_back' (exactly like a rollback). Older MSO changes on the
+    same path outside the chain (the owner set another value in between) are left alone. Returns the fully rolled
+    back change ids."""
     done: list[int] = []
+    ids = sorted({cid for c in chains.values() for cid in c})
+    if not ids:
+        return done
     for row in db.fetchall(
-        "SELECT id FROM change_sets WHERE status='applied' AND target=%s AND COALESCE(source, '') <> %s ORDER BY id",
-        (target, RESTORE_SOURCE),
+        "SELECT id FROM change_sets WHERE status='applied' AND target=%s AND COALESCE(source, '') <> %s "
+        "AND id = ANY(%s) ORDER BY id",
+        (target, RESTORE_SOURCE, ids),
     ):
         title = None
         with db.tx() as conn:
@@ -605,7 +720,9 @@ def _mark_restored(target: str, paths: set[str], restore_id: int, actor: str, db
             ops = [dict(o) for o in ch["ops"] or []]
             hit = False
             for o in ops:
-                if str(o.get("path")) in paths and o.get("result") == "toegepast" and footprint_op(target, o):
+                path = str(o.get("path"))
+                if (row["id"] in chains.get(path, ()) and o.get("result") == "toegepast"
+                        and footprint_op(target, o)):
                     o["result"] = "teruggedraaid"
                     o["restored_by"] = restore_id
                     hit = True
@@ -627,9 +744,18 @@ def _mark_restored(target: str, paths: set[str], restore_id: int, actor: str, db
     return done
 
 
+def _failure(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    return f"Toepassen mislukt: {redact(str(exc))[:300] or type(exc).__name__}"
+
+
 def restore_all(actor: str, *, fingerprint: str | None = None, is_admin: bool = False,
                 db: Database | None = None) -> dict[str, Any]:
-    """'Alles terugzetten' (operator+, never in Alleen-lezen). See module docstring."""
+    """'Alles terugzetten' (operator+, never in Alleen-lezen). See module docstring.
+
+    A restore set is never left behind as an open 'automatisch veilig' proposal: it is approved by the person right
+    after it is created (the automatic round only picks up ``preview``), and on any failure it is discarded."""
     db = db or get_db()
     state.require_manage_mode()
     plan = restore_plan(db)
@@ -657,8 +783,9 @@ def restore_all(actor: str, *, fingerprint: str | None = None, is_admin: bool = 
         ops = [{"path": i["path"], "label": f"{i['label']}: terug naar {i['after_text']}", "before": i["before"],
                 "after": i["after"], **({"destructive": True} if i["removes"] or i["disables"] else {})}
                for i in items]
-        source_ids = sorted({cid for i in items for cid in entries.get((target, i["path"]), {}).get(
-            "all_change_ids", i["change_ids"])})
+        chains = {i["path"]: set(entries.get((target, i["path"]), {}).get("change_ids", i["change_ids"]))
+                  for i in items}
+        source_ids = sorted({cid for ids in chains.values() for cid in ids})
         title = (f"MSO-registratie verwijderen uit {tl} (Alles terugzetten)" if approval
                  else f"Voetafdruk terugzetten in {tl}: {n} {'instelling' if n == 1 else 'instellingen'}")
         explanation = (
@@ -685,23 +812,25 @@ def restore_all(actor: str, *, fingerprint: str | None = None, is_admin: bool = 
             results.append({"target": target, "target_label": tl, "status": "mislukt", "change_id": None, "count": n,
                             "message": str(getattr(exc, "detail", exc))})
             continue
-        if approval and not is_admin:
+        if approval and not is_admin:  # 'toestemming_nodig': the automatic round never applies it
             results.append({"target": target, "target_label": tl, "status": "wacht_op_goedkeuring",
                             "change_id": ch["id"], "count": n,
                             "message": "Verwijderen vraagt goedkeuring door een beheerder; het voorstel staat klaar "
                                        "bij Wacht op jou"})
             continue
         try:
-            if approval and ch["status"] == "preview":
-                changes.approve(ch["id"], actor, db)
+            if ch["status"] == "preview":
+                changes.approve(ch["id"], actor, db)  # the person's own confirmation (an admin's, for a removal)
             done = changes.apply(ch["id"], actor, db=db)
-        except HTTPException as exc:
+        except Exception as exc:  # also a raw time-out/connection error from a read: never leave the set open
             _discard_if_open(ch["id"], actor)
+            if not isinstance(exc, HTTPException):
+                LOGGER.warning("voetafdruk terugzetten in %s mislukt", tl, exc_info=True)
             results.append({"target": target, "target_label": tl, "status": "mislukt", "change_id": ch["id"],
-                            "count": n, "message": str(exc.detail)})
+                            "count": n, "message": _failure(exc)})
             continue
         restored = {str(o["path"]) for o in done["ops"] if o.get("result") in ("toegepast", "al_ingesteld")}
-        rolled_back = _mark_restored(target, restored, done["id"], actor, db)
+        rolled_back = _mark_restored(target, {p: chains.get(p, set()) for p in restored}, done["id"], actor, db)
         for path in restored:
             e = entries.get((target, path))
             after = next((o["after"] for o in done["ops"] if o["path"] == path), None)

@@ -323,3 +323,197 @@ def test_irreversible_summary_and_one_way_ops_are_not_footprint(app: Any, db: An
     assert footprint.collect() == {}
     items = {i["key"]: i["count"] for i in viewer.get("/api/v1/automation/footprint").json()["irreversible"]}
     assert items == {"torrents_deleted": 1, "arr_blocked": 1, "retried": 1}
+
+
+# ------------------------------------------------------------------ review fixes (1.6.0 G1)
+class _Box:
+    """An in-memory system with a switch to make it unreachable (a raw ConnectionError, as a socket gives)."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, Any] = {}
+        self.down = False
+
+    def read(self, path: str) -> Any:
+        if self.down:
+            raise ConnectionError("verbinding geweigerd")
+        return self.values.get(path)
+
+
+@pytest.fixture()
+def box(app: Any) -> _Box:
+    b = _Box()
+    changes.register_applier("fake_fp", lambda: changes.Applier(read=b.read, write=b.values.__setitem__))
+    yield b
+    changes.APPLIERS.pop("fake_fp", None)
+
+
+def test_restore_raw_read_error_discards_the_set_never_applied_automatically(
+    app: Any, db: Any, operator: Any, viewer: Any, box: _Box, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mso.features.automation import engine, footprint
+
+    box.values["conns"] = 10
+    state.set_state("mode", "autopilot")
+    ch = _apply("fake_fp", "Verbindingen 20", [{"path": "conns", "label": "Verbindingen", "before": 10, "after": 20}])
+    assert box.values["conns"] == 20
+    fp = viewer.get("/api/v1/automation/footprint/restore").json()["fingerprint"]
+    orig = footprint.restore_plan
+
+    def plan_then_down(db: Any = None) -> dict[str, Any]:
+        out = orig(db)
+        box.down = True  # the system goes away between the list and the write (a raw error from applier.read)
+        return out
+
+    monkeypatch.setattr(footprint, "restore_plan", plan_then_down)
+    r = operator.post("/api/v1/automation/footprint/restore", json={"fingerprint": fp})
+    assert r.status_code == 200
+    [res] = r.json()["results"]
+    assert res["status"] == "mislukt" and "verbinding geweigerd" in res["message"]
+    assert changes.get(res["change_id"])["status"] == "discarded"  # not left open for the automatic round
+    monkeypatch.setattr(footprint, "restore_plan", orig)
+    box.down = False
+    out = engine.apply_safe()
+    assert out["applied"] == [] and box.values["conns"] == 20
+    assert db.scalar("SELECT count(*) FROM change_sets WHERE source='footprint:restore' AND status='applied'") == 0
+    # MSO's change is untouched and still MSO's: no false 'changed outside MSO'
+    assert changes.get(ch["id"])["status"] == "applied"
+    assert footprint.refresh()["actief"] == 1 and _audits(db, "footprint.overridden") == []
+
+    # a successful restore is approved by the person right away: never an open 'automatisch veilig' preview
+    fp = viewer.get("/api/v1/automation/footprint/restore").json()["fingerprint"]
+    [res] = operator.post("/api/v1/automation/footprint/restore", json={"fingerprint": fp}).json()["results"]
+    rest = changes.get(res["change_id"])
+    assert res["status"] == "teruggezet" and box.values["conns"] == 10
+    assert rest["approved_by"] == "operator" and rest["applied_by"] == "operator"
+
+
+def test_unreachable_run_between_is_no_new_override_event(app: Any, db: Any, box: _Box) -> None:
+    from mso.features.automation import footprint, overrides
+
+    box.values["conns"] = 10
+    state.set_state("mode", "manage")
+    _apply("fake_fp", "Verbindingen 20", [{"path": "conns", "label": "Verbindingen", "before": 10, "after": 20}])
+    box.values["conns"] = 12  # the owner's own value
+    assert footprint.refresh()["overridden"] == ["Verbindingen"]
+    until = overrides.active("fake_fp", "conns")["until"]
+    key = "footprint.override:fake_fp:conns"
+    db.execute("UPDATE recommendations SET status='dismissed' WHERE dedupe_key=%s", (key,))  # the owner read it
+    box.down = True
+    out = footprint.refresh()
+    assert out["onbereikbaar"] == 1
+    box.down = False
+    out = footprint.refresh()
+    assert out["gewijzigd"] == 1 and out["overridden"] == []
+    assert len(_audits(db, "footprint.overridden")) == 1
+    assert overrides.active("fake_fp", "conns")["until"] == until  # the 30 days are not extended
+    assert db.scalar("SELECT status FROM recommendations WHERE dedupe_key=%s", (key,)) == "dismissed"
+    # another value of the owner is a new event
+    box.values["conns"] = 14
+    assert footprint.refresh()["overridden"] == ["Verbindingen"]
+    assert len(_audits(db, "footprint.overridden")) == 2
+
+
+def test_automatic_reapply_keeps_the_owner_choice(
+    app: Any, db: Any, viewer: Any, operator: Any, box: _Box
+) -> None:
+    from mso.features.automation import footprint, overrides
+
+    box.values["conns"] = 10
+    state.set_state("mode", "manage")
+    _apply("fake_fp", "Verbindingen 20", [{"path": "conns", "label": "Verbindingen", "before": 10, "after": 20}])
+    box.values["conns"] = 12
+    footprint.refresh()
+    # MSO itself puts its value back (a path that does not honour overrides, e.g. tuning in manage mode)
+    again = changes.create("fake_fp", "Verbindingen 20", [{"path": "conns", "label": "Verbindingen", "before": 12,
+                                                           "after": 20}], risk="automatisch_veilig", actor="autotune")
+    changes.apply(again["id"], "autotune", automatic=True)
+    assert footprint.refresh()["actief"] == 1
+    assert overrides.active("fake_fp", "conns") is not None  # the owner's choice is not erased by MSO
+    assert _audits(db, "footprint.override_cleared") == []
+    assert db.scalar("SELECT status FROM recommendations WHERE dedupe_key='footprint.override:fake_fp:conns'") == "open"
+    e = viewer.get("/api/v1/automation/footprint").json()["systems"][0]["entries"][0]
+    assert e["applied_by"] == "autotune" and e["automatic"] is True  # MSO's own actor, not a person
+    # a person applying MSO's value deliberately does clear it
+    box.values["conns"] = 12
+    footprint.refresh()
+    mine = changes.create("fake_fp", "Verbindingen 20", [{"path": "conns", "label": "Verbindingen", "before": 12,
+                                                          "after": 20}], risk="automatisch_veilig", actor="operator")
+    changes.apply(mine["id"], "operator")
+    footprint.refresh()
+    assert overrides.active("fake_fp", "conns") is None and len(_audits(db, "footprint.override_cleared")) == 1
+    e = viewer.get("/api/v1/automation/footprint").json()["systems"][0]["entries"][0]
+    assert e["applied_by"] == "operator" and e["automatic"] is False
+
+
+def test_restore_marks_only_the_restored_chain(app: Any, db: Any, operator: Any, viewer: Any, box: _Box) -> None:
+    box.values["conns"] = 1
+    state.set_state("mode", "manage")
+    a = _apply("fake_fp", "A", [{"path": "conns", "label": "Verbindingen", "before": 1, "after": 2}])
+    box.values["conns"] = 3  # the owner in between
+    b = _apply("fake_fp", "B", [{"path": "conns", "label": "Verbindingen", "before": 3, "after": 4}])
+    plan = viewer.get("/api/v1/automation/footprint/restore").json()
+    [item] = plan["restore"]
+    assert item["after"] == 3 and item["change_ids"] == [b["id"]]
+    body = operator.post("/api/v1/automation/footprint/restore", json={"fingerprint": plan["fingerprint"]}).json()
+    assert body["results"][0]["status"] == "teruggezet" and box.values["conns"] == 3
+    assert changes.get(b["id"])["status"] == "rolled_back"
+    assert changes.get(a["id"])["status"] == "applied"  # outside the restored chain: not reported as rolled back
+    assert changes.get(a["id"])["ops"][0]["result"] == "toegepast"
+    [rb] = _audits(db, "change.rolled_back")
+    assert rb["change_id"] == b["id"]
+    assert changes.get(body["results"][0]["change_id"])["impact"]["Wijzigingen van MSO"] == f"#{b['id']}"
+
+
+def test_restore_approved_later_on_changes_is_booked_and_its_rollback_is_footprint_again(
+    app: Any, db: Any, admin: Any, operator: Any, viewer: Any, fake_reg: dict[str, Any]
+) -> None:
+    from mso.features.automation import footprint, overrides
+
+    state.set_state("mode", "manage")
+    reg = _apply("fake_reg", "MSO-indexer registreren", [{"path": "indexer:newznab", "label": "Registratie",
+                                                         "before": None, "after": "Naam: MSO"}], actor="beheerder")
+    footprint.refresh()
+    plan = viewer.get("/api/v1/automation/footprint/restore").json()
+    [res] = operator.post("/api/v1/automation/footprint/restore",
+                          json={"fingerprint": plan["fingerprint"]}).json()["results"]
+    assert res["status"] == "wacht_op_goedkeuring"
+    rid = res["change_id"]
+    # an admin approves and applies it later on Wijzigingen (not through 'Alles terugzetten')
+    assert admin.post(f"/api/v1/changes/{rid}/approve").status_code == 200
+    assert operator.post(f"/api/v1/changes/{rid}/apply").status_code == 200
+    assert fake_reg["indexer:newznab"] is None
+    out = footprint.refresh()
+    assert out["checked"] == 0 and out["gewijzigd"] == 0  # no false 'changed outside MSO'
+    assert _audits(db, "footprint.overridden") == []
+    assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key LIKE 'footprint.override:%%'") == 0
+    assert changes.get(reg["id"])["status"] == "rolled_back"  # booked exactly like 'Alles terugzetten'
+    assert overrides.active("fake_reg", "indexer:newznab") is not None
+    [booked] = _audits(db, "footprint.restored")
+    assert booked["change_id"] == rid and booked["actor"] == "operator"
+    footprint.refresh()
+    assert len(_audits(db, "footprint.restored")) == 1  # booked once
+
+    # the restore itself is rolled back on Wijzigingen: MSO's registration is back → footprint again
+    assert admin.post(f"/api/v1/changes/{rid}/rollback").status_code == 200
+    assert fake_reg["indexer:newznab"] == "Naam: MSO"
+    out = footprint.refresh()
+    assert out["actief"] == 1 and out["gewijzigd"] == 0
+    [e] = viewer.get("/api/v1/automation/footprint").json()["systems"][0]["entries"]
+    assert e["change_id"] == rid and e["mso_text"] == "Naam: MSO" and e["original_text"] == "niet aanwezig"
+    assert e["applied_by"] == "beheerder" and e["automatic"] is False
+    assert overrides.active("fake_reg", "indexer:newznab") is None  # a person put MSO's value back
+
+
+def test_gone_only_for_an_explicitly_removed_object() -> None:
+    import json
+
+    from mso.connectors.sabnzbd import SabError
+    from mso.features.automation.footprint import _gone
+
+    assert _gone(SabError("SABnzbd-server 'x' niet gevonden", "invalid")) is True
+    assert _gone(SabError("SABnzbd-server 'x' bestaat niet", "invalid")) is True
+    assert _gone(SabError("SABnzbd gaf geen JSON terug op 'get_config'", "invalid")) is False  # proxy/HTML page
+    assert _gone(SabError("Time-out: SABnzbd reageert niet binnen de limiet", "timeout")) is False
+    assert _gone(ValueError("torrent niet (meer) aanwezig in qBittorrent")) is True
+    assert _gone(json.JSONDecodeError("x", "doc", 0)) is False
+    assert _gone(ConnectionError("verbinding geweigerd")) is False

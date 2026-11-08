@@ -13,6 +13,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Button, Dot, Kbd, Modal } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
 import { ToastProvider, useToast } from "@/components/mg/toast";
+import { AutopilotHoldBanner } from "@/components/mso/automation/hold-banner";
 import { BrandMark } from "@/components/shell/auth-frame";
 import { ALL_NAV_ITEMS, BOTTOM_NAV_KEYS, isActive, NAV } from "@/components/shell/nav";
 import { errorMessage } from "@/lib/api/client";
@@ -131,6 +132,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
         <div className="main">
           <Topbar onMenu={() => setDrawer(true)} />
           <PauseBanner />
+          <AutopilotHoldBanner />
           <main id="main" className="content" tabIndex={-1}>{children}</main>
         </div>
       </div>

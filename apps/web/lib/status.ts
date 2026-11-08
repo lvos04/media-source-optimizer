@@ -40,6 +40,7 @@ export function jobFinished(status: JobStatus): boolean { return status === "don
 export const CHANGE_STATUS: Record<ChangeStatus, { tone: Tone; label: MessageKey }> = {
   preview: { tone: "info", label: "change.status.preview" },
   approved: { tone: "accent", label: "change.status.approved" },
+  applying: { tone: "warning", label: "change.status.applying" },
   applied: { tone: "success", label: "change.status.applied" },
   rolled_back: { tone: "neutral", label: "change.status.rolled_back" },
   failed: { tone: "danger", label: "change.status.failed" },
@@ -60,6 +61,7 @@ export function enumLabel(t: (key: MessageKey) => string, prefix: string, value:
 export const JOB_KIND_LABEL: Record<string, string> = {
   "automation.apply_safe": "Automatisch veilig toepassen",
   "automation.evaluate": "Wijzigingen evalueren",
+  "changes.reconcile": "Onderbroken wijzigingen afronden",
   "backup.create": "Back-up maken",
   "backup.restore": "Back-up terugzetten",
   "costs.renewal_reminders": "Verlengingsherinneringen",

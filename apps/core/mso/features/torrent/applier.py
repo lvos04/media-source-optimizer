@@ -157,7 +157,15 @@ def build() -> Applier:
         else:
             policy.validate(path, value)  # refuses every other delete/remove path
 
-    return Applier(read=read, write=write, validate=validate)
+    def same(path: str, a: Any, b: Any) -> bool:
+        # qBittorrent keeps speed limits in whole KiB/s: the same limit, rounded (rollback drift check / read-back)
+        return policy.is_rate_path(path) and policy.rate_matches(a, b)
+
+    def noop_rollback(path: str) -> bool:
+        # a recheck/reannounce changes no data: its rollback is a harmless no-op (see ``write``)
+        return path.startswith("torrent:") and path.endswith((":recheck", ":reannounce"))
+
+    return Applier(read=read, write=write, validate=validate, same=same, noop_rollback=noop_rollback)
 
 
 changes.register_applier("qbittorrent", build)

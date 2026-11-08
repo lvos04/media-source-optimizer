@@ -334,7 +334,8 @@ class CleanupOps:
 def _audit_removed(path: str, h: str, info: dict[str, Any], sus: dict[str, Any]) -> None:
     db = get_db()
     ch = db.fetchone(
-        "SELECT id, approved_by FROM change_sets WHERE target='qbittorrent' AND status IN ('approved','preview') "
+        "SELECT id, approved_by FROM change_sets WHERE target='qbittorrent' "
+        "AND status IN ('approved','preview','applying') "
         "AND ops @> %s ORDER BY id DESC LIMIT 1",
         (jsonb([{"path": path}]),),
     )

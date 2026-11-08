@@ -9,6 +9,7 @@ import { WeeklyDigest } from "@/components/mso/automation/autopilot-summary";
 import { ChangesPanel } from "@/components/mso/automation/changes-panel";
 import { EvaluationsPanel } from "@/components/mso/automation/evaluation-view";
 import { RecommendationsList } from "@/components/mso/automation/recommendations-list";
+import { SafetyPanel } from "@/components/mso/automation/safety-panel";
 import { TogglesPanel } from "@/components/mso/automation/toggles-panel";
 import { RiskChip } from "@/components/mso/risk-chip";
 import { useAction } from "@/lib/api/actions";
@@ -19,7 +20,7 @@ import { useI18n } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 
-const TABS = ["aanbevelingen", "wijzigingen", "controle", "samenvatting", "automatisch", "ai"] as const;
+const TABS = ["aanbevelingen", "wijzigingen", "controle", "veiligheid", "samenvatting", "automatisch", "ai"] as const;
 type Tab = (typeof TABS)[number];
 const RISKS: Risk[] = ["advies", "automatisch_veilig", "toestemming_nodig"];
 
@@ -76,6 +77,7 @@ export default function AutomationPage() {
           { value: "aanbevelingen", label: t("automation.tab.recommendations") },
           { value: "wijzigingen", label: t("automation.tab.changes") },
           { value: "controle", label: t("automation.tab.evaluations") },
+          { value: "veiligheid", label: t("safety.tab") },
           { value: "samenvatting", label: t("automation.tab.summary") },
           { value: "automatisch", label: t("automation.tab.automation") },
           { value: "ai", label: t("automation.tab.ai") },
@@ -86,6 +88,7 @@ export default function AutomationPage() {
         {tab === "aanbevelingen" ? <RecommendationsList onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
         {tab === "wijzigingen" ? <ChangesPanel focusId={focusChange} /> : null}
         {tab === "controle" ? <EvaluationsPanel onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
+        {tab === "veiligheid" ? <SafetyPanel onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
         {tab === "automatisch" ? <TogglesPanel status={status} /> : null}
         {tab === "ai" ? <AiCard /> : null}
       </div>

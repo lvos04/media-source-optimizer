@@ -15,7 +15,7 @@ import { useI18n } from "@/lib/i18n";
 import { CHANGE_STATUS } from "@/lib/status";
 
 type Row = ChangeSet & { created_at: string; applied_at: string | null; evaluate_after: string | null };
-const FILTERS = { open: "preview,approved", applied: "applied", closed: "rolled_back,failed,discarded" } as const;
+const FILTERS = { open: "preview,approved,applying", applied: "applied", closed: "rolled_back,failed,discarded" } as const;
 type Filter = keyof typeof FILTERS;
 
 /** Change sets list + ChangePreview (approve/apply/rollback via the shared component). */

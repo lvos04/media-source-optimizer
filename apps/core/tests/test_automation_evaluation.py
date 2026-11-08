@@ -175,17 +175,26 @@ def test_irreversible_and_destructive_excluded(db: Any, sab: dict[str, Any], man
 
 
 def test_rollback_that_disables_is_only_proposed(db: Any, sab: dict[str, Any], manage_mode: None) -> None:
+    """1.6.0: a re-enabled SABnzbd *server* is judged on its own status (test_change_safety); the rule itself is
+    checked on a generic target, with booleans and with SABnzbd-style ints (0 → 1)."""
     from mso.features.automation import engine
 
-    b0, b1, now = _windows()
-    _outcomes(db, start=b0, end=b1, ok=19, failed=1)
-    _outcomes(db, start=b1, end=now, ok=10, failed=10)
-    sr.put({"automation.auto_rollback": True}, "test")
-    ch = _applied(db, "sabnzbd", [{"path": "servers/xsnews/enable", "before": False, "after": True}])
-    engine.evaluate_due()
-    c = changes.get(ch["id"])
-    assert c["status"] == "applied" and sab["servers/xsnews/enable"] is True
-    assert "uitschakelen" in c["impact"]["evaluation"]["message"]
+    store: dict[str, Any] = {"feature/enable": False, "filter/enabled": 0}
+    changes.register_applier("schakelaar", lambda: Applier(read=store.get, write=store.__setitem__))
+    try:
+        b0, b1, now = _windows()
+        _outcomes(db, start=b0, end=b1, ok=19, failed=1)
+        _outcomes(db, start=b1, end=now, ok=10, failed=10)
+        sr.put({"automation.auto_rollback": True}, "test")
+        ch = _applied(db, "schakelaar", [{"path": "feature/enable", "before": False, "after": True}])
+        ch_int = _applied(db, "schakelaar", [{"path": "filter/enabled", "before": 0, "after": 1}])
+        engine.evaluate_due()
+        for c in (changes.get(ch["id"]), changes.get(ch_int["id"])):
+            assert c["status"] == "applied"
+            assert "uitschakelen" in c["impact"]["evaluation"]["message"]
+        assert store == {"feature/enable": True, "filter/enabled": 1}
+    finally:
+        changes.APPLIERS.pop("schakelaar", None)
 
 
 def test_qbittorrent_follows_torrent_setting(db: Any, manage_mode: None) -> None:

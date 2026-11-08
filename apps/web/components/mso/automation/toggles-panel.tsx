@@ -7,6 +7,7 @@ import { StateView } from "@/components/mg/states";
 import { useAction } from "@/lib/api/actions";
 import type { Resource } from "@/lib/api/hooks";
 import type { AutomationStatus } from "@/lib/api/insights";
+import type { AutopilotHold } from "@/lib/api/safety";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
@@ -16,6 +17,7 @@ const LOG_RESULT: Record<string, string> = {
   done: "Klaar", applied: "Toegepast", skipped: "Overgeslagen", rate_limited: "Limiet bereikt", failed: "Mislukt",
   keep: "Behouden", unknown: "Onbeslist", niet_beschikbaar: "Niet beschikbaar", rolled_back: "Teruggedraaid",
   rollback_proposed: "Terugdraaien voorgesteld", rollback_failed: "Terugdraaien mislukt",
+  rollback_skipped: "Niet teruggedraaid (buiten MSO gewijzigd)", self_paused: "Noodrem", resumed: "Hervat",
   beter: "Beter", gelijk: "Gelijk", slechter: "Slechter", onvoldoende: "Onvoldoende data", niet_van_toepassing: "Niet van toepassing",
 };
 const EVALUATOR_LABEL: Record<string, string> = { sabnzbd: "SABnzbd (faalratio, tijd tot voltooiing)", qbittorrent: "qBittorrent" };
@@ -31,7 +33,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
   const { run, pending } = useAction();
   // live mode/pause state (same source as the topbar chip and pause button) — the status resource may lag behind
   const { mode, paused } = useMode();
-  const s = status.data;
+  const s = status.data as (AutomationStatus & { attempts_last_hour?: number; hold?: AutopilotHold | null }) | null;
   // Autopilot (mode, not paused or paused): the per-area toggles do not apply — every area is on via Autopilot
   const autopilotMode = (mode ?? s?.mode) === "autopilot";
   if (!s) return <Card className="span-12"><StateView kind={status.error ? "error" : "loading"} compact /></Card>;
@@ -68,12 +70,14 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
           {(() => {
             const liveMode = mode ?? s.mode;
             const livePaused = mode === null ? s.paused : paused;
+            if (s.hold?.active && liveMode !== "read_only" && !livePaused) return <InlineState tone="danger">{t("safety.stateHeld")}</InlineState>;
             if (liveMode === "autopilot" && !livePaused) return <InlineState tone="success" icon={Bot}>{t("automation.allowedAutopilot")}</InlineState>;
             if (liveMode === "manage" && !livePaused) return <InlineState tone="success">{t("automation.allowed")}</InlineState>;
             return <InlineState tone="warning">{liveMode === "read_only" ? t("automation.notAllowedReadOnly") : t("automation.notAllowedPaused")}</InlineState>;
           })()}
           <dl className="kv">
-            <dt>{t("automation.appliedLastHour")}</dt><dd>{num(s.applied_last_hour)} / {num(s.max_per_hour)}</dd>
+            <dt>{t("automation.appliedLastHour")}</dt><dd>{num(s.applied_last_hour)}</dd>
+            <dt>{t("safety.attemptsLastHour")}</dt><dd>{num(s.attempts_last_hour ?? s.applied_last_hour)} / {num(s.max_per_hour)}</dd>
             <dt>{t("automation.autoRollback")}</dt><dd><StatusChip tone={s.auto_rollback ? "success" : "neutral"}>{s.auto_rollback ? (autopilotMode && !s.auto_rollback_setting ? t("mode.section.autoViaAutopilot") : t("automation.on")) : t("automation.off")}</StatusChip></dd>
             <dt>{t("automation.evaluators")}</dt>
             <dd>
@@ -98,7 +102,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
             {s.log.map((l) => (
               <div className="list-row" key={l.id}>
                 <div className="list-main"><div className="list-title" style={{ whiteSpace: "normal" }}>{l.message}</div><div className="list-sub">{LOG_KIND[l.kind] ?? l.kind}{l.area ? ` · ${KNOWN_AREAS.has(l.area) ? t(`automation.area.${l.area}` as MessageKey) : l.area}` : ""}{l.change_id ? ` · #${l.change_id}` : ""} · {relative(l.ts)}</div></div>
-                <StatusChip tone={l.result === "applied" || l.result === "keep" || l.result === "done" || l.result === "beter" ? "success" : l.result === "failed" || l.result === "slechter" || l.result.startsWith("roll") ? "danger" : l.result === "onvoldoende" ? "warning" : l.result === "skipped" || l.result === "rate_limited" ? "warning" : "neutral"}>{LOG_RESULT[l.result] ?? l.result}</StatusChip>
+                <StatusChip tone={l.result === "applied" || l.result === "keep" || l.result === "done" || l.result === "beter" ? "success" : l.result === "failed" || l.result === "slechter" || l.result === "self_paused" || l.result.startsWith("roll") ? "danger" : l.result === "onvoldoende" ? "warning" : l.result === "skipped" || l.result === "rate_limited" ? "warning" : "neutral"}>{LOG_RESULT[l.result] ?? l.result}</StatusChip>
               </div>
             ))}
           </div>

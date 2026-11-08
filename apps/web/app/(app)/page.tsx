@@ -63,8 +63,8 @@ export default function OverviewPage() {
           </section>
 
           <div className="grid" style={{ marginTop: 16 }}>
-            <AutopilotCard />
-            <WaitingCard />
+            <WaitingCard className="span-12" />
+            <AutopilotCard className="span-12" />
             {o ? (
               <>
                 <FailureLocations o={o} />

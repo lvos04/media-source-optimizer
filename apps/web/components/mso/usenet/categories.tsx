@@ -224,7 +224,9 @@ function ProposalBlock({ d, diag, onChanged }: { d: CategoryDiagnosis; diag: Res
   const { can } = useSession();
   const [pending, setPending] = useState(false);
   const change = useResource<ChangeSet>(d.proposal ? `/changes/${d.proposal.id}` : null);
-  const names = d.missing.map((m) => m.category);
+  // only names MSO may create: the backend refuses the whole request when one of them cannot be created
+  const names = d.missing.filter((m) => m.creatable).map((m) => m.category);
+  const declined = names.filter((n) => d.declined.includes(n));
 
   const refreshAll = async () => {
     try {
@@ -261,13 +263,18 @@ function ProposalBlock({ d, diag, onChanged }: { d: CategoryDiagnosis; diag: Res
         <ResourceView resource={change} compact endpoint={`GET /api/v1/changes/${d.proposal.id}`}>
           {(ch) => <ChangePreview change={ch} card={false} onChanged={async () => { await change.reload(); await refreshAll(); }} />}
         </ResourceView>
-      ) : (
-        <div>
-          <Button variant="primary" icon={FolderPlus} onClick={() => void propose()} pending={pending}
-            disabled={!can("admin") || !d.sab.available} title={!can("admin") ? t("usenet.adminOnly") : undefined}>
-            {t("usenetcat.a.propose", { cats: quoted(names) })}
-          </Button>
+      ) : names.length ? (
+        <div className="stack-sm">
+          {declined.length ? <p className="t-3" style={{ margin: 0, fontSize: 12.5 }}>{t("usenetcat.a.declined", { cats: quoted(declined) })}</p> : null}
+          <div>
+            <Button variant="primary" icon={FolderPlus} onClick={() => void propose()} pending={pending}
+              disabled={!can("admin") || !d.sab.available} title={!can("admin") ? t("usenet.adminOnly") : undefined}>
+              {t("usenetcat.a.propose", { cats: quoted(names) })}
+            </Button>
+          </div>
         </div>
+      ) : (
+        <InlineState tone="neutral">{t("usenetcat.a.manualOnly")}</InlineState>
       )}
     </div>
   );
@@ -289,6 +296,7 @@ function Verdict({ d }: { d: CategoryDiagnosis }) {
               <div className="list-main">
                 <div className="list-sub" style={{ whiteSpace: "normal" }}>{t("usenetcat.a.item", { instances: m.instances.join(", "), folder: d.folders[m.category] ?? m.category })}</div>
                 {m.certainty === "waarschijnlijk" ? <div className="list-sub t-3" style={{ whiteSpace: "normal" }}>{t("usenetcat.a.probable")}</div> : null}
+                {!m.creatable ? <div className="list-sub t-3" style={{ whiteSpace: "normal" }}>{t("usenetcat.a.manual")}</div> : null}
               </div>
             </li>
           ))}
@@ -311,6 +319,10 @@ function Verdict({ d }: { d: CategoryDiagnosis }) {
         </ul>
       </div>
     );
+  }
+  if (d.verdict === "c" && d.other && !d.other.recent_star) {
+    // only the live queue has '*' downloads; nothing finished in '*' in the recent days
+    return <InlineState tone="info" role="status">{t("usenetcat.verdict.cQueue", { days, n: num(d.other.queue_star) })}</InlineState>;
   }
   if (d.verdict === "c" && d.other) {
     return (

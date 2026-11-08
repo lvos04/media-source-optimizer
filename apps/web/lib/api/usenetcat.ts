@@ -18,7 +18,7 @@ export interface CategoryInstance {
   clients_reason: MgReason | null; no_sab_client: boolean; health: CategoryHealth[]; health_source: "live" | "cached" | null;
 }
 
-export interface CategoryMissing { category: string; instances: string[]; certainty: CategoryCertainty }
+export interface CategoryMissing { category: string; instances: string[]; certainty: CategoryCertainty; creatable: boolean }
 export interface CategoryNoCategory { instance: string; client: string | null; fix_in: "mediaguard" | "arr"; expected: string | null }
 export interface CategoryOther { recent_star: number; queue_star: number; from_mso: number; mso_missing: string[]; unexplained: number }
 
@@ -47,6 +47,8 @@ export interface CategoryDiagnosis {
     days: StarDay[]; timezone: string; recent_days: number; recent_total: number; recent_star: number; recent_star_mso: number;
   };
   proposal: CategoryProposalRef | null;
+  /** categories whose proposal the owner discarded or rolled back: the periodic check does not propose them again */
+  declined: string[];
   last_applied: CategoryProposalRef | null;
   media_categories: string[];
 }

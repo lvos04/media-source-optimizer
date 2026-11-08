@@ -53,6 +53,9 @@ LOGGER = logging.getLogger(__name__)
 JOB = "usenet.categories_check"
 SOURCE = "usenet.categories"  # change_sets.source and recommendations dedupe prefix
 STATE_KEY = "usenet.categories.remote"  # last SABnzbd + MediaGuard reads (no secrets)
+# categories whose proposal the owner discarded or rolled back: the periodic check does not propose them again
+DECLINED_KEY = "usenet.categories.declined"
+SYSTEM_ACTORS = ("systeem", "automatisering")  # decisions by these are MSO's own, not the owner's
 CACHE_S = 600
 DAYS = 14
 RECENT_DAYS = 7
@@ -69,7 +72,9 @@ HEALTH_SOURCES = (
     "ImportMechanismCheck",
     "RemotePathMappingCheck",
 )
-HEALTH_WORDS = ("categor", "download client", "downloadclient", "sabnzbd", "import", "remote path")
+HEALTH_WORDS = ("categor", "download client", "downloadclient", "sabnzbd", "remote path")
+# never about SABnzbd categories, even when the text matches a word above (e.g. "All import lists are unavailable")
+HEALTH_EXCLUDED_PREFIXES = ("ImportList", "Indexer")
 
 
 def _now() -> datetime:
@@ -131,7 +136,10 @@ def _relevant_health(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for h in items:
         msg = str(h.get("message") or "").lower()
-        if h.get("source") in HEALTH_SOURCES or any(w in msg for w in HEALTH_WORDS):
+        source = str(h.get("source") or "")
+        if source.startswith(HEALTH_EXCLUDED_PREFIXES):
+            continue
+        if source in HEALTH_SOURCES or any(w in msg for w in HEALTH_WORDS):
             out.append({k: h.get(k) for k in ("source", "type", "message")})
     return out
 
@@ -355,7 +363,10 @@ def _evaluate(remote: dict[str, Any], stats: dict[str, Any]) -> dict[str, Any]:
                 }
             )
             if status == "ontbreekt_in_sab" and cat_norm:
-                m = missing.setdefault(cat_norm, {"category": cat_norm, "instances": [], "certainty": certainty})
+                m = missing.setdefault(
+                    cat_norm,
+                    {"category": cat_norm, "instances": [], "certainty": certainty, "creatable": _creatable(cat_norm)},
+                )
                 m["instances"].append(inst["name"])
                 if certainty == "zeker":
                     m["certainty"] = "zeker"
@@ -380,7 +391,7 @@ def _evaluate(remote: dict[str, Any], stats: dict[str, Any]) -> dict[str, Any]:
         )
     mso = _mso_sends(sab_names)
     star_recent = stats["recent_star"] + (sab.get("queue_star") or 0)
-    other = None
+    other = None  # case (c); recent_star 0 with queue_star > 0 = only the live queue has '*' downloads
     if star_recent and sab["available"] and not missing and not no_category:
         other = {
             "recent_star": stats["recent_star"],
@@ -389,7 +400,9 @@ def _evaluate(remote: dict[str, Any], stats: dict[str, Any]) -> dict[str, Any]:
             "mso_missing": mso["missing"],
             "unexplained": max(stats["recent_star"] - stats["recent_star_mso"], 0),
         }
-    knows_arr = any(i["clients"] for i in instances)
+    # only client lists MSO actually read count: MediaGuard's own category ('waarschijnlijk', when the
+    # download-clients route is missing or forbidden) is an assumption and never makes the verdict 'ok' or 'c'
+    knows_arr = any(c["certainty"] == "zeker" for i in instances for c in i["clients"])
     if missing:
         verdict = "a"
     elif no_category:
@@ -416,10 +429,14 @@ def _evaluate(remote: dict[str, Any], stats: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _op_names(ops: Any) -> list[str]:
+    return [str(op.get("path", "")).split("/", 1)[-1] for op in ops or []]
+
+
 def _open_proposal(db: Any = None) -> dict[str, Any] | None:
     row = (db or get_db()).fetchone(
-        "SELECT id, status, title, ops, created_at FROM change_sets WHERE source=%s AND status IN "
-        "('preview','approved') ORDER BY id DESC LIMIT 1",
+        "SELECT id, status, title, ops, created_at, created_by, dedupe_key FROM change_sets WHERE source=%s AND "
+        "status IN ('preview','approved') ORDER BY id DESC LIMIT 1",
         (SOURCE,),
     )
     if row is None:
@@ -429,7 +446,9 @@ def _open_proposal(db: Any = None) -> dict[str, Any] | None:
         "status": row["status"],
         "title": row["title"],
         "created_at": row["created_at"],
-        "categories": [str(op.get("path", "")).split("/", 1)[-1] for op in row["ops"] or []],
+        "created_by": row["created_by"],
+        "dedupe_key": row["dedupe_key"],
+        "categories": _op_names(row["ops"]),
     }
 
 
@@ -447,7 +466,7 @@ def _last_applied(db: Any = None) -> dict[str, Any] | None:
         "title": row["title"],
         "applied_at": row["applied_at"],
         "rolled_back_at": row["rolled_back_at"],
-        "categories": [str(op.get("path", "")).split("/", 1)[-1] for op in row["ops"] or []],
+        "categories": _op_names(row["ops"]),
     }
 
 
@@ -476,7 +495,8 @@ def diagnose(*, refresh: bool = False) -> dict[str, Any]:
             "provisioning_reason": mg.get("provisioning_reason"),
         },
         "star": stats,
-        "proposal": _open_proposal(),
+        "proposal": _public_proposal(_open_proposal()),
+        "declined": declined_names(),
         "last_applied": _last_applied(),
         "media_categories": list(MEDIA_CATEGORIES),
     }
@@ -507,7 +527,8 @@ def _explanation(names: list[str], d: dict[str, Any]) -> str:
         "Let op: MediaGuard ruimt downloads in deze categorie daarna volgens zijn eigen regels op (geïmporteerd of "
         "afgehandeld: meteen; voltooid maar nooit geïmporteerd: na 7 dagen; eerst naar de MediaGuard-prullenbak). "
         "Dat deel kan MSO niet terugdraaien. Terugdraaien verwijdert alleen een categorie die MSO zelf heeft "
-        "aangemaakt, en alleen zolang er geen download in de SABnzbd-wachtrij die categorie gebruikt."
+        "aangemaakt, en alleen zolang geen download in de SABnzbd-wachtrij of in nabewerking die categorie "
+        "gebruikt. MSO draait dit nooit automatisch terug."
     )
 
 
@@ -524,7 +545,7 @@ def propose(names: list[str] | None, actor: str, *, d: dict[str, Any] | None = N
     d = d if d is not None else diagnose(refresh=True)
     if not d["sab"]["available"]:
         raise HTTPException(409, detail="SABnzbd is niet bereikbaar; MSO kan de categorieën niet controleren")
-    allowed = [m["category"] for m in d["missing"] if _creatable(m["category"])]
+    allowed = [m["category"] for m in d["missing"] if m["creatable"]]
     if not allowed:
         raise HTTPException(
             409,
@@ -532,6 +553,15 @@ def propose(names: list[str] | None, actor: str, *, d: dict[str, Any] | None = N
             "meesturen, of de naam bevat tekens die MSO niet in SABnzbd zet (maak hem dan zelf aan)",
         )
     if names:
+        # missing, but a name MSO does not put in SABnzbd (e.g. with '/' or non-ASCII): say so explicitly
+        manual_only = {m["category"] for m in d["missing"] if not m["creatable"]}
+        manual = sorted({str(n).strip().lower() for n in names} & manual_only)
+        if manual:
+            raise HTTPException(
+                422,
+                detail=f"Categorie {', '.join(manual)} ontbreekt wel, maar de naam bevat tekens die MSO niet in "
+                "SABnzbd zet; maak hem zelf aan in SABnzbd (Config → Categories)",
+            )
         try:
             wanted = sorted({validate_category_name(n) for n in names})
         except ValueError as exc:
@@ -573,8 +603,8 @@ def propose(names: list[str] | None, actor: str, *, d: dict[str, Any] | None = N
             "Nabewerking": "volgt '*' (SABnzbd-standaard)",
             "Gevolg in MediaGuard": "ruimt downloads in deze categorie op volgens zijn eigen regels (niet terug te "
             "draaien door MSO)",
-            "Terugdraaien": "verwijdert alleen een door MSO aangemaakte categorie, zolang geen download in de "
-            "wachtrij hem gebruikt",
+            "Terugdraaien": "alleen met de hand; verwijdert alleen een door MSO aangemaakte categorie, zolang geen "
+            "download in de wachtrij of in nabewerking hem gebruikt",
         },
         source=SOURCE,
         actor=actor,
@@ -599,40 +629,96 @@ def propose(names: list[str] | None, actor: str, *, d: dict[str, Any] | None = N
     return change
 
 
+def _public_proposal(p: dict[str, Any] | None) -> dict[str, Any] | None:
+    if p is None:
+        return None
+    return {k: v for k, v in p.items() if k not in ("created_by", "dedupe_key")}
+
+
+def declined_names() -> list[str]:
+    st = state.get_state(DECLINED_KEY)
+    return sorted((st or {}).get("names") or []) if isinstance(st, dict) else []
+
+
+def _update_declined(d: dict[str, Any], actor: str, db: Any) -> set[str]:
+    """Categories the owner said no to: a ``usenet.categories`` change set discarded or rolled back by someone
+    other than MSO itself (audit ``change.discarded``/``change.rolled_back``). The periodic check never proposes
+    them again; the admin can still make a proposal by hand. A decision lapses once the problem is gone (SABnzbd
+    knows the category, or every client list was read and nobody sends it any more), so it is proposed again if
+    the same problem comes back later. Kept in ``system_state`` with an audit-id watermark."""
+    st = state.get_state(DECLINED_KEY)
+    st = st if isinstance(st, dict) else {}
+    names = set(st.get("names") or [])
+    last = int(st.get("audit_id") or 0)
+    rows = db.fetchall(
+        "SELECT a.id, c.ops FROM audit_log a JOIN change_sets c ON c.id = a.change_id WHERE a.id > %s "
+        "AND a.action IN ('change.discarded','change.rolled_back') AND c.source = %s AND a.actor <> ALL(%s) "
+        "ORDER BY a.id",
+        (last, SOURCE, sorted({actor, *SYSTEM_ACTORS})),
+    )
+    for r in rows:
+        names |= set(_op_names(r["ops"]))
+        last = max(last, int(r["id"]))
+    sab_names = set(d["sab"]["categories"])
+    missing = {m["category"] for m in d["missing"]}
+    all_read = all(i.get("clients_reason") is None for i in d["instances"])
+    kept = {n for n in names if n not in sab_names and (n in missing or not all_read)}
+    if kept != set(st.get("names") or []) or last != int(st.get("audit_id") or 0):
+        state.set_state(DECLINED_KEY, {"names": sorted(kept), "audit_id": last})
+    return kept
+
+
 def sync(actor: str = "systeem") -> dict[str, Any]:
     """Periodic: keep exactly one open proposal for the *certain* case (a) and retire proposals/recommendations
-    that no longer apply. Nothing is applied; a missing SABnzbd/MediaGuard answer changes nothing."""
+    that no longer apply. Nothing is applied; a missing SABnzbd/MediaGuard answer changes nothing.
+
+    The owner's decisions win: categories whose proposal a person discarded or rolled back are not proposed again
+    (:func:`_update_declined`), and a proposal an admin made himself (or one that is already approved) is never
+    replaced; only MSO's own preview is replaced when the set changes. A preview is discarded once it is moot:
+    MSO's own when none of its categories is missing any more, an admin's only when SABnzbd knows all of them
+    (then it could not be applied anyway)."""
     d = diagnose(refresh=True)
     if not d["sab"]["available"] or not d["mediaguard"]["available"]:
         return {"skipped": "SABnzbd of MediaGuard niet beschikbaar", "verdict": d["verdict"]}
-    certain = sorted(m["category"] for m in d["missing"] if m["certainty"] == "zeker" and _creatable(m["category"]))
     db = get_db()
+    declined = _update_declined(d, actor, db)
+    certain = sorted(
+        m["category"]
+        for m in d["missing"]
+        if m["certainty"] == "zeker" and m["creatable"] and m["category"] not in declined
+    )
+    missing = {m["category"] for m in d["missing"]}
+    sab_names = set(d["sab"]["categories"])
     current = _open_proposal(db)
+    own = current is not None and current["created_by"] in {actor, *SYSTEM_ACTORS}
     created = None
-    if certain and not (current and sorted(current["categories"]) == certain):
-        if current and current["status"] == "preview":
+    if current and current["status"] == "preview":
+        moot = (
+            not any(c in missing for c in current["categories"])
+            if own
+            else all(c in sab_names for c in current["categories"])
+        )
+        if moot:
             changes.discard(current["id"], actor)
-        if not (current and current["status"] == "approved"):
-            try:
-                created = propose(certain, actor, d=d)
-            except HTTPException as exc:  # e.g. SABnzbd's policy check; try again next round
-                LOGGER.warning("Voorstel SABnzbd-categorieën niet gemaakt: %s", exc.detail)
-    elif not certain and current and current["status"] == "preview" and not any(
-        c in {m["category"] for m in d["missing"]} for c in current["categories"]
-    ):
-        changes.discard(current["id"], actor)
+            current = None
+    replaceable = own and current is not None and current["status"] == "preview"
+    if certain and (current is None or (replaceable and sorted(current["categories"]) != certain)):
+        if current is not None:
+            changes.discard(current["id"], actor)
+        try:
+            created = propose(certain, actor, d=d)
+        except HTTPException as exc:  # e.g. SABnzbd's policy check; try again next round
+            LOGGER.warning("Voorstel SABnzbd-categorieën niet gemaakt: %s", exc.detail)
     keep = _open_proposal(db)
-    keep_key = None
-    if keep:
-        keep_key = db.scalar("SELECT dedupe_key FROM change_sets WHERE id=%s", (keep["id"],))
     db.execute(
         "UPDATE recommendations SET status='resolved', updated_at=now() WHERE status='open' AND "
         "dedupe_key LIKE %s AND dedupe_key IS DISTINCT FROM %s",
-        (f"{SOURCE}:%", keep_key),
+        (f"{SOURCE}:%", keep["dedupe_key"] if keep else None),
     )
     return {
         "verdict": d["verdict"],
         "missing": certain,
+        "declined": sorted(declined),
         "proposal": created["id"] if created else (keep["id"] if keep else None),
     }
 

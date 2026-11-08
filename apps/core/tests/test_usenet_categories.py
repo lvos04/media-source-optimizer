@@ -137,6 +137,8 @@ def test_case_a_sab_lacks_category_with_health_and_counts(
     mock.state.arr_health["sonarr-anime"] = [
         {"source": "DownloadClientCheck", "type": "warning", "message": "Unable to communicate with SABnzbd"},
         {"source": "IndexerRssCheck", "type": "warning", "message": "No indexers available with RSS sync enabled"},
+        {"source": "ImportListStatusCheck", "type": "error", "message": "All import lists are unavailable due to "
+         "failures"},
     ]
     sab.queue.append({"nzo_id": "q1", "filename": "Frieren.S01E02", "cat": "*", "status": "Queued"})
     _outcome(db, "a1", "*")
@@ -219,6 +221,14 @@ def test_without_mediaguard_or_routes_degrades_gracefully(
     d = _diag(viewer)
     anime = next(i for i in d["instances"] if i["id"] == "sonarr-anime")
     assert anime["clients_reason"] == "geen_toegang" and d["mediaguard"]["provisioning_reason"] == "geen_toegang"
+    # SABnzbd knows every category, but only MediaGuard's assumed categories are known (routes missing): never a
+    # false "ok" (nothing in '*') or "c" (with '*'), because MSO never read what Sonarr/Radarr really send
+    _sab(serve, admin)
+    _mg(serve, admin, no_category_routes=1)
+    d = _diag(viewer)
+    assert not d["missing"] and d["verdict"] == "onbekend"
+    db.execute("DELETE FROM download_outcomes")
+    assert _diag(viewer)["verdict"] == "geen_ster"
     # SABnzbd unreachable: no false verdict
     admin.put("/api/v1/connectors/sabnzbd", json={"url": "http://127.0.0.1:9", "secrets": {"api_key": SAB_KEY}})
     d = _diag(viewer)
@@ -297,6 +307,14 @@ def test_proposal_preview_approval_apply_verify_and_guarded_rollback(
     assert r.status_code == 502 and "wachtrij" in r.json()["detail"]
     assert sab.category("tv-anime") is not None
     sab.queue.clear()
+    # ... and while a finished download is still being post-processed in that category (history, non-final)
+    slot = {"nzo_id": "pp1", "name": "Frieren.S01E03", "category": "tv-anime", "status": "Extracting",
+            "completed": 0, "fail_message": "", "bytes": 1, "stage_log": []}
+    sab.add_history(slot)
+    r = admin.post(f"/api/v1/changes/{ch['id']}/rollback", json={"reason": "test"})
+    assert r.status_code == 502 and "nabewerking" in r.json()["detail"]
+    assert sab.category("tv-anime") is not None
+    slot["status"] = "Completed"
     r = admin.post(f"/api/v1/changes/{ch['id']}/rollback", json={"reason": "test"})
     assert r.status_code == 200, r.text
     assert sab.category("tv-anime") is None
@@ -453,3 +471,126 @@ def test_evaluate_rules_unit(app: Any) -> None:
         ("tv-anime", "waarschijnlijk")]
     assert ev["no_category"] == [{"instance": "Hold", "client": "SABnzbd", "fix_in": "arr", "expected": "tv"}]
     assert ev["folders"] == {"tv-anime": "tv-anime"}
+    assert ev["missing"][0]["creatable"] is True
+    # categories match and only the live queue has '*' downloads: case (c) with recent_star 0 (own UI text)
+    remote["mediaguard"]["instances"] = [inst("upper", [client("tv")])]
+    remote["sab"]["queue_star"] = 2
+    ev = categories._evaluate(remote, stats)
+    assert ev["verdict"] == "c" and ev["other"]["recent_star"] == 0 and ev["other"]["queue_star"] == 2
+    remote["sab"]["queue_star"] = 0
+    assert categories._evaluate(remote, stats)["verdict"] == "ok"
+    # a category name MSO does not put in SABnzbd is still reported, but not creatable
+    remote["mediaguard"]["instances"] = [inst("odd", [client("tv/anime")])]
+    ev = categories._evaluate(remote, stats)
+    assert ev["verdict"] == "a" and ev["missing"][0]["creatable"] is False
+    # health: only messages about the download client / category; never import lists or indexers
+    kept = categories._relevant_health([
+        {"source": "ImportListStatusCheck", "type": "error", "message": "All import lists are unavailable"},
+        {"source": "IndexerStatusCheck", "type": "error", "message": "Indexers unavailable: SABnzbd-indexer"},
+        {"source": "ImportMechanismCheck", "type": "warning", "message": "Enable Completed Download Handling"},
+        {"source": "SomeCheck", "type": "warning", "message": "Download client SABnzbd places downloads in root"},
+    ])
+    assert [h["source"] for h in kept] == ["ImportMechanismCheck", "SomeCheck"]
+
+
+# ------------------------------------------------------------------ review fixes: never automatic, owner decides
+def test_applied_category_is_never_rolled_back_automatically(
+    app: Any, serve: Any, admin: Any, operator: Any, db: Any, monkeypatch: Any
+) -> None:
+    """Hard rule 1: rolling back deletes the category, so the automation engine never does it — not even in
+    Autopilot with a 'worse' measurement (the generic evaluator would measure all downloads)."""
+    from mso import settings_registry as sr
+    from mso import state
+    from mso.features.automation import engine
+    from mso.features.automation import evaluators as ev_mod
+
+    sab = _sab(serve, admin, categories=NO_ANIME)
+    _mg(serve, admin)
+    ch = admin.post("/api/v1/usenet/categories/propose", json={"names": ["tv-anime"]}).json()
+    state.set_state("mode", "manage")
+    admin.post(f"/api/v1/changes/{ch['id']}/approve")
+    assert operator.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 200
+    db.execute("UPDATE change_sets SET applied_at = now() - interval '7 days', evaluate_after = NULL WHERE id=%s",
+               (ch["id"],))
+    monkeypatch.setattr(ev_mod, "generic_evaluator", lambda change: "worse")
+    sr.put({"automation.auto_rollback": True}, "test")
+    state.set_state("mode", "autopilot")
+    counts = engine.evaluate_due(db)
+    assert counts["rolled_back"] == 0 and counts["slechter"] == 0 and counts["niet_van_toepassing"] == 1
+    assert engine.evaluator_for("sabnzbd_categories")[0] == "sabnzbd_categories"
+    row = db.fetchone("SELECT status, impact FROM change_sets WHERE id=%s", (ch["id"],))
+    assert row["status"] == "applied" and row["impact"]["evaluation"]["result"] == "niet_van_toepassing"
+    assert "met de hand" in row["impact"]["evaluation"]["message"]
+    assert sab.category("tv-anime") is not None
+    # the evaluator itself also forbids an automatic rollback, whatever the engine would measure
+    from mso.connectors.sabnzbd import _category_evaluation
+
+    assert _category_evaluation({})["auto_rollback"] is False
+    # a manual rollback by the admin still works (nothing in use)
+    state.set_state("mode", "manage")
+    assert admin.post(f"/api/v1/changes/{ch['id']}/rollback", json={}).status_code == 200
+    assert sab.category("tv-anime") is None
+
+
+def test_periodic_check_respects_the_owners_decisions(app: Any, serve: Any, admin: Any, viewer: Any, db: Any) -> None:
+    from mso import state
+    from mso.features.usenet import categories
+
+    sab = _sab(serve, admin, categories=NO_ANIME)
+    _mg(serve, admin)
+    first = categories.sync()["proposal"]
+    assert first
+    # the owner says no: the next run does not put the same proposal back in "Wacht op jou"
+    assert admin.post(f"/api/v1/changes/{first}/discard").status_code == 200
+    res = categories.sync()
+    assert res["proposal"] is None and res["missing"] == [] and res["declined"] == ["movies-anime", "tv-anime"]
+    assert categories.sync()["proposal"] is None  # stays quiet
+    assert db.scalar("SELECT count(*) FROM change_sets WHERE source='usenet.categories'") == 1
+    assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key LIKE 'usenet.categories:%%' "
+                     "AND status='open'") == 0
+    waiting = viewer.get("/api/v1/overview/autopilot").json()["waiting"]
+    assert not any(i.get("id") == first for i in waiting["items"])
+    d = _diag(viewer)
+    assert d["verdict"] == "a" and d["declined"] == ["movies-anime", "tv-anime"] and d["proposal"] is None
+    # the admin can still make (part of) it by hand, and the periodic check never replaces that proposal
+    own = admin.post("/api/v1/usenet/categories/propose", json={"names": ["tv-anime"]}).json()
+    assert categories.sync()["proposal"] == own["id"]
+    assert db.scalar("SELECT status FROM change_sets WHERE id=%s", (own["id"],)) == "preview"
+    assert db.scalar("SELECT count(*) FROM change_sets WHERE source='usenet.categories' AND status='preview'") == 1
+    # ... until it is moot: SABnzbd knows the category now (created outside MSO)
+    sab.add_category("tv-anime", dir="tv-anime")
+    res = categories.sync()
+    assert db.scalar("SELECT status FROM change_sets WHERE id=%s", (own["id"],)) == "discarded"
+    assert res["proposal"] is None and res["declined"] == ["movies-anime"]  # the solved one lapses
+    # a decision lapses once the problem is gone, so the same problem coming back is proposed again
+    sab.add_category("movies-anime", dir="movies-anime")
+    assert categories.sync()["declined"] == []
+    sab.categories.remove(sab.category("movies-anime"))
+    again = categories.sync()
+    assert again["missing"] == ["movies-anime"] and again["proposal"]
+    # rolled back by the owner = also a "no"
+    state.set_state("mode", "manage")
+    admin.post(f"/api/v1/changes/{again['proposal']}/approve")
+    assert admin.post(f"/api/v1/changes/{again['proposal']}/apply").status_code == 200
+    assert categories.sync()["proposal"] is None
+    assert admin.post(f"/api/v1/changes/{again['proposal']}/rollback", json={}).status_code == 200
+    res = categories.sync()
+    assert res["proposal"] is None and res["declined"] == ["movies-anime"]
+    # MSO's own replacements/discards are never mistaken for the owner's decision
+    assert state.get_state(categories.DECLINED_KEY)["names"] == ["movies-anime"]
+
+
+def test_propose_reports_missing_names_mso_cannot_create(app: Any, serve: Any, admin: Any, viewer: Any) -> None:
+    _sab(serve, admin, categories=NO_ANIME)
+    mock = _mg(serve, admin)
+    for f in mock.state.download_clients["sonarr-anime"][0]["fields"]:
+        if f["name"] == "tvCategory":
+            f["value"] = "tv/anime"
+    d = _diag(viewer)
+    assert {m["category"]: m["creatable"] for m in d["missing"]} == {"movies-anime": True, "tv/anime": False}
+    r = admin.post("/api/v1/usenet/categories/propose", json={"names": ["movies-anime", "tv/anime"]})
+    assert r.status_code == 422 and "zelf aan in SABnzbd" in r.json()["detail"]
+    # without names (and with only the creatable ones, as the web page sends) the proposal is made
+    ch = admin.post("/api/v1/usenet/categories/propose").json()
+    assert [o["path"] for o in ch["ops"]] == ["categories/movies-anime"]
+    assert admin.post("/api/v1/usenet/categories/propose", json={"names": ["movies-anime"]}).json()["id"] == ch["id"]

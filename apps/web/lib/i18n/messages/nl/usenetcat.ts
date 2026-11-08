@@ -10,6 +10,7 @@ export const messages = {
   "usenetcat.verdict.a": "SABnzbd kent {cats} niet. Sonarr/Radarr sturen die categorie wel mee, dus zet SABnzbd die downloads in '*' en zien Sonarr/Radarr ze niet terug: geen automatische import en geen afhandeling van mislukte downloads (blokkeren en opnieuw zoeken).",
   "usenetcat.verdict.b": "Bij {count} downloadclient(s) sturen Sonarr/Radarr geen categorie mee. SABnzbd zet die downloads daarom in '*'.",
   "usenetcat.verdict.c": "De categorieën kloppen: SABnzbd kent alles wat Sonarr/Radarr meesturen. Toch kwamen er de laatste {days} dagen {n} downloads in '*'; die komen van een andere bron.",
+  "usenetcat.verdict.cQueue": "De categorieën kloppen: SABnzbd kent alles wat Sonarr/Radarr meesturen. De laatste {days} dagen kwam er geen afgeronde download in '*', maar nu staan er {n} in '*' in de SABnzbd-wachtrij; die komen van een andere bron.",
   "usenetcat.verdict.ok": "Alles klopt: SABnzbd kent elke categorie die Sonarr/Radarr meesturen, en de laatste {days} dagen kwam er geen download in '*'.",
   "usenetcat.verdict.noStar": "De laatste {days} dagen kwam er geen download in '*'. Welke categorie Sonarr/Radarr meesturen, kan MSO niet zien: {reason}.",
   "usenetcat.verdict.unknownMg": "MSO kan niet zien welke categorie Sonarr/Radarr meesturen: {reason}. Controleer het zelf in Sonarr/Radarr (Instellingen → Download Clients → SABnzbd → veld 'Category') en kijk of die categorie in SABnzbd bestaat (Config → Categories).",
@@ -32,6 +33,9 @@ export const messages = {
   "usenetcat.a.alternative": "Liever niet? Kies dan in MediaGuard (Inrichting → Downloadclients, categorie per instantie) een categorie die SABnzbd al kent.",
   "usenetcat.a.propose": "Voorstel maken: {cats} aanmaken",
   "usenetcat.a.proposed": "Voorstel klaargezet; het wacht op goedkeuring",
+  "usenetcat.a.manual": "MSO zet deze naam niet zelf in SABnzbd (bijzondere tekens). Maak de categorie zelf aan in SABnzbd (Config → Categories) of kies in MediaGuard een andere categorie.",
+  "usenetcat.a.manualOnly": "MSO kan geen van deze categorieën zelf aanmaken; maak ze zelf aan in SABnzbd (Config → Categories).",
+  "usenetcat.a.declined": "Je hebt een voorstel voor {cats} eerder verworpen of teruggedraaid. MSO zet het daarom niet opnieuw klaar in 'Wacht op jou'; je kunt het hier wel zelf maken.",
 
   // case (b)
   "usenetcat.b.mediaguard": "{instance}: {client} stuurt geen categorie mee. Oplossen in MediaGuard: Inrichting → Downloadclients → categorie per instantie (bijvoorbeeld {expected}), daarna de inrichting toepassen. MediaGuard beheert deze downloadclient; een wijziging in Sonarr/Radarr zelf ziet MediaGuard als afwijking.",

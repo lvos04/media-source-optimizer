@@ -493,6 +493,8 @@ changes.register_applier(RETRY_TARGET, _retry_applier)
 CATEGORY_TARGET = "sabnzbd_categories"
 CATEGORY_ABSENT = "ontbreekt"
 CATEGORY_DEFAULT_PRIORITY = -100  # SABnzbd DEFAULT_PRIORITY: "use the priority of '*'"
+CATEGORY_HISTORY_LIMIT = 500  # post-processing jobs are listed first in SABnzbd's history
+CATEGORY_FINAL_STATUSES = frozenset({"Completed", "Failed", "Deleted"})  # history statuses that no longer need it
 _CATEGORY_FIRST = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 _CATEGORY_CHARS = _CATEGORY_FIRST | frozenset(" ._+-")
 
@@ -523,7 +525,8 @@ def _category_applier() -> changes.Applier:
     """``categories/<name>``: ``ontbreekt`` ↔ ``aanwezig · map <name>``. Write = ``set_config`` (new category with
     its own folder named like the category, which is where MediaGuard looks for its categories); read-back via
     ``get_config&section=categories``. Rollback (``ontbreekt``) deletes the category with ``del_config``, but only
-    when it is still exactly as MSO created it and no download in SABnzbd's queue uses it."""
+    when it is still exactly as MSO created it and no download in SABnzbd's queue or post-processing uses it.
+    Rollback is only ever manual: :func:`_category_evaluation` keeps the automation engine from rolling it back."""
     client = SabClient.from_config()
 
     def find(name: str) -> dict[str, Any] | None:
@@ -543,9 +546,21 @@ def _category_applier() -> changes.Applier:
                 raise SabError(f"categorie '{name}' is buiten MSO gewijzigd; MSO verwijdert hem niet", "invalid")
             queue = client.queue(limit=10_000)
             using = [s for s in queue.get("slots") or [] if str(s.get("cat") or "").lower() == name]
-            if using:
+            # jobs still in post-processing sit in the history with a non-final status and still need the
+            # category: without it SABnzbd moves them to the '*' folder (postproc.get_complete_directory)
+            hist = client.history(limit=CATEGORY_HISTORY_LIMIT) or {}
+            busy = [
+                s for s in hist.get("slots") or []
+                if str(s.get("category") or s.get("cat") or "").lower() == name
+                and str(s.get("status") or "") not in CATEGORY_FINAL_STATUSES
+            ]
+            if using or busy:
+                where = [
+                    *([f"{len(using)} in de wachtrij"] if using else []),
+                    *([f"{len(busy)} in nabewerking"] if busy else []),
+                ]
                 raise SabError(
-                    f"{len(using)} download(s) in de SABnzbd-wachtrij gebruiken categorie '{name}'; "
+                    f"categorie '{name}' is in gebruik door download(s) in SABnzbd ({', '.join(where)}); "
                     "niet verwijderd",
                     "invalid",
                 )
@@ -565,6 +580,32 @@ def _category_applier() -> changes.Applier:
 
 
 changes.register_applier(CATEGORY_TARGET, _category_applier)
+
+
+def _category_evaluation(change: dict[str, Any]) -> dict[str, Any]:
+    """Post-apply evaluation for ``sabnzbd_categories``: never measured, never rolled back automatically. Rolling
+    back deletes the category (hard rule 1: deleting is never automatic, not even in Autopilot), and MediaGuard's
+    cleanup in that category cannot be undone anyway. The generic evaluator (all downloads) would otherwise let a
+    'worse' verdict delete the category the admin approved."""
+    reason = (
+        "een SABnzbd-categorie wordt niet gemeten; terugdraaien verwijdert hem en gebeurt daarom alleen met de hand"
+    )
+    return {
+        "verdict": "not_applicable",
+        "measures": [],
+        "message": "Een SABnzbd-categorie wordt niet gemeten en nooit automatisch teruggedraaid; terugdraaien "
+        "(de categorie verwijderen) kan alleen met de hand.",
+        "auto_rollback": False,
+        "auto_rollback_reason": reason,
+    }
+
+
+try:  # the automation engine evaluates applied changes; without an own evaluator it would use the generic one
+    from mso.features.automation import register_evaluator
+
+    register_evaluator(CATEGORY_TARGET, _category_evaluation)
+except ImportError:  # pragma: no cover - automation module absent
+    LOGGER.debug("automatisering niet beschikbaar; geen evaluator voor %s", CATEGORY_TARGET)
 
 
 # ------------------------------------------------------------------ connector test

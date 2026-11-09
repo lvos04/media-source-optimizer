@@ -188,3 +188,7 @@ summary { min-height: var(--touch); padding-block: 0.625rem; cursor: pointer; }
 
 /* 44 px ook voor losse vervolglinks en klikbare labels buiten lopende tekst. */
 .link-more, [data-testid="sync-line"], a:has(> .chip) { display: inline-flex; align-items: center; min-height: var(--touch); }
+
+/* Tabelkoppen mogen omlopen: met een breder systeemfont (bv. DejaVu Sans op Linux) liep de kostentabel op 1440 px
+   54 px over (gemeten in CI). Nooit horizontale overloop door een kolomkop. */
+.table th { white-space: normal; }

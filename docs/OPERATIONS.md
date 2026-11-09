@@ -1,7 +1,7 @@
 # Beheer en operatie
 
 Dagelijks beheer van een draaiende Media Source Optimizer-installatie (MSO): gezondheid, logs, back-ups,
-herstel, taakherstel en resources. Installatie: [TRUENAS_INSTALL.md](TRUENAS_INSTALL.md); schema-upgrades:
+herstel, taakherstel, onderhoud, koppelingsbewaking, de noodrem en resources. Installatie: [TRUENAS_INSTALL.md](TRUENAS_INSTALL.md); schema-upgrades:
 [MIGRATION.md](MIGRATION.md).
 
 Containernamen krijgen van TrueNAS een voorvoegsel. In de voorbeelden hieronder:
@@ -21,6 +21,8 @@ API=$(c api); WORKER=$(c worker); PG=$(c postgres); WEB=$(c web)
 | `worker` | hartslag in `system_state` jonger dan 90 s (de worker schrijft elke 20 s) | exit 0 |
 | `web` | `GET /login` elke 30 s | HTTP 200 |
 | UI → Systeem | `GET /api/v1/system/health`: database, worker, vrije ruimte APPDATA/WORK, elke ingeschakelde koppeling | `healthy`; `degraded` als bijv. een koppeling een waarschuwing heeft of de vrije ruimte onder `MSO_DISK_RESERVE_GB` (standaard 2 GB) zakt |
+| UI → Overzicht → Koppelingen | status van SABnzbd, qBittorrent en Prowlarr volgens de achtergrondtaken (zie *Koppelingsbewaking*) | geen "Onbereikbaar / Sleutel geweigerd / Reageert niet (time-out) sinds …" |
+| bovenbalk / Automatisering → Veiligheid | noodrem (zie *Noodrem*) | geen rode banner "Autopilot heeft zichzelf gepauzeerd" |
 
 Handmatig: `sudo docker exec "$API" mso-healthcheck api; echo $?` en idem met `"$WORKER" mso-healthcheck worker`.
 
@@ -48,12 +50,25 @@ herstel van bestaande pool-verbindingen na een losse PostgreSQL-herstart is niet
 ## Back-ups
 
 - **Automatisch:** worker-job `backup.create` elke 24 uur (instelling `backup.auto_daily`, standaard aan);
-  bewaard: de nieuwste `backup.keep` (standaard 14) automatische + handmatige back-ups. Vangnet-back-ups
-  (`pre-restore`) worden niet automatisch opgeruimd.
+  bewaard: de nieuwste `backup.keep` (standaard 14) automatische + handmatige back-ups.
 - **Handmatig:** UI → Systeem → Back-ups, of `sudo docker exec "$API" mso backup` (drukt de bestandsnaam af).
 - **Formaat:** `APPDATA/backups/mso-<UTC-tijd>-<soort>.dump` (`pg_dump -Fc`, PostgreSQL 16-client in het
   core-image) plus `<naam>.sha256`. Sessies zitten er nooit in; versleutelde koppelingsgeheimen alleen bij de
   expliciete keuze "inclusief geheimen". De vault-sleutel zit er nooit in.
+- **Lichter (sinds 1.6.0):** van tabellen die MSO zelf opnieuw ophaalt, gaat alleen de structuur mee, niet de inhoud
+  (`--exclude-table-data`): `release_cache` (zoekcache), `mg_wanted_cache` en `mg_snapshots` (MediaGuard-cache),
+  `usenet_hi_headers` (header-index), `torrent_samples` en `torrent_client_snapshot` (korte torrent-metingen). Na een
+  herstel zet MSO meteen `mediaguard.sync` en `torrent.ingest` in de wachtrij (alleen als die koppeling is ingesteld;
+  beide lezen alleen, dus ook veilig in Alleen-lezen) en begint de header-index opnieuw bij de nieuwste headers. Het
+  herstelantwoord en de audit noemen wat er opnieuw wordt opgehaald (`resync`).
+- **Vrije ruimte:** vóór elke dump controleert MSO of er genoeg ruimte is in de back-upmap: 2× de vorige dump (of de
+  databasegrootte als er nog geen is) plus `MSO_DISK_RESERVE_GB`. Te weinig → er wordt niets weggeschreven, audit
+  `backup.skipped` en één item in "Wacht op jou" met de getallen; het verdwijnt bij de volgende geslaagde back-up. De
+  dagelijkse taak eindigt dan als *done* met "Overgeslagen: …"; een handmatige back-up mislukt met de reden; een herstel
+  wordt geweigerd als de vangnet-back-up niet kan (de database blijft ongewijzigd).
+- **Opruimen van vangnet-back-ups:** `pre-restore` ouder dan 30 dagen wordt verwijderd, de nieuwste 2 blijven altijd;
+  van `pre-upgrade` blijven de nieuwste 3. De dump van een upgrade die nog niet gelukt is (een migratie die blijft
+  mislukken), wordt nooit opgeruimd.
 - **Buiten de server bewaren:** neem de dataset `apps/media-source-optimizer` (inclusief `secrets/vault.key`
   en `db/password`) op in je ZFS-snapshot- en replicatietaken. Back-ups in dezelfde dataset beschermen niet
   tegen verlies van de pool.
@@ -88,6 +103,26 @@ Is de dump van een oudere schemaversie (kolom `schema_version` in de back-uplijs
 `mso migrate --down <schemaversie van de dump>`. `--clean` verwijdert alleen wat in de dump staat; tabellen van
 nieuwere migraties blijven anders staan en de volgende start (`migrate`) loopt erop vast.
 
+## Back-up vóór upgrade
+
+Sinds 1.6.0 maakt MSO vóór openstaande migraties automatisch een back-up van soort `pre-upgrade` ("Vóór upgrade" in
+Systeem → Back-ups):
+
+- **Waar:** in de alles-in-één-image als aparte stap van de supervisor (`mso backup --pre-upgrade`, daarna
+  `mso migrate --no-backup`); in de losse-containerstack door `mso migrate` in de `migrate`-container; en voor de
+  zekerheid ook bij de start van `api`/`worker`. Een advisory lock en een markering per upgrade zorgen dat er één dump
+  per upgrade komt.
+- **Wanneer niet:** zonder openstaande migraties, bij een nieuwe (lege) installatie, of met `mso migrate --no-backup`.
+- **Nooit blokkerend:** te weinig ruimte of een mislukte dump (time-out 15 min) geeft een logregel
+  `back-up vóór upgrade overgeslagen/mislukt: …; MSO start gewoon door` en de migratie gaat door. Na de start staat het in
+  de audit (`backup.pre_upgrade`, `backup.pre_upgrade_skipped` of `backup.pre_upgrade_failed`), bij te weinig ruimte ook
+  in "Wacht op jou".
+- **Bewaard:** de nieuwste 3. Herstellen kan gewoon in de app (zie *Herstel*, punt 5) of, voor terug naar de vorige
+  versie, zoals in [MIGRATION.md](MIGRATION.md) → *Terug naar 1.5.0*.
+
+Controle na een update: `sudo docker logs "$API" 2>&1 | grep -i "vóór upgrade"` (alles-in-één: de log van de enige
+container) en Systeem → Back-ups toont een nieuwe "Vóór upgrade".
+
 ## Taken (jobs) en herstel na uitval
 
 - Taken staan in PostgreSQL (`jobs`), niet in het geheugen. De worker claimt met `FOR UPDATE SKIP LOCKED` en
@@ -99,6 +134,88 @@ nieuwere migraties blijven anders staan en de volgende start (`migrate`) loopt e
   In de UI (Systeem/Logs → Taken) kun je een mislukte of geannuleerde taak opnieuw starten of een lopende
   annuleren (`POST /api/v1/jobs/{id}/retry|cancel`).
 - Geplande taken gebruiken een idempotentiesleutel per tijdslot: een herstart levert geen dubbele runs op.
+- Is een koppeling onbereikbaar, dan draaien de taken die ervan afhangen hooguit elk kwartier (zie
+  *Koppelingsbewaking*); mislukkingen door zo'n storing tellen niet mee in "N mislukte taken (24 u)".
+
+### Onderbroken wijzigingen (reconciler)
+
+Een wijziging aan SABnzbd/qBittorrent/Prowlarr gaat vóór de eerste schrijfactie naar de status `applying` ("Bezig met
+toepassen"), met de oude waarde per operatie; elk resultaat wordt meteen opgeslagen. Zolang het proces dat toepast
+leeft, houdt het een PostgreSQL-advisory-lock vast. Sterft het (crash, herstart, `docker kill`), dan geeft PostgreSQL
+het lock vrij en pakt de taak `changes.reconcile` (elke 2 minuten, eerste keer direct bij de start van de worker) de
+wijziging op:
+
+- alles al geschreven → `applied` ("afgerond na onderbreking");
+- deels geschreven → de omkeerbare, al geschreven waarden terugzetten en teruglezen, daarna `failed` met uitleg;
+- bron onbereikbaar → tot 1 uur opnieuw proberen, daarna `failed` en een item in "Wacht op jou";
+- een waarde die buiten MSO is veranderd, raakt MSO niet aan;
+- iets terugzetten dat zou verwijderen (een SABnzbd-categorie die MSO aanmaakte), doet de reconciler nooit;
+- in Alleen-lezen schrijft de reconciler niets: is er al een omkeerbare waarde geschreven, dan wacht hij (één item in
+  "Wacht op jou") tot beheermodus of Autopilot; anders rondt hij af zonder te schrijven.
+
+Audit: `change.interrupted`. Een wijziging staat dus hooguit een paar minuten op "Bezig met toepassen". Een wijziging
+die nog `applying` was in een back-up die je herstelt, wordt `failed` zonder dat MSO iets bij de bron terugzet.
+
+### Noodrem
+
+Gaan er in 24 uur te veel automatische wijzigingen mis (`automation.brake_rollbacks`, standaard 3 automatische
+terugdraaiingen, of `automation.brake_failures`, standaard 5 mislukte automatische toepassingen; geteld vanaf de laatste
+"Hervatten"), dan zet MSO `autopilot_hold` in `system_state`: alle automatische schrijfacties stoppen (Autopilot én
+automatisering in beheermodus). Synchronisaties, controles, de voetafdruk en het klaarzetten van voorstellen gaan door;
+handmatig toepassen blijft mogelijk. Audit `autopilot.self_paused`, een logregel, een item in "Wacht op jou" en een
+banner bovenaan elke pagina.
+
+- **Opheffen:** banner of Automatisering → Veiligheid → **Hervatten** (operator of beheerder; audit `autopilot.resumed`),
+  of `POST /api/v1/automation/hold/resume`. Een andere modus kiezen of een back-up herstellen heft de noodrem niet op.
+- **Afkoeling** (los van de noodrem): een mislukte automatische wijziging wacht 1 uur, dan 4 uur; vanaf de derde keer
+  geparkeerd met één item in "Wacht op jou" en hooguit één stille poging per dag (tabel `automation_failures`).
+  Mislukte pogingen tellen mee voor `automation.max_per_hour`.
+
+## Onderhoud (bewaartermijnen)
+
+De dagelijkse taak `system.retention` houdt MSO's eigen database klein. Instellingen onder Instellingen → Systeem:
+
+| Instelling | Standaard | Wat |
+|---|---|---|
+| `retention.enabled` | aan | de dagelijkse ronde aan/uit |
+| `retention.jobs_done_days` | 14 dagen | afgeronde (en geannuleerde) achtergrondtaken; wachtende of lopende nooit |
+| `retention.jobs_keep_per_kind` | 50 | van elke taaksoort blijven altijd de nieuwste 50 staan |
+| `retention.jobs_failed_days` | 60 dagen | mislukte achtergrondtaken |
+| `retention.observations_raw_days` | 30 dagen | losse metingen; ouder wordt eerst per uur samengevat (`observations_hourly`: aantal, min, max, gemiddelde, mediaan, som) en dan verwijderd |
+| `retention.observations_hourly_days` | 400 dagen | uursamenvattingen |
+| `retention.automation_log_days` | 180 dagen | automatiseringslog |
+| `retention.login_attempts_days` | 90 dagen | inlogpogingen |
+| `retention.vacuum` | aan | daarna `VACUUM (ANALYZE)` op de opgeschoonde tabellen (nooit `VACUUM FULL`, dus geen tabelvergrendeling) |
+
+- Het **auditlogboek wordt nooit opgeruimd**. Er wordt niets in SABnzbd, qBittorrent, Prowlarr of MediaGuard en geen
+  bestand aangeraakt.
+- **Terugkijkcontrole:** kijkt een evaluatie van een automatische wijziging of de indexer-betrouwbaarheid verder terug
+  dan de ruwe termijn, dan verlengt MSO die termijn vanzelf (standaard is 15 dagen nodig, dus blijft het 30).
+- Een ronde stopt na 20 minuten en gaat de volgende dag verder. Dezelfde ronde ruimt ook vangnet-back-ups op en sluit
+  verouderde koppelingsmeldingen.
+- **Zien:** Systeem → Onderhoud (laatste ronde, wat er is opgeruimd, termijnen) en Systeem → Database (grootte,
+  grootste tabellen); API `GET /api/v1/system/maintenance`. Een beheerder start een ronde met **Nu opruimen**
+  (`POST /api/v1/system/maintenance/run`). Audit `system.retention` alleen als er iets is opgeruimd.
+
+## Koppelingsbewaking
+
+De achtergrondtaken houden zelf de status van SABnzbd, qBittorrent en Prowlarr bij (niet alleen de knop *Test*):
+
+- Per taak kijkt MSO naar de antwoorden van die koppelingen. Een geweigerde sleutel (HTTP 401/403), een geweigerde
+  verbinding of time-out, of een doorverwijzing in plaats van een API-antwoord (bijv. een inlogpagina van een proxy) →
+  `auth_failed` of `offline`; minstens één geslaagd antwoord → gezond. Een trage zoekopdracht in Prowlarr (die op elke
+  indexer wacht) telt niet als storing.
+- Opgeslagen per koppeling: `status_since` (sinds wanneer), `last_ok_at` (laatst gelukt), `failure_kind`
+  (auth | offline | timeout) en `last_error` (altijd geredigeerd: nooit een sleutel, wachtwoord of gebruikersnaam).
+- **Rem:** zolang een koppeling down is, draaien de taken die ervan afhangen hooguit elk kwartier. **Bij herstel** zet
+  MSO meteen een volledige ronde in de wachtrij.
+- **Wacht op jou** alleen bij een geweigerde sleutel langer dan 15 minuten of een koppeling die langer dan 24 uur
+  onbereikbaar is (audit `connector.down`); het item sluit vanzelf bij herstel (audit `connector.recovered` na een
+  storing van minstens 15 minuten). Wegklikken of accepteren geldt voor de hele storing.
+- Overzicht → Koppelingen toont "qBittorrent onbereikbaar sinds 2 d 4 u", "SABnzbd: API-sleutel of inloggegevens
+  geweigerd sinds 20 min" of "… reageert niet (time-out) sinds …", met de laatste geslaagde keer en hoeveel taken
+  daardoor mislukten.
+- MediaGuard houdt via zijn eigen controle wel een status bij, maar krijgt geen melding in "Wacht op jou".
 
 Getest in de container-stack: (1) een taak die als `running` met verlopen hartslag achterbleef ("gecrashte
 worker") werd na het starten van de worker hervat en afgerond; (2) het worker-proces werd met `SIGKILL`
@@ -118,7 +235,8 @@ taak uit.
 | migrate / init | 1 / 0,5 | 256 / 128 MB | 64 / 32 |
 
 Schijf: APPDATA groeit met de database en de back-ups (één dump was in de test ±125 kB met een lege
-installatie; reken op groei met indexer-cache, uitkomsten en audit). WORK is voor cache en zoek-/header-index en
+installatie; reken op groei met indexer-cache, uitkomsten en audit). Sinds 1.6.0 ruimt MSO zijn eigen geschiedenis
+dagelijks op (zie *Onderhoud*); vooral het auditlogboek blijft groeien. WORK is voor cache en zoek-/header-index en
 moet een **ZFS-dataset-quota** hebben (installatie: `zfs create -o quota=50G …`; aanpassen:
 `sudo zfs set quota=100G tank/apps/media-source-optimizer-work`). MSO meldt `degraded` zodra de vrije ruimte op
 APPDATA of WORK onder `MSO_DISK_RESERVE_GB` zakt.
@@ -176,3 +294,10 @@ sudo docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsa
 | Koppelingstest "Loopback-adressen zijn uitgeschakeld" | Gebruik het LAN-IP van TrueNAS i.p.v. `localhost`. |
 | Prowlarr-downloadlinks naar `http://api:8200/…` | Zet `MSO_PUBLIC_URL` of instelling `newznab.public_url` (TRUENAS_INSTALL.md). |
 | Opgeslagen geheimen onleesbaar na verhuizing | `APPDATA/secrets/vault.key` niet meegekopieerd; kopieer de sleutel of voer de geheimen opnieuw in. |
+| Log: `back-up vóór upgrade overgeslagen: Te weinig vrije schijfruimte …` | Ruimte vrijmaken in de dataset van APPDATA; de migratie is gewoon doorgegaan. Maak daarna zelf een back-up. |
+| "Wacht op jou": *Te weinig vrije schijfruimte voor een veilige back-up* | Er is niets weggeschreven. Ruimte vrijmaken of `backup.keep` verlagen; het item verdwijnt bij de volgende geslaagde back-up. |
+| Herstel geweigerd: *komt van een nieuwere MSO-versie* | De back-up is gemaakt met een nieuwere versie. Herstel hem met die versie (of nieuwer). |
+| Rode banner *Autopilot heeft zichzelf gepauzeerd* | Noodrem (zie hierboven). Bekijk Automatisering → Controle en Wijzigingen en klik **Hervatten**. |
+| Wijziging blijft op *Bezig met toepassen* | Normaal hooguit een paar minuten. Staat MSO op Alleen-lezen, dan wacht de reconciler op beheermodus (item in "Wacht op jou"). |
+| Overzicht: *Sleutel geweigerd sinds …* | API-sleutel van die dienst is veranderd: vervang hem onder Instellingen → Verbindingen. |
+| Overzicht: *Onbereikbaar sinds …* | Dienst gestopt of adres veranderd; controleer de app in TrueNAS en de URL onder Instellingen → Verbindingen. |

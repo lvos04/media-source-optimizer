@@ -7,7 +7,7 @@ geen YAML, geen databasewachtwoord, geen omgevingsvariabelen, geen tweede of der
 | Wat | Waarde |
 |---|---|
 | Image | `ghcr.io/lvos04/media-source-optimizer` |
-| Tag | `1.5.0` (altijd een vaste versie, nooit `latest`) |
+| Tag | `1.6.0` (altijd een vaste versie, nooit `latest`) |
 | Poort | `38081` → `38081` |
 | Opslag | één map (dataset) → `/appdata` |
 | Gebruiker | niets invullen: MSO regelt de rechten zelf |
@@ -45,9 +45,9 @@ submappen (`postgres`, `secrets`, `backups`, `work`) en verder niets.
 |---|---|---|
 | Application Name | | `media-source-optimizer` |
 | Image Configuration | Repository | `ghcr.io/lvos04/media-source-optimizer` |
-| | Tag | `1.5.0` |
+| | Tag | `1.6.0` |
 | | Pull Policy | *Pull the image if it is not already present on host* |
-| Container Configuration | Timezone | jouw tijdzone (bijv. `Europe/Amsterdam`) |
+| Container Configuration | Timezone | jouw tijdzone (bijv. `Europe/Amsterdam`; de doelenkaart en "Wat MSO deed" tellen in lokale dagen) |
 | | Restart Policy | *Unless Stopped* |
 | | Environment Variables | leeg laten |
 | Security Context | Privileged | **uit** |
@@ -80,10 +80,22 @@ Open `http://<ip-van-truenas>:38081`. De setup-wizard vraagt om:
 
 ## Updaten en terugdraaien
 
-- **Updaten**: app → **Edit** → Tag naar de nieuwe versie → **Update**. Databasemigraties lopen automatisch bij de start;
-  mislukt er een, dan blijft de oude database onaangeroerd en meldt de log dat.
-- **Terugdraaien**: maak eerst in MSO (*Back-up & updates*) een back-up of een ZFS-snapshot van de dataset, en zet daarna
-  de Tag terug. Een oudere versie op een nieuwer schema: zie `docs/MIGRATION.md`.
+- **Updaten**: app → **Edit** → Tag naar de nieuwe versie → **Update**. Sinds 1.6.0 maakt MSO bij de start eerst
+  automatisch een back-up ("Vóór upgrade" in *Back-up & updates*; de nieuwste 3 blijven) als er databasewijzigingen
+  zijn, en voert daarna de migraties uit. Is er te weinig ruimte voor die back-up, dan staat dat in de log en start MSO
+  gewoon door. Mislukt een migratie, dan blijft de oude database onaangeroerd en meldt de log dat. Een ZFS-snapshot
+  vooraf blijft verstandig.
+- **Terugdraaien**: de nieuwe versie moet het schema eerst zelf terugzetten, pas daarna zet je de Tag terug. Voor
+  1.6.0 → 1.5.0:
+
+  ```sh
+  C=$(sudo docker ps --format '{{.Names}}' | grep media-source-optimizer | head -1)
+  sudo docker exec -u 568 "$C" mso migrate --down 501
+  ```
+
+  en dan meteen **Edit** → Tag `1.5.0` → **Update** (tussendoor niet herstarten). Of zet de ZFS-snapshot van vóór de
+  update terug. Uitleg, ook over welke back-ups je in 1.5.0 wel en niet mag herstellen: `docs/MIGRATION.md` →
+  *Terug naar 1.5.0*.
 
 ## Problemen
 

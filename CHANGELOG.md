@@ -2,6 +2,173 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [1.6.0] — 2026-11-09
+
+De echte oorzaak, eerlijk gemeten. MSO pakt nu aan waaróm downloads mislukken, in plaats van kapotte servers de schuld
+te geven, en laat bovenaan Overzicht eerlijk zien of je drie doelen gehaald worden: faalratio onder 10 %, 0 verdachte
+torrents, 0 falende servers. Daarbij alles wat nodig is om MSO weken onbeheerd te laten draaien: een noodrem, één inbox
+en onderhoud zonder omkijken.
+
+### Usenet: de echte oorzaak
+- **Tellerfout opgelost.** SABnzbd's veld `articles_success` bevat het aantal *mislukte* artikelen. MSO las het als
+  gevonden; daardoor stond Eweka op "0,4 % gevonden", terwijl het 99,6 % is. De opgeslagen cijfers worden bij de
+  upgrade ook gecorrigeerd.
+- **Oorzaak uit het verwerkingslog van SABnzbd.** Per mislukte download leest MSO wat SABnzbd zelf vastlegde:
+  ontbrekende artikelen, herstel gelukt of mislukt, de precieze uitpakfout, wachtwoord, schijf vol, geen schrijfrechten
+  (ook als SABnzbd in het Nederlands schrijft). Downloads → Usenet toont het per download, bijvoorbeeld
+  "Data compleet · uitpakken mislukt: …" of "312 artikelen ontbraken".
+- **Geen valse serveroorzaak meer.** Een server die niet kan inloggen, levert ook geen data. Was de data compleet, dan
+  noemt MSO geen kapotte server meer als oorzaak van "uitpakken mislukt".
+- **"SABnzbd kan downloads niet uitpakken".** Komt dezelfde fout van SABnzbd of de opslag terug (3 keer in 7 dagen; bij
+  een fout van het uitpakprogramma zelf: bij 3 verschillende releases), dan staat er één melding in "Wacht op jou" met
+  de precieze regel en voorbeelden. Hij verdwijnt vanzelf na 3 rustige dagen. Voor zulke downloads zoekt MSO geen andere
+  release, want die zou net zo mislukken.
+- **Herbeoordeling.** Direct na de upgrade beoordeelt MSO de mislukte downloads in de SABnzbd-historie (ook het archief)
+  opnieuw; later kan dat met de knop **Opnieuw beoordelen**. Vastgelegd in de audit.
+- **Alleen zinvol opnieuw proberen.** MSO laat SABnzbd een download alleen nog opnieuw proberen als er artikelen
+  ontbraken (of SABnzbd zelf een serverfout noemt) én de dekking daarna beter werd: een server werkt weer of er kwam een
+  nieuwe bij. Servers uitzetten is geen reden meer. Lukt minder dan 30 % van minstens 10 pogingen in 14 dagen, dan
+  pauzeert het zichzelf, met uitleg en de knop **Hervatten**. Usenet-providers → Autopilot toont
+  "opnieuw geprobeerd N · gelukt X %".
+- **Servers testen in plaats van blind aanzetten.** MSO zet een kapotte server pas uit als SABnzbd's eigen servertest
+  (dezelfde als 'Test server' in SABnzbd) het probleem bevestigt. Slaagt de test, of meldt de provider alleen "te veel
+  verbindingen", dan blijft de server aan. Een uitgezette server laat MSO elke 6 uur testen (na een week dagelijks, een
+  verlopen account wekelijks; MSO geeft nooit op) en zet hem pas na een geslaagde test weer aan. "Werkt weer" telt pas
+  als SABnzbd hem echt gebruikt. De blinde proef-aanzet uit 1.5.0 blijft alleen als terugval voor een SABnzbd zonder
+  servertest.
+  - **Testen** bij een server werkt nu ook zonder inloggegevens in MSO, en in elke modus (het verandert niets).
+  - Verlopen account: geen proeven meer, één rustige melding; MSO ziet een verlenging vanzelf.
+  - Wisselende testresultaten geven één advies: "waarschijnlijk te veel verbindingen of een gedeeld account".
+  - Verwerp je het voorstel om een server weer aan te zetten, dan komt het niet bij elke geslaagde test terug.
+  - Een vergrendelde SABnzbd-configuratie geeft één rustige melding in plaats van mislukte pogingen.
+- **Vervaldata en blokken.** Staat in SABnzbd bij een server een vervaldatum of quotum, dan herinnert MSO je 14, 7 en
+  1 dag vóór het verlopen, toont het wat er van een blok over is en wanneer het op is, en vult het een lege verlengdatum
+  onder Kosten in (een datum die je zelf invulde blijft staan). Servers met een quotum worden bij importeren een
+  blokaccount. SABnzbd's vooraankondiging "is expiring in N day(s)" en zijn snelheidstip na een test gelden niet meer
+  als serverfout. Had je al een blokgrootte ingevuld vóór 1.6.0, sla die dan één keer opnieuw op; tot dan geen
+  voorspelling of herinnering.
+- **Categorie '*' opgehelderd.** MSO legt uit waarom SABnzbd downloads in zijn standaardcategorie '*' zet en waar je het
+  oplost: (a) SABnzbd kent de categorie niet die Sonarr/Radarr meesturen, (b) er wordt geen categorie meegestuurd
+  (oplossen in MediaGuard of in Sonarr/Radarr), (c) de categorieën kloppen en de downloads komen van een andere bron.
+  Daarvoor leest MSO vier MediaGuard-routes (alleen lezen; rol viewer volstaat). Bij (a) staat er één voorstel in
+  "Wacht op jou" om de categorie in SABnzbd aan te maken: altijd met jouw goedkeuring, ook in Autopilot, omdat
+  MediaGuard downloads in die categorie daarna volgens zijn eigen regels opruimt. Verwerp je het, dan zet MSO het niet
+  opnieuw klaar. De oude tip "pas het veld Category in Sonarr aan" is weg.
+
+### Doelenkaart en eerlijke meting
+- **Doelenkaart** bovenaan Overzicht: per doel de startwaarde, de waarde nu, het doel, "dag X van 28", het verloop per
+  dag en één zin over wat het doel tegenhoudt, met een link naar de actie die nodig is. Servers die MSO uitzette omdat
+  ze niet werken, staan apart en tellen niet als falend. De start van de proefperiode is instelbaar (standaard: de dag
+  dat Autopilot voor het eerst aanging).
+- **De startwaarde ligt vast**: de stand in het eerste uur van de proefperiode (faalratio: de 7 dagen ervoor). Wat MSO
+  daarna doet, verandert hem niet; zo zie je eerlijk wat er sindsdien beter werd.
+- **Eerlijke faalratio**: per aflevering/film (netto: wat later alsnog binnenkwam telt als gelukt) naast per poging
+  (bruto), altijd met het aantal, en "te weinig data" onder de 20. Afleveringen met een datum (dagelijkse shows,
+  sport) tellen per uitzenddatum; wat niet betrouwbaar te herkennen is, telt per poging.
+- **Vastgelopen torrents tellen niet meer eeuwig mee**: een mislukking telt op het moment dat hij mislukte, niet bij
+  elke nieuwe waarneming. Dat geldt voor Overzicht, de controle na wijzigingen, herstel, kosten, de AI-uitleg en de
+  betrouwbaarheid van indexers. Bestaande gegevens worden bij de upgrade aangevuld.
+
+### Rust in de app
+- **Eén inbox "Wacht op jou"**: één beslissing is één regel. De losse "Verdachte torrent verwijderen"-meldingen vallen
+  weg zodra ze in het opruimvoorstel zitten; dat staat er één keer ("41 nep-downloads opruimen (+3 nieuw sinds
+  gisteren)"). Het getal is overal gelijk: op Overzicht (nu bovenaan, of één regel "Niets wacht op jou ✓"), in de
+  topbalk (ook op de telefoon), als badge bij Automatisering en in de tabtitel. De kaarten Aanbevelingen en Wijzigingen
+  tonen alleen nog wat daar niet al staat.
+- **"Wat MSO deed" zonder ruis**: synchronisaties en controles tellen niet meer als actie (in Alleen-lezen staat er dus
+  gewoon 0) en staan samen op één statusregel. Per wijziging zie je wat MSO deed, waarom, en wat het effect was
+  ("faalratio 31 % → 12 % (n=140) · behouden"), met een knop **Terugdraaien**. Dagen zijn lokale dagen.
+- **Voetafdruk** (Automatisering → Voetafdruk): per systeem wat MSO nu veranderd heeft (origineel → MSO → nu), elk uur
+  bij de bron gecontroleerd (alleen lezen, in elke modus). **Alles terugzetten** zet de oorspronkelijke waarden terug
+  met de gewone controle; wat jij zelf veranderde of wat niet terug kan, wordt overgeslagen met uitleg.
+- **Eigen keuze respecteren**: zet je een waarde die MSO had ingesteld zelf terug (in SABnzbd, qBittorrent of Prowlarr,
+  of met Terugdraaien), dan past MSO die 30 dagen (instelbaar) niet opnieuw automatisch toe. Je krijgt één melding ter
+  info; voorstellen blijven mogelijk.
+
+### Veiligheid
+- **Noodrem**: na 3 automatische terugdraaiingen of 5 mislukte automatische wijzigingen in 24 uur (instelbaar)
+  pauzeert MSO zijn eigen automatische schrijfacties. Bovenaan elke pagina staat dan een banner met **Hervatten**.
+  Synchronisaties, controles en het klaarzetten van voorstellen gaan door.
+- **Afkoelen**: mislukt een automatische wijziging, dan wacht MSO 1 uur, daarna 4 uur; na 3 keer staat er één melding in
+  "Wacht op jou" en probeert MSO het hooguit één keer per dag. Mislukte pogingen tellen mee voor de uurlimiet.
+- **Autopilot terugdraaien** (laatste 24 uur of 7 dagen) onder Automatisering → Veiligheid: eerst de exacte lijst, dan
+  bevestigen. Verwijderingen staan er nooit in.
+- **Terugdraaien met driftcontrole**: is een waarde intussen buiten MSO gewijzigd, dan laat MSO die staan
+  ("overgeslagen") en behandelt het dat als jouw keuze. Elke teruggezette waarde wordt teruggelezen; lukt dat niet, dan
+  meldt MSO geen "teruggedraaid" maar een fout.
+- **Crash-veilig toepassen**: MSO legt vóór de eerste schrijfactie vast wat de oude waarden waren en slaat elk resultaat
+  meteen op. Wordt MSO midden in een wijziging herstart, dan rondt het die binnen enkele minuten af of zet het de al
+  geschreven waarden terug, gecontroleerd bij de bron. In Alleen-lezen schrijft MSO ook dan niets. Een wijziging wordt
+  nooit door twee processen tegelijk toegepast of teruggedraaid.
+- **Nep-releases tegenhouden bij MSO's eigen verzendingen**: voordat MSO iets naar qBittorrent of SABnzbd stuurt (vanuit
+  Zoeken, Ontbrekend & herstel, een voorstel of automatisch) controleert het de echte inhoud: de bestandenlijst van het
+  .torrent-bestand, de naam in een magnetlink of de bestandsnamen in de NZB. Zit er een programma, script of vermomde
+  extensie (.mkv.exe) in, dan weigert MSO ("Beleid weigert deze release: …") en komt de release op de blacklist. Zoeken
+  toont zulke resultaten met een rode badge "Nep-release (uitvoerbaar bestand)", onderaan en zonder Verstuur-knop; MSO's
+  eigen Newznab/Torznab-feed laat ze weg. Vervangers met een onwaarschijnlijk kleine grootte (≥ 720p-aflevering onder
+  50 MB, ≥ 720p-film onder 200 MB) worden afgewezen.
+- Kleiner: een weer ingeschakelde SABnzbd-server wordt beoordeeld op zijn eigen status, niet op de faalratio van alle
+  downloads; MSO herkent SABnzbd's 0/1-waarden als aan/uit; geen "Terugdraaien aanbevolen" meer voor wijzigingen die
+  niet terug kunnen; een SABnzbd-categorie die MSO aanmaakte, wordt nooit automatisch verwijderd (terugdraaien alleen
+  met de hand, door een beheerder).
+
+### Onderhoud
+- **Bewaartermijnen**: elke dag ruimt MSO zijn eigen oude achtergrondtaken, metingen (na 30 dagen samengevat per uur,
+  400 dagen bewaard), automatiseringslog (180 dagen) en inlogpogingen (90 dagen) op en schoont het daarna de database
+  op. Het auditlogboek blijft altijd. De termijnen staan onder Instellingen → Systeem; Systeem → Onderhoud toont wat er
+  is opgeruimd en hoe groot de database is.
+- **Lichtere back-ups**: gegevens die MSO zelf opnieuw ophaalt (zoekcache, MediaGuard-cache, header-index,
+  torrent-metingen) gaan niet meer mee; na terugzetten haalt MSO ze zelf op. Vóór elke back-up controleert MSO de vrije
+  ruimte (te weinig → overslaan, met een melding in "Wacht op jou"). Veiligheidsback-ups van vóór een herstel verdwijnen
+  na 30 dagen (de nieuwste 2 blijven).
+- **Back-up vóór upgrade**: zijn er databasewijzigingen, dan maakt MSO eerst automatisch een back-up (soort "Vóór
+  upgrade"; de nieuwste 3 blijven). Lukt dat niet, dan start MSO gewoon door met een duidelijke logregel.
+- **Herstel van oudere back-ups**: een back-up van een oudere versie (bijvoorbeeld de "Vóór upgrade"-back-up) herstel je
+  nu gewoon in de app; MSO zet het schema eerst terug en werkt het daarna meteen weer bij. Een back-up van een nieuwere
+  versie weigert MSO. Modus, pauze en noodrem blijven bij een herstel zoals ze waren.
+- **Koppelingsbewaking**: de achtergrondtaken houden zelf bij of SABnzbd, qBittorrent en Prowlarr bereikbaar zijn.
+  Overzicht zegt "qBittorrent onbereikbaar sinds 2 d 4 u" of "Sleutel geweigerd" in plaats van honderden mislukte taken.
+  Taken voor een onbereikbare koppeling draaien hooguit elk kwartier; bij herstel haalt MSO meteen alles bij. Een
+  melding in "Wacht op jou" komt alleen bij een sleutel die langer dan 15 minuten geweigerd wordt, of een koppeling die
+  langer dan 24 uur onbereikbaar is.
+
+### Migraties
+Automatisch bij de start, direct na de back-up vóór upgrade. Terug naar 1.5.0: `mso migrate --down 501` met het
+1.6.0-image, daarna de 1.5.0-tag (stappen in `docs/MIGRATION.md`).
+- `0600` — basis: wanneer een server echt hersteld is en wanneer hij voor het laatst getest werd; tabel voor jouw eigen
+  keuzes (`change_overrides`).
+- `0601` — corrigeert de opgeslagen artikeltellers (gevonden in plaats van mislukt) en onthoudt per server wanneer hij
+  voor het eerst aan stond (dekkingswinst).
+- `0602` — servertests, vervaldatum en quotum per server, en de beginstand van een blok.
+- `0603` — bestaat niet: de categoriediagnose had geen schemawijziging nodig.
+- `0604` — `failed_at` (het moment van mislukken; bestaande rijen aangevuld) en de dagelijkse momentopnames van de
+  doelenkaart.
+- `0605` — status "bezig met toepassen", het afkoelregister en welke wijzigingen automatisch zijn toegepast.
+- `0606` — uursamenvattingen van metingen, extra indexen en de koppelingsbewaking (sinds wanneer, laatst gelukt, soort
+  storing).
+- `0607` — de voetafdruk (`change_footprint`).
+
+### Bewust niet gebouwd
+Uit de review vielen deze ideeën af, omdat ze geen van de drie doelen verschuiven of nieuw risico geven:
+- een status "levert niet" voor servers: met de gecorrigeerde teller zou die nooit afgaan;
+- indexers automatisch lager zetten of uitzetten in Prowlarr: een nieuwe schrijfroute met doorwerking naar
+  Sonarr/Radarr, terwijl MSO dode indexers al overslaat;
+- elke download aan een Prowlarr-indexer koppelen via MediaGuard;
+- kostenadvies per abonnement (houden, opzeggen, verlengen) en dekkingsadvies per Usenet-account;
+- een dekkingstest op je mislukte downloads (vraagt inloggegevens die je bewust niet invulde);
+- "haperende" servers aanhouden en verbindingen bijstellen;
+- nep- en dode torrents vrijgeven in Sonarr/Radarr en controle na de opruiming (MediaGuard doet dit al);
+- bredere nep-herkenning en veiligheidsinstellingen in SABnzbd;
+- elk herstel volgen tot de import, een weekrapport, een startplan voor Autopilot en een zelfcontrole na de upgrade;
+- MSO-meldingen in MediaGuards eigen "Wacht op jou" (moet in MediaGuard gebouwd worden).
+
+### Niet getest
+Gebouwd en getest in een Linux/Docker-sandbox met mock-diensten (zie `TEST_RESULTS.md`). Het SABnzbd-gedrag
+(artikelteller, verwerkingslog, servertest, vervaldata, categorieën) is nagekeken in de broncode van SABnzbd 5.1.3, de
+nieuwe MediaGuard-routes in de broncode van MediaGuard. Het gedrag van Sonarr/Radarr bij categorie '*' is niet in hun
+broncode nagelezen. **Niet** getest op je echte TrueNAS en niet tegen echte Prowlarr, SABnzbd, qBittorrent, MediaGuard of
+providers: controleer dat met `docs/HARDWARE_ACCEPTANCE.md` §10.
+
 ## [1.5.0] — 2026-11-05
 
 Set it and forget it. Verwerkt ronde 4 van de echte TrueNAS-test (1.4.0).

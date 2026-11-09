@@ -26,6 +26,7 @@ export default defineConfig({
   use: { baseURL, trace: "retain-on-failure", locale: "nl-NL" },
   projects: [
     { name: "desktop-1440", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
-    { name: "mobile-390", use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    // peil.spec.ts sets its own viewports (320/768/1024, 390/1440): it runs once, in the desktop project
+    { name: "mobile-390", testIgnore: /peil\.spec\.ts/, use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
   ],
 });

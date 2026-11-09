@@ -8,7 +8,7 @@ import { Button, Card, Field, InlineState, PageHeader, Segmented, StatusChip } f
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { CompareDrawer } from "@/components/mso/search/compare-drawer";
-import { FlagChips, MEDIA_CATEGORIES, ReleaseRibbon, SourceReportCard, categoryKey, confidenceShort, confidenceText, numbering } from "@/components/mso/search/parts";
+import { FlagChips, MEDIA_CATEGORIES, ReleaseRibbon, SourceReportCard, categoryKey, confidenceShort, confidenceText, isFake, numbering } from "@/components/mso/search/parts";
 import { SendDialog } from "@/components/mso/search/send-dialog";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
@@ -218,7 +218,7 @@ export default function SearchPage() {
                                   {it.private ? <StatusChip tone="warning" icon={null} outline>{t("zoeken.private")}</StatusChip> : null}
                                   {it.freeleech ? <StatusChip tone="success" icon={null} outline>{t("zoeken.freeleech")}</StatusChip> : null}
                                 </div>
-                                <div style={{ marginTop: 4 }}><FlagChips flags={it.false_positive_flags} /></div>
+                                <div style={{ marginTop: 4 }}><FlagChips flags={it.false_positive_flags} details={Array.isArray(it.extra?.release_gate) ? (it.extra.release_gate as string[]) : undefined} /></div>
                                 <div className="cell-sub mono" title={t("zoeken.col.identity")} style={{ fontSize: 11, wordBreak: "break-all" }}>{it.release_key}</div>
                               </td>
                               <td data-label={t("zoeken.col.source")}>
@@ -242,8 +242,8 @@ export default function SearchPage() {
                               </td>
                               <td data-label={t("zoeken.col.actions")}>
                                 <div className="row wrap" style={{ gap: 6, justifyContent: "flex-end" }}>
-                                  <Button size="sm" variant="primary" icon={Send} disabled={!isOperator || it.false_positive_flags.includes("geblokkeerd")}
-                                    title={!isOperator ? t("zoeken.operatorOnly") : it.false_positive_flags.includes("geblokkeerd") ? t("zoeken.sendBlocked") : undefined}
+                                  <Button size="sm" variant="primary" icon={Send} disabled={!isOperator || it.false_positive_flags.includes("geblokkeerd") || isFake(it)}
+                                    title={!isOperator ? t("zoeken.operatorOnly") : isFake(it) ? t("releasegate.sendBlocked") : it.false_positive_flags.includes("geblokkeerd") ? t("zoeken.sendBlocked") : undefined}
                                     onClick={() => setSending(it)}>{t("zoeken.send")}</Button>
                                   <Button size="sm" variant="ghost" icon={Flag} iconOnly disabled={!isOperator} pending={flagging === it.token}
                                     title={!isOperator ? t("zoeken.operatorOnly") : t("zoeken.flag")} onClick={() => void flag(it)}>{t("zoeken.flag")}</Button>

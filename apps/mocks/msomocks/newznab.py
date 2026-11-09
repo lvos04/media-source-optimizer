@@ -10,7 +10,9 @@ Faults (also mutable at runtime through ``app.state.faults``): ``auth=fail`` (ev
 ``timeout=<seconds>`` (search sleeps), ``malformed=1`` (broken XML), ``error500=1`` (HTTP 500),
 ``category_error=1`` (error 201 when ``cat`` is given), ``empty=1`` (no items), ``ratelimit=1`` (error 500
 'Request limit reached', HTTP 429), ``no_tvsearch=1`` (caps without tv-search). Every call is recorded in
-``app.state.calls`` (apikey removed) with User-Agent and X-MSO-Trace.
+``app.state.calls`` (apikey removed) with User-Agent and X-MSO-Trace. ``app.state.fixtures`` is a per-app copy:
+tests may append releases; a fixture with ``"files": [(path, size), …]`` is served as a multi-file .torrent
+(or as an NZB with those file subjects).
 """
 
 from __future__ import annotations
@@ -131,30 +133,57 @@ def infohash(fid: str) -> str:
     return hashlib.sha1(fid.encode(), usedforsecurity=False).hexdigest()
 
 
-def torrent_bytes(fid: str, title: str, private: bool = False) -> bytes:
-    name = title.encode()
+def _bstr(v: str | bytes) -> bytes:
+    b = v.encode() if isinstance(v, str) else v
+    return str(len(b)).encode() + b":" + b
+
+
+def torrent_bytes(
+    fid: str, title: str, private: bool = False, files: list[tuple[str, int]] | None = None
+) -> bytes:
+    """A valid (bencoded, v1) .torrent. ``files``: ``[(relative path, size), …]`` → multi-file torrent (a fixture
+    can carry ``"files"`` to model a fake release whose payload hides a program behind a clean title)."""
+    if files:
+        entries = b"".join(
+            b"d6:lengthi" + str(size).encode() + b"e4:pathl" + b"".join(_bstr(p) for p in path.split("/")) + b"ee"
+            for path, size in files
+        )
+        layout = b"5:filesl" + entries + b"e"
+    else:
+        layout = b"6:lengthi1048576e"
     info = (
-        b"d6:lengthi1048576e4:name"
-        + str(len(name)).encode()
-        + b":"
-        + name
+        b"d"
+        + layout
+        + b"4:name"
+        + _bstr(title)
         + b"12:piece lengthi262144e6:pieces20:"
         + b"\x00" * 20
         + (b"7:privatei1e" if private else b"")
         + b"e"
     )
-    return b"d8:announce30:http://tracker.invalid/announce4:info" + info + b"e"
+    return b"d8:announce" + _bstr("http://tracker.invalid/announce") + b"4:info" + info + b"e"
 
 
-def nzb_bytes(fid: str, title: str) -> bytes:
-    return (
+def nzb_bytes(fid: str, title: str, files: list[tuple[str, int]] | None = None) -> bytes:
+    """An NZB. ``files``: ``[(name, size), …]`` → one ``<file>`` per name with a poster-style subject
+    (``[1/2] - "name" yEnc (1/1)``, quotes escaped as ``&quot;`` like real NZBs)."""
+    head = (
         f'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" '
         f'"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">\n<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">'
-        f'<head><meta type="title">{title}</meta></head><file poster="mock@example.invalid" '
-        f'date="1700000000" '
-        f'subject="{fid}"><groups><group>alt.binaries.test</group></groups><segments>'
-        f'<segment bytes="1000" number="1">{fid}@mock.invalid</segment></segments></file></nzb>'
-    ).encode()
+        f'<head><meta type="title">{title}</meta></head>'
+    )
+    subjects = (
+        [f"[{i}/{len(files)}] - &quot;{name}&quot; yEnc (1/1)" for i, (name, _size) in enumerate(files, 1)]
+        if files
+        else [fid]
+    )
+    body = "".join(
+        f'<file poster="mock@example.invalid" date="1700000000" subject="{subj}"><groups>'
+        f'<group>alt.binaries.test</group></groups><segments><segment bytes="1000" number="1">{fid}.{i}'
+        f"@mock.invalid</segment></segments></file>"
+        for i, subj in enumerate(subjects)
+    )
+    return (head + body + "</nzb>").encode()
 
 
 def _norm(s: str) -> str:
@@ -357,10 +386,11 @@ def create_app(
                 return _error(300, "No such item")
             if protocol == "torrent":
                 return Response(
-                    torrent_bytes(f["id"], f["title"], is_private), media_type="application/x-bittorrent"
+                    torrent_bytes(f["id"], f["title"], is_private, f.get("files")),
+                    media_type="application/x-bittorrent",
                 )
             return Response(
-                nzb_bytes(f["id"], f["title"]),
+                nzb_bytes(f["id"], f["title"], f.get("files")),
                 media_type="application/x-nzb",
                 headers={"Content-Disposition": f'attachment; filename="{f["id"]}.nzb"'},
             )

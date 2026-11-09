@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from datetime import datetime
 from typing import Any, Literal
@@ -13,7 +14,7 @@ from mso.audit import audit
 from mso.auth import Principal, require
 from mso.db import get_db
 from mso.domain import categories as C
-from mso.domain import outcomes
+from mso.domain import outcomes, releasegate
 from mso.domain.release import NormalizedRelease, ParsedTitle, QualityRequirements, check_quality
 from mso.features.search import origin, service
 from mso.features.search import settings as S
@@ -286,8 +287,52 @@ class SendBody(BaseModel):
     category: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9 _.\-]+$")
 
 
+FAKE_BLACKLIST_TTL_H = 24 * 365 * 10  # a proven fake never becomes good (same as the malware cleanup)
+
+
+def _recovery_module(name: str) -> Any:
+    """A Slice D recovery module (``blacklist``, ``candidates``) when installed (search also works without it)."""
+    try:
+        return importlib.import_module(f"mso.features.recovery.{name}")
+    except ImportError:
+        return None
+
+
+def _refuse(row: dict[str, Any], exc: releasegate.Refused, *, actor: str, client: str) -> HTTPException:
+    """Audit a release-gate refusal (``recovery.send_refused``, like a refusal from Ontbrekend & herstel, with
+    ``via='search'``); a fake proven by the fetched file list goes on the release blacklist (shown as
+    'geblokkeerd' in later searches, never a recovery candidate) and stops being a stored recovery candidate."""
+    keys = list(dict.fromkeys([row["release_key"], *exc.keys])) if exc.content else []
+    listed: list[str] = []
+    bl = _recovery_module("blacklist") if keys else None
+    for k in keys if bl is not None else []:
+        try:
+            bl.add(
+                k, f"nep-release: {exc.reasons[0]}"[:300], FAKE_BLACKLIST_TTL_H, protocol=row["protocol"], actor=actor
+            )
+            listed.append(k)
+        except ValueError:  # pragma: no cover - only for an empty key
+            continue
+    if listed and (cands := _recovery_module("candidates")) is not None:
+        cands.mark_fake(listed, exc.reasons)
+    fake = exc.content or bool(exc.evidence.get("matches"))
+    audit(
+        actor,
+        "recovery.send_refused",
+        f"Versturen naar {client} geweigerd (Zoeken), "
+        + ("nep-release" if fake else "bestanden niet te controleren")
+        + f": {row['title']}",
+        target=row["source_id"],
+        detail={"release_key": row["release_key"], "reasons": exc.reasons, "checked": exc.evidence,
+                "blacklisted": listed, "via": "search", "client": client},
+    )
+    return HTTPException(422, detail=exc.message)
+
+
 @router.post("/send")
 def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """Direct send (no change set). Release gate: a fake title is refused before anything is fetched; after
+    fetching, the .torrent file list / magnet name / NZB file names are checked before the client gets it."""
     row = service.get_cached(body.token)
     if row is None:
         raise HTTPException(404, detail="Resultaat niet (meer) beschikbaar; zoek opnieuw")
@@ -298,6 +343,12 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
         raise HTTPException(
             409, detail="Deze release staat op de blokkeerlijst (eerder mislukt); niet opnieuw versturen"
         )
+    media = releasegate.is_media_release(row["title"], row["media_category"])
+    if hits := releasegate.executable_hint(row["title"], media=media):
+        refused = releasegate.Refused(
+            [releasegate.describe(m) for m in hits], evidence={"kind": "title", "matches": hits}
+        )
+        raise _refuse(row, refused, actor=p.actor, client=client)
     db = get_db()
     existing = db.fetchone("SELECT * FROM search_sends WHERE release_key=%s", (row["release_key"],))
     if existing and existing["status"] in ("sent", "sending"):
@@ -322,6 +373,7 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
     try:
         inst = cls.from_config()
         fetched = service.fetch_download(body.token)
+        releasegate.check_download(row["protocol"], fetched, title=row["title"], media=media)
         if client == "sabnzbd":
             name = fetched.filename or f"{row['title']}.nzb"
             ref = inst.add_nzb(fetched.content, name, category=body.category)
@@ -331,6 +383,9 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
             else:
                 inst.add_torrent(data=fetched.content, category=body.category)
             ref = row["release_key"].split(":", 1)[1] if row["release_key"].startswith("btih:") else None
+    except releasegate.Refused as exc:
+        _fail(row, exc.message)
+        raise _refuse(row, exc, actor=p.actor, client=client) from exc
     except (LookupError, UnsafeTarget) as exc:
         _fail(row, str(exc))
         raise HTTPException(409, detail=str(exc)) from exc

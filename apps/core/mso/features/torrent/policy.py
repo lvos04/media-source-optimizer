@@ -14,6 +14,10 @@ preview and again at apply):
   matching tracker/category rule is met are refused.
 - Upload cap never above ``torrent.upload_cap_pct`` of the declared line capacity (unlimited counts as above).
 - Connection counts within the configured caps; ``-1`` (unlimited) is refused.
+
+Release policy for torrents MSO itself would send (``check_release``, used by the recovery candidate gate): a torrent
+must be completable (seeders) and must not be a fake (program/double extension in the name, absurd size for the
+claimed resolution — :mod:`mso.domain.releasegate`). The file list is checked again just before sending.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ import re
 from typing import Any
 
 from mso.db import Database, get_db
+from mso.domain import releasegate
+from mso.domain.release import NormalizedRelease
 from mso.features.torrent import settings as ts
 
 PRIVATE_SENSITIVE_PREFS = ("dht", "pex", "lsd")
@@ -541,3 +547,19 @@ def queue_policy(prefs: dict[str, Any], torrents: list[dict[str, Any]]) -> dict[
         "stalled_downloads": stalled,
         "suggestions": suggestions,
     }
+
+
+# ------------------------------------------------------------------ release policy (MSO's own sends)
+def check_release(r: NormalizedRelease) -> list[str]:
+    """Dutch rejection reasons for a torrent release MSO would send itself (empty = acceptable).
+
+    - completable: seeders known and > 0 (unchanged from the built-in check this replaces);
+    - not a fake: no program/script/shortcut or double extension (``.mkv.exe``) in the release name, and no absurd
+      size for the claimed resolution (≥ 720p episode < 50 MB, ≥ 720p film < 200 MB)."""
+    reasons: list[str] = []
+    if r.seeders is not None and r.seeders <= 0:
+        reasons.append("geen seeders: torrent kan niet worden voltooid")
+    if r.seeders is None:
+        reasons.append("aantal seeders onbekend: beschikbaarheid niet aangetoond")
+    reasons += releasegate.release_problems(r)
+    return reasons

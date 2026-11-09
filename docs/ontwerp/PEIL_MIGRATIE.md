@@ -1,6 +1,8 @@
 # MSO-web-UI naar Peil — omzettingsontwerp (stap 2)
 
-**Status:** ontwerp, nog niets gebouwd · 9 november 2026 · design-agent · code-HEAD `b581fbb` (MSO 1.6.0)
+**Status:** ontwerp (stap 2) **uitgevoerd in stap 3** — zie §12 hieronder, ADR-0007 en
+[`docs/screenshots/peil/na/`](../screenshots/peil/na/README.md) · ontwerp 9 november 2026 · design-agent · code-HEAD bij
+het ontwerp `b581fbb` (MSO 1.6.0)
 **Ontwerptaal:** Peil **1.1.0**, versie-gepinde kopie in [`design/ontwerptaal/`](../../design/ontwerptaal/HERKOMST.md)
 (bindend: `ONTWERPTAAL.md`, `COMPONENTEN.md`, `ADR-ONTWERPTAAL.md`; MSO-pad: ONTWERPTAAL §13.3 en §13.4)
 **Besluiten:** [`docs/adr/ADR-0006-peil-omzetting-interpretaties.md`](../adr/ADR-0006-peil-omzetting-interpretaties.md)
@@ -595,3 +597,24 @@ sha256). Hookklassen die tests gebruiken (`.skeleton`, `.state--error`, `.btn`, 
   (Excel B05-*: blijft "NIET GEVALIDEERD (echte NAS)"). Deze ontwerpstap verandert geen Excel-status.
 - **Vervolg:** na "OVERDRACHT VOLTOOID" de herkomst in `design/ontwerptaal/HERKOMST.md` omzetten naar
   `ai-server-manager` (commit + sha256) en een CI-driftcontrole toevoegen (ONTWERPTAAL §14).
+
+---
+
+## 12. Uitvoering (stap 3, 9 november 2026)
+
+| Onderdeel | Stand | Waar |
+|---|---|---|
+| 1a aliaslaag + correctielaag + thema Systeem | gedaan | `apps/web/styles/peil/`, `styles/peil-mso.css`, `app/layout.tsx` |
+| 1b woorden en iconen | gedaan | `lib/status.ts`, `components/mg/*`, `lib/i18n/messages/nl/*` |
+| 2a basis (cva, clsx, tailwind-merge, Radix), `components.json`, AppSchil, "Terug naar de Hub" | gedaan | `components/ui`, `components/shell/*`, `lib/hub.ts`; core: `systeem.hub_url` |
+| 2b componenten (Button, StatusBadge, RisicoBadge, Card, Foutpaneel/KopieerVeld/Leeg/Laden, Tabs, ToggleGroup, Switch/Field, Dialog/AlertDialog, Progress, Skeleton, Toast) | gedaan, met behoud van API | `components/mg/primitives.tsx`, `states.tsx`, `domain.tsx`, `toast.tsx` |
+| 2b ResponsieveLijst | gedaan als container query op `.table--stack` (kaart < 56 rem) | `styles/peil-mso.css` |
+| 2b DiffWeergave, Stepper, Tijdlijn | alleen de aliaslaag/correcties uit fase 1 (geen eigen shadcn-versie) | — |
+| 2c tabelweergave + toetsenbord bij de vier grafieken | gedaan | `components/mso/charts/chart-frame.tsx` |
+| 2d fonts en `recharts` weg, tekst ≥ 14 px, geen kapitalen | gedaan | — |
+| 2d overige inline styles → utilities; `mg.css`/`mso.css`/aliaslaag weg | **niet gedaan** (569 inline styles over) | vervolg, CHANGELOG |
+
+Gemeten na de omzetting (teststack, HEAD van stap 3): e2e 109/109 (strikt), vitest 45/45, OpenAPI byte-gelijk. De
+Peil-e2e controleert per hoofdscherm op 320/768/1024 overloop, axe (Peil-set), één h1, 44 px in `main`, geen
+pauze-icoon bij Onbekend en geen groen buiten gezondheid; de afdrukken en metingen staan in `docs/screenshots/peil/na/`.
+

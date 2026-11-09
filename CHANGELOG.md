@@ -4,6 +4,35 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 
 ## [Unreleased]
 
+### Uiterlijk: web-UI omgezet naar de platform-ontwerptaal Peil 1.1.0 (stap 3)
+Alleen het uiterlijk en de twee toegestane toevoegingen; functies, routes, API-aanroepen, foutformaat, datamodel,
+poorten en installatie zijn gelijk gebleven. OpenAPI-export byte-gelijk (sha256 `bb551ee1…0471b`). Plan:
+`docs/ontwerp/PEIL_MIGRATIE.md`; besluiten: ADR-0006 en ADR-0007.
+- **Fase 1a — aliaslaag.** Peil-tokens (`styles/peil/ontwerptaal.css`) en de gedeelde MediaGuard/MSO-aliaslaag als
+  versie-gepinde kopie met herkomstkop (`npm run check:peil`, ook in CI); MSO-correctielaag `styles/peil-mso.css`
+  (Peil-focusring, scroll-padding, omlopen op 320–390 px, uitgeschakeld zonder opacity, verouderd met stippel en
+  arcering, pauze = Gepauzeerd). Standaardthema **Systeem** (het themascript zet altijd het opgeloste thema).
+- **Fase 1b — woorden en iconen.** Groen alleen voor gemeten gezondheid; vaste woorden Gezond/Beperkt/Storing/Onbekend,
+  Alles gezond, Niet gekoppeld/Gekoppeld, Afgerond, Voltooid, Wacht op voorwaarde, Onzeker; Onbekend nooit meer met
+  het pauze-icoon; MSO-risico als RisicoBadge R0/R1/R2 met het MSO-niveau als uitleg; KPI-tegels laden met een skelet
+  en tonen bij een fout Onbekend met reden; kosten met ontbrekende prijzen = "Deels onbekend"; verouderd ook bij een
+  lege lijst en op het Overzicht; foutpaneel met code en kopieerbare trace-ID; profielknop (WCAG 2.5.3) en
+  `span.qribbon` (4.1.2) toegankelijk.
+- **Fase 2 — Tailwind 4 + shadcn/ui + lucide.** `components/ui` (Button, Badge/RisicoBadge), primitives met dezelfde
+  API op shadcn/Radix (Dialog/AlertDialog met focusval en focus terug, Tabs met Home/End, ToggleGroup-vorm, Switch,
+  Field met aria-describedby), AppSchil (zijbalk ≥ 1024 px, ondernavigatie, Meer als sheet, ThemaKeuze), elke
+  bediening ≥ 44 px, tekst ≥ 14 px, lopende tekst 16 px, systeemfont; tabellen worden een kaartenlijst zodra hun kaart
+  smal is (container query). Inter/JetBrains Mono, fontsource en de ongebruikte `recharts` zijn verwijderd.
+- **Toegestaan toegevoegd:** "Terug naar de Hub" (alleen bij een geldig `systeem.hub_url`; nieuwe optionele
+  instelling in het bestaande register, 422 bij een ongeldig adres) en bij elke grafiek een tabelweergave ("Toon als
+  tabel") plus toetsenbordbediening; grafieken gebruiken het Peil-palet (geen statuskleuren als reeks).
+- **Tests:** e2e 78 → 109 (nieuw `e2e/peil.spec.ts`: 320/768/1024, axe met wcag21a op schermen en dialogen,
+  Tab-doorloop, grafieken, Hub-link; overloop gemeten t.o.v. de apparaatbreedte), 45 unit-tests (vitest) in CI,
+  pytest voor de Hub-adresvalidatie. Schermafdrukken na de omzetting in `docs/screenshots/peil/na/`.
+- **Nog open (vervolg):** 569 inline `style={{…}}` (layout) naar utilities en daarna `mg.css`, `mso.css` en de
+  aliaslaag weg; de doel-trendlijn met meerdaagse echte data bekijken. Niet gevalideerd: echte telefoon,
+  schermlezer, forced colors, 200 %-zoom.
+
 ### Ontwerp (alleen documentatie; de app is niet gewijzigd)
 - **Omzettingsontwerp naar de platform-ontwerptaal Peil 1.1.0** (contract 1.2 §13): inventaris van alle schermen,
   tabs en toestanden, nulmeting, kritiek, vertaling per scherm/component (tokens, shadcn/ui, lucide, statusvorm,

@@ -89,3 +89,31 @@ def test_hub_url_via_settings_api(admin: Any) -> None:
 
     assert admin.put("/api/v1/settings", json={"values": {"systeem.hub_url": ""}}).status_code == 200
     assert admin.get("/api/v1/settings").json()["values"]["systeem.hub_url"] == ""
+
+
+def test_hub_url_only_admin_may_change_it(admin: Any, operator: Any, viewer: Any, client: Any) -> None:
+    """Negative paths (QA Peil-ronde): every logged-in role may READ the Hub address (the link is shown to all), but
+    only an admin may change it; anonymous gets 401 for both. A refused write never changes the stored value."""
+    r = admin.put("/api/v1/settings", json={"values": {"systeem.hub_url": "http://nas.lan:30080"}})
+    assert r.status_code == 200, r.text
+    for who in (operator, viewer):
+        assert who.get("/api/v1/settings").json()["values"]["systeem.hub_url"] == "http://nas.lan:30080"
+        r = who.put("/api/v1/settings", json={"values": {"systeem.hub_url": "http://andere-hub.lan:30080"}})
+        assert r.status_code == 403, r.text
+        assert r.json()["code"] == "forbidden"
+    assert client.get("/api/v1/settings").status_code == 401
+    r = client.put("/api/v1/settings", json={"values": {"systeem.hub_url": "http://andere-hub.lan:30080"}})
+    assert r.status_code == 401, r.text
+    assert r.json()["code"] == "unauthorized"
+    assert admin.get("/api/v1/settings").json()["values"]["systeem.hub_url"] == "http://nas.lan:30080"
+
+
+def test_refused_hub_url_uses_the_api_error_format(admin: Any) -> None:
+    """A 422 for an invalid address has the existing /api/v1 error body (ADR-0003: detail, code, correlation_id) and
+    echoes neither the refused value nor a stack trace."""
+    r = admin.put("/api/v1/settings", json={"values": {"systeem.hub_url": "http://gebruiker:geheim@nas.lan"}})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == "invalid" and body["correlation_id"]
+    assert body["detail"].startswith("Hub-adres")
+    assert "geheim" not in r.text and "Traceback" not in r.text

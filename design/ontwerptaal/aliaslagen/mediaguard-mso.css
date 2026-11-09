@@ -1,0 +1,68 @@
+/* HERKOMST — Peil 1.1.0 · bron: ontwerptaal Peil, definitief/aliaslagen/mediaguard-mso.css (design-agent, 2026-11-09; wordt ai-server-manager/design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): b120cf9a41357dc3cc4981db24c08ae6f557a33faa4f62512ba8f45a27124a4c
+   Versie-gepinde kopie (O-14). Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256. Nog NIET in de app geïmporteerd (zie docs/ontwerp/PEIL_MIGRATIE.md). */
+/* Peil 1.1.0 — aliaslaag voor MediaGuard (apps/web/styles/mg.css) en MSO (apps/web/styles/mg.css + mso.css) (migratiefase 1: alleen uiterlijk; routes, functies, teksten en testids blijven).
+   GEGENEREERD door ai-server-manager/design/ontwerptaal/bouw/aliaslagen.mjs. Kopie in de app met deze kop + sha256 (O-14); niet met de hand wijzigen.
+   Volgorde in globals.css: @import "tailwindcss"; @import "./ontwerptaal.css"; @import "./mg.css"; @import "./peil-alias.css";
+   Zie ONTWERPTAAL.md §13 voor het volledige migratiepad (fase 2 componenten, fase 3 opruimen). */
+
+:root, :root[data-theme="light"], :root[data-theme="dark"] {
+  --mg-bg: var(--background);
+  --mg-surface: var(--card);
+  --mg-raised: var(--popover);
+  --mg-sunken: var(--muted);
+  --mg-text: var(--foreground);
+  --mg-text-2: var(--muted-foreground);
+  --mg-text-3: var(--muted-foreground);
+  --mg-border: var(--border);
+  --mg-border-soft: var(--border);
+  --mg-border-strong: var(--border-strong);
+  --mg-accent: var(--primary);
+  --mg-accent-hover: var(--primary-hover);
+  --mg-on-accent: var(--primary-foreground);
+  --mg-accent-tint: var(--info-bg);
+  --mg-focus: var(--ring);
+  --mg-success: var(--healthy);
+  --mg-success-tint: var(--healthy-bg);
+  --mg-warning: var(--degraded);
+  --mg-warning-tint: var(--degraded-bg);
+  --mg-danger: var(--down);
+  --mg-danger-tint: var(--down-bg);
+  --mg-info: var(--info);
+  --mg-info-tint: var(--info-bg);
+  --mg-neutral-tint: var(--unknown-bg);
+  --mg-viz-1: var(--chart-1);
+  --mg-viz-2: var(--chart-2);
+  --mg-viz-3: var(--chart-3);
+  --mg-viz-4: var(--chart-4);
+  --mg-viz-5: var(--chart-5);
+  --mg-viz-6: var(--chart-other);
+  --mg-viz-grid: var(--chart-grid);
+  --mg-lane-gpu: var(--domain-lane-gpu);
+  --mg-lane-cpu: var(--domain-lane-cpu);
+  --mg-overlay: rgb(0 0 0 / 0.5);
+  --mg-font: var(--font-sans);
+  --mg-mono: var(--font-mono);
+  --mg-r-sm: var(--radius-sm); --mg-r: var(--radius-lg); --mg-r-md: var(--radius-md); --mg-r-lg: var(--radius-lg); --mg-r-xl: var(--radius-xl);
+  --mg-fs-11: 0.875rem; --mg-fs-12: 0.875rem; --mg-fs-13: 0.875rem;  /* ondergrens 14 px voor regels die deze variabelen gebruiken; harde px-maten (mg.css ±120, inline ±189) volgen pas in fase 2/3 */
+  --mg-shadow-1: var(--shadow-sm); --mg-shadow-2: var(--shadow-md); --mg-shadow-3: var(--shadow-lg);
+  --mg-ease: var(--ease-standard);
+}
+/* Correcties die alleen het uiterlijk raken (gemeten fouten uit onderzoek/BESTAANDE_UI.md) */
+:root .btn--danger-solid, :root[data-theme] .btn--danger-solid { border-color: var(--destructive); background: var(--destructive); color: var(--destructive-foreground); } /* was 3,18:1 */
+:root .icon-btn .dot-badge { background: var(--foreground); color: var(--background); font-size: 0.875rem; min-width: 1.25rem; height: 1.25rem; line-height: 1.25rem; } /* tellers neutraal, nooit rood */
+:root .step--done .step-no { background: var(--foreground); border-color: var(--foreground); color: var(--background); } /* klaar ≠ gezond */
+@media (pointer: coarse), (width < 64rem) { :root .btn, :root .icon-btn, :root .segmented button { min-height: 2.75rem; } :root .icon-btn { min-width: 2.75rem; } } /* MSO miste de 44 px-regels */
+/* Review 1.1.0 — correcties die in 1.0.0 ontbraken (gemeten in mg.css/mso.css/av1.css, alleen gelezen) */
+:root .estop[aria-pressed="true"] { background: var(--destructive); border-color: var(--destructive); color: var(--destructive-foreground); } /* was #fff op --mg-danger: in donker 2,0:1 */
+:root .estop--pause, :root .estop--pause:hover { border-color: var(--paused); background: var(--paused-bg); color: var(--paused-ink); } /* pauze = Gepauzeerd (info), niet amber (ONTWERPTAAL §13.4) */
+:root .estop--pause[aria-pressed="true"] { background: var(--paused); border-color: var(--paused); color: var(--primary-foreground); }
+:root .diff .diff-removed { background: var(--diff-old-bg); color: var(--diff-old-ink); text-decoration-color: currentColor; } /* diff zonder rood/groen (C-20) */
+:root .diff .diff-added { background: var(--diff-new-bg); color: var(--diff-new-ink); font-weight: 600; }
+:root .diff .diff-changed { background: var(--diff-new-bg); }
+:root .confidence .bar > span { background: var(--foreground); } /* AI-zekerheid is inkt, nooit groen (T-24) */
+:root .qribbon .q-dv, :root[data-theme] .qribbon .q-dv, :root .qribbon .q-hdr, :root .qribbon .q-av1 { color: var(--foreground); background: transparent; } /* kwaliteit is geen status: geen violet/amber/groen */
+:root .job-lane, :root .job-lane--gpu, :root .job-lane--cpu { color: var(--foreground); } /* tekst nooit in reekskleur (lane-cpu was 3,2:1) */
+:root .job-lane--gpu .ico { color: var(--domain-lane-gpu); } :root .job-lane--cpu .ico { color: var(--domain-lane-cpu); }
+:root .phase-bar--verify > span { background: var(--foreground); } /* controle-fase ≠ gezond */
+:root .phase-bar--paused > span { background: var(--paused); }
+:root .phase-bar--stale > span { opacity: 1; background-color: var(--stale); background-image: repeating-linear-gradient(135deg, var(--stale-hatch) 0 2px, transparent 2px 6px); } /* nooit opacity */

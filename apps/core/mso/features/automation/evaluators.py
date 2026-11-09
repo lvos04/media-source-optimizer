@@ -331,7 +331,103 @@ def speed_measure(change: dict[str, Any], *, now: datetime | None = None) -> dic
     )
 
 
+_ON = {"1", "true", "on", "yes", "aan"}
+_OFF = {"0", "false", "off", "no", "uit"}
+
+
+def flag(value: Any) -> bool | None:
+    """On/off value as stored by an applier (bool, int 0/1 as SABnzbd uses, or a word), else None."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        return True if v in _ON else False if v in _OFF else None
+    return None
+
+
+def reenabled_servers(change: dict[str, Any]) -> list[str]:
+    """SABnzbd servers this change switched on (``servers/<name>/enable`` 0 → 1) when that is ALL it did."""
+    if change.get("target") != "sabnzbd":
+        return []
+    names = []
+    for op in change.get("ops") or []:
+        path = str(op.get("path") or "")
+        if not (path.startswith("servers/") and path.endswith("/enable")) or flag(op.get("after")) is not True:
+            return []
+        names.append(path[len("servers/"):-len("/enable")])
+    return names
+
+
+def server_enable_evaluation(change: dict[str, Any], servers: list[str]) -> dict[str, Any]:
+    """A re-enabled SABnzbd server is judged on its OWN status since the switch-on (SABnzbd's per-server errors and
+    status, :mod:`mso.features.usenet.serverstatus`), never on the global failure ratio. Never rolled back by the
+    engine: the server watch (autoheal) switches a failing server off again itself, with its own backoff."""
+    from mso.db import get_db
+
+    try:
+        from mso.features.usenet import serverstatus
+    except Exception:  # usenet module disabled
+        return evaluation([], "SABnzbd-serverstatus is niet beschikbaar; niet beoordeeld.", auto_rollback=False,
+                          auto_rollback_reason="de serverbewaking regelt deze server", propose_rollback=False)
+    applied = change.get("applied_at") or datetime.now(UTC)
+    if isinstance(applied, str):
+        applied = datetime.fromisoformat(applied)
+    current = serverstatus.current()
+    events = get_db().fetchall(
+        "SELECT server, status, message, last_at FROM usenet_sab_server_events WHERE server = ANY(%s) "
+        "AND status = ANY(%s) AND last_at > %s ORDER BY last_at DESC",
+        (servers, sorted(serverstatus.FAILING), applied),
+    )
+    measures: list[dict[str, Any]] = []
+    worse: list[str] = []
+    for name in servers:
+        st = current.get(name) or {}
+        label = serverstatus.short_name(st.get("displayname") or name)
+        err = next((e for e in events if e["server"] == name), None)
+        status = st.get("status")
+        if err is not None:
+            verdict, value = "worse", 0.0
+            why = (f"SABnzbd meldt sinds het inschakelen: {serverstatus.LABELS.get(err['status'], err['status'])}"
+                   + (f" (“{str(err['message'])[:160]}”)" if err.get("message") else ""))
+        elif status in serverstatus.FAILING:
+            verdict, value = "worse", 0.0
+            why = f"SABnzbd meldt nu: {serverstatus.LABELS.get(status, status)}"
+        elif status == "ok":
+            verdict, value = "better", 1.0
+            why = "werkt: SABnzbd meldt geen fouten sinds het inschakelen"
+        elif status == "disabled":
+            verdict, value = "insufficient", None
+            why = "staat inmiddels weer uit"
+        else:
+            verdict, value = "insufficient", None
+            why = "SABnzbd geeft (nog) geen status voor deze server"
+        if verdict == "worse":
+            worse.append(label)
+        measures.append({
+            "key": f"server_status:{name}", "label": f"Serverstatus {label}", "unit": "status", "scope": "sabnzbd",
+            "verdict": verdict, "outcome": OUTCOME[verdict], "stat": None, "higher_is_better": True,
+            "baseline": {"n": 1, "value": 0.0}, "current": {"n": 0 if value is None else 1, "value": value},
+            "delta_pct": None, "why": why,
+        })
+    if worse:
+        message = (f"{', '.join(worse)} geeft na het inschakelen opnieuw fouten. De serverbewaking regelt dit: "
+                   "in Autopilot gaat de server vanzelf weer uit (met een langere wachttijd), anders staat er een "
+                   "voorstel om hem uit te schakelen. Deze wijziging wordt niet op de algemene faalratio beoordeeld "
+                   "en niet automatisch teruggedraaid.")
+    else:
+        message = ("Beoordeeld op de eigen status van de server in SABnzbd (niet op de algemene faalratio van alle "
+                   "downloads).")
+    return evaluation(measures, message, auto_rollback=False, propose_rollback=False,
+                      auto_rollback_reason="een heringeschakelde server wordt door de serverbewaking beoordeeld",
+                      windows=windows(change, max_baseline_days=_settings()[2]).as_dict(), server_status=True)
+
+
 def sabnzbd_evaluator(change: dict[str, Any]) -> dict[str, Any]:
+    servers = reenabled_servers(change)
+    if servers:
+        return server_enable_evaluation(change, servers)
     ms = outcome_measures(change, protocol="usenet", client="sabnzbd")
     return evaluation(ms, windows=windows(change, max_baseline_days=_settings()[2]).as_dict())
 

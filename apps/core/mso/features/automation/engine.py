@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -13,7 +14,7 @@ from mso.db import Database, get_db, jsonb
 from mso.domain.outcomes import recommend
 from mso.features.automation import TARGET_AREA, autopilot
 from mso.features.automation import evaluators as ev_mod
-from mso.features.automation.evaluators import EVALUATORS, OUTCOME, OUTCOME_LABEL
+from mso.features.automation.evaluators import EVALUATORS, OUTCOME, OUTCOME_LABEL, flag
 from mso.security import redact
 
 LOGGER = logging.getLogger(__name__)
@@ -51,6 +52,10 @@ def applied_last_hour(db: Database | None = None) -> int:
     return autopilot.applied_last_hour(db)
 
 
+def attempts_last_hour(db: Database | None = None) -> int:
+    return autopilot.attempts_last_hour(db)
+
+
 def pending_safe(db: Database | None = None) -> list[dict[str, Any]]:
     max_age = int(sr.get("automation.max_age_h"))
     return (db or get_db()).fetchall(
@@ -68,13 +73,17 @@ def apply_safe(db: Database | None = None) -> dict[str, Any]:
         reason = "alleen-lezen modus" if state.mode() == "read_only" else "automatisering gepauzeerd"
         _log("run", "skipped", f"Niet uitgevoerd: {reason}", db=db)
         return {"applied": 0, "skipped": "not_allowed", "reason": reason}
+    autopilot.tidy_failures(db)
     cap = int(sr.get("automation.max_per_hour"))
-    budget = cap - applied_last_hour(db)
-    applied, skipped, failed = [], [], []
+    budget = cap - attempts_last_hour(db)  # failed attempts count too
+    applied, skipped, failed, cooling = [], [], [], []
     for ch in pending_safe(db):
         area = change_area(ch, db)
         if autopilot.why_not(ch, area) is not None:
             skipped.append(ch["id"])
+            continue
+        if autopilot.cooldown(ch, db) is not None:
+            cooling.append(ch["id"])
             continue
         if budget <= 0:
             _log(
@@ -88,15 +97,18 @@ def apply_safe(db: Database | None = None) -> dict[str, Any]:
             skipped.append(ch["id"])
             continue
         ok, _err = autopilot.apply_one(ch, area, db)
+        budget -= 1
         if not ok:
             failed.append(ch["id"])
+            if not state.automation_allowed():
+                break  # the noodrem engaged on this failure: no further automatic writes
             continue
-        budget -= 1
         applied.append(ch["id"])
     _log(
-        "run", "done", f"{len(applied)} toegepast, {len(skipped)} overgeslagen, {len(failed)} mislukt", db=db
+        "run", "done", f"{len(applied)} toegepast, {len(skipped) + len(cooling)} overgeslagen, {len(failed)} mislukt"
+        + (f" ({len(cooling)} in afkoeling)" if cooling else ""), db=db
     )
-    return {"applied": applied, "skipped": skipped, "failed": failed}
+    return {"applied": applied, "skipped": skipped + cooling, "failed": failed, "cooling": cooling}
 
 
 def _set_evaluation(change_id: int, evaluation: dict[str, Any], db: Database) -> None:
@@ -112,16 +124,30 @@ def not_evaluable(ch: dict[str, Any]) -> bool:
     return any(op.get("destructive") or op.get("irreversible") for op in (ch.get("ops") or []))
 
 
+_FLAG_FIELDS = re.compile(r"(^|[/.:_-])(enable|enabled|active)$", re.I)
+
+
+def _turns_on(op: dict[str, Any]) -> bool:
+    """The op switched something on: False → True, or 0 → 1 / '0' → '1' on an on/off field (SABnzbd stores
+    ``enable`` as an int; a 0 → 1 *priority* is not a switch)."""
+    before, after = op.get("observed_before", op.get("before")), op.get("after")
+    if not (isinstance(before, bool) or isinstance(after, bool)) and not _FLAG_FIELDS.search(str(op.get("path") or "")):
+        return False
+    return flag(before) is False and flag(after) is True
+
+
+turns_on = _turns_on  # public name for other modules (e.g. the "Autopilot terugdraaien" preview)
+
+
 def _rollback_disables(ch: dict[str, Any]) -> bool:
-    """A rollback that would itself switch something off (it enabled something: False → True) is a 'disable' and
-    therefore needs explicit approval — never automatic."""
-    for op in ch.get("ops") or []:
-        if op.get("result") != "toegepast":
-            continue
-        before = op.get("observed_before", op.get("before"))
-        if before is False and op.get("after") is True:
-            return True
-    return False
+    """A rollback that would itself switch something off (it enabled something: False → True, 0 → 1) is a 'disable'
+    and therefore needs explicit approval — never automatic."""
+    return any(op.get("result") == "toegepast" and _turns_on(op) for op in ch.get("ops") or [])
+
+
+def has_reversible(ch: dict[str, Any]) -> bool:
+    """At least one applied op MSO could write back (one_way/irreversible ops are never rolled back)."""
+    return any(op.get("result") == "toegepast" and changes.reversible(op) for op in ch.get("ops") or [])
 
 
 def _no_auto_rollback(ch: dict[str, Any], ev: dict[str, Any]) -> str | None:
@@ -166,6 +192,10 @@ def run_evaluator(ch: dict[str, Any], *, interim: bool = False) -> dict[str, Any
         }
     out["evaluator"] = name
     return out
+
+
+def _skip_line(ops: list[dict[str, Any]]) -> str:
+    return "; ".join(f"{o.get('label')}: nu {redact(repr(o.get('current')))[:60]}" for o in ops) or "zie wijziging"
 
 
 def _measures_line(measures: list[dict[str, Any]]) -> str:
@@ -246,45 +276,87 @@ def evaluate_due(db: Database | None = None) -> dict[str, Any]:
 
         # slechter
         reason = "verslechtering gemeten" + (f": {detail_line}" if detail_line else "")
+        if not has_reversible(ch):  # one_way / irreversible: nothing to roll back, so nothing to recommend either
+            untouched = all(op.get("result") == "al_ingesteld" for op in ch.get("ops") or [])
+            record |= {"action": "geen", "reason": reason,
+                       "message": "Slechter gemeten, maar MSO heeft hier niets veranderd (alles was al zo ingesteld); "
+                       "er valt niets terug te draaien." if untouched else
+                       "Slechter gemeten, maar deze wijziging is niet terug te draaien (bijv. een opnieuw "
+                       "geprobeerde of verstuurde download); er valt niets terug te draaien."}
+            _set_evaluation(ch["id"], record, db)
+            _log("evaluate", "slechter", f"Slechter (niet terug te draaien): {ch['title']}", ch["id"], area, db)
+            continue
+        if ev.get("propose_rollback") is False:  # e.g. a re-enabled server: the server watch handles it
+            record |= {"action": "geen", "reason": reason,
+                       "message": ev.get("message") or "Slechter gemeten; deze wijziging wordt elders bewaakt."}
+            _set_evaluation(ch["id"], record, db)
+            _log("evaluate", "slechter", f"Slechter (elders bewaakt): {ch['title']}", ch["id"], area, db)
+            continue
         enabled, setting_key = auto_rollback_setting(ch)
         blocker = _no_auto_rollback(ch, ev)
-        msg = ""
         if enabled and blocker is None and state.automation_allowed():
             try:
                 changes.rollback(ch["id"], ACTOR, reason=reason[:300], db=db)
+            except changes.RollbackSkipped as exc:
+                record |= {"action": "overgeslagen", "reason": reason,
+                           "message": "Slechter gemeten, maar niet teruggedraaid: de waarde is inmiddels buiten MSO "
+                           f"gewijzigd ({_skip_line(exc.skipped)}). MSO laat die staan en past haar niet opnieuw "
+                           "automatisch toe."}
+                _set_evaluation(ch["id"], record, db)
+                _log("evaluate", "rollback_skipped", f"Niet teruggedraaid (buiten MSO gewijzigd): {ch['title']}",
+                     ch["id"], area, db)
+                continue
             except Exception as exc:
                 msg = f"Automatisch terugdraaien mislukt: {redact(str(getattr(exc, 'detail', exc)))[:300]}"
                 _log("evaluate", "rollback_failed", f"{msg} ({ch['title']})", ch["id"], area, db)
-            else:
-                record |= {
-                    "action": "teruggedraaid",
-                    "reason": reason,
-                    "setting": setting_key,
-                    "message": "Slechter gemeten; automatisch teruggedraaid (Autopilot)." if setting_key == "autopilot"
-                    else f"Slechter gemeten; automatisch teruggedraaid ({setting_key} staat aan).",
-                }
+                record |= {"action": "terugdraaien_mislukt", "reason": reason, "message": msg}
                 _set_evaluation(ch["id"], record, db)
-                audit(
-                    ACTOR,
-                    "change.auto_rolled_back",
-                    f"Automatisch teruggedraaid na controle: {ch['title']} — {reason}"[:500],
-                    target=ch["target"],
-                    change_id=ch["id"],
-                    detail={"reason": reason, "setting": setting_key, "measures": [
-                        {k: m.get(k) for k in ("key", "label", "baseline", "current", "delta_pct", "verdict")}
-                        for m in record["measures"]
-                    ]},
+                recommend(
+                    area or "automation",
+                    f"Terugdraaien mislukt: {ch['title']}",
+                    f"De controle meet een verslechtering ({detail_line or 'zie metingen'}), maar automatisch "
+                    f"terugdraaien lukte niet: {msg[len('Automatisch terugdraaien mislukt: '):]}. Er is niets als "
+                    "'teruggedraaid' gemeld. Controleer de instelling bij de bron en probeer het opnieuw via "
+                    "Automatisering → Wijzigingen.",
+                    risk="toestemming_nodig",
+                    subject=ch["target"],
+                    dedupe_key=f"automation.rollback_failed:{ch['id']}",
+                    evidence={"kind": "rollback_failed", "change_id": ch["id"], "error": msg},
+                    db=db,
                 )
-                _log("evaluate", "rolled_back", f"Teruggedraaid: {ch['title']} — {reason}", ch["id"], area, db)
-                counts["rolled_back"] += 1
                 continue
-        if not msg:
-            if not enabled:
-                msg = f"Slechter gemeten; automatisch terugdraaien staat uit ({setting_key}). Terugdraaien voorgesteld."
-            elif blocker:
-                msg = f"Slechter gemeten; niet automatisch teruggedraaid: {blocker}. Terugdraaien voorgesteld."
-            else:
-                msg = "Slechter gemeten; automatisering is gepauzeerd of alleen-lezen. Terugdraaien voorgesteld."
+            record |= {
+                "action": "teruggedraaid",
+                "reason": reason,
+                "setting": setting_key,
+                "message": "Slechter gemeten; automatisch teruggedraaid en bij de bron gecontroleerd (Autopilot)."
+                if setting_key == "autopilot"
+                else f"Slechter gemeten; automatisch teruggedraaid en bij de bron gecontroleerd ({setting_key} staat "
+                "aan).",
+            }
+            _set_evaluation(ch["id"], record, db)
+            audit(
+                ACTOR,
+                "change.auto_rolled_back",
+                f"Automatisch teruggedraaid na controle: {ch['title']} — {reason}"[:500],
+                target=ch["target"],
+                change_id=ch["id"],
+                detail={"reason": reason, "setting": setting_key, "measures": [
+                    {k: m.get(k) for k in ("key", "label", "baseline", "current", "delta_pct", "verdict")}
+                    for m in record["measures"]
+                ]},
+            )
+            _log("evaluate", "rolled_back", f"Teruggedraaid: {ch['title']} — {reason}", ch["id"], area, db)
+            counts["rolled_back"] += 1
+            autopilot.check_brake(db)
+            continue
+        if not enabled:
+            msg = f"Slechter gemeten; automatisch terugdraaien staat uit ({setting_key}). Terugdraaien voorgesteld."
+        elif blocker:
+            msg = f"Slechter gemeten; niet automatisch teruggedraaid: {blocker}. Terugdraaien voorgesteld."
+        else:
+            msg = ("Slechter gemeten; automatisering is gepauzeerd, staat stil (noodrem) of alleen-lezen. "
+                   "Terugdraaien voorgesteld.")
         record |= {"action": "voorgesteld", "reason": reason, "message": msg}
         _set_evaluation(ch["id"], record, db)
         recommend(
@@ -324,6 +396,7 @@ def evaluation_view(ch: dict[str, Any], db: Database | None = None) -> dict[str,
     }
     out["evaluate_at"] = due
     out["applicable"] = not not_evaluable(ch)
+    out["reversible"] = has_reversible(ch) or ch["status"] == "rolled_back"
     out["evaluation"] = imp.get("evaluation")
     out["interim"] = None
     if out["evaluation"] is None and ch["status"] == "rolled_back":
@@ -368,5 +441,14 @@ def _job_evaluate(ctx: jobs.JobContext) -> dict[str, Any]:
     return evaluate_due(ctx.db)
 
 
+@jobs.handler("changes.reconcile")
+def _job_reconcile(ctx: jobs.JobContext) -> dict[str, Any]:
+    """Interrupted applies (status 'applying' without a live apply): finish or undo. Runs right after the worker
+    starts (the scheduler enqueues due schedules on its first pass) and every 2 minutes after that, so an apply that
+    a restart of the API or the worker cut off is picked up either way."""
+    return changes.reconcile_interrupted(ctx.db)
+
+
 jobs.every("automation.apply_safe", 300, enabled=state.automation_allowed)
 jobs.every("automation.evaluate", 900)
+jobs.every("changes.reconcile", 120)

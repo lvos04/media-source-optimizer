@@ -70,7 +70,7 @@ export interface SettingDef {
 export interface SettingsPayload { definitions: SettingDef[]; values: Record<string, unknown> }
 
 // ---------------------------------------------------------------- change sets
-export type ChangeStatus = "preview" | "approved" | "applied" | "rolled_back" | "failed";
+export type ChangeStatus = "preview" | "approved" | "applying" | "applied" | "rolled_back" | "failed";
 export interface ChangeOp { path: string; label: string; before: unknown; after: unknown }
 export interface ChangeSet {
   id: string | number; title: string; target: string; risk: Risk; status: ChangeStatus;

@@ -67,8 +67,8 @@ sr.define(
     min=1,
     max=120,
     category="automatisering",
-    help="Globale limiet over alle onderdelen samen (ook in Autopilot). Wat boven de limiet valt, volgt in "
-    "een volgende ronde.",
+    help="Globale limiet over alle onderdelen samen (ook in Autopilot); mislukte pogingen tellen mee. Wat boven "
+    "de limiet valt, volgt in een volgende ronde.",
 )
 sr.define(
     "automation.auto_rollback",
@@ -118,6 +118,29 @@ sr.define(
     advanced=True,
     help="Minder metingen in de basislijn of de meetperiode geeft 'onvoldoende data'; er wordt dan niets "
     "teruggedraaid.",
+)
+sr.define(
+    "automation.brake_rollbacks",
+    "Noodrem: automatische terugdraaiingen in 24 uur",
+    "int",
+    3,
+    min=1,
+    max=50,
+    category="automatisering",
+    help="Zoveel wijzigingen die automatisch zijn teruggedraaid omdat ze slechter bleken (binnen 24 uur) zetten "
+    "alle automatische schrijfacties stil tot iemand op 'Hervatten' klikt. Synchronisaties, controles en "
+    "voorstellen klaarzetten gaan gewoon door.",
+)
+sr.define(
+    "automation.brake_failures",
+    "Noodrem: mislukte automatische toepassingen in 24 uur",
+    "int",
+    5,
+    min=1,
+    max=100,
+    category="automatisering",
+    help="Zoveel automatische wijzigingen die niet konden worden toegepast (binnen 24 uur) zetten alle "
+    "automatische schrijfacties stil tot iemand op 'Hervatten' klikt.",
 )
 sr.define(
     "automation.evaluation_baseline_days",

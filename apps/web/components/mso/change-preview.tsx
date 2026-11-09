@@ -102,11 +102,42 @@ function Impact({ impact }: { impact: unknown }) {
 }
 
 /** Op with the hard-rule flags from `mso/changes.py` (removing/disabling, not reversible) and its apply result. */
-type FlaggedOp = ChangeOp & { destructive?: boolean; irreversible?: boolean; one_way?: boolean; result?: string };
+type FlaggedOp = ChangeOp & {
+  destructive?: boolean; irreversible?: boolean; one_way?: boolean; result?: string;
+  // 1.6.0: rollback with drift check + read-back, crash-safe apply (mso/changes.py)
+  current?: unknown; verified_at?: string; rollback_note?: string; rollback_error?: string; restore_note?: string;
+};
 
 const OP_RESULT: Record<string, string> = {
   toegepast: "toegepast", al_ingesteld: "was al zo", teruggedraaid: "teruggedraaid", niet_terug_te_draaien: "niet teruggedraaid (onomkeerbaar)",
 };
+
+function shortValue(v: unknown): string {
+  const s = typeof v === "string" ? v : JSON.stringify(v) ?? "—";
+  return s.length > 60 ? `${s.slice(0, 57)}…` : s;
+}
+
+/** Dutch line for an op's result, incl. the 1.6.0 rollback outcomes (verified, skipped on drift, failed). */
+function useOpResult(): (op: FlaggedOp) => string | null {
+  const { t } = useI18n();
+  return (op) => {
+    let line: string | null;
+    switch (op.result) {
+      case "overgeslagen": line = t("safety.op.overgeslagen", { value: shortValue(op.current) }); break;
+      case "afwijkend": line = t("safety.op.afwijkend", { value: shortValue(op.current) }); break;
+      case "niet_uitgevoerd": line = t("safety.op.niet_uitgevoerd"); break;
+      case "teruggedraaid":
+        line = op.rollback_note === "was al de oude waarde" ? t("safety.op.wasAlready")
+          : op.rollback_note?.startsWith("eenmalige") ? t("safety.op.noop")
+            : op.verified_at ? t("safety.op.teruggedraaidChecked") : OP_RESULT.teruggedraaid;
+        break;
+      default: line = op.result ? OP_RESULT[op.result] ?? null : null;
+    }
+    if (op.restore_note) line = `${line ?? OP_RESULT.toegepast} · ${t("safety.op.restoreNote")}`;
+    if (op.rollback_error) line = `${line ? `${line} · ` : ""}${t("safety.op.rollbackError", { error: op.rollback_error })}`;
+    return line;
+  };
+}
 
 function OpMarker({ op }: { op: FlaggedOp }) {
   const { t } = useI18n();
@@ -143,6 +174,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
   const setConfirmRollback = (open: boolean) => setRollbackFor(open ? changeKey : null);
   const status = CHANGE_STATUS[change.status] ?? CHANGE_STATUS.preview;
   const id = encodeURIComponent(changeKey);
+  const opResult = useOpResult();
 
   const run = async (action: "approve" | "apply" | "rollback") => {
     const forId = changeKey;
@@ -169,8 +201,10 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
   const reversible = ops.filter((op) => !op.irreversible && !(op as FlaggedOp).one_way && (op.result === undefined || op.result === "toegepast"));
   const canRollback = change.status === "applied" && reversible.length > 0;
   const rollbackBlocked = change.status === "applied" && reversible.length === 0;
+  const driftedAway = rollbackBlocked && ops.some((op) => op.result === "overgeslagen");
+  const applying = change.status === "applying";
   const { visible: visibleImpact, technical } = splitImpact(change.impact);
-  const final = change.status === "rolled_back" || change.status === "failed";
+  const final = change.status === "rolled_back" || change.status === "failed" || change.status === "applying";
   const reason = (ok: boolean, why: string) => (!gate.allowed ? gate.reason : ok ? undefined : why);
 
   const body = (
@@ -188,7 +222,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
             keyWidth={180}
             rows={change.ops.map((op, i) => ({
               key: `${op.path}-${i}`,
-              label: <>{op.label}<span className="change-ops-path">{op.path}</span>{(op as FlaggedOp).destructive || (op as FlaggedOp).irreversible || (op as FlaggedOp).one_way ? <span style={{ display: "block", marginTop: 4 }}><OpMarker op={op as FlaggedOp} /></span> : null}{(op as FlaggedOp).result && OP_RESULT[(op as FlaggedOp).result as string] ? <span className="t-3" style={{ display: "block", fontSize: 11.5 }}>{OP_RESULT[(op as FlaggedOp).result as string]}</span> : null}</>,
+              label: <>{op.label}<span className="change-ops-path">{op.path}</span>{(op as FlaggedOp).destructive || (op as FlaggedOp).irreversible || (op as FlaggedOp).one_way ? <span style={{ display: "block", marginTop: 4 }}><OpMarker op={op as FlaggedOp} /></span> : null}{opResult(op as FlaggedOp) ? <span className="t-3" style={{ display: "block", fontSize: 11.5 }}>{opResult(op as FlaggedOp)}</span> : null}</>,
               before: formatOpValue(op.before),
               after: formatOpValue(op.after),
               change: JSON.stringify(op.before) === JSON.stringify(op.after) ? "same" : op.before === null || op.before === undefined ? "added" : op.after === null || op.after === undefined ? "removed" : "changed",
@@ -210,7 +244,8 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
           {t("change.dangerNeverAuto")}
         </InlineState>
       ) : null}
-      {rollbackBlocked ? <InlineState tone="neutral" icon={OctagonAlert}>{t("change.rollbackImpossible")}</InlineState> : null}
+      {rollbackBlocked ? <InlineState tone="neutral" icon={OctagonAlert}>{driftedAway ? t("safety.rollbackNothingLeft") : t("change.rollbackImpossible")}</InlineState> : null}
+      {applying ? <InlineState tone="warning" role="status">{t("safety.applying.body")}</InlineState> : null}
       {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}
       {actions && !final ? (
         <div className="row wrap">

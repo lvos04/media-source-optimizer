@@ -11,7 +11,7 @@ from mso import changes, jobs, state
 from mso import settings_registry as sr
 from mso.audit import audit
 from mso.auth import Principal, require
-from mso.db import get_db
+from mso.db import Database, get_db
 from mso.features.automation import AREAS, EVALUATORS, autopilot, engine
 
 router = APIRouter(prefix="/api/v1/automation", tags=["automatisering"])
@@ -195,6 +195,8 @@ def status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "auto_rollback": bool(sr.get("automation.auto_rollback")) or state.autopilot(),
         "auto_rollback_setting": bool(sr.get("automation.auto_rollback")),
         "applied_last_hour": engine.applied_last_hour(db),
+        "attempts_last_hour": engine.attempts_last_hour(db),
+        "hold": state.hold(),
         "evaluators": sorted(EVALUATORS),
         "evaluator_fallback": True,
         "evaluation": {
@@ -272,10 +274,165 @@ def evaluation_one(change_id: int, _: Principal = Depends(require("viewer"))) ->
     return engine.evaluation_view(ch)
 
 
+# ------------------------------------------------------------------ veiligheid (1.6.0): noodrem, afkoeling, undo
+@router.get("/safety")
+def safety(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Noodrem (hold + counters), changes in cooldown/parked after failed automatic attempts, interrupted applies."""
+    db = get_db()
+    counts = autopilot.brake_counts(db)
+    return {
+        "mode": state.mode(),
+        "paused": state.paused(),
+        "hold": state.hold(),
+        "brake": counts,
+        "cooldowns": autopilot.cooldowns(db),
+        "applying": db.fetchall(
+            "SELECT id, target, title, apply_started_at, applied_auto FROM change_sets WHERE status='applying' "
+            "ORDER BY id"),
+        "undo": undo_counts(db),
+    }
+
+
+@router.get("/hold")
+def hold(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """Just the noodrem state (one small query): what the app-wide banner polls on every page."""
+    return {"mode": state.mode(), "hold": state.hold()}
+
+
+@router.post("/hold/resume")
+def hold_resume(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """'Hervatten' after the noodrem: automatic writes go on (the counters start again from now). Idempotent: when
+    the hold was already lifted (another tab or operator), nothing changes and the current state is returned."""
+    autopilot.resume_hold(p.actor)
+    return safety(p)
+
+
+class FailureReset(BaseModel):
+    key: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/failures/reset")
+def failures_reset(body: FailureReset, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """'Opnieuw automatisch proberen' for a change in cooldown or parked."""
+    autopilot.reset_failure(body.key, p.actor)
+    return safety(p)
+
+
+UNDO_WINDOWS: dict[str, tuple[int, str]] = {"24h": (24, "laatste 24 uur"), "7d": (24 * 7, "laatste 7 dagen")}
+
+
+def _undo_window(window: str) -> tuple[int, str]:
+    if window not in UNDO_WINDOWS:
+        raise HTTPException(422, detail="Periode moet '24h' of '7d' zijn")
+    return UNDO_WINDOWS[window]
+
+
+def _truthy(field: str) -> str:  # a JSON op flag as Python's truthiness sees it (true, 1, "x"; not false/0/null/"")
+    return f"coalesce(o->>'{field}', '') NOT IN ('', 'false', '0')"
+
+
+_UNDOABLE_SQL = (  # the same rule as undo_candidates(): no deletion, at least one applied reversible op
+    f"status='applied' AND applied_auto AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(ops) o "
+    f"WHERE {_truthy('irreversible')}) AND EXISTS (SELECT 1 FROM jsonb_array_elements(ops) o "
+    f"WHERE o->>'result' = 'toegepast' AND NOT {_truthy('irreversible')} AND NOT {_truthy('one_way')})"
+)
+
+
+def undo_counts(db: Database | None = None) -> dict[str, int]:
+    """How many automatic changes "Autopilot terugdraaien" would list per window — one query, no per-row lookups
+    (the full list with values is :func:`undo_candidates`)."""
+    row = (db or get_db()).fetchone(
+        "SELECT count(*) FILTER (WHERE applied_at > now() - interval '24 hours') AS h24, count(*) AS d7 "
+        f"FROM change_sets WHERE {_UNDOABLE_SQL} AND applied_at > now() - interval '7 days'")
+    return {"24h": int(row["h24"] or 0) if row else 0, "7d": int(row["d7"] or 0) if row else 0}
+
+
+def undo_candidates(window: str) -> dict[str, Any]:
+    """Reversible changes Autopilot/automation applied by itself in the window (newest first). Deletions never:
+    they are never applied automatically, and their ops are not reversible anyway."""
+    hours, label = _undo_window(window)
+    rows = get_db().fetchall(
+        "SELECT * FROM change_sets WHERE status='applied' AND applied_auto AND applied_at > now() - make_interval("
+        "hours => %s) ORDER BY applied_at DESC, id DESC", (hours,))
+    items, not_undoable = [], []
+    for r in rows:
+        ops = r["ops"] or []
+        if any(op.get("irreversible") for op in ops):
+            continue
+        back = [op for op in ops if op.get("result") == "toegepast" and changes.reversible(op)]
+        entry = {"id": r["id"], "title": r["title"], "target": r["target"], "applied_at": r["applied_at"],
+                 "area": engine.change_area(dict(r)),
+                 "ops": [{"label": op.get("label"), "path": op.get("path"), "now": op.get("after"),
+                          "back_to": op.get("observed_before"), "switches_on": bool(op.get("destructive")),
+                          # MSO switched it ON (e.g. autoheal re-enabled a server that tested fine): undoing it
+                          # switches something that works OFF again
+                          "switches_off": engine.turns_on(op)}
+                         for op in back]}
+        if back:
+            items.append(entry)
+        else:
+            not_undoable.append(entry | {"reason": "niet terug te draaien (bijv. opnieuw geprobeerde of verstuurde "
+                                                   "downloads)"})
+    return {"window": window, "label": label, "items": items, "not_undoable": not_undoable,
+            "override_days": autopilot.override_days()}
+
+
+@router.get("/undo")
+def undo_preview(window: str = Query("24h"), _: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    """'Autopilot terugdraaien': first the exact list of what would be put back."""
+    return undo_candidates(window)
+
+
+class UndoBody(BaseModel):
+    window: str = Field("24h", pattern=r"^(24h|7d)$")
+    change_ids: list[int] | None = None  # default: everything in the preview
+
+
+@router.post("/undo")
+def undo(body: UndoBody, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    """Roll back the listed automatic changes one by one (newest first), each with drift check, read-back and its
+    own audit line. Not in alleen-lezen. What was put back is recorded as the owner's override, so MSO does not apply
+    it again automatically right away (proposals stay possible)."""
+    from mso.features.automation import overrides
+
+    state.require_manage_mode()
+    cands = undo_candidates(body.window)
+    wanted = set(body.change_ids) if body.change_ids is not None else None
+    results, counts = [], {"teruggedraaid": 0, "overgeslagen": 0, "mislukt": 0}
+    for item in cands["items"]:
+        if wanted is not None and item["id"] not in wanted:
+            continue
+        try:
+            ch = changes.rollback(item["id"], p.actor, reason=f"Autopilot terugdraaien ({cands['label']})")
+        except changes.RollbackSkipped as exc:
+            counts["overgeslagen"] += 1
+            results.append({"id": item["id"], "title": item["title"], "result": "overgeslagen", "detail": exc.detail})
+            continue
+        except HTTPException as exc:
+            counts["mislukt"] += 1
+            results.append({"id": item["id"], "title": item["title"], "result": "mislukt", "detail": exc.detail})
+            continue
+        for op in ch["ops"]:
+            if op.get("result") == "teruggedraaid":
+                overrides.record(ch["target"], str(op["path"]), mso_value=op.get("after"),
+                                 current_value=op.get("observed_before"), change_id=ch["id"],
+                                 days=autopilot.override_days())
+        skipped = [op.get("label") for op in ch["ops"] if op.get("result") == "overgeslagen"]
+        counts["teruggedraaid"] += 1
+        results.append({"id": item["id"], "title": item["title"], "result": "teruggedraaid",
+                        "detail": f"overgeslagen (buiten MSO gewijzigd): {', '.join(skipped)}" if skipped else None})
+    audit(p.actor, "automation.undo",
+          f"Autopilot terugdraaien ({cands['label']}): {counts['teruggedraaid']} teruggedraaid, "
+          f"{counts['overgeslagen']} overgeslagen, {counts['mislukt']} mislukt", target="automation",
+          detail={"window": body.window, **counts, "changes": [r["id"] for r in results]})
+    return {"window": body.window, "counts": counts, "results": results}
+
+
 # ------------------------------------------------------------------ automatische taken (Systeem)
 SCHEDULE_LABELS: dict[str, tuple[str, str]] = {
     "automation.apply_safe": ("Veilige wijzigingen automatisch toepassen", "Automatisering"),
     "automation.evaluate": ("Controle na wijzigingen (met automatisch terugdraaien)", "Automatisering"),
+    "changes.reconcile": ("Onderbroken wijzigingen afronden of terugzetten (na een herstart)", "Automatisering"),
     "backup.create": ("Dagelijkse back-up", "Systeem"),
     "costs.import_services": ("Diensten importeren in Kosten", "Kosten"),
     "costs.renewal_reminders": ("Herinneringen voor verlengingen", "Kosten"),
@@ -306,6 +463,8 @@ def _schedule_enabled(sched: Any) -> tuple[bool, str | None]:
     if sched.kind == "backup.create":
         return False, "Dagelijkse back-up staat uit (Instellingen → Systeem)"
     if sched.kind == "automation.apply_safe":
+        if state.hold() is not None:
+            return False, "Staat stil door de noodrem; hervat via Automatisering"
         return False, "Alleen in beheermodus of Autopilot zonder pauze"
     return False, "Wacht op koppeling of staat uit in de instellingen"
 

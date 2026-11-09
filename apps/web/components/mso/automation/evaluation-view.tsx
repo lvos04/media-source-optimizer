@@ -25,7 +25,7 @@ const OUTCOME: Record<string, { tone: Tone; label: string }> = {
 };
 const ACTION: Record<string, string> = {
   behouden: "Wijziging blijft staan", teruggedraaid: "Automatisch teruggedraaid", voorgesteld: "Terugdraaien voorgesteld",
-  geen: "Geen actie", terugdraaien_mislukt: "Terugdraaien mislukt",
+  geen: "Geen actie", terugdraaien_mislukt: "Terugdraaien mislukt", overgeslagen: "Niet teruggedraaid (buiten MSO gewijzigd)",
 };
 
 export function outcomeChip(result: string | undefined, interim = false) {
@@ -35,6 +35,7 @@ export function outcomeChip(result: string | undefined, interim = false) {
 
 function fmtValue(m: EvaluationMeasure, v: number | null, f: Formatters): string {
   if (v === null || v === undefined) return "—";
+  if (m.unit === "status") return v >= 1 ? f.t("safety.eval.works") : f.t("safety.eval.fails");
   if (m.unit === "ratio") return f.pct(v * 100, 1);
   if (m.unit === "s") return f.duration(v);
   if (m.unit === "B/s") return `${f.bytes(v)}/s`;
@@ -70,7 +71,7 @@ export function MeasuresTable({ measures }: { measures: EvaluationMeasure[] }) {
 
 /** Stored outcome, or the live interim comparison while the measurement period runs. */
 export function EvaluationSummary({ item }: { item: ChangeEvaluation }) {
-  const { dateTime, relative } = useI18n();
+  const { t, dateTime, relative } = useI18n();
   const ev: StoredEvaluation | null = item.evaluation ?? item.interim;
   const interim = !item.evaluation && !!item.interim;
   // rolled back before it was measured: nothing left to measure (backend sends rolled_back; older backends send nothing)
@@ -96,7 +97,11 @@ export function EvaluationSummary({ item }: { item: ChangeEvaluation }) {
       </div>
       {ev.message ? <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{ev.message}</p> : null}
       <MeasuresTable measures={ev.measures ?? []} />
-      {item.applicable && item.status === "applied" ? (
+      {item.applicable && item.status === "applied" && (item as ChangeEvaluation & { reversible?: boolean }).reversible === false ? (
+        <p className="hint" style={{ margin: 0 }}>{t("safety.eval.notReversible")}</p>
+      ) : item.applicable && item.status === "applied" && (ev.measures ?? []).some((m) => m.unit === "status") ? (
+        <p className="hint" style={{ margin: 0 }}>{t("safety.eval.serverStatus")}</p>
+      ) : item.applicable && item.status === "applied" ? (
         <p className="hint" style={{ margin: 0 }}>
           Bij ‘slechter’: {item.auto_rollback.enabled ? "automatisch terugdraaien staat aan" : "automatisch terugdraaien staat uit — er komt een voorstel"} (<span className="mono">{item.auto_rollback.setting}</span>).
           {ev.evaluator === "generiek" ? " Gemeten met de algemene controle (downloaduitkomsten)." : ""}

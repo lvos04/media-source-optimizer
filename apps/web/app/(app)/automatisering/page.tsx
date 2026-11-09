@@ -1,7 +1,8 @@
 "use client";
 
 import { Play } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { Button, Card, PageHeader, Tabs } from "@/components/mg/primitives";
 import { AiCard } from "@/components/mso/automation/ai-card";
@@ -9,6 +10,7 @@ import { WeeklyDigest } from "@/components/mso/automation/autopilot-summary";
 import { ChangesPanel } from "@/components/mso/automation/changes-panel";
 import { EvaluationsPanel } from "@/components/mso/automation/evaluation-view";
 import { RecommendationsList } from "@/components/mso/automation/recommendations-list";
+import { SafetyPanel } from "@/components/mso/automation/safety-panel";
 import { TogglesPanel } from "@/components/mso/automation/toggles-panel";
 import { RiskChip } from "@/components/mso/risk-chip";
 import { useAction } from "@/lib/api/actions";
@@ -19,9 +21,19 @@ import { useI18n } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 
-const TABS = ["aanbevelingen", "wijzigingen", "controle", "samenvatting", "automatisch", "ai"] as const;
+const TABS = ["aanbevelingen", "wijzigingen", "controle", "veiligheid", "samenvatting", "automatisch", "ai"] as const;
 type Tab = (typeof TABS)[number];
 const RISKS: Risk[] = ["advies", "automatisch_veilig", "toestemming_nodig"];
+
+/** Follows `?tab=` — also on a soft navigation to this same route (e.g. the noodrem banner's "Bekijken" while already
+ * here), where the page stays mounted and a mount-only read would miss it. Own Suspense boundary for useSearchParams. */
+function TabFromUrl({ onTab }: { onTab: (tab: Tab) => void }) {
+  const q = useSearchParams().get("tab");
+  useEffect(() => {
+    if (q && (TABS as readonly string[]).includes(q)) onTab(q as Tab);
+  }, [q, onTab]);
+  return null;
+}
 
 export default function AutomationPage() {
   const { t } = useI18n();
@@ -37,8 +49,6 @@ export default function AutomationPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const q = params.get("tab");
-    if (q && (TABS as readonly string[]).includes(q)) setTab(q as Tab);
     // deep link from "Wat MSO deed" / "Wacht op jou": ?tab=wijzigingen&change=<id>
     const change = Number(params.get("change"));
     if (Number.isInteger(change) && change > 0) setFocusChange(change);
@@ -56,6 +66,7 @@ export default function AutomationPage() {
 
   return (
     <>
+      <Suspense fallback={null}><TabFromUrl onTab={setTab} /></Suspense>
       <PageHeader title={t("nav.automation")} sub={t("automation.sub")}
         actions={<Button icon={Play} disabled={!runAllowed} title={runReason} pending={pending === "run"}
           onClick={async () => { await run("run", "post", "/automation/run", undefined, t("automation.runQueued")); void status.reload(); }}>{t("automation.runNow")}</Button>} />
@@ -76,6 +87,7 @@ export default function AutomationPage() {
           { value: "aanbevelingen", label: t("automation.tab.recommendations") },
           { value: "wijzigingen", label: t("automation.tab.changes") },
           { value: "controle", label: t("automation.tab.evaluations") },
+          { value: "veiligheid", label: t("safety.tab") },
           { value: "samenvatting", label: t("automation.tab.summary") },
           { value: "automatisch", label: t("automation.tab.automation") },
           { value: "ai", label: t("automation.tab.ai") },
@@ -86,6 +98,7 @@ export default function AutomationPage() {
         {tab === "aanbevelingen" ? <RecommendationsList onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
         {tab === "wijzigingen" ? <ChangesPanel focusId={focusChange} /> : null}
         {tab === "controle" ? <EvaluationsPanel onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
+        {tab === "veiligheid" ? <SafetyPanel onOpenChange={(id) => { setFocusChange(id); select("wijzigingen"); }} /> : null}
         {tab === "automatisch" ? <TogglesPanel status={status} /> : null}
         {tab === "ai" ? <AiCard /> : null}
       </div>

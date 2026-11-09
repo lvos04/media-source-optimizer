@@ -517,3 +517,50 @@ def test_gone_only_for_an_explicitly_removed_object() -> None:
     assert _gone(ValueError("torrent niet (meer) aanwezig in qBittorrent")) is True
     assert _gone(json.JSONDecodeError("x", "doc", 0)) is False
     assert _gone(ConnectionError("verbinding geweigerd")) is False
+
+
+# ------------------------------------------------------------------ integration review (1.6.0)
+def test_mso_apply_during_a_refresh_is_not_booked_as_the_owners_choice(app: Any, db: Any,
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    from mso.features.automation import autopilot, footprint
+    from tests.test_change_safety import Fake
+
+    fake = Fake()
+    changes.register_applier("fake_v", fake.applier)
+    try:
+        state.set_state("mode", "autopilot")
+
+        def step(before: int, after: int, key: str) -> dict[str, Any]:
+            return autopilot.propose_and_apply("fake_v", "Snelheid", [{"path": "speed", "label": "Snelheid",
+                                                                       "before": before, "after": after}],
+                                               explanation="test", impact=None, dedupe_key=key, area="usenet")
+
+        assert step(100, 80, "s1")["auto_applied"]
+        footprint.refresh()
+        real = footprint.read_current
+
+        def read_while_next_step_applies(entries: Any) -> Any:
+            assert step(80, 60, "s2")["auto_applied"]  # MSO's next step lands between collect and read
+            return real(entries)
+
+        monkeypatch.setattr(footprint, "read_current", read_while_next_step_applies)
+        out = footprint.refresh()
+        monkeypatch.setattr(footprint, "read_current", real)
+        assert out["overridden"] == [] and out["unsettled"] == 1
+        assert db.fetchall("SELECT * FROM change_overrides") == []
+        footprint.refresh()  # the next run sees MSO's newest value active
+        assert db.scalar("SELECT status FROM change_footprint WHERE path='speed'") == "actief"
+        assert step(60, 40, "s3")["auto_applied"]  # Autopilot is not blocked
+    finally:
+        changes.APPLIERS.pop("fake_v", None)
+
+
+def test_live_footprint_routes_are_rate_limited(app: Any, viewer: Any, operator: Any) -> None:
+    codes = {viewer.get("/api/v1/automation/footprint/restore").status_code for _ in range(13)}
+    assert codes == {200, 429}
+    codes = {operator.post("/api/v1/automation/footprint/refresh").status_code for _ in range(7)}
+    assert codes == {200, 429}
+    r = operator.post("/api/v1/automation/footprint/refresh")
+    assert r.status_code == 429 and "Te veel verzoeken" in r.json()["detail"]
+    codes = {operator.post("/api/v1/automation/undo", json={"window": "24h"}).status_code for _ in range(4)}
+    assert 429 in codes

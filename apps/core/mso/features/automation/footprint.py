@@ -16,8 +16,10 @@
   Restores applied outside :func:`restore_all` (approved later on Wijzigingen) are booked here too.
 - :func:`restore_plan` / :func:`restore_all` — "Alles terugzetten": one change set per system through the normal
   create → apply (drift check, write, read-back) → audit flow. Skipped, with the reason: values changed outside MSO,
-  unreachable or removed objects, and values outside MSO's policy limits. Removing something (MSO's own indexer in
-  Prowlarr) is ``toestemming_nodig``: applied at once only when an admin confirms, otherwise it waits for approval.
+  unreachable or removed objects, values outside MSO's policy limits, and restores whose write would delete
+  something the applier marks as such (``rollback_deletes``: a SABnzbd category MSO created — an admin's own
+  rollback on Wijzigingen only). Removing something (MSO's own indexer in Prowlarr) is ``toestemming_nodig``:
+  applied at once only when an admin confirms, otherwise it waits for approval.
   A restore set is approved by the person right after it is created and discarded on any failure, so the automatic
   round never applies it. Only the restored chain of each path counts as rolled back. Restored paths get an
   override too, so Autopilot does not put them back on its next round.
@@ -62,8 +64,8 @@ STATUS_LABEL = {
 ONE_WAY_TARGETS = ("sabnzbd_retry", "download_send")
 # one-shot actions and removals without a lasting value to compare (recheck/reannounce, cross-seed add, cleanup)
 ONE_SHOT_RE = re.compile(r"(^crossseed:|:(recheck|reannounce)$|^cleanup:|^arrblock:|^blacklist:|:delete_with_files:)")
-TARGET_LABEL = {"sabnzbd": "SABnzbd", "qbittorrent": "qBittorrent", "prowlarr": "Prowlarr",
-                "mediaguard": "MediaGuard"}
+TARGET_LABEL = {"sabnzbd": "SABnzbd", "sabnzbd_categories": "SABnzbd", "qbittorrent": "qBittorrent",
+                "prowlarr": "Prowlarr", "mediaguard": "MediaGuard"}
 SAB_FIELD = {"enable": "aan/uit", "priority": "prioriteit", "optional": "optioneel"}
 NOT_MEASURED = {
     "result": "niet_van_toepassing",
@@ -221,6 +223,8 @@ def setting_label(target: str, path: str, op_label: str, torrent_names: dict[str
             return f"{what} · {name[:80] if name else h[:10]}"
     if target == "prowlarr" and path.startswith("indexer:"):
         return f"MSO-indexer in Prowlarr ({path.split(':', 1)[1]})"
+    if target == "sabnzbd_categories" and path.startswith("categories/"):
+        return f"Categorie {path.split('/', 1)[1]}"
     return op_label or path
 
 
@@ -463,16 +467,27 @@ def refresh(db: Database | None = None) -> dict[str, Any]:
     """Re-read every footprint entry at its source and store the result (see module docstring)."""
     db = db or get_db()
     days = override_days()
+    started = db.scalar("SELECT now()")
     entries, pending = _collect(db)
     if pending:
         _book_restores(pending, days, db)
     people = _people(db)
     prev = {(r["target"], r["path"]): dict(r) for r in db.fetchall("SELECT * FROM change_footprint")}
     reads = read_current(entries)
+    # MSO itself was writing one of these paths while we read (an apply in progress, or one that finished or was
+    # rolled back after the chains were collected): a difference there is MSO's own newer value, not the owner's.
+    # Judged again on the next run instead of booking a false 30-day override.
+    busy = {(str(r["target"]), str(o.get("path"))) for r in db.fetchall(
+        "SELECT target, ops FROM change_sets WHERE status='applying' OR applied_at >= %s OR rolled_back_at >= %s",
+        (started, started)) for o in (r["ops"] or [])}
     counts = {s: 0 for s in STATUSES}
     overridden: list[str] = []
+    unsettled = 0
     for key, e in entries.items():
         status, current, detail = reads[key]
+        if status == "gewijzigd" and key in busy:
+            unsettled += 1
+            continue  # keep the previous row as it is
         old = prev.get(key)
         if status in ("onbereikbaar", "verdwenen") and old is not None and current is None:
             current = old["current_value"]  # keep the last known value
@@ -512,7 +527,8 @@ def refresh(db: Database | None = None) -> dict[str, Any]:
     for target, path in set(prev) - set(entries):
         db.execute("DELETE FROM change_footprint WHERE target=%s AND path=%s", (target, path))
         _resolve_rec(target, path, db)
-    summary = {"at": datetime.now(UTC).isoformat(), "checked": len(entries), **counts, "overridden": overridden}
+    summary = {"at": datetime.now(UTC).isoformat(), "checked": len(entries), **counts, "overridden": overridden,
+               "unsettled": unsettled}
     state.set_state(STATE_KEY, summary, db)
     return summary
 
@@ -617,11 +633,15 @@ def _is_off(path: str, value: Any) -> bool:
     return value is False or (value == 0 and not isinstance(value, bool) and path.endswith("/enable"))
 
 
-def _validator(target: str) -> Callable[[str, Any], None] | None:
+def _applier(target: str) -> changes.Applier | None:
     try:
-        return changes.APPLIERS[target]().validate
+        return changes.APPLIERS[target]()
     except Exception:
         return None
+
+
+MANUAL_ONLY_REASON = ("Terugzetten zou dit verwijderen in {tl}; dat gebeurt nooit via Alles terugzetten. Een "
+                      "beheerder kan de wijziging (#{change_id}) zelf terugdraaien onder Wijzigingen")
 
 
 def restore_plan(db: Database | None = None) -> dict[str, Any]:
@@ -630,7 +650,7 @@ def restore_plan(db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
     entries = collect(db)
     reads = read_current(entries)
-    validators: dict[str, Callable[[str, Any], None] | None] = {}
+    appliers: dict[str, changes.Applier | None] = {}
     restore: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for key in sorted(entries):
@@ -659,9 +679,16 @@ def restore_plan(db: Database | None = None) -> dict[str, Any]:
         if _same(value, current):
             skipped.append(base | {"reason_code": "al_terug", "reason": "Staat al op de oorspronkelijke waarde"})
             continue
-        if target not in validators:
-            validators[target] = _validator(target)
-        validate = validators[target]
+        if target not in appliers:
+            appliers[target] = _applier(target)
+        applier = appliers[target]
+        if changes.deletes_on_write(applier, path, value):
+            # e.g. a SABnzbd category MSO created (MediaGuard may have cleaned up downloads in it since): removing it
+            # is an admin's own decision on Wijzigingen, never part of a bulk restore an operator can confirm
+            skipped.append(base | {"reason_code": "alleen_handmatig",
+                                   "reason": MANUAL_ONLY_REASON.format(tl=tl, change_id=e["change_id"])})
+            continue
+        validate = applier.validate if applier is not None else None
         if validate is not None and value is not None:
             try:
                 validate(path, value)

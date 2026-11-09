@@ -66,8 +66,10 @@ def test_aggregation_and_locations(admin: Any, viewer: Any, db: Any) -> None:
     assert locs[("source", "direct:geek")] == 1 and locs[("client", "sabnzbd")] == 1
     assert next(x for x in f["by_location"] if x["id"] == "provider:eweka")["label"] == "Eweka"
     assert o["costs"]["available"] and o["costs"]["monthly_cents"] == 1099
-    assert o["recommendations"]["by_risk"]["toestemming_nodig"] == 1
-    assert o["changes"]["open"] == 1
+    # 1.6.0 integration (deliberate): a decision is counted once — the toestemming_nodig recommendation is in
+    # "Wacht op jou", so the Aanbevelingen card only shows the other ones and links to the inbox
+    assert o["recommendations"]["by_risk"]["toestemming_nodig"] == 0 and o["recommendations"]["waiting"] == 1
+    assert o["changes"]["open"] == 1  # the advies change is no decision in the inbox
     sab = next(c for c in o["connectors"]["items"] if c["id"] == "sabx")
     assert sab["status"] == "offline" and 250 < sab["stale_s"] < 400
     assert o["health"]["status"] == "offline" and any("SABnzbd" in i for i in o["health"]["issues"])

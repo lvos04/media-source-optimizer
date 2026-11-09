@@ -28,7 +28,9 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``test_server=unsupported|locked``  ``mode=config&name=test_server`` answers "not implemented" / "Configuration
                           locked" (otherwise like SABnzbd 5.1: masked password + ``server`` → stored password)
 - ``categories=tv,movies``  the categories besides '*' (default: tv, tv-anime, movies, movies-anime, software)
-- ``config_locked=1``     set_config/del_config answer "Configuration locked" (SABnzbd ``cfg.configlock``)
+- ``config_locked=1``     like SABnzbd's ``cfg.configlock`` (api.py ``_api_config``/``_api_set_config``/
+                          ``_api_del_config``): ``mode=config`` (so also the server test), ``set_config`` and
+                          ``del_config`` for every section answer "Configuration locked"; reads keep working
 
 Categories (1.6.0) behave like SABnzbd 4.x/5.x: ``get_cats`` lists '*' first, ``get_config&section=categories``
 returns ``[{name, order, pp, script, dir, newzbin, priority}]`` (''keyword'' = one category), ``set_config
@@ -580,8 +582,10 @@ def create_app(**faults: Any) -> FastAPI:
                 return ok(state.status())
             if mode == "warnings":
                 return ok({"warnings": list(state.warnings)})
+            if mode in ("set_config", "del_config", "set_config_default") and config_locked:
+                return ok({"status": False, "error": "Configuration locked"})
             if mode == "config":
-                if test_mode == "locked":
+                if test_mode == "locked" or config_locked:
                     return ok({"status": False, "error": "Configuration locked"})
                 if params.get("name") != "test_server" or test_mode == "unsupported":
                     return ok({"status": False, "error": "not implemented"})

@@ -91,10 +91,23 @@ def failed_at(o: dict[str, Any]) -> datetime | None:
     return o.get("finished_at") or o.get("observed_at")
 
 
-def after_gain(o: dict[str, Any], gain_at: datetime | None) -> bool:
-    """The coverage improved after this job failed (otherwise a retry asks the same servers for the same articles)."""
+def after_gain(o: dict[str, Any], gain: dict[str, Any] | datetime | None) -> bool:
+    """The coverage improved after this job failed (otherwise a retry asks the same servers for the same articles).
+    ``gain`` is :func:`coverage.last_gain` (compared with its ``since``: when the coverage became available) or a
+    moment."""
+    since = (gain.get("since") or gain.get("at")) if isinstance(gain, dict) else gain
     at = failed_at(o)
-    return bool(gain_at and at and at < gain_at)
+    return bool(since and at and at < since)
+
+
+def _ready_now() -> bool:
+    """:func:`readiness` from MSO's last known SABnzbd server state (no SABnzbd call); unknown → not blocking."""
+    sab = serverstatus.current()
+    if not sab:
+        return True
+    servers = [{"name": n, "enable": bool(d.get("enabled")), "displayname": d.get("displayname")}
+               for n, d in sab.items()]
+    return bool(readiness(servers, sab)["ready"])
 
 
 def _row(nzo_id: str) -> dict[str, Any] | None:
@@ -122,7 +135,14 @@ def status_for(o: dict[str, Any], events: list[dict[str, Any]] | None = None) ->
             return "retried"  # in the open retry proposal
     if basis(o) is None or not sr.get("usenet.retry_failed_downloads") or brake_state().get("paused"):
         return None
-    return "candidate" if after_gain(o, coverage.last_gain_at()) else None
+    if not after_gain(o, coverage.last_gain()):
+        return None
+    # the same conditions as propose(): otherwise recovery says "MSO laat SABnzbd dit opnieuw proberen" while
+    # retrying is blocked (a broken server still on, no working server, or too old) and searches no other release
+    at = o.get("finished_at") or o.get("failed_at") or o.get("observed_at")
+    if at and at < datetime.now(UTC) - timedelta(days=int(sr.get("usenet.retry_max_age_days"))):
+        return None
+    return "candidate" if _ready_now() else None
 
 
 def recovery_text(o: dict[str, Any], status: str) -> str:
@@ -187,7 +207,6 @@ def candidates(client: SabClient, servers: list[dict[str, Any]] | None = None) -
     sab = serverstatus.current()
     ready = readiness(servers, sab)
     gain = coverage.last_gain()
-    gain_at = gain["at"] if gain else None
     days = int(sr.get("usenet.retry_max_age_days"))
     rows = get_db().fetchall(
         "SELECT o.* FROM download_outcomes o WHERE o.client='sabnzbd' AND o.status='failed' "
@@ -198,7 +217,7 @@ def candidates(client: SabClient, servers: list[dict[str, Any]] | None = None) -
         (days,),
     )
     retryable = [dict(o) for o in rows if basis(dict(o))]
-    related = [o for o in retryable if after_gain(o, gain_at)]
+    related = [o for o in retryable if after_gain(o, gain)]
     live: set[str] = set()
     if related:
         hist = client.history(limit=1000, failed_only=True) or {}

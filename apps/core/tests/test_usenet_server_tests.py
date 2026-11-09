@@ -751,3 +751,196 @@ def test_flapping_advice_resolves_without_a_new_test(app: Any, db: Any, admin: A
     sab.test_results.pop(NH)
     _pass()  # NH is enabled and healthy: no new test, the advice resolves anyway
     assert _rec(db, key)["status"] == "resolved"
+
+
+# ------------------------------------------------------------------ integration review (1.6.0): the owner's choice
+def _use(sab: Any, server: str, nbytes: int = 50_000_000) -> None:
+    day = date.today().isoformat()
+    st = sab.stats.setdefault(server, {"daily": {}, "articles_tried": {}, "articles_failed": {}})
+    st["daily"][day] = st["daily"].get(day, 0) + nbytes
+    st["articles_tried"][day] = st["articles_tried"].get(day, 0) + 70
+
+
+def test_person_rollback_of_a_switch_off_is_respected_and_waits_quietly(
+    app: Any, db: Any, admin: Any, operator: Any, serve: Any
+) -> None:
+    from mso import state
+    from mso.features.automation import autopilot
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    off = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s AND status='applied'", (f"usenet.auto_off:{XS}",))
+    r = operator.post(f"/api/v1/changes/{off['id']}/rollback", json={"reason": "ik wil hem aan"})
+    assert r.status_code == 200, r.text
+    assert _enabled(sab)[XS] == 1
+    ov = db.fetchone("SELECT * FROM change_overrides WHERE target='sabnzbd' AND path=%s", (f"servers/{XS}/enable",))
+    assert ov is not None and ov["change_id"] == off["id"]
+    _pass()  # watch starts
+    sab.set_server_error(XS, f"Server {XS} reported: 482 Account expired.", at=int(time.time()) + 60)
+    calls = len(sab.test_calls)
+    for _ in range(6):  # six 5-minute rounds
+        out = _pass()
+    assert _enabled(sab)[XS] == 1  # the person's decision stands
+    pending = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s AND status='preview'",
+                          (f"usenet.auto_off:{XS}",))
+    assert pending is not None and autopilot.why_not(dict(pending), "usenet") == autopilot.OVERRIDE_REASON
+    # one audit line and at most one confirming test, not one per round
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='usenet.server_probe_failed'") == 1
+    assert len(sab.test_calls) - calls <= 1
+    row = _row(db, XS)
+    assert row["status"] == "probing" and row["last_result"].startswith("uitschakelen wacht")
+    assert row["next_test_at"] > datetime.now(UTC) + timedelta(days=20)  # until the override ends
+    assert out["servers"]["probe_failed"] == []
+
+
+def test_owner_switch_off_during_the_watch_is_respected(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    from mso import state
+    from mso.features.overview import goals
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    _pass()
+    assert _enabled(sab)[XS] == 1 and _row(db, XS)["status"] == "probing"
+    _srv(sab, XS)["enable"] = 0  # the owner does not want this server: off in SABnzbd
+    sab.set_server_error(XS, f"Server {XS} reported: 482 Account expired.", warn=False)
+    _pass()
+    assert _row(db, XS)["status"] == "disabled"
+    assert db.fetchone("SELECT * FROM change_overrides WHERE path=%s", (f"servers/{XS}/enable",))
+    before = [d["server"] for d in goals.servers_now(db)["disabled_by_mso"]]
+    assert XS not in before
+    _test_due(db, XS)
+    _pass()  # a failing test rewrites last_result: still the owner's choice on the goals card
+    assert XS not in [d["server"] for d in goals.servers_now(db)["disabled_by_mso"]]
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    out = _pass()
+    assert _enabled(sab)[XS] == 0 and out["servers"]["switched_on"] == []  # a passing test: only a proposal
+    assert db.scalar("SELECT count(*) FROM change_sets WHERE dedupe_key=%s AND status='preview'",
+                     (f"usenet.auto_on:{XS}",)) == 1
+
+
+def test_person_rollback_of_a_switch_on_is_respected(app: Any, db: Any, admin: Any, operator: Any,
+                                                     serve: Any) -> None:
+    from mso import state
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    _pass()
+    on = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s AND status='applied'", (f"usenet.auto_on:{XS}",))
+    assert operator.post(f"/api/v1/changes/{on['id']}/rollback", json={}).status_code == 200
+    assert _enabled(sab)[XS] == 0
+    _pass()
+    _test_due(db, XS)
+    _pass()
+    assert _enabled(sab)[XS] == 0
+
+
+def test_mso_proposal_applied_by_a_person_is_not_the_owners_override(
+    app: Any, db: Any, admin: Any, serve: Any
+) -> None:
+    from mso import changes, state
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    state.set_state("mode", "manage")
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    _pass()
+    ch = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s AND status='preview'", (f"usenet.auto_on:{XS}",))
+    changes.apply(ch["id"], "beheerder")  # the person applies MSO's own 'weer inschakelen' proposal
+    _pass()
+    row = _row(db, XS)
+    assert row["status"] == "probing" and row["probe_change_id"] == ch["id"]
+    assert not db.fetchone("SELECT * FROM change_overrides WHERE path=%s", (f"servers/{XS}/enable",))
+
+
+def test_noodrem_keeps_the_watch_and_recovered_at(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    from mso import state
+    from mso.features.automation import autopilot
+    from mso.features.usenet import coverage
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    _pass()
+    db.execute("UPDATE usenet_sab_server_events SET last_at = now() - interval '1 day' WHERE server=%s", (XS,))
+    db.execute("UPDATE usenet_server_autoheal SET probe_started_at = now() - interval '3 hours' WHERE server=%s", (XS,))
+    _use(sab, XS)
+    _pass()
+    assert _row(db, XS)["status"] == "recovered"
+    gain = coverage.last_gain_at()
+    db.execute("UPDATE usenet_server_autoheal SET status='probing', probe_started_at=now() WHERE server=%s", (XS,))
+    db.execute("UPDATE usenet_server_tests SET at = at - interval '2 hours'")
+    autopilot.engage_hold("test", {"rollbacks": 0, "failures": 5})  # noodrem for an unrelated reason
+    sab.set_server_error(XS, f"Server {XS} reported: 482 Account expired.", at=int(time.time()) + 5)
+    _pass()
+    row = _row(db, XS)
+    assert row is not None and row["status"] == "probing" and coverage.last_gain_at() == gain
+    assert _enabled(sab)[XS] == 1
+
+
+def test_job_that_failed_while_the_reenabled_server_was_on_is_not_retried(
+    app: Any, db: Any, admin: Any, serve: Any
+) -> None:
+    from msomocks import sabnzbd as mock
+
+    from mso import state
+    from mso.features.usenet import coverage, history
+
+    sab = _start(serve, admin, server_errors="field")
+    state.set_state("mode", "autopilot")
+    _pass()
+    _backdate(db)
+    _pass()
+    sab.fix_account(XS)
+    _test_due(db, XS)
+    _pass()
+    assert _enabled(sab)[XS] == 1 and _row(db, XS)["status"] == "probing"
+    time.sleep(1.1)  # SABnzbd's timestamps are whole seconds
+    slot = mock._slot(7, "Show.Name.S01E07.1080p.WEB.H264-GRP7", "tv", "repair", int(time.time()))
+    sab.add_history(slot)  # fails while XS is on (SABnzbd already tried XS too)
+    _use(sab, XS)
+    history.ingest(force=True)
+    db.execute("UPDATE usenet_sab_server_events SET last_at = now() - interval '1 day' WHERE server=%s", (XS,))
+    db.execute("UPDATE usenet_server_autoheal SET probe_started_at = probe_started_at - interval '3 hours' "
+               "WHERE server=%s", (XS,))
+    out = _pass()
+    assert out["servers"]["recovered"] == [XS]
+    gain = coverage.last_gain()
+    assert gain["kind"] == "recovered" and gain["since"] < gain["at"]
+    assert slot["nzo_id"] not in sab.retried
+
+
+def test_config_locked_sabnzbd_causes_no_failed_automatic_applies(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    """SABnzbd's config_lock refuses the server test AND set_config: MSO tries no switch-off (which would only fail
+    and trip the global noodrem), raises one calm item and looks again daily."""
+    from mso import state
+
+    sab = _start(serve, admin, server_errors="field", config_locked=1)
+    state.set_state("mode", "autopilot")
+    _pass()
+    _backdate(db)
+    for _ in range(3):
+        out = _pass()
+    db.execute("UPDATE automation_failures SET next_attempt_at = now() - interval '1 minute'")
+    out = _pass()
+    assert out["servers"]["switched_off"] == [] and set(out["servers"]["locked"]) >= {XS}
+    assert db.scalar("SELECT count(*) FROM automation_log WHERE kind='apply' AND result='failed'") == 0
+    assert state.hold() is None
+    assert all(s["enable"] == 1 for s in sab.servers)
+    assert {r["result"] for r in db.fetchall("SELECT result FROM usenet_server_tests")} == {"locked"}
+    rec = _rec(db, "usenet.sab_locked")
+    assert rec["status"] == "open" and rec["risk"] == "toestemming_nodig"
+    n = db.scalar("SELECT count(*) FROM usenet_server_tests")
+    _pass()
+    assert db.scalar("SELECT count(*) FROM usenet_server_tests") == n  # no new test before the daily re-check

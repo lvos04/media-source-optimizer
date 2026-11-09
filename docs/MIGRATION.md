@@ -76,11 +76,22 @@ Let op:
 ## Back-ups en schemaversies
 
 - Elke back-up legt de schemaversie vast (kolom `schema_version`, zichtbaar in de back-uplijst).
-- Herstel vervangt de complete database, inclusief `schema_migrations`. Herstel je een back-up met een
-  **oudere** schemaversie in een nieuwere MSO-versie, herstart dan de app: `migrate` brengt het schema weer
-  naar de huidige versie.
-- Een back-up met een **nieuwere** schemaversie dan het draaiende image kent, herstel je niet in een oudere
-  versie; upgrade eerst het image.
+- Herstel vervangt de complete database, inclusief `schema_migrations`. Herstel je in de app (Systeem →
+  Back-ups) een back-up met een **oudere** schemaversie, bijvoorbeeld de `pre-upgrade`-back-up, dan zet MSO
+  eerst het schema terug naar de versie van de back-up (met de down-scripts van het draaiende image), herstelt
+  de back-up en werkt het schema daarna meteen weer bij. Een herstart is niet nodig. Gegevens in tabellen van
+  nieuwere functies gaan daarbij verloren; ze staan in de vangnet-back-up (`pre-restore`) die MSO vlak vóór het
+  herstel maakt.
+- Een back-up met een **nieuwere** schemaversie dan het draaiende image kent, weigert MSO te herstellen; upgrade
+  eerst het image.
+- Herstel je een oudere dump **met de hand** (`pg_restore`, zie OPERATIONS.md), draai dan eerst met het huidige
+  image `mso migrate --down <schemaversie van de dump>`. `pg_restore --clean` verwijdert alleen wat in de dump
+  staat; tabellen van nieuwere migraties blijven anders staan en laten de volgende `migrate` vastlopen.
+- Terug naar 1.5.0 met de `pre-upgrade`-back-up: stop `api`/`worker`, draai met het 1.6.0-image
+  `mso migrate --down 501`, zet de 1.5.0-tags terug en herstel daarna de `pre-upgrade`-dump in 1.5.0.
+- De bedrijfsstand hoort niet bij een herstel: modus (alleen-lezen/beheer/Autopilot), pauze en noodrem blijven
+  zoals ze vlak vóór het herstel waren. Een wijziging die werd toegepast op het moment van de dump, krijgt de
+  status "mislukt" zonder dat MSO iets terugzet; je ziet er één item voor bij "Wacht op jou".
 - Koppelingsgeheimen zitten standaard niet in een back-up. Bij herstel van zo'n back-up houdt MSO de huidige
   (versleutelde) geheimen aan. De vault-sleutel (`APPDATA/secrets/vault.key`) zit nooit in een back-up.
 - Sessies worden nooit geback-upt; na een herstel log je opnieuw in.

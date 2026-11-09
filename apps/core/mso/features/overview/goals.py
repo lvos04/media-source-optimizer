@@ -327,12 +327,13 @@ def _suspicious_goal(db: Database, days: list[date], snaps: dict[date, dict[str,
     # every suspicious torrent that arrived this week, also the ones already cleaned up: does prevention work?
     new_7d = int(db.scalar(
         f"SELECT count(*) FROM torrent_state WHERE {SUS_SQL} AND first_seen > %s", (now - timedelta(days=7),)) or 0)
-    change = db.fetchone(
-        "SELECT id, ops, status FROM change_sets WHERE target='qbittorrent' AND source=%s "
-        "AND status IN ('preview','approved') ORDER BY id DESC LIMIT 1",
-        (CLEANUP_SOURCE,),
-    )
-    waiting = sum(1 for op in (change["ops"] or []) if str(op.get("path", "")).startswith("torrent:")) if change else 0
+    # the same cleanup change and number as "Wacht op jou" (the biggest open cleanup; every hash any open cleanup
+    # change covers), whatever made it (bundle, accepted per-torrent recommendation, 'opruimen' of one torrent)
+    from mso.features.overview.autopilot import cleanup_bundle
+
+    cb = cleanup_bundle(db)
+    change = cb["change"] if cb else None
+    waiting = len(cb["covered"]) if cb else 0
     trend = []
     for d in days:
         if d == days[-1]:
@@ -425,6 +426,11 @@ def servers_now(db: Database) -> dict[str, Any]:
     heal = {r["server"]: r for r in db.fetchall(
         "SELECT server, status, reason, disabled_at, last_result FROM usenet_server_autoheal")}
     changed = _mso_switched_off(db) if any(not r["enabled"] for r in rows) else {}
+    # the owner's own choice to keep a server off (switched off in SABnzbd, or MSO's switch-on rolled back): an
+    # active owner override survives the next test (autoheal rewrites last_result on every test)
+    owner_off = {str(r["path"])[len("servers/"):-len("/enable")] for r in db.fetchall(
+        "SELECT path, current_value FROM change_overrides WHERE target='sabnzbd' AND until > now() "
+        "AND path LIKE 'servers/%%/enable'") if str(r["current_value"]).lower() in ("0", "false")}
     failing, disabled, probing = [], [], []
     for r in rows:
         h = heal.get(r["server"])
@@ -438,14 +444,15 @@ def servers_now(db: Database) -> dict[str, Any]:
             continue
         # switched off by MSO and still off: an autoheal state other than a running probe or a recovery (not when
         # the user switched it off during a probe), or an applied MSO change whose latest enable-op set it to 0
-        by_heal = bool(h and h["status"] not in ("probing", "recovered") and h["last_result"] != OUTSIDE_MSO)
+        owners = r["server"] in owner_off or bool(h and h["last_result"] == OUTSIDE_MSO)
+        by_heal = bool(h and h["status"] not in ("probing", "recovered") and not owners)
         ch = changed.get(r["server"])
         if by_heal and h:
             reason = h["reason"] or (ch or {}).get("reason")
             disabled.append(entry | {"reason": reason, "reason_label": _status_label(reason or "error"),
                                      "disabled_at": h["disabled_at"] or (ch or {}).get("applied_at"),
                                      "given_up": h["status"] == "given_up", "via": "autopilot"})
-        elif ch and not (h and h["last_result"] == OUTSIDE_MSO):
+        elif ch and not owners:
             disabled.append(entry | {"reason": ch["reason"], "reason_label": _status_label(ch["reason"] or "error"),
                                      "disabled_at": ch["applied_at"], "given_up": False, "via": "change",
                                      "change_id": ch["change_id"]})

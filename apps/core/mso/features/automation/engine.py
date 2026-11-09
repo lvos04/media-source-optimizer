@@ -399,6 +399,7 @@ def evaluation_view(ch: dict[str, Any], db: Database | None = None) -> dict[str,
     out["reversible"] = has_reversible(ch) or ch["status"] == "rolled_back"
     out["evaluation"] = imp.get("evaluation")
     out["interim"] = None
+    never: str | None = None
     if out["evaluation"] is None and ch["status"] == "rolled_back":
         out["evaluation"] = {
             "result": "niet_van_toepassing",
@@ -426,8 +427,18 @@ def evaluation_view(ch: dict[str, Any], db: Database | None = None) -> dict[str,
                 "measures": ev.get("measures") or [],
                 "message": ev.get("message") or "",
             }
+            never = _no_auto_rollback(ch, ev)
     enabled, key = auto_rollback_setting(ch)
     out["auto_rollback"] = {"enabled": enabled, "setting": key}
+    # what really happens on 'slechter' for THIS change: the evaluator (e.g. a SABnzbd category: rolling back
+    # deletes it), a guardrail or a rollback that would switch something off overrules the general setting
+    shown = out["evaluation"] or out["interim"] or {}
+    if never is None and ch["status"] == "applied" and out["applicable"]:
+        never = _no_auto_rollback(ch, {})
+        if never is None and shown.get("result") == "niet_van_toepassing":
+            never = "deze wijziging wordt niet gemeten"
+    if never is not None:
+        out["auto_rollback"] = {"enabled": False, "setting": key, "reason": never}
     return out
 
 

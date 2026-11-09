@@ -22,8 +22,9 @@ export interface Overview {
     last_24h: number; last_7d: number; finished_7d?: number; failure_rate_7d?: number | null;
     by_reason: Array<{ reason: string; label: string; last_24h: number; last_7d: number }>; by_location: FailureLocation[];
   };
-  recommendations: Unavailable & { open: number; by_risk: Record<Risk, number>; top: Array<{ id: number; area: string; title: string; risk: Risk; confidence: number | null; updated_at: string }> };
-  changes: Unavailable & { open: number; failed_7d: number; items: Array<{ id: number; target: string; title: string; risk: Risk; status: string; created_at: string }> };
+  /** 1.6.0: only what is NOT in "Wacht op jou" (each decision counted once); `waiting` = decisions there. */
+  recommendations: Unavailable & { open: number; by_risk: Record<Risk, number>; top: Array<{ id: number; area: string; title: string; risk: Risk; confidence: number | null; updated_at: string }>; waiting?: number };
+  changes: Unavailable & { open: number; failed_7d: number; items: Array<{ id: number; target: string; title: string; risk: Risk; status: string; created_at: string }>; waiting?: number };
   costs: Unavailable & { monthly_cents?: number | null; currency?: string; services?: number; unknown?: Array<{ id: number; label: string; reason: string | null }> };
   jobs: Unavailable & { failing_24h: number; failing: Array<{ kind: string; n: number; last_failed: string; last_error: string | null }>; queued: number; running: number; worker: { seen: boolean; stale_s: number | null; healthy: boolean } };
   mediaguard: Unavailable & {
@@ -152,7 +153,7 @@ export interface StoredEvaluation {
 export interface ChangeEvaluation {
   id: number; target: string; title: string; risk: Risk; status: string; applied_at: string | null; applied_by: string | null;
   rolled_back_at: string | null; evaluate_at: string | null; applicable: boolean;
-  evaluation: StoredEvaluation | null; interim: StoredEvaluation | null; auto_rollback: { enabled: boolean; setting: string };
+  evaluation: StoredEvaluation | null; interim: StoredEvaluation | null; auto_rollback: { enabled: boolean; setting: string; reason?: string };
 }
 
 /** Audit summaries written before 1.4.0 (and by modules that still pass raw statuses) → Dutch labels. */

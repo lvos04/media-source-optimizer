@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Lightbulb, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Confidence } from "@/components/mg/domain";
 import { Button, Card, Segmented, StatusChip } from "@/components/mg/primitives";
@@ -16,7 +16,7 @@ import { useSession } from "@/lib/session";
 import { CHANGE_STATUS } from "@/lib/status";
 
 const STATUSES = ["open", "accepted", "dismissed", "all"] as const;
-const AREAS = ["", "usenet", "torrent", "indexers", "recovery", "mediaguard", "costs", "automation"] as const;
+const AREAS = ["", "usenet", "torrent", "indexers", "recovery", "mediaguard", "costs", "automation", "system"] as const;
 const RISKS: Array<Risk | ""> = ["", "advies", "automatisch_veilig", "toestemming_nodig"];
 export const areaLabel = (a: string): MessageKey => `automation.area.${a}` as MessageKey;
 
@@ -30,6 +30,16 @@ export function RecommendationsList({ onOpenChange }: { onOpenChange: (changeId:
   const [risk, setRisk] = useState<string>("");
   const recs = useResource<{ items: Recommendation[] }>("/automation/recommendations", { status, area: area || undefined, risk: risk || undefined }, 60_000);
   const { run, pending } = useAction();
+  // deep link from "Wacht op jou": ?tab=aanbevelingen&rec=<id> → that row is marked and scrolled into view
+  const [focusRec, setFocusRec] = useState<number | null>(null);
+  useEffect(() => {
+    const n = Number(new URLSearchParams(window.location.search).get("rec"));
+    if (Number.isInteger(n) && n > 0) setFocusRec(n);
+  }, []);
+  const loaded = !!recs.data;
+  useEffect(() => {
+    if (focusRec != null && loaded) document.getElementById(`rec-${focusRec}`)?.scrollIntoView({ block: "center" });
+  }, [focusRec, loaded]);
 
   const act = async (r: Recommendation, what: "accept" | "dismiss") => {
     const res = await run<Recommendation>(`${what}-${r.id}`, "post", `/automation/recommendations/${r.id}/${what}`, what === "dismiss" ? {} : undefined,
@@ -56,7 +66,8 @@ export function RecommendationsList({ onOpenChange }: { onOpenChange: (changeId:
         {(d) => (
           <div className="list">
             {d.items.map((r) => (
-              <div className="list-row list-row--wrap" key={r.id} style={{ alignItems: "flex-start" }}>
+              <div className="list-row list-row--wrap" key={r.id} id={`rec-${r.id}`} aria-current={r.id === focusRec ? "true" : undefined}
+                style={{ alignItems: "flex-start", ...(r.id === focusRec ? { boxShadow: "inset 3px 0 0 var(--mg-accent)", background: "var(--mg-accent-tint)" } : {}) }}>
                 <div className="list-main">
                   <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                     <RiskChip risk={r.risk} />

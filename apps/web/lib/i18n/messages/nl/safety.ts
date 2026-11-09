@@ -74,6 +74,7 @@ export const messages = {
   // ---------------------------------------------------------------- controle
   "safety.eval.notReversible": "Deze wijziging is niet terug te draaien: bij ‘slechter’ gebeurt er niets en komt er ook geen terugdraai-voorstel.",
   "safety.eval.serverStatus": "Beoordeeld op de eigen status van de server in SABnzbd, niet op de algemene faalratio.",
+  "safety.eval.neverAuto": "Nooit automatisch teruggedraaid, ook niet bij ‘slechter’: {reason}.",
   "safety.eval.works": "werkt",
   "safety.eval.fails": "faalt",
   "safety.eval.off": "uit",

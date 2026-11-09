@@ -170,11 +170,23 @@ def _lines(actions: Any) -> list[str]:
     return out
 
 
+_QUOTED_PATH = re.compile(r"(['\"])(?:[A-Za-z]:)?[\\/][^'\"\n]*[\\/]([^\\/'\"\n]+)\1")
+_PLAIN_PATH = re.compile(r"(?<![\w.…])(?:[A-Za-z]:)?(?:[\\/][^\\/\s\"']+){1,}[\\/]([^\\/\s\"']+)")
+_SPACED_PATH = re.compile(r"(?<![\w.…])(?:[A-Za-z]:)?[\\/](?:(?!\s+to\s)[^\n,;'\"…])*[\\/]"
+                          r"([^\\/\n,;'\"…]+?)(?=\s+to\s|[,;]|\s*$)")
+
+
 def redact_line(line: str, limit: int = 300) -> str:
     """SABnzbd's line as shown in MSO: secrets masked (:func:`mso.security.redact`), the set name prefix dropped,
     absolute paths shortened to their last part (a home directory or user name in a path never leaves MSO)."""
-    text = redact(_strip_set(_clean(line)))
-    text = re.sub(r"(?<![\w.])(?:[A-Za-z]:)?(?:[\\/][^\\/\s\"']+){2,}[\\/]([^\\/\s\"']+)", r"…/\1", text)
+    text = redact(_strip_set(_clean(line)))[:2000]  # bounded input for the path patterns below
+    # 1) quoted paths (SABnzbd quotes them in OS errors, e.g. Permission denied: 'C:\\Users\\Jan de Vries\\…'):
+    #    spaces inside are fine, everything up to the last separator goes
+    text = _QUOTED_PATH.sub(lambda m: f"{m[1]}…/{m[2]}{m[1]}", text)
+    # 2) unquoted paths, spaces allowed, up to a separator SABnzbd uses (' to ', ',', ';', end of line)
+    text = _SPACED_PATH.sub(r"…/\1", text)
+    # 3) what is left: unquoted paths without spaces (also short ones: /home/jdoe/x, C:\\Users\\x)
+    text = _PLAIN_PATH.sub(r"…/\1", text)
     return text[:limit]
 
 

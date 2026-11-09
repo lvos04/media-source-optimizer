@@ -68,7 +68,10 @@ GUARD_ACTIONS = {"autopilot.self_paused", "usenet.retry_paused", "automation.par
                  "change.interrupted"}
 # 1.6.0: follow-ups that are not actions on the owner's systems
 QUIET_ACTIONS = {"autopilot.resumed", "usenet.retry_resumed", "automation.unparked", "backup.skipped",
-                 "backup.space", "change.rollback_skipped"}
+                 "backup.space", "change.rollback_skipped",
+                 # a read-only check (SABnzbd's own server test, every mode) and MSO's own data (Kosten prefill):
+                 # no action on the owner's systems, so Alleen-lezen really shows 0
+                 "usenet.server_test", "costs.renewal_prefilled"}
 _SYNC_RE = re.compile(r"(^|[._])(sync|synced|ingest|import|imported|scan|stats|health|reliability|analyze)"
                       r"($|[._])|^backup\.created$|services_imported")
 _SEARCH_RE = re.compile(r"search_requested|fallback_sent|fallback_send|recovery\.sent|search\.sent|add_url|add_nzb|"
@@ -140,8 +143,9 @@ ACTION_CATEGORIES = ("applied", "switched_off", "rolled_back", "remedies", "sear
 NOT_ACTIONS = ("syncs", "evaluated")
 DEFAULT_TZ = "Europe/Amsterdam"
 _TZ_OK: dict[str, str] = {}
-TARGET_LABEL = {"sabnzbd": "SABnzbd", "sabnzbd_retry": "SABnzbd", "qbittorrent": "qBittorrent",
-                "prowlarr": "Prowlarr", "download_send": "downloadclient", "mediaguard": "MediaGuard"}
+TARGET_LABEL = {"sabnzbd": "SABnzbd", "sabnzbd_retry": "SABnzbd", "sabnzbd_categories": "SABnzbd",
+                "qbittorrent": "qBittorrent", "prowlarr": "Prowlarr", "download_send": "downloadclient",
+                "mediaguard": "MediaGuard"}
 WHY_KEYS = ("Reden", "reden", "Waarom", "waarom", "reason", "Aanleiding", "Oorzaak")
 WHY_DETAIL_KEYS = ("SABnzbd meldt", "Melding", "Bron")
 EVAL_ACTION_NL = {"behouden": "behouden", "teruggedraaid": "teruggedraaid", "voorgesteld": "terugdraaien voorgesteld"}
@@ -406,6 +410,7 @@ def summary(days: int, db: Database | None = None) -> dict[str, Any]:
     sync_rows = db.fetchall(
         "SELECT kind, status, (updated_at AT TIME ZONE %s)::date AS d, count(*) AS n FROM jobs "
         "WHERE updated_at >= %s AND status IN ('done','failed') AND created_by NOT IN (SELECT username FROM users) "
+        "AND NOT (status='failed' AND connector_id IS NOT NULL) "  # an outage: shown as the connector being down
         "GROUP BY kind, status, d", (tz, since))
     sync_detail: dict[str, dict[str, int]] = {}
     for r in sync_rows:
@@ -419,11 +424,16 @@ def summary(days: int, db: Database | None = None) -> dict[str, Any]:
         b["total"] += n
         b["categories"]["syncs"] = b["categories"].get("syncs", 0) + n
     # the latest run per synchronisation decides the status line ("op schema" vs "N mislukt → Systeem")
-    failing_now = sorted(
-        r["kind"] for r in db.fetchall(
-            "SELECT DISTINCT ON (kind) kind, status FROM jobs WHERE updated_at >= %s AND status IN ('done','failed') "
-            "AND created_by NOT IN (SELECT username FROM users) ORDER BY kind, updated_at DESC", (since,))
-        if r["status"] == "failed" and str(r["kind"]).startswith(SYNC_JOB_PREFIXES))
+    # a failure because a connector is down (jobs.connector_id, 1.6.0) is shown as that connector being unreachable
+    # (connector card, health), not as "N mislukt" here
+    latest = [r for r in db.fetchall(
+        "SELECT DISTINCT ON (kind) kind, status, connector_id FROM jobs WHERE updated_at >= %s "
+        "AND status IN ('done','failed') AND created_by NOT IN (SELECT username FROM users) "
+        "ORDER BY kind, updated_at DESC", (since,))
+        if r["status"] == "failed" and str(r["kind"]).startswith(SYNC_JOB_PREFIXES)]
+    failing_now = sorted(r["kind"] for r in latest if not r["connector_id"])
+    waiting_on = sorted({str(r["connector_id"]) for r in latest if r["connector_id"]})
+    labels = _job_labels()
 
     categories = [
         {"key": k, "label": CATEGORIES[k][0], "link": CATEGORIES[k][1], "tone": CATEGORIES[k][2],
@@ -453,10 +463,19 @@ def summary(days: int, db: Database | None = None) -> dict[str, Any]:
         "by_day": by_day,
         "syncs": {"jobs": [{"kind": k, **v} for k, v in sorted(sync_detail.items())], "failed": sync_failed,
                   "runs": sync_runs, "failing_now": failing_now,
+                  "failing_labels": [labels.get(k, k) for k in failing_now], "waiting_on": waiting_on,
                   "state": "failing" if failing_now else ("ok" if sync_runs else "idle"),
                   "link": CATEGORIES["syncs"][1]},
         "waiting": waiting(db),
     }
+
+
+def _job_labels() -> dict[str, str]:
+    try:
+        from mso.features.automation.api import SCHEDULE_LABELS
+    except ImportError:  # automation module disabled
+        return {}
+    return {k: v[0] for k, v in SCHEDULE_LABELS.items()}
 
 
 # ------------------------------------------------------------------ wacht op jou
@@ -484,6 +503,49 @@ def _plural(n: int, one: str, many: str) -> str:
     return one if n == 1 else many
 
 
+def cleanup_bundle(db: Database | None = None, rows: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
+    """The open malware cleanup: every open qBittorrent change that deletes torrents (Torrentclient's proposal, an
+    accepted per-torrent recommendation, 'opruimen' of one torrent — recognised by its delete ops, not its source).
+    ``change`` = the biggest ("the bundle"), ``hashes`` = what it deletes, ``covered`` = every hash in any open
+    cleanup change, ``folded`` = smaller changes the bundle fully covers. Shared by "Wacht op jou" and the goals card,
+    so both name the same change and the same number."""
+    db = db or get_db()
+    if rows is None:
+        rows = db.fetchall("SELECT * FROM change_sets WHERE status IN ('preview','approved') AND target='qbittorrent'")
+    cleanups = [(dict(r), _cleanup_hashes(r["ops"] or [])) for r in rows if r["target"] == "qbittorrent"]
+    cleanups = [c for c in cleanups if c[1]]
+    if not cleanups:
+        return None
+    bundle = max(cleanups, key=lambda c: (len(c[1]), c[0]["id"]))
+    return {"change": bundle[0], "hashes": bundle[1], "covered": set().union(*(c[1] for c in cleanups)),
+            "folded": {c[0]["id"] for c in cleanups if c[0]["id"] != bundle[0]["id"] and c[1] <= bundle[1]}}
+
+
+def rec_link(r: dict[str, Any]) -> str:
+    """Where an inbox recommendation is handled (not the unfiltered Aanbevelingen list)."""
+    key = str(r.get("dedupe_key") or "")
+    prefix = key.split(":", 1)[0]
+    ev = r.get("evidence") if isinstance(r.get("evidence"), dict) else {}
+    cid = ev.get("change_id")
+    if prefix == "autopilot.hold":
+        return "/automatisering?tab=veiligheid"
+    if prefix in ("automation.parked", "change.interrupted", "automation.rollback_failed") and cid:
+        return f"/automatisering?tab=wijzigingen&change={int(cid)}"
+    if prefix == "backup.restored_applying":
+        return "/automatisering?tab=wijzigingen"
+    if prefix == "connector.down":
+        rest = key.split(":", 1)[1] if ":" in key else ""
+        return "/instellingen?tab=verbindingen" + (f"#connector-{rest}" if re.fullmatch(r"[a-z0-9_-]+", rest) else "")
+    if prefix == "backup.space":
+        return "/systeem"
+    if prefix.startswith(("usenet.server_", "usenet.sab_")) or prefix == "usenet.block_low":
+        return "/usenet-providers"
+    if prefix == "usenet.unpack":
+        return "/downloads"
+    rid = r.get("id")
+    return f"/automatisering?tab=aanbevelingen&rec={int(rid)}" if rid else "/automatisering?tab=aanbevelingen"
+
+
 def waiting(db: Database | None = None) -> dict[str, Any]:
     """Open changes that need a person: approval (deleting, cleanup, …), approved-but-not-applied, and safe
     proposals that cannot be applied automatically in the current mode — plus open recommendations that ask for a
@@ -492,7 +554,6 @@ def waiting(db: Database | None = None) -> dict[str, Any]:
     real decisions (a group of 3 recommendations is 3, the bundle is 1), ``info`` = calm notes (no decision)."""
     from mso.features.automation import autopilot
     from mso.features.automation.engine import change_area
-    from mso.features.torrent.cleanup import SOURCE as CLEANUP_SOURCE
     from mso.features.torrent.ingest import SUSPICIOUS_KEY
 
     db = db or get_db()
@@ -501,11 +562,13 @@ def waiting(db: Database | None = None) -> dict[str, Any]:
         "SELECT * FROM change_sets WHERE status IN ('preview','approved') ORDER BY "
         "CASE risk WHEN 'toestemming_nodig' THEN 0 ELSE 1 END, created_at DESC LIMIT 200")
     # malware cleanup: the biggest open cleanup change is "the bundle"; others it fully covers fold into it
-    cleanups = [(dict(r), _cleanup_hashes(r["ops"] or [])) for r in rows if r["source"] == CLEANUP_SOURCE]
-    cleanups = [c for c in cleanups if c[1]]
-    bundle = max(cleanups, key=lambda c: (len(c[1]), c[0]["id"]), default=None)
-    covered: set[str] = set().union(*(c[1] for c in cleanups)) if cleanups else set()
-    folded = {c[0]["id"] for c in cleanups if bundle and c[0]["id"] != bundle[0]["id"] and c[1] <= bundle[1]}
+    cb = cleanup_bundle(db, rows)
+    bundle = (cb["change"], cb["hashes"]) if cb else None
+    covered: set[str] = cb["covered"] if cb else set()
+    folded: set[int] = cb["folded"] if cb else set()
+    # a change E1 parked after 3 failed automatic attempts already has its own inbox item: one decision, not two
+    parked = {str(r["key"]) for r in db.fetchall("SELECT key FROM automation_failures WHERE parked")}
+    info: list[dict[str, Any]] = []
     recs = db.fetchall(
         "SELECT id, area, subject, title, dedupe_key, evidence, created_at, risk FROM recommendations "
         "WHERE status='open' AND change_id IS NULL AND (risk='toestemming_nodig' OR dedupe_key LIKE ANY(%s)) "
@@ -533,6 +596,14 @@ def waiting(db: Database | None = None) -> dict[str, Any]:
             why = autopilot.why_not(dict(r), change_area(dict(r), db))
             if why is None or why.startswith("status"):
                 continue  # MSO applies it itself in the next round
+            if parked and autopilot.failure_key(dict(r)) in parked:
+                continue  # the 'MSO kon … niet automatisch toepassen' item is the one decision for it
+            if why == autopilot.OVERRIDE_REASON:
+                # held back only by the owner's own choice: calm information, never a decision
+                info.append({"id": f"change:{r['id']}", "title": r["title"], "target": r["target"],
+                             "created_at": r["created_at"], "reason": why,
+                             "link": f"/automatisering?tab=wijzigingen&change={r['id']}"})
+                continue
             kind, reason = "toepassen", why[:1].upper() + why[1:]
         else:
             continue
@@ -553,7 +624,6 @@ def waiting(db: Database | None = None) -> dict[str, Any]:
 
     # recommendations: drop the ones the bundle covers, group the rest (one row per kind)
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    info: list[dict[str, Any]] = []
     for r in recs:
         key = str(r["dedupe_key"] or "")
         if key.startswith(INFO_PREFIXES):
@@ -586,8 +656,12 @@ def waiting(db: Database | None = None) -> dict[str, Any]:
                           "risk": "toestemming_nodig", "status": "open", "created_at": first["created_at"],
                           "kind": "bekijken", "reason": "Aanbeveling die jouw beslissing vraagt", "deletes": False,
                           "ops": 0, "decisions": 1, "group": False, "examples": [], "change_ids": [],
-                          "new_since_yesterday": None, "link": "/automatisering?tab=aanbevelingen"})
+                          "new_since_yesterday": None, "link": rec_link(first)})
             continue
+        # a group of one kind: the kind's own page; per-change links only fit one member
+        group_link = rec_link({"dedupe_key": first["dedupe_key"]})
+        if group_link.startswith("/automatisering?tab=aanbevelingen"):
+            group_link = "/automatisering?tab=aanbevelingen"
         n = len(members)
         label = GROUP_LABELS.get(prefix) or "aanbevelingen"
         items.append({"id": f"group:{area}:{prefix}", "title": f"{n}× {label}" if prefix in GROUP_LABELS
@@ -596,7 +670,7 @@ def waiting(db: Database | None = None) -> dict[str, Any]:
                       "created_at": max(m["created_at"] for m in members), "kind": "bekijken",
                       "reason": "Aanbevelingen die jouw beslissing vragen", "deletes": False, "ops": 0,
                       "decisions": n, "group": True, "examples": [m["title"] for m in members[:3]],
-                      "change_ids": [], "new_since_yesterday": None, "link": "/automatisering?tab=aanbevelingen"})
+                      "change_ids": [], "new_since_yesterday": None, "link": group_link})
     return {"count": len(items), "decisions": sum(i["decisions"] for i in items), "items": items[:50],
             "info": info[:20], "info_count": len(info)}
 

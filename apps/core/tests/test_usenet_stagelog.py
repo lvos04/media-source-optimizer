@@ -392,3 +392,23 @@ def test_complete_data_failure_reasons(kind: str, reason: str) -> None:
     assert c.reason == reason and c.certainty == "zeker"
     if reason != "encrypted":
         assert c.evidence.startswith("Data was compleet; uitpakken mislukte:")
+
+
+@pytest.mark.parametrize("line, shown", [
+    ("Unpacking failed, [Errno 13] Permission denied: 'C:\\Users\\Jan de Vries\\Downloads\\complete\\show.mkv'",
+     "Unpacking failed, [Errno 13] Permission denied: '…/show.mkv'"),
+    ("Unpacking failed, [Errno 28] No space left on device: '/home/jan de vries/Downloads/complete/show.mkv'",
+     "Unpacking failed, [Errno 28] No space left on device: '…/show.mkv'"),
+    ("Unpacking failed, unable to find /home/jan de vries/Downloads/x.rar", "Unpacking failed, unable to find …/x.rar"),
+    ("Moving /mnt/My Book/incomplete/x to /mnt/My Book/complete/x", "Moving …/x to …/x"),
+    ("Error /home/jdoe/x, retrying", "Error …/x, retrying"),
+    ("Error C:\\Users\\x", "Error …/x"),
+    ("CRC error in x.rar", "CRC error in x.rar"),
+    ("par2 failed: 5/10 blocks", "par2 failed: 5/10 blocks"),
+])
+def test_paths_with_spaces_and_short_paths_are_shortened(line: str, shown: str) -> None:
+    from mso.features.usenet import stagelog
+
+    out = stagelog.redact_line(line)
+    assert out == shown
+    assert "Jan de Vries" not in out and "jan de vries" not in out and "jdoe" not in out and "My Book" not in out

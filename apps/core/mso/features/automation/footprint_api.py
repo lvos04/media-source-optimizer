@@ -10,17 +10,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from mso.auth import Principal, require
 from mso.features.automation import footprint
 from mso.features.automation.api import SCHEDULE_LABELS
+from mso.security import limiter
 
 router = APIRouter(prefix="/api/v1/automation/footprint", tags=["automatisering"])
 # Systeem → Automatische taken: a readable label for the hourly check (the dict lives in automation/api.py)
 SCHEDULE_LABELS.setdefault(footprint.JOB, ("Voetafdruk controleren (wat MSO veranderde: nog actief?)",
                                            "Automatisering"))
+
+
+def _limit(bucket: str, actor: str, n: int) -> None:
+    """These routes read every footprint entry live at SABnzbd/qBittorrent/Prowlarr: bounded per person."""
+    ok, wait = limiter.hit(bucket, actor, n, 60)
+    if not ok:
+        raise HTTPException(429, detail=f"Te veel verzoeken; wacht {int(wait) + 1} s")
 
 
 @router.get("")
@@ -29,13 +37,15 @@ def get_footprint(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
 
 
 @router.post("/refresh")
-def refresh_footprint(_: Principal = Depends(require("operator"))) -> dict[str, Any]:
+def refresh_footprint(p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    _limit("footprint.refresh", p.actor, 6)
     footprint.refresh()
     return footprint.view()
 
 
 @router.get("/restore")
-def restore_preview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+def restore_preview(p: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    _limit("footprint.restore_plan", p.actor, 12)
     return footprint.restore_plan()
 
 
@@ -45,5 +55,6 @@ class RestoreBody(BaseModel):
 
 @router.post("/restore")
 def restore(body: RestoreBody, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
+    _limit("footprint.restore", p.actor, 6)
     out = footprint.restore_all(p.actor, fingerprint=body.fingerprint, is_admin=p.can("admin"))
     return out | {"footprint": footprint.view()}

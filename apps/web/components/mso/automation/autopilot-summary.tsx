@@ -12,7 +12,7 @@ import { Button, Card, Dot, LinkButton, Segmented, StatusChip } from "@/componen
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { RiskChip } from "@/components/mso/risk-chip";
-import { useWaiting } from "@/components/shell/waiting";
+import { notifyWaitingChanged, useWaiting } from "@/components/shell/waiting";
 import { api, errorMessage } from "@/lib/api/client";
 import { NOT_ACTION_CATEGORIES, type AutopilotAction, type CalmAutopilotSummary, type CalmSyncs, type WaitingInbox } from "@/lib/api/calm";
 import { useResource } from "@/lib/api/hooks";
@@ -47,7 +47,7 @@ function SyncLine({ syncs }: { syncs: CalmSyncs }) {
     : syncs.state === "idle" ? t("calm.syncIdle")
       : syncs.failed ? t("calm.syncOkRecovered", { count: num(syncs.failed) }) : t("calm.syncOk");
   return (
-    <Link href={syncs.link} className="row t-2" style={{ gap: 6, fontSize: 12.5 }} title={failing ? syncs.failing_now.join(", ") : t("calm.syncLinkTitle")} data-testid="sync-line">
+    <Link href={syncs.link} className="row t-2" style={{ gap: 6, fontSize: 12.5 }} title={failing ? (syncs.failing_labels ?? syncs.failing_now).join(", ") : t("calm.syncLinkTitle")} data-testid="sync-line">
       <Dot tone={failing ? "danger" : syncs.state === "idle" ? "neutral" : "success"} />{text}{failing ? <ArrowRight className="ico ico-sm" aria-hidden="true" /> : null}
     </Link>
   );
@@ -114,6 +114,7 @@ export function AutopilotCard({ className = "span-12" }: { className?: string })
       await api.post(`/changes/${encodeURIComponent(String(confirm.change_id))}/rollback`);
       toast.push("success", t("change.rolledBack"), confirm.what);
       setConfirm(null);
+      notifyWaitingChanged();
       await res.reload();
     } catch (e) {
       setError(errorMessage(e));
@@ -168,32 +169,43 @@ export function AutopilotCard({ className = "span-12" }: { className?: string })
 }
 
 function WaitingRows({ w }: { w: WaitingInbox }) {
-  const { t, num, relative } = useI18n();
+  const { t, num } = useI18n();
+  const rest = w.items.slice(8);
   return (
     <div className="list">
-      {w.items.slice(0, 8).map((i) => (
-        <div className="list-row list-row--wrap" key={String(i.id)} data-testid="waiting-item">
-          <span className={`list-icon ${i.deletes ? "list-icon--danger" : "list-icon--warning"}`}>
-            {i.deletes ? <Trash2 className="ico" aria-hidden="true" /> : <Hand className="ico" aria-hidden="true" />}
-          </span>
-          <div className="list-main" style={{ minWidth: 0 }}>
-            <div className="list-title" style={{ whiteSpace: "normal" }}>{i.title}</div>
-            <div className="list-sub" style={{ whiteSpace: "normal" }}>{i.reason} · {relative(i.created_at)}{i.decisions > 1 ? ` · ${t("calm.waitDecisionsInGroup", { count: num(i.decisions) })}` : ""}</div>
-            {i.group && i.examples.length ? (
-              <div className="list-sub" style={{ whiteSpace: "normal" }}>{i.examples.join(" · ")}{i.decisions > i.examples.length ? ` · ${t("calm.waitGroupMore", { count: num(i.decisions - i.examples.length) })}` : ""}</div>
-            ) : null}
-          </div>
-          <div className="list-aside">
-            <RiskChip risk={i.risk} />
-            <LinkButton size="sm" href={i.link}>{t("autopilot.view")}</LinkButton>
-          </div>
-        </div>
-      ))}
+      {w.items.slice(0, 8).map((i) => <WaitingRow key={String(i.id)} i={i} />)}
       {w.count > 8 ? (
-        <div style={{ padding: "8px 16px 12px" }}>
-          <Link className="link-more" href="/automatisering?tab=wijzigingen">{t("autopilot.waitMore", { count: num(w.count - 8) })} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>
-        </div>
+        // every hidden row right here (changes and recommendations mixed): no link to a tab that holds only some
+        <details style={{ padding: "8px 16px 12px" }} data-testid="waiting-more">
+          <summary className="link-more" style={{ cursor: "pointer" }}>{t("autopilot.waitMore", { count: num(w.count - 8) })}</summary>
+          <div className="list">{rest.map((i) => <WaitingRow key={String(i.id)} i={i} />)}</div>
+          {w.count > w.items.length ? (
+            <Link className="link-more" href="/automatisering?tab=wijzigingen">{t("calm.waitAllChanges")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>
+          ) : null}
+        </details>
       ) : null}
+    </div>
+  );
+}
+
+function WaitingRow({ i }: { i: WaitingInbox["items"][number] }) {
+  const { t, num, relative } = useI18n();
+  return (
+    <div className="list-row list-row--wrap" data-testid="waiting-item">
+      <span className={`list-icon ${i.deletes ? "list-icon--danger" : "list-icon--warning"}`}>
+        {i.deletes ? <Trash2 className="ico" aria-hidden="true" /> : <Hand className="ico" aria-hidden="true" />}
+      </span>
+      <div className="list-main" style={{ minWidth: 0 }}>
+        <div className="list-title" style={{ whiteSpace: "normal" }}>{i.title}</div>
+        <div className="list-sub" style={{ whiteSpace: "normal" }}>{i.reason} · {relative(i.created_at)}{i.decisions > 1 ? ` · ${t("calm.waitDecisionsInGroup", { count: num(i.decisions) })}` : ""}</div>
+        {i.group && i.examples.length ? (
+          <div className="list-sub" style={{ whiteSpace: "normal" }}>{i.examples.join(" · ")}{i.decisions > i.examples.length ? ` · ${t("calm.waitGroupMore", { count: num(i.decisions - i.examples.length) })}` : ""}</div>
+        ) : null}
+      </div>
+      <div className="list-aside">
+        <RiskChip risk={i.risk} />
+        <LinkButton size="sm" href={i.link}>{t("autopilot.view")}</LinkButton>
+      </div>
     </div>
   );
 }

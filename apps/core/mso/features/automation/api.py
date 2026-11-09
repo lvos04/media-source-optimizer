@@ -394,7 +394,11 @@ def undo(body: UndoBody, p: Principal = Depends(require("operator"))) -> dict[st
     own audit line. Not in alleen-lezen. What was put back is recorded as the owner's override, so MSO does not apply
     it again automatically right away (proposals stay possible)."""
     from mso.features.automation import overrides
+    from mso.security import limiter
 
+    ok, wait = limiter.hit("automation.undo", p.actor, 3, 60)  # a bulk rollback: bounded per person
+    if not ok:
+        raise HTTPException(429, detail=f"Te veel verzoeken; wacht {int(wait) + 1} s")
     state.require_manage_mode()
     cands = undo_candidates(body.window)
     wanted = set(body.change_ids) if body.change_ids is not None else None

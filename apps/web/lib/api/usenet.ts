@@ -112,7 +112,7 @@ export interface SabServerList { items: SabServer[]; period_days: number; last_s
 /** 1.6.0 · SABnzbd's own server test (`POST /usenet/sab/servers/{server}/test`, `GET /usenet/sab/server-tests`). */
 export type ServerTestResult =
   | "ok" | "auth_failed" | "account_expired" | "access_denied" | "block_exhausted" | "rate_limited" | "unreachable"
-  | "tls_error" | "unknown" | "unsupported";
+  | "tls_error" | "unknown" | "unsupported" | "locked";
 export interface ServerTest {
   result: ServerTestResult; label: string | null; ok: boolean; message: string | null;
   trigger: "schedule" | "user" | "confirm" | "config_changed" | "own_test" | null; at: string;

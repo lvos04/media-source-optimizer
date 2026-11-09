@@ -202,29 +202,54 @@ def failures_block(db: Database) -> dict[str, Any]:
     }
 
 
-def recommendations_block(db: Database) -> dict[str, Any]:
-    rows = db.fetchall("SELECT risk, count(*) AS n FROM recommendations WHERE status='open' GROUP BY risk")
+# 1.6.0 (integration): one decision is counted once on Overzicht. "Wacht op jou" holds every decision (approvals,
+# toestemming_nodig recommendations without a change, the malware bundle); the two cards below show only what is
+# NOT there: other recommendations (advies / automatisch veilig, not linked to an open change, no info notes) and
+# open changes MSO applies itself. ``waiting`` = the number of decisions in "Wacht op jou", for the link.
+_OTHER_RECS_SQL = (
+    "status='open' AND NOT (risk='toestemming_nodig' AND change_id IS NULL) "
+    "AND NOT (change_id IS NOT NULL AND EXISTS (SELECT 1 FROM change_sets c WHERE c.id=recommendations.change_id "
+    "AND c.status IN ('preview','approved','applying'))) AND COALESCE(dedupe_key, '') NOT LIKE 'footprint.override:%%'"
+)
+
+
+def _waiting(db: Database) -> dict[str, Any] | None:
+    try:
+        from mso.features.overview.autopilot import waiting
+
+        return waiting(db)
+    except Exception as exc:  # the dashboard never fails on the inbox
+        LOGGER.warning("Wacht op jou niet te bepalen: %s", exc)
+        return None
+
+
+def recommendations_block(db: Database, inbox: dict[str, Any] | None = None) -> dict[str, Any]:
+    rows = db.fetchall(f"SELECT risk, count(*) AS n FROM recommendations WHERE {_OTHER_RECS_SQL} GROUP BY risk")
     by_risk = {"advies": 0, "automatisch_veilig": 0, "toestemming_nodig": 0} | {
         r["risk"]: int(r["n"]) for r in rows
     }
     top = db.fetchall(
-        "SELECT id, area, title, risk, confidence, updated_at FROM recommendations WHERE status='open' "
+        f"SELECT id, area, title, risk, confidence, updated_at FROM recommendations WHERE {_OTHER_RECS_SQL} "
         "ORDER BY CASE risk WHEN 'toestemming_nodig' THEN 0 WHEN 'automatisch_veilig' THEN 1 ELSE 2 END,"
         " updated_at DESC LIMIT 5"
     )
-    return {"available": True, "open": sum(by_risk.values()), "by_risk": by_risk, "top": top}
+    return {"available": True, "open": sum(by_risk.values()), "by_risk": by_risk, "top": top,
+            "waiting": int((inbox or {}).get("decisions") or 0)}
 
 
-def changes_block(db: Database) -> dict[str, Any]:
+def changes_block(db: Database, inbox: dict[str, Any] | None = None) -> dict[str, Any]:
+    in_inbox = sorted({cid for i in (inbox or {}).get("items") or [] for cid in i.get("change_ids") or []})
+    where = "status IN ('preview','approved') AND NOT (id = ANY(%s))"
     rows = db.fetchall(
-        "SELECT id, target, title, risk, status, created_at FROM change_sets "
-        "WHERE status IN ('preview','approved') ORDER BY id DESC LIMIT 5"
+        f"SELECT id, target, title, risk, status, created_at FROM change_sets WHERE {where} ORDER BY id DESC LIMIT 5",
+        (in_inbox,),
     )
-    n = db.scalar("SELECT count(*) FROM change_sets WHERE status IN ('preview','approved')") or 0
+    n = db.scalar(f"SELECT count(*) FROM change_sets WHERE {where}", (in_inbox,)) or 0
     failed = db.scalar(
         "SELECT count(*) FROM change_sets WHERE status='failed' AND created_at > now() - interval '7 days'"
     )
-    return {"available": True, "open": int(n), "failed_7d": int(failed or 0), "items": rows}
+    return {"available": True, "open": int(n), "failed_7d": int(failed or 0), "items": rows,
+            "waiting": int((inbox or {}).get("decisions") or 0)}
 
 
 def costs_block(db: Database) -> dict[str, Any]:
@@ -385,6 +410,7 @@ def health_summary(conn: dict[str, Any], jobs: dict[str, Any], failures: dict[st
 def overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     db = get_db()
     conn, jobs_b, fail = connectors_block(db), jobs_block(db), failures_block(db)
+    inbox = _waiting(db)
     return {
         "mode": state.mode(),
         "paused": state.paused(),
@@ -393,8 +419,8 @@ def overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "connectors": conn,
         "downloads": downloads_block(db),
         "failures": fail,
-        "recommendations": recommendations_block(db),
-        "changes": changes_block(db),
+        "recommendations": recommendations_block(db, inbox),
+        "changes": changes_block(db, inbox),
         "costs": costs_block(db),
         "jobs": jobs_b,
         "mediaguard": mediaguard_block(db),

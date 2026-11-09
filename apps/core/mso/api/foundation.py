@@ -509,7 +509,8 @@ class RollbackBody(BaseModel):
 def change_rollback(
     change_id: int, body: RollbackBody | None = None, p: Principal = Depends(require("operator"))
 ) -> dict[str, Any]:
-    return changes.rollback(change_id, p.actor, (body.reason if body else ""))
+    # a rollback that removes something (e.g. deleting a SABnzbd category MSO created) is an admin's decision
+    return changes.rollback(change_id, p.actor, (body.reason if body else ""), allow_delete=p.can("admin"))
 
 
 @router.post("/changes/{change_id}/discard")

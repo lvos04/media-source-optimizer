@@ -278,3 +278,122 @@ def test_evaluate_window_hours_text() -> None:
     assert effect_of(ch, now)["text"] == "Meting loopt, eindoordeel over 3 dagen"
     ch["evaluate_after"] = now - timedelta(minutes=5)
     assert "volgende controle" in effect_of(ch, now)["text"]
+
+
+# ------------------------------------------------------------------ integration review (1.6.0)
+def test_overview_counts_each_decision_once(app: Any, db: Any, viewer: Any) -> None:
+    hs = [c * 40 for c in "ab"]
+    bundle = _cleanup_change(db, hs, title="Alle 2 verdachte torrents opruimen")
+    for h in hs:
+        _suspicious_rec(db, h)
+    cat = changes.create("sabnzbd_categories", "SABnzbd-categorie tv aanmaken",
+                         [{"path": "categories/tv", "before": "ontbreekt", "after": "aanwezig · map tv"}],
+                         risk="toestemming_nodig")
+    recommend("usenet", "Categorie tv ontbreekt", "Uitleg.", risk="toestemming_nodig", change_id=cat["id"],
+              dedupe_key="usenet.categories:tv", db=db)
+    recommend("system", "Back-up overgeslagen", "Ruimte.", risk="toestemming_nodig", dedupe_key="backup.space", db=db)
+    recommend("usenet", "Alleen advies", "Uitleg.", risk="advies", dedupe_key="advies:1", db=db)
+    w = viewer.get("/api/v1/overview/waiting").json()
+    o = viewer.get("/api/v1/overview").json()
+    assert w["decisions"] == 3  # the bundle, the category change, the back-up item
+    recs = o["recommendations"]
+    assert recs["open"] == 1 and recs["by_risk"]["advies"] == 1 and recs["waiting"] == w["decisions"]
+    assert [x["title"] for x in recs["top"]] == ["Alleen advies"]
+    assert o["changes"]["open"] == 0 and o["changes"]["items"] == []  # both open changes are in the inbox
+    assert bundle in next(i for i in w["items"] if i.get("bundle"))["change_ids"]
+    # the inbox links lead to the item itself, not to the unfiltered Aanbevelingen list
+    backup = next(i for i in w["items"] if i["title"] == "Back-up overgeslagen")
+    assert backup["link"] == "/systeem"
+
+
+def test_inbox_links_point_at_the_item() -> None:
+    from mso.features.overview.autopilot import rec_link
+
+    assert rec_link({"id": 1, "dedupe_key": "autopilot.hold:x"}) == "/automatisering?tab=veiligheid"
+    assert rec_link({"id": 1, "dedupe_key": "automation.parked:k:fp", "evidence": {"change_id": 7}}) == \
+        "/automatisering?tab=wijzigingen&change=7"
+    assert rec_link({"id": 1, "dedupe_key": "change.interrupted:7", "evidence": {"change_id": 7}}) == \
+        "/automatisering?tab=wijzigingen&change=7"
+    assert rec_link({"id": 1, "dedupe_key": "connector.down:qbittorrent"}) == \
+        "/instellingen?tab=verbindingen#connector-qbittorrent"
+    assert rec_link({"id": 1, "dedupe_key": "usenet.server_expired:x"}) == "/usenet-providers"
+    assert rec_link({"id": 1, "dedupe_key": "usenet.block_low:x:1"}) == "/usenet-providers"
+    assert rec_link({"id": 1, "dedupe_key": "usenet.unpack:abc"}) == "/downloads"
+    assert rec_link({"id": 9, "dedupe_key": "iets.anders"}) == "/automatisering?tab=aanbevelingen&rec=9"
+
+
+def test_parked_change_is_one_decision_also_during_the_noodrem(app: Any, db: Any, viewer: Any,
+                                                              fake: dict[str, Any]) -> None:
+    from mso.features.automation import autopilot
+
+    state.set_state("mode", "autopilot")
+    ch = changes.create("fake_calm", "Verbindingen 1 → 2", [{"path": "conns", "before": 10, "after": 20}],
+                        risk="automatisch_veilig", impact={"area": "usenet"}, dedupe_key="calm.conns")
+    for _ in range(3):
+        autopilot.note_failure(ch, "bron offline", "usenet", db)
+    w = viewer.get("/api/v1/overview/waiting").json()
+    assert w["decisions"] == 1
+    autopilot.engage_hold("test", {"rollbacks": 0, "failures": 5})
+    w = viewer.get("/api/v1/overview/waiting").json()
+    titles = [i["title"] for i in w["items"]]
+    assert "Verbindingen 1 → 2" not in titles  # the parked item is the one decision for it
+    assert any(t.startswith("MSO kon “Verbindingen 1 → 2”") for t in titles)
+    parked = next(i for i in w["items"] if i["title"].startswith("MSO kon"))
+    assert parked["link"] == f"/automatisering?tab=wijzigingen&change={ch['id']}"
+
+
+def test_change_held_back_by_the_owners_override_is_info_not_a_decision(
+    app: Any, db: Any, viewer: Any, fake: dict[str, Any]
+) -> None:
+    from mso.features.automation import overrides
+
+    state.set_state("mode", "autopilot")
+    overrides.record("fake_calm", "srv", mso_value=0, current_value=1, change_id=None, days=30)
+    ch = changes.create("fake_calm", "Server uitschakelen", [{"path": "srv", "before": 1, "after": 0}],
+                        risk="automatisch_veilig", impact={"area": "usenet"})
+    w = viewer.get("/api/v1/overview/waiting").json()
+    assert w["decisions"] == 0 and not w["items"]
+    assert any(i["id"] == f"change:{ch['id']}" for i in w["info"])
+
+
+def test_cleanup_change_from_an_accepted_recommendation_folds_into_the_bundle(app: Any, db: Any,
+                                                                               viewer: Any) -> None:
+    from mso.features.overview import goals
+
+    hs = [c * 40 for c in "abcde"]
+    bundle = _cleanup_change(db, hs, title="5 verdachte torrents opruimen")
+    single = _cleanup_change(db, hs[:1], title="Verdachte torrent opruimen: aaaa")
+    db.execute("UPDATE change_sets SET source=%s WHERE id=%s", (f"recommendation:{single}", single))
+    w = viewer.get("/api/v1/overview/waiting").json()
+    assert w["decisions"] == 1 and single not in {i["id"] for i in w["items"]}
+    # the goals card names the same change and number as the inbox
+    diag = jsonb({"findings": [{"code": "suspicious_payload"}]})
+    for h in hs:
+        db.execute("INSERT INTO torrent_state(hash,name,diagnosis,first_seen) VALUES (%s,%s,%s,now())",
+                   (h, f"Show {h[:4]}", diag))
+    g = next(x for x in viewer.get("/api/v1/overview/goals").json()["goals"] if x["key"] == "suspicious_torrents")
+    assert g["now"]["change_id"] == bundle and g["now"]["awaiting_approval"] == 5
+    assert goals.suspicious_now(db) == 5
+
+
+def test_read_only_checks_are_no_actions(app: Any, db: Any, viewer: Any) -> None:
+    from mso.features.overview.autopilot import classify
+
+    assert classify({"action": "usenet.server_test", "actor": "autopilot:usenet"}) is None
+    assert classify({"action": "costs.renewal_prefilled", "actor": "systeem"}) is None
+    audit("autopilot:usenet", "usenet.server_test", "SABnzbd-servertest news.eweka.test: Test geslaagd",
+          target="sabnzbd")
+    s = viewer.get("/api/v1/overview/autopilot").json()
+    assert s["mode"] == "read_only" and s["actions_total"] == 0
+
+
+def test_sync_line_leaves_outage_failures_to_the_connector_card(app: Any, db: Any, viewer: Any) -> None:
+    for kind in ("torrent.ingest", "torrent.storage"):
+        db.execute("INSERT INTO jobs(kind,status,created_by,connector_id,updated_at) VALUES (%s,'failed',"
+                   "'scheduler','qbittorrent',now())", (kind,))
+    db.execute("INSERT INTO jobs(kind,status,created_by,updated_at) VALUES ('prowlarr.sync','failed','scheduler',"
+               "now())")
+    syncs = viewer.get("/api/v1/overview/autopilot").json()["syncs"]
+    assert syncs["failing_now"] == ["prowlarr.sync"] and syncs["waiting_on"] == ["qbittorrent"]
+    assert syncs["failing_labels"] == ["Indexers synchroniseren met Prowlarr"]
+    assert syncs["failed"] == 1  # the outage failures are on the connector card, not counted here

@@ -39,6 +39,8 @@ export interface AutopilotAction {
 export interface CalmSyncs {
   jobs: Array<{ kind: string; done: number; failed: number }>; failed: number;
   runs: number; failing_now: string[]; state: "ok" | "failing" | "idle"; link: string;
+  /** Dutch labels of `failing_now`; `waiting_on`: connectors whose outage made a sync fail (shown on their card). */
+  failing_labels?: string[]; waiting_on?: string[];
 }
 export interface CalmDay {
   date: string; total: number; actions: number; categories: Partial<Record<AutopilotCategoryKey, number>>; items: AutopilotItem[];
@@ -86,7 +88,7 @@ interface PlanBase {
   original_text: string; mso_text: string; current_text: string | null;
 }
 export interface RestoreItem extends PlanBase { after_text: string; removes: boolean; disables: boolean; needs_approval: boolean }
-export interface SkippedItem extends PlanBase { reason_code: "onbereikbaar" | "verdwenen" | "gewijzigd" | "al_terug" | "beleid"; reason: string }
+export interface SkippedItem extends PlanBase { reason_code: "onbereikbaar" | "verdwenen" | "gewijzigd" | "al_terug" | "beleid" | "alleen_handmatig"; reason: string }
 export interface RestorePlan {
   restore: RestoreItem[]; skipped: SkippedItem[]; irreversible: IrreversibleItem[]; fingerprint: string;
   override_days: number; mode: string; allowed: boolean;

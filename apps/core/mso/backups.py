@@ -9,10 +9,19 @@
   (corrupt/missing backup) and keeps the current database intact.
 - Restore runs ``pg_restore --clean --if-exists --single-transaction``: all-or-nothing. Audit entries written after
   the dump survive (copied server-side, never loaded into memory).
+- A dump from an OLDER schema (e.g. the ``pre-upgrade`` dump of the previous version): the current schema is first
+  taken down to the dump's version with this image's down scripts (``--clean`` only drops what the archive holds,
+  so tables of newer migrations would survive and make the next ``migrate`` fail), then restored, then migrated up
+  again right away so the running code matches its schema. A dump from a NEWER schema is refused.
+- The operating state is not part of a restore: mode, pause and the noodrem (``KEEP_STATE``) stay as they were, so
+  a restore never lifts a hold nor switches Alleen-lezen back to Autopilot. A change that was being applied when the
+  dump was taken (``applying``) is settled as failed without touching any source (one "Wacht op jou" item): the
+  reconciler must not take a dump-era journal for a fresh crash.
 - Before a dump the free space is checked (2× the previous dump + the disk reserve). Too little space: no dump, one
   clear "Wacht op jou" item instead of a half-written file.
 - Pruning: ``auto``/``manual`` keep ``backup.keep``; safety dumps before a restore (``pre-restore``) are removed after
-  30 days (the newest 2 always stay); dumps before an upgrade (``pre-upgrade``) keep the newest 3.
+  30 days (the newest 2 always stay); dumps before an upgrade (``pre-upgrade``) keep the newest 3, and the dump of
+  an upgrade that has not finished yet (a failing migration in a restart loop) is never pruned.
 - ``pre_upgrade_backup`` runs before pending migrations (all-in-one supervisor, ``mso migrate``, API/worker start).
   It runs new code against the OLD schema, so it only touches 0001-era tables/columns (``backups``,
   ``system_state``); the audit row and any "Wacht op jou" item are written after the migration
@@ -35,7 +44,16 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from mso import jobs
 from mso.audit import audit
 from mso.config import get_settings
-from mso.db import Database, applied_migrations, get_db, jsonb, load_migrations, schema_version
+from mso.db import (
+    Database,
+    applied_migrations,
+    get_db,
+    jsonb,
+    load_migrations,
+    migrate_down,
+    migrate_up,
+    schema_version,
+)
 from mso.security import redact
 from mso.settings_registry import get as setting
 
@@ -50,6 +68,10 @@ UPGRADE_KIND, UPGRADE_KEEP = "pre-upgrade", 3
 PRE_UPGRADE_LOCK = 727002  # advisory lock: api, worker and `mso migrate` never dump twice for one upgrade
 PRE_UPGRADE_STATE = "backup.pre_upgrade_pending"
 SPACE_ALERT_KEY = "backup.space"
+# the operating state belongs to now, not to the dump: never lift a noodrem or leave Alleen-lezen through a restore
+KEEP_STATE = ("mode", "paused", "autopilot_hold")
+RESTORED_APPLYING_ERROR = ("Hersteld uit een back-up terwijl deze wijziging werd toegepast; MSO heeft niets "
+                           "teruggezet — controleer de instellingen bij de bron")
 # jobs that refill the refetchable tables after a restore (only those whose handler is loaded are queued);
 # (job kind, payload, connector it reads from): only queued when that connector is configured, so a restore on a
 # usenet-only install never leaves a failed 'torrent.ingest' behind
@@ -228,12 +250,18 @@ def restore_backup(backup_id: int, actor: str) -> dict:
         raise BackupError("Back-up niet gevonden")
     path = get_settings().backup_dir / row["file"]
     verify_backup(path, row["sha256"])
+    dump_v, cur_v = int(row["schema_version"] or 0), schema_version(db)
+    if dump_v > cur_v:
+        raise BackupError(f"Herstel geweigerd: deze back-up komt van een nieuwere MSO-versie (schema {dump_v}; deze "
+                          f"versie kent {cur_v}). Herstel hem met die versie of nieuwer.")
     # safety net: dump the current state first so a restore itself can be undone
     try:
         pre = create_backup(kind=SAFETY_KIND, actor=actor)
     except BackupSkipped as exc:
         raise BackupError(f"Herstel geweigerd: er kan geen veiligheidsback-up worden gemaakt. {exc}") from exc
     backups_rows = db.fetchall("SELECT * FROM backups")
+    kept_state = {r["key"]: r["value"] for r in db.fetchall(
+        "SELECT key, value FROM system_state WHERE key = ANY(%s)", (list(KEEP_STATE),))}
     # the audit trail is append-only evidence: entries written after the dump must survive the restore. Copied
     # server-side into a table that is not part of any dump (``--exclude-table``), so --clean leaves it alone.
     db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")
@@ -243,11 +271,34 @@ def restore_backup(backup_id: int, actor: str) -> dict:
            "--no-privileges", "--single-transaction", str(path)]
     # a dump without secrets would leave the vault empty after --clean: keep the current (encrypted) rows
     kept_secrets = [] if row["includes_secrets"] else db.fetchall("SELECT * FROM secrets")
+    # an older dump: take the schema down to its version first (this image has every down script), otherwise the
+    # tables of newer migrations survive ``--clean`` and the next ``migrate`` fails on them (DuplicateTable)
+    downgraded: list[int] = []
+    if 0 < dump_v < cur_v:
+        try:
+            downgraded = migrate_down(db, dump_v)
+        except Exception as exc:
+            _back_to_head(db)
+            db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")
+            raise BackupError(f"Herstel mislukt: schema niet terug te zetten naar versie {dump_v} "
+                              f"({redact(str(exc))[:300]}); de veiligheidsback-up {pre['file']} bevat de huidige "
+                              "stand") from exc
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=1800, check=False)  # noqa: S603
     db.pool.check()  # drop pooled connections that the restore may have invalidated
     if proc.returncode != 0:
+        if downgraded:
+            _back_to_head(db)
         db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")
+        if downgraded:
+            raise BackupError(f"Herstel mislukt: {redact(proc.stderr.strip())[:400]}. Het schema is weer bijgewerkt; "
+                              f"gegevens van nieuwere functies staan in de veiligheidsback-up {pre['file']}")
         raise BackupError(f"Herstel mislukt (database ongewijzigd): {redact(proc.stderr.strip())[:400]}")
+    try:
+        upgraded = migrate_up(db) if dump_v > 0 else []  # the running code needs its own schema right away
+    except Exception as exc:
+        raise BackupError(f"Back-up {row['file']} is hersteld, maar het schema bijwerken mislukte "
+                          f"({redact(str(exc))[:300]}); herstart MSO (migrate). De veiligheidsback-up "
+                          f"{pre['file']} bevat de stand van vóór het herstel") from exc
     # the backups table was replaced by the dump's copy — re-register files known before the restore
     for b in backups_rows:
         db.execute("INSERT INTO backups(id,file,kind,size_bytes,sha256,includes_secrets,schema_version,created_at) "
@@ -270,11 +321,57 @@ def restore_backup(backup_id: int, actor: str) -> dict:
     for sec in kept_secrets:
         db.execute("INSERT INTO secrets(name,nonce,ciphertext,updated_at) VALUES (%s,%s,%s,%s) "
                    "ON CONFLICT (name) DO NOTHING", (sec["name"], sec["nonce"], sec["ciphertext"], sec["updated_at"]))
+    _keep_state(kept_state, db)
+    settled = _settle_applying(row["file"], db)
     resync = resync_after_restore(db)
     audit(actor, "backup.restored", f"Back-up {row['file']} hersteld",
           detail={"pre_restore_backup": pre["file"], "jobs_cancelled": cancelled,
-                  "audit_entries_kept": audit_kept, "resync": resync})
-    return {"restored": row["file"], "pre_restore_backup": pre["file"], "resync": resync}
+                  "audit_entries_kept": audit_kept, "resync": resync, "schema": {"dump": dump_v, "current": cur_v},
+                  "migrations_down": downgraded, "migrations_up": upgraded, "kept_state": kept_state,
+                  "applying_settled": settled})
+    return {"restored": row["file"], "pre_restore_backup": pre["file"], "resync": resync,
+            "schema_version": schema_version(db), "applying_settled": settled}
+
+
+def _back_to_head(db: Database) -> None:
+    try:
+        migrate_up(db)
+    except Exception:  # reported by the caller's error; the next start runs `migrate` again
+        LOGGER.exception("schema na mislukt herstel niet bijgewerkt")
+
+
+def _keep_state(kept: dict[str, Any], db: Database) -> None:
+    """Put mode/pause/noodrem back exactly as they were before the restore (absent stays absent)."""
+    for key in KEEP_STATE:
+        if key in kept:
+            db.execute("INSERT INTO system_state(key,value,updated_at) VALUES (%s,%s,now()) "
+                       "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()",
+                       (key, jsonb(kept[key])))
+        else:
+            db.execute("DELETE FROM system_state WHERE key=%s", (key,))
+
+
+def _settle_applying(file: str, db: Database) -> list[int]:
+    """Changes the dump caught while they were being applied: in reality that apply ended long ago. Mark them
+    failed without touching any source (the reconciler would otherwise write dump-era values back) and raise one
+    "Wacht op jou" item."""
+    rows = db.fetchall("UPDATE change_sets SET status='failed', error=%s WHERE status='applying' "
+                       "RETURNING id, title", (RESTORED_APPLYING_ERROR,))
+    if not rows:
+        return []
+    from mso.domain.outcomes import recommend
+
+    ids = sorted(int(r["id"]) for r in rows)
+    titles = ", ".join(f"#{r['id']} {r['title']}" for r in rows)[:600]
+    rec_id = recommend(
+        "system", "Na herstel: wijzigingen controleren die halverwege waren",
+        f"De back-up {file} is gemaakt terwijl MSO {len(ids)} wijziging(en) aan het toepassen was ({titles}). MSO "
+        "weet niet wat daarna bij de bron is gebeurd en heeft niets teruggezet. Controleer de genoemde instellingen "
+        "zelf; maak zo nodig een nieuw voorstel.",
+        risk="toestemming_nodig", subject="backups", dedupe_key=f"backup.restored_applying:{file}",
+        evidence={"kind": "restored_applying", "change_ids": ids, "file": file}, db=db)
+    db.execute("UPDATE recommendations SET status='open', updated_at=now() WHERE id=%s", (rec_id,))
+    return ids
 
 
 def resync_after_restore(db: Database | None = None) -> list[str]:
@@ -325,10 +422,26 @@ def prune_safety(db: Database | None = None) -> int:
             _delete(row, db)
             removed += 1
     rows = db.fetchall("SELECT * FROM backups WHERE kind=%s ORDER BY created_at DESC", (UPGRADE_KIND,))
-    for row in rows[UPGRADE_KEEP:]:
+    protected = _pending_upgrade_files(db)
+    kept = sum(1 for r in rows if r["file"] in protected)
+    for row in [r for r in rows if r["file"] not in protected][max(0, UPGRADE_KEEP - kept):]:
         _delete(row, db)
         removed += 1
     return removed
+
+
+def _pending_marker(db: Database) -> dict[str, Any] | None:
+    row = db.fetchone("SELECT value FROM system_state WHERE key=%s", (PRE_UPGRADE_STATE,))
+    return dict(row["value"]) if row and isinstance(row["value"], dict) else None
+
+
+def _pending_upgrade_files(db: Database) -> set[str]:
+    """The dump(s) of the state before an upgrade that has not finished yet (the marker is removed only after a
+    successful migration): never pruned, also not when a failing upgrade restarts in a loop."""
+    m = _pending_marker(db) or {}
+    if m.get("status") != "created":
+        return set()
+    return {str(f) for f in (m.get("file"), m.get("origin_file")) if f}
 
 
 def list_backups() -> list[dict]:
@@ -370,10 +483,19 @@ def pre_upgrade_backup(db: Database | None = None, *, target: int | None = None,
                 pending = [v for v in pending_migrations(db) if target is None or v <= target]
                 if not pending:
                     return {"status": "not_needed", "reason": "migraties al uitgevoerd door een ander proces"}
+                # one dump per upgrade, not per start: a failing migration (each one commits on its own) leaves
+                # a half-migrated schema and a restart loop; the marker lives until a migration run succeeds
+                marker = _pending_marker(db) or {}
+                if marker.get("status") == "created" and int(marker.get("to") or 0) >= max(pending):
+                    return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al",
+                            "file": marker.get("file")}
                 if db.scalar("SELECT count(*) FROM backups WHERE kind=%s AND schema_version=%s "
                              "AND created_at > now() - interval '1 hour'", (UPGRADE_KIND, current)):
                     return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al"}
                 info: dict[str, Any] = {"from": current, "to": max(pending), "pending": pending}
+                if marker.get("status") == "created":  # an even newer image on top of an unfinished upgrade
+                    info |= {"origin_file": marker.get("origin_file") or marker.get("file"),
+                             "origin_from": marker.get("origin_from") or marker.get("from")}
                 st = space_status(db)
                 if not st["ok"]:
                     msg = _space_message(st)
@@ -385,8 +507,8 @@ def pre_upgrade_backup(db: Database | None = None, *, target: int | None = None,
                     return {"status": "skipped", "reason": msg}
                 path = _dump(kind=UPGRADE_KIND, include_secrets=False, timeout=900)
                 row = _register(path, UPGRADE_KIND, False, db)
-                prune_safety(db)
                 _mark(db, info | {"status": "created", "file": row["file"], "size": row["size_bytes"]})
+                prune_safety(db)
                 say(f"back-up vóór upgrade gemaakt: {row['file']} ({_gb(row['size_bytes'])}; schema "
                     f"{current} → {max(pending)})")
                 return {"status": "created", "file": row["file"], "size_bytes": row["size_bytes"]}

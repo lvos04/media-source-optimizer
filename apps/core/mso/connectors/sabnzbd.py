@@ -301,6 +301,8 @@ class SabClient:
             return {
                 "supported": False,
                 "ok": None,
+                # SABnzbd's config lock also refuses set_config/del_config: MSO can switch nothing over either
+                "locked": locked,
                 "message": "SABnzbd-configuratie is vergrendeld" if locked else "SABnzbd biedt de servertest niet aan",
             }
         finally:
@@ -630,7 +632,8 @@ def _category_applier() -> changes.Applier:
     its own folder named like the category, which is where MediaGuard looks for its categories); read-back via
     ``get_config&section=categories``. Rollback (``ontbreekt``) deletes the category with ``del_config``, but only
     when it is still exactly as MSO created it and no download in SABnzbd's queue or post-processing uses it.
-    Rollback is only ever manual: :func:`_category_evaluation` keeps the automation engine from rolling it back."""
+    Rollback is only ever manual and by an admin (``rollback_deletes``): never by the reconciler, the restore after
+    a failed apply or 'Alles terugzetten'; :func:`_category_evaluation` keeps the automation engine from it too."""
     client = SabClient.from_config()
 
     def find(name: str) -> dict[str, Any] | None:
@@ -680,7 +683,9 @@ def _category_applier() -> changes.Applier:
         if value not in (CATEGORY_ABSENT, category_present(name)):
             raise ValueError(f"waarde moet '{CATEGORY_ABSENT}' of '{category_present(name)}' zijn")
 
-    return changes.Applier(read=read, write=write, validate=validate)
+    # writing 'ontbreekt' back deletes the category: never unattended, and a person's rollback needs an admin
+    return changes.Applier(read=read, write=write, validate=validate,
+                           rollback_deletes=lambda _path, value: value == CATEGORY_ABSENT)
 
 
 changes.register_applier(CATEGORY_TARGET, _category_applier)

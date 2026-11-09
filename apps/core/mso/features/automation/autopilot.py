@@ -54,6 +54,10 @@ OVERRIDE_DAYS_DEFAULT = 30
 OVERRIDE_REASON = "Je hebt dit zelf teruggezet; MSO past het niet opnieuw automatisch toe"
 HOLD_REASON = ("Autopilot staat stil na te veel mislukte of teruggedraaide wijzigingen (noodrem); hervat via "
                "Automatisering")
+# sets a person starts (Voetafdruk → Alles terugzetten: ``footprint.RESTORE_SOURCE``): never for the automatic round,
+# also not in the moment between creating and approving them, nor when a request dies in between
+PERSON_ONLY_SOURCES = ("footprint:restore",)
+PERSON_ONLY_REASON = "terugzetten door een persoon; nooit automatisch"
 
 
 def area_toggle(area: str | None) -> bool:
@@ -124,6 +128,8 @@ def why_not(ch: dict[str, Any], area: str | None) -> str | None:
     ops = ch.get("ops") or []
     if ch.get("status") not in ("preview",):
         return f"status '{ch.get('status')}'"
+    if ch.get("source") in PERSON_ONLY_SOURCES:
+        return PERSON_ONLY_REASON
     if any(op.get("irreversible") for op in ops):
         return "verwijderen gebeurt nooit automatisch; één goedkeuring van jou nodig"
     if ch.get("risk") != "automatisch_veilig":

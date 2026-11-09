@@ -606,7 +606,10 @@ def test_owner_override_blocks_automatic_reapply(db: Any, fake: Fake) -> None:
     assert ch["auto_applied"] is False and ch["status"] == "preview"
     assert ch["auto_reason"] == "Je hebt dit zelf teruggezet; MSO past het niet opnieuw automatisch toe"
     assert fake.values["speed"] == 100
-    item = next(i for i in waiting()["items"] if i["id"] == ch["id"])
+    # 1.6.0 integration (deliberate): held back only by the owner's own choice = calm info, not a decision
+    w = waiting()
+    assert not any(i["id"] == ch["id"] for i in w["items"])
+    item = next(i for i in w["info"] if i["id"] == f"change:{ch['id']}")
     assert item["reason"].startswith("Je hebt dit zelf teruggezet")
     other = _propose([{"path": "conns", "before": 50, "after": 60}], "c")  # other paths are not affected
     assert other["auto_applied"] is True

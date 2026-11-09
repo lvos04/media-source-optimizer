@@ -67,7 +67,9 @@ herstel van bestaande pool-verbindingen na een losse PostgreSQL-herstart is niet
    (`pg_restore --clean --single-transaction`): alles of niets.
 4. Iedereen moet opnieuw inloggen (sessies worden niet hersteld). Koppelingsgeheimen blijven behouden als de
    back-up ze niet bevat.
-5. Komt de back-up van een oudere MSO-versie: herstart de app, zodat `migrate` het schema bijwerkt.
+5. Komt de back-up van een oudere MSO-versie (bijv. de `pre-upgrade`-back-up), dan zet MSO het schema eerst
+   terug naar die versie en werkt het na het herstel meteen weer bij; een herstart is niet nodig. Een back-up van
+   een nieuwere versie wordt geweigerd. Modus, pauze en noodrem blijven zoals ze vóór het herstel waren.
 
 Getest in de container-stack: herstel van een geldige back-up (gebruikers terug naar de back-upstand, sessie
 ongeldig, geheimen behouden), en weigering van een beschadigde (bytes overschreven → "Checksum klopt niet") en
@@ -80,6 +82,11 @@ een ontbrekende back-up (→ "Back-upbestand ontbreekt") zonder wijziging van de
 sudo docker exec -i "$PG" pg_restore -U mso -d mso --clean --if-exists --no-owner --single-transaction \
   < /mnt/tank/apps/media-source-optimizer/backups/<bestand>.dump
 ```
+
+Is de dump van een oudere schemaversie (kolom `schema_version` in de back-uplijst, of de naam
+`…-pre-upgrade.dump`), draai dan vóór de `pg_restore` met het huidige image
+`mso migrate --down <schemaversie van de dump>`. `--clean` verwijdert alleen wat in de dump staat; tabellen van
+nieuwere migraties blijven anders staan en de volgende start (`migrate`) loopt erop vast.
 
 ## Taken (jobs) en herstel na uitval
 

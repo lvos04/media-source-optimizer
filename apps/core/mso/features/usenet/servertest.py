@@ -96,9 +96,36 @@ def run(client: SabClient, server: str, *, trigger: str, actor: str | None = Non
               detail={"server": server, "result": result, "previous": prev["result"] if prev else None,
                       "trigger": trigger})
     out = public(row) or {}
-    out["supported"] = result != "unsupported"
+    out["supported"] = result not in ("unsupported", "locked")
     _sync_flapping(server)
+    _sync_locked(result)
     return out
+
+
+LOCKED_KEY = "usenet.sab_locked"
+
+
+def _sync_locked(result: str) -> None:
+    """SABnzbd's configuration lock: one calm 'Wacht op jou' item (MSO can neither test nor switch servers; SABnzbd
+    refuses set_config as well), resolved by the first test that is no longer refused."""
+    db = get_db()
+    if result != "locked":
+        db.execute("UPDATE recommendations SET status='resolved', updated_at=now() WHERE dedupe_key=%s "
+                   "AND status='open'", (LOCKED_KEY,))
+        return
+    existing = db.fetchone("SELECT status FROM recommendations WHERE dedupe_key=%s", (LOCKED_KEY,))
+    if existing and existing["status"] in ("open", "dismissed", "accepted"):
+        return  # told once (or the owner dismissed it): stay calm
+    outcomes.recommend(
+        "usenet", "SABnzbd-configuratie is vergrendeld",
+        "SABnzbd staat op 'configuratie vergrendeld' (config_lock). Dan weigert SABnzbd ook de servertest en elke "
+        "wijziging via de API, dus MSO kan kapotte servers niet testen, uitschakelen of weer aanzetten. MSO probeert "
+        "het daarom niet (geen mislukte automatische wijzigingen) en kijkt dagelijks opnieuw. Wil je dat MSO dit "
+        "doet, zet de vergrendeling in SABnzbd dan uit; anders hoeft er niets te gebeuren.",
+        risk="toestemming_nodig", subject="sabnzbd", impact="Kapotte servers blijven aan tot je zelf ingrijpt",
+        dedupe_key=LOCKED_KEY, evidence={"source": "sabnzbd", "result": "locked"}, db=db)
+    db.execute("UPDATE recommendations SET status='open', updated_at=now() WHERE dedupe_key=%s AND status='resolved'",
+               (LOCKED_KEY,))
 
 
 def _prune(server: str) -> None:

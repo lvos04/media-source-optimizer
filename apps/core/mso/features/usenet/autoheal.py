@@ -50,6 +50,9 @@ EXPIRED = "account_expired"
 WEEK = timedelta(days=7)
 RATE_LIMITED_RETRY = timedelta(hours=1)  # "te veel verbindingen": the account is alive, test again soon
 CONFIRM_MAX_AGE = timedelta(hours=1)  # a confirming test younger than this is reused (≤ 1 test per hour per server)
+LOCKED_RECHECK = timedelta(days=1)  # SABnzbd's config lock: no switch-over is possible; look again once a day
+LOCKED_TEXT = ("SABnzbd-configuratie is vergrendeld: MSO kan deze server niet testen of omschakelen (SABnzbd weigert "
+               "dan ook set_config); MSO kijkt dagelijks opnieuw")
 CONFIRM_MAX_AGE_FLAPPING = timedelta(hours=6)
 TESTS_PER_TICK = 6  # each SABnzbd test blocks a few seconds; the rest follows in the next round (5 min)
 ACCOUNT_PROBLEMS = set(serverstatus.DISABLE_SUGGESTED)
@@ -249,6 +252,39 @@ def _discard_switch_on_proposal(server: str) -> None:
             pass
 
 
+def _mso_enable_change(server: str, after: int, since: datetime | None) -> int | None:
+    """The newest applied MSO change (an autoheal proposal a person applied, an approved 'kapotte servers
+    uitschakelen', …) that set ``enable`` of ``server`` to ``after`` since ``since``, or None."""
+    if since is None:
+        return None
+    return get_db().scalar(
+        "SELECT id FROM change_sets WHERE target='sabnzbd' AND status='applied' AND applied_at >= %s "
+        "AND ops @> %s::jsonb ORDER BY applied_at DESC, id DESC LIMIT 1",
+        (since, jsonb([{"path": f"servers/{server}/enable", "after": after}])),
+    )
+
+
+def _owner_choice(server: str, *, mso_value: int, current_value: int, change_id: int | None) -> None:
+    """The owner switched the server on/off outside MSO's own flow (in SABnzbd, or by rolling MSO's change back):
+    their choice. Recorded as an owner override, so Autopilot does not reverse it on its next round (the same rule
+    the footprint applies an hour later at most; here at once, so the timing does not decide)."""
+    try:
+        from mso.features.automation import autopilot, overrides
+    except ImportError:  # automation module disabled: nothing applies automatically anyway
+        return
+    overrides.record("sabnzbd", f"servers/{server}/enable", mso_value=mso_value, current_value=current_value,
+                     change_id=change_id, days=autopilot.override_days())
+
+
+def _override_until(server: str) -> datetime | None:
+    try:
+        from mso.features.automation import overrides
+    except ImportError:
+        return None
+    row = overrides.active("sabnzbd", f"servers/{server}/enable")
+    return row["until"] if row else None
+
+
 def _recent_recovery(row: dict[str, Any], now: datetime) -> bool:
     at = row.get("recovered_at") or row.get("updated_at")
     return row.get("status") == "recovered" and at is not None and at > now - RECOVERED_MEMORY
@@ -321,6 +357,8 @@ def _confirm(
     age = CONFIRM_MAX_AGE_FLAPPING if servertest.flapping(server) else CONFIRM_MAX_AGE
     floor = now - age if after is None else max(now - age, after)
     last = servertest.latest(server)
+    if last and last["result"] == "locked" and last["at"] > now - LOCKED_RECHECK:
+        return "locked", (servertest.public(last) or {}) | {"supported": False}
     if last and last["at"] > floor:
         test = (servertest.public(last) or {}) | {"supported": last["result"] != "unsupported"}
     else:
@@ -335,6 +373,8 @@ def _confirm(
         return "off", test
     if result == "unsupported":
         return "unsupported", test
+    if result == "locked":
+        return "locked", test
     return "inconclusive", test
 
 
@@ -352,6 +392,9 @@ def _after_test(server: str, row: dict[str, Any], test: dict[str, Any], now: dat
     elif result == "rate_limited":  # logged in, but too many connections: not a dead account, not a failed test
         f["next_test_at"] = now + RATE_LIMITED_RETRY
         f["last_result"] = "SABnzbd-test: te veel verbindingen (het account werkt wel); opnieuw testen over 1 uur"
+    elif result == "locked":  # SABnzbd's config lock refuses set_config too: no blind probe either
+        f["next_test_at"] = now + LOCKED_RECHECK
+        f["last_result"] = LOCKED_TEXT
     elif result == "unsupported":
         f["next_test_at"] = now + WEEK  # look again whether SABnzbd offers the test (e.g. after an update)
         if reason != EXPIRED and row.get("status") == "disabled" and not row.get("next_probe_at"):
@@ -577,7 +620,7 @@ def _tick(c: SabClient) -> dict[str, Any]:
     auto = state.autopilot()
     now = _now()
     out: dict[str, Any] = {"autopilot": auto, "switched_off": [], "switched_on": [], "probe_failed": [],
-                           "recovered": [], "kept_last": [], "kept_on": [], "tested": [], "pending": []}
+                           "recovered": [], "kept_last": [], "kept_on": [], "tested": [], "pending": [], "locked": []}
     changed = False
     watch = timedelta(hours=_h("usenet.probe_watch_h", 2))
     limit = timedelta(hours=_h("usenet.auto_disable_after_h", 6))
@@ -593,18 +636,30 @@ def _tick(c: SabClient) -> dict[str, Any]:
             continue
         name = _name(server, sab, labels)
         if row["status"] == "probing":
-            if server not in enabled_now:  # switched off again outside MSO
+            if server not in enabled_now:  # switched off again during the watch
                 fallback = row.get("last_test_result") == "unsupported"
-                _save(server, status="disabled", disabled_at=now, last_result="buiten MSO uitgeschakeld",
+                off_id = _mso_enable_change(server, 0, row.get("probe_started_at"))
+                if off_id is None:  # the owner (in SABnzbd, or rolling MSO's switch-on back): their own choice
+                    _owner_choice(server, mso_value=1, current_value=0, change_id=row.get("probe_change_id"))
+                _save(server, status="disabled", disabled_at=now,
+                      last_result="buiten MSO uitgeschakeld" if off_id is None
+                      else "uitgeschakeld (voorstel van MSO toegepast)",
+                      disable_change_id=off_id or row.get("disable_change_id"),
                       next_test_at=now + test_interval(row.get("reason"), now, now),
                       next_probe_at=now + backoff(int(row["probes"] or 0)) if fallback else None)
                 continue
             err = error_after(server, row["probe_started_at"])
             if err and row.get("next_test_at") and row["next_test_at"] > now:
-                continue  # a passing test kept it on less than an hour ago
+                continue  # a passing test kept it on less than an hour ago, or switching off waits (see below)
+            if err and not auto and state.mode() == "autopilot":
+                continue  # noodrem or pause: keep the watch (recovered_at, probes); decided after 'Hervatten'
             if err:
                 verdict, test = _confirm(c, server, budget, after=row["probe_started_at"])
                 if verdict == "later":
+                    continue
+                if verdict == "locked":  # a switch-off would only fail (and count towards the noodrem)
+                    _save(server, next_test_at=now + LOCKED_RECHECK, last_result=LOCKED_TEXT)
+                    out["locked"].append(server)
                     continue
                 err_label = serverstatus.LABELS.get(err["status"], err["status"])
                 if verdict == "keep" and test:
@@ -623,13 +678,20 @@ def _tick(c: SabClient) -> dict[str, Any]:
                         out["kept_on"].append(server)
                         continue
                 probes = int(row["probes"] or 0) + 1
-                out["probe_failed"].append(server)
-                audit(ACTOR, "usenet.server_probe_failed", f"{name} geeft opnieuw '{err_label}'", target="sabnzbd",
-                      detail={"server": server, "probes": probes, "test": (test or {}).get("result")})
-                if not auto:
+
+                def _probe_failed(probes: int = probes, test: dict[str, Any] | None = test,
+                                  err_label: str = err_label, server: str = server, name: str = name) -> None:
+                    out["probe_failed"].append(server)
+                    audit(ACTOR, "usenet.server_probe_failed", f"{name} geeft opnieuw '{err_label}'",
+                          target="sabnzbd", detail={"server": server, "probes": probes,
+                                                    "test": (test or {}).get("result")})
+
+                if not auto:  # the owner left Autopilot (state.mode(): a hold or pause continued above)
+                    _probe_failed()
                     get_db().execute("DELETE FROM usenet_server_autoheal WHERE server=%s", (server,))
                     continue
                 if len(enabled_now - {server}) == 0:
+                    _probe_failed()
                     out["kept_last"].append(server)
                     continue
                 confirmed = bool(test and test["result"] in ACCOUNT_PROBLEMS)
@@ -640,6 +702,7 @@ def _tick(c: SabClient) -> dict[str, Any]:
                 ch = _switch_off(server, name, st, probes=probes, test=test,
                                  why="De server faalde opnieuw nadat hij weer was ingeschakeld.")
                 if ch.get("auto_applied"):
+                    _probe_failed()
                     enabled_now.discard(server)
                     give_up = fallback and probes >= max_probes
                     _save(server, status="given_up" if give_up else "disabled", reason=reason, message=message,
@@ -653,6 +716,15 @@ def _tick(c: SabClient) -> dict[str, Any]:
                     changed = True
                     _sync_expired_notice(server, name, rows().get(server))
                 else:
+                    # not applied (the owner's own choice, cooldown, hourly cap …): one audit line and one proposal,
+                    # then wait — not a new audit line and a new SABnzbd test every 5-minute round
+                    reason_txt = str(ch.get("auto_reason") or "")
+                    waiting = f"uitschakelen wacht: {reason_txt}"[:300]
+                    if row.get("last_result") != waiting:
+                        _probe_failed()
+                    until = _override_until(server)
+                    wait_until = until if until is not None and until > now else now + CONFIRM_MAX_AGE
+                    _save(server, next_test_at=wait_until, last_result=waiting)
                     out["pending"].append({"server": server, "reason": ch.get("auto_reason")})
             elif row["probe_started_at"] <= now - watch and (sab.get(server) or {}).get("status") not in (
                 serverstatus.FAILING
@@ -676,8 +748,16 @@ def _tick(c: SabClient) -> dict[str, Any]:
                       target="sabnzbd", detail={"server": server, "trigger": row.get("probe_trigger")})
                 changed = True
         elif row["status"] in ("disabled", "given_up"):
-            if server in enabled_now:  # the user switched it on in SABnzbd (e.g. after fixing credentials)
-                _start_watch(c, server, cache, probe_trigger="sabnzbd", last_result="in SABnzbd weer ingeschakeld")
+            if server in enabled_now:  # switched on again outside MSO's own test flow
+                on_id = _mso_enable_change(server, 1, row.get("disabled_at"))
+                if on_id is None:
+                    # the owner switched it on in SABnzbd (e.g. after fixing credentials) or rolled MSO's switch-off
+                    # back: their choice — a later error leaves a proposal, Autopilot does not switch it off again
+                    _owner_choice(server, mso_value=0, current_value=1, change_id=row.get("disable_change_id"))
+                    _start_watch(c, server, cache, probe_trigger="sabnzbd", last_result="in SABnzbd weer ingeschakeld")
+                else:  # MSO's own 'weer inschakelen' proposal, applied by a person
+                    _start_watch(c, server, cache, probe_trigger="server_test", probe_change_id=on_id,
+                                 last_result="voorstel 'weer inschakelen' toegepast")
                 _sync_expired_notice(server, name, None)
                 changed = True
                 continue
@@ -754,6 +834,9 @@ def _tick(c: SabClient) -> dict[str, Any]:
                 continue
             verdict, test = _confirm(c, server, budget)
             if verdict == "later":
+                continue
+            if verdict == "locked":  # SABnzbd would refuse the switch-off: no failed automatic apply, one notice
+                out["locked"].append(server)
                 continue
             if verdict == "keep":
                 out["kept_on"].append(server)
@@ -834,7 +917,7 @@ def public_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
         "last_test_at": row.get("last_test_at"),
         "last_test_result": row.get("last_test_result"),
         "last_test_label": servertest.label(row.get("last_test_result")),
-        "test_supported": row.get("last_test_result") != "unsupported",
+        "test_supported": row.get("last_test_result") not in ("unsupported", "locked"),
         "recovered_at": row.get("recovered_at"),
         "waiting_for_use": row["status"] == "probing" and row.get("last_result") == NOT_USED_YET,
     }

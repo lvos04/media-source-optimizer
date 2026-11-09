@@ -7,6 +7,10 @@ export const messages = {
 
   // ---------------------------------------------------------------- wacht op jou (Overzicht)
   "calm.waitNothing": "Niets wacht op jou ✓",
+  "calm.waitAllChanges": "Alle wijzigingen bekijken",
+  "calm.otherRecs": "Overige aanbevelingen",
+  "calm.otherChanges": "MSO past dit zelf toe",
+  "calm.inInbox": "{count} beslissing(en) bij Wacht op jou",
   "calm.waitNothingBody": "MSO doet de rest zelf. Verwijderen (zoals malware opruimen) vraagt altijd eerst één klik van jou.",
   "calm.waitDecisions": "{count} beslissing(en)",
   "calm.waitGroupMore": "en nog {count}",

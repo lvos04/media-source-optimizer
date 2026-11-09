@@ -10,11 +10,18 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from "re
 
 import type { WaitingInbox } from "@/lib/api/calm";
 import { useResource, type Resource } from "@/lib/api/hooks";
+import { HOLD_CHANGED_EVENT } from "@/lib/api/safety";
 import { useI18n } from "@/lib/i18n";
 
 const WaitingContext = createContext<Resource<WaitingInbox> | null>(null);
 const TITLE_PREFIX = /^\(\d+\)\s+/;
 export const WAITING_HREF = "/#wacht-op-jou";
+export const WAITING_CHANGED_EVENT = "mso:waiting-changed";
+
+/** Tell the shared inbox (topbar counter, nav badge, tab title, "Wacht op jou") to reload now. */
+export function notifyWaitingChanged() {
+  window.dispatchEvent(new Event(WAITING_CHANGED_EVENT));
+}
 
 /** Mounted once by the AppShell (inside the session). */
 export function WaitingProvider({ children }: { children: ReactNode }) {
@@ -27,6 +34,16 @@ export function WaitingProvider({ children }: { children: ReactNode }) {
     if (first.current) { first.current = false; return; }
     void reload();
   }, [pathname, reload]);
+  // "Hervatten" (noodrem) or an inline rollback changes the inbox right away: no waiting for the 60 s poll
+  useEffect(() => {
+    const on = () => void reload();
+    window.addEventListener(HOLD_CHANGED_EVENT, on);
+    window.addEventListener(WAITING_CHANGED_EVENT, on);
+    return () => {
+      window.removeEventListener(HOLD_CHANGED_EVENT, on);
+      window.removeEventListener(WAITING_CHANGED_EVENT, on);
+    };
+  }, [reload]);
   useTitlePrefix(res.data?.decisions ?? 0);
   return <WaitingContext.Provider value={res}>{children}</WaitingContext.Provider>;
 }

@@ -143,6 +143,7 @@ TEST_LABELS = {
     "tls_error": "TLS-fout",
     "unknown": "Onbekend",
     "unsupported": "Test niet beschikbaar",
+    "locked": "SABnzbd-configuratie vergrendeld",
 }
 _TEST_NEEDS_LOGIN = re.compile(r"requires username and password", re.I)
 _TEST_CONFIG = re.compile(r"password masked|hostname is not set|no connections set|invalid server details", re.I)
@@ -159,7 +160,7 @@ def classify_test(result: dict[str, Any]) -> str:
     ("502 Authentication Failed", "482 Account expired"); its own texts ("Timed out", 'Server address "h:563" is not
     valid.') are matched first so a port number is never read as an NNTP code."""
     if not result.get("supported"):
-        return "unsupported"
+        return "locked" if result.get("locked") else "unsupported"
     if result.get("ok") is True:
         return "ok"
     if result.get("ok") is None:

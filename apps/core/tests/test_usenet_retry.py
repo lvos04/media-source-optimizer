@@ -214,10 +214,18 @@ def test_failed_downloads_from_server_problems_are_not_fallback_problems(
     app: Any, db: Any, admin: Any, viewer: Any, serve: Any
 ) -> None:
     from mso.features.recovery import fallback
+    from mso.features.usenet import retry
 
     sab = _start(serve, admin)
     _fail_jobs(sab, 2)
     _gain(sab, db, kind="recovered")
+    # 1.6.0 integration: while a broken server is still on, retrying is blocked (propose() waits), so recovery must
+    # not say "MSO laat SABnzbd dit opnieuw proberen" (deliberately changed: the failing servers go off first)
+    o = db.fetchone("SELECT * FROM download_outcomes WHERE client='sabnzbd' AND failure_reason='auth_failure' "
+                    "ORDER BY id LIMIT 1")
+    assert retry.status_for(o) is None
+    _switch_off_failing(sab)
+    assert retry.status_for(o) == "candidate"
     fallback.process_failed()
     items = viewer.get("/api/v1/recovery/fallbacks").json()
     rows = [i for i in items["items"] if i["failure_reason"] == "auth_failure"]

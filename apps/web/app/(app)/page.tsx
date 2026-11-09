@@ -39,7 +39,13 @@ export default function OverviewPage() {
         sub={t("overview.sub", { date: date(new Date()), mode: shownMode ? t(`mode.${shownMode}`) : "—" })}
         actions={<LinkButton href="/automatisering" icon={Lightbulb}>{t("nav.automation")}</LinkButton>}
       />
-      <div className="grid" style={{ marginBottom: 16 }}><GoalsCard /></div>
+      {/* goals → Wacht op jou → Wat MSO deed first (own endpoints: also shown when GET /overview fails, so the
+          topbar pill's /#wacht-op-jou always has its anchor); the KPI row and the /overview cards below */}
+      <div className="grid" style={{ marginBottom: 16 }}>
+        <GoalsCard />
+        <WaitingCard className="span-12" />
+        <AutopilotCard className="span-12" />
+      </div>
       {ov.error && !o ? (
         <ResourceView resource={ov} endpoint="GET /api/v1/overview">{() => null}</ResourceView>
       ) : (
@@ -65,8 +71,6 @@ export default function OverviewPage() {
           </section>
 
           <div className="grid" style={{ marginTop: 16 }}>
-            <WaitingCard className="span-12" />
-            <AutopilotCard className="span-12" />
             {o ? (
               <>
                 <FailureLocations o={o} />
@@ -164,7 +168,8 @@ function Recommendations({ o }: { o: Overview }) {
   const { t, num } = useI18n();
   const r = o.recommendations;
   return (
-    <Card className="span-4" title={<>{t("overview.recommendations")} {r.open ? <span className="chip">{num(r.open)}</span> : null}</>} icon={Lightbulb} flush
+    <Card className="span-4" title={<>{t("calm.otherRecs")} {r.open ? <span className="chip">{num(r.open)}</span> : null}</>} icon={Lightbulb} flush
+      sub={r.waiting ? <Link className="link-more" href="/#wacht-op-jou">{t("calm.inInbox", { count: num(r.waiting) })}</Link> : undefined}
       actions={<Link className="link-more" href="/automatisering">{t("overview.viewAll")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>}>
       <div className="toolbar" style={{ padding: "12px 16px 4px" }}>
         {RISKS.map((k) => <span key={k} className="row" style={{ gap: 6 }}><RiskChip risk={k} /><strong className="num">{num(r.by_risk[k] ?? 0)}</strong></span>)}
@@ -188,7 +193,7 @@ function Changes({ o }: { o: Overview }) {
   const c = o.changes;
   return (
     <Card className="span-4" title={<>{t("overview.changes")} {c.open ? <span className="chip">{num(c.open)}</span> : null}</>} icon={GitPullRequestArrow} flush
-      sub={c.failed_7d ? t("overview.failedChanges", { count: num(c.failed_7d) }) : undefined}
+      sub={[t("calm.otherChanges"), c.failed_7d ? t("overview.failedChanges", { count: num(c.failed_7d) }) : null].filter(Boolean).join(" · ")}
       actions={<Link className="link-more" href="/automatisering?tab=wijzigingen">{t("overview.viewAll")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>}>
       {c.items.length === 0 ? <StateView kind="empty" compact title={t("overview.noChanges")} /> : (
         <div className="list">

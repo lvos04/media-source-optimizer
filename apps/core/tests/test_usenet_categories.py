@@ -601,3 +601,146 @@ def test_propose_reports_missing_names_mso_cannot_create(app: Any, serve: Any, a
     ch = admin.post("/api/v1/usenet/categories/propose").json()
     assert [o["path"] for o in ch["ops"]] == ["categories/movies-anime"]
     assert admin.post("/api/v1/usenet/categories/propose", json={"names": ["movies-anime"]}).json()["id"] == ch["id"]
+
+
+# ------------------------------------------------------------------ integration review (1.6.0): never delete unattended
+class _Crash(BaseException):
+    """The process dies right after a write (not caught by ``except Exception``)."""
+
+
+def test_reconciler_never_deletes_a_category_of_an_interrupted_apply(
+    app: Any, serve: Any, admin: Any, db: Any
+) -> None:
+    from mso import changes, state
+    from mso.connectors.sabnzbd import CATEGORY_TARGET
+
+    sab = _sab(serve, admin, categories=NO_ANIME)
+    _mg(serve, admin)
+    ch = admin.post("/api/v1/usenet/categories/propose").json()
+    assert [o["path"] for o in ch["ops"]] == ["categories/movies-anime", "categories/tv-anime"]
+    state.set_state("mode", "manage")
+    assert admin.post(f"/api/v1/changes/{ch['id']}/approve").status_code == 200
+    real = changes.APPLIERS[CATEGORY_TARGET]
+
+    def crashing() -> Any:
+        a = real()
+
+        def write(path: str, value: Any) -> None:
+            a.write(path, value)
+            if path == "categories/movies-anime":
+                raise _Crash()
+
+        return changes.Applier(read=a.read, write=write, validate=a.validate, rollback_deletes=a.rollback_deletes)
+
+    changes.APPLIERS[CATEGORY_TARGET] = crashing
+    try:
+        with pytest.raises(_Crash):
+            changes.apply(ch["id"], "beheerder")
+    finally:
+        changes.APPLIERS[CATEGORY_TARGET] = real
+    assert changes.get(ch["id"])["status"] == "applying"
+    out = changes.reconcile_interrupted()  # the worker, unattended
+    assert out["outcomes"] == {str(ch["id"]): "deels"}
+    assert sab.category("movies-anime") is not None  # NOT deleted
+    row = changes.get(ch["id"])
+    by_path = {o["path"]: o for o in row["ops"]}
+    assert row["status"] == "failed" and by_path["categories/movies-anime"]["result"] == "toegepast"
+    assert "verwijderen" in row["error"]
+    rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key=%s", (f"change.interrupted:{ch['id']}",))
+    assert rec["status"] == "open"
+
+
+def test_failed_apply_keeps_the_categories_already_created(app: Any, serve: Any, admin: Any, operator: Any) -> None:
+    from mso import changes, state
+    from mso.connectors.sabnzbd import CATEGORY_TARGET
+
+    sab = _sab(serve, admin, categories=NO_ANIME)
+    _mg(serve, admin)
+    ch = admin.post("/api/v1/usenet/categories/propose").json()
+    state.set_state("mode", "manage")
+    admin.post(f"/api/v1/changes/{ch['id']}/approve")
+    real = changes.APPLIERS[CATEGORY_TARGET]
+
+    def failing() -> Any:
+        a = real()
+
+        def write(path: str, value: Any) -> None:
+            if path == "categories/tv-anime":
+                raise RuntimeError("SABnzbd weigert")
+            a.write(path, value)
+
+        return changes.Applier(read=a.read, write=write, validate=a.validate, rollback_deletes=a.rollback_deletes)
+
+    changes.APPLIERS[CATEGORY_TARGET] = failing
+    try:
+        r = operator.post(f"/api/v1/changes/{ch['id']}/apply")
+    finally:
+        changes.APPLIERS[CATEGORY_TARGET] = real
+    assert r.status_code == 502 and "blijft staan" in r.json()["detail"]
+    assert sab.category("movies-anime") is not None and sab.category("tv-anime") is None
+
+
+def test_only_an_admin_may_roll_back_a_category_and_never_via_alles_terugzetten(
+    app: Any, serve: Any, admin: Any, operator: Any, viewer: Any, db: Any
+) -> None:
+    from mso import changes, state
+
+    sab = _sab(serve, admin, categories=NO_ANIME)
+    _mg(serve, admin)
+    ch = admin.post("/api/v1/usenet/categories/propose", json={"names": ["tv-anime"]}).json()
+    state.set_state("mode", "manage")
+    admin.post(f"/api/v1/changes/{ch['id']}/approve")
+    assert operator.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 200
+    assert sab.category("tv-anime") is not None
+    # Voetafdruk: shown with a Dutch label, but never part of 'Alles terugzetten'
+    view = viewer.get("/api/v1/automation/footprint").json()
+    plan = viewer.get("/api/v1/automation/footprint/restore").json()
+    assert not [r for r in plan["restore"] if r["target"] == "sabnzbd_categories"]
+    skipped = [r for r in plan["skipped"] if r["target"] == "sabnzbd_categories"]
+    assert skipped and skipped[0]["reason_code"] == "alleen_handmatig" and skipped[0]["target_label"] == "SABnzbd"
+    assert skipped[0]["label"] == "Categorie tv-anime"
+    assert "sabnzbd_categories" not in str([s["label"] for s in view["systems"]])
+    # a plain rollback by an operator: refused, nothing written
+    r = operator.post(f"/api/v1/changes/{ch['id']}/rollback", json={})
+    assert r.status_code == 403 and "beheerder" in r.json()["detail"]
+    assert sab.category("tv-anime") is not None and changes.get(ch["id"])["status"] == "applied"
+    # an automatic rollback (no admin): refused too
+    with pytest.raises(changes.HTTPException) as exc:
+        changes.rollback(ch["id"], "automatisering")
+    assert exc.value.status_code == 403
+    # the admin's own decision
+    assert admin.post(f"/api/v1/changes/{ch['id']}/rollback", json={}).status_code == 200
+    assert sab.category("tv-anime") is None
+
+
+def test_restore_set_is_never_for_the_automatic_round(app: Any, db: Any) -> None:
+    from mso import changes, state
+    from mso.features.automation import autopilot, engine, footprint
+
+    assert footprint.RESTORE_SOURCE in autopilot.PERSON_ONLY_SOURCES
+    state.set_state("mode", "autopilot")
+    changes.register_applier("fake_fp", lambda: changes.Applier(read=lambda p: 1, write=lambda p, v: None))
+    try:
+        ch = changes.create("fake_fp", "Voetafdruk terugzetten", [{"path": "x", "before": 1, "after": 0}],
+                            risk="automatisch_veilig", source=footprint.RESTORE_SOURCE, impact={"area": "usenet"})
+        assert autopilot.why_not(ch, "usenet") == autopilot.PERSON_ONLY_REASON
+        assert ch["id"] not in engine.apply_safe()["applied"]
+        assert changes.get(ch["id"])["status"] == "preview"
+    finally:
+        changes.APPLIERS.pop("fake_fp", None)
+
+
+def test_controle_never_promises_an_automatic_rollback_of_a_category(
+    app: Any, serve: Any, admin: Any, operator: Any, viewer: Any
+) -> None:
+    from mso import state
+
+    _sab(serve, admin, categories=NO_ANIME)
+    _mg(serve, admin)
+    ch = admin.post("/api/v1/usenet/categories/propose", json={"names": ["tv-anime"]}).json()
+    state.set_state("mode", "manage")
+    admin.post(f"/api/v1/changes/{ch['id']}/approve")
+    assert operator.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 200
+    state.set_state("mode", "autopilot")
+    ev = viewer.get(f"/api/v1/automation/evaluations/{ch['id']}").json()
+    assert ev["auto_rollback"]["enabled"] is False and "met de hand" in ev["auto_rollback"]["reason"]

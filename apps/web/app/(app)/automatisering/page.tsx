@@ -27,11 +27,17 @@ const RISKS: Risk[] = ["advies", "automatisch_veilig", "toestemming_nodig"];
 
 /** Follows `?tab=` — also on a soft navigation to this same route (e.g. the noodrem banner's "Bekijken" while already
  * here), where the page stays mounted and a mount-only read would miss it. Own Suspense boundary for useSearchParams. */
-function TabFromUrl({ onTab }: { onTab: (tab: Tab) => void }) {
-  const q = useSearchParams().get("tab");
+function TabFromUrl({ onTab, onChange }: { onTab: (tab: Tab) => void; onChange: (id: number) => void }) {
+  const params = useSearchParams();
+  const q = params.get("tab");
+  const change = Number(params.get("change"));
   useEffect(() => {
     if (q && (TABS as readonly string[]).includes(q)) onTab(q as Tab);
   }, [q, onTab]);
+  // deep link ?tab=wijzigingen&change=<id> (Samenvatting, "Wacht op jou", "Wat MSO deed"), also while mounted
+  useEffect(() => {
+    if (Number.isInteger(change) && change > 0) onChange(change);
+  }, [change, onChange]);
   return null;
 }
 
@@ -47,16 +53,12 @@ export default function AutomationPage() {
   // pause/resume or a mode switch anywhere (topbar, banner, Instellingen) → refresh the automation status
   useEffect(() => { void reloadStatus(); }, [mode, paused, reloadStatus]);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    // deep link from "Wat MSO deed" / "Wacht op jou": ?tab=wijzigingen&change=<id>
-    const change = Number(params.get("change"));
-    if (Number.isInteger(change) && change > 0) setFocusChange(change);
-  }, []);
   const select = (v: Tab) => {
     setTab(v);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", v);
+    url.searchParams.delete("change"); // switching tabs by hand: the deep-linked change no longer applies
+    url.searchParams.delete("rec");
     window.history.replaceState(null, "", url.toString());
   };
   const s = status.data;
@@ -66,7 +68,7 @@ export default function AutomationPage() {
 
   return (
     <>
-      <Suspense fallback={null}><TabFromUrl onTab={setTab} /></Suspense>
+      <Suspense fallback={null}><TabFromUrl onTab={setTab} onChange={setFocusChange} /></Suspense>
       <PageHeader title={t("nav.automation")} sub={t("automation.sub")}
         actions={<><LinkButton href="/automatisering/voetafdruk" icon={Footprints}>{t("calm.fp.link")}</LinkButton><Button icon={Play} disabled={!runAllowed} title={runReason} pending={pending === "run"}
           onClick={async () => { await run("run", "post", "/automation/run", undefined, t("automation.runQueued")); void status.reload(); }}>{t("automation.runNow")}</Button></>} />

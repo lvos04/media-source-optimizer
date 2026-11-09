@@ -421,3 +421,92 @@ def test_api_start_makes_pre_upgrade_backup(app: Any, old_db: Any, swap_db: Any)
     assert schema_version(old_db) > 600
     assert old_db.scalar("SELECT count(*) FROM backups WHERE kind='pre-upgrade'") == 1
     assert old_db.scalar("SELECT count(*) FROM audit_log WHERE action='backup.pre_upgrade'") == 1
+
+
+# ------------------------------------------------------------------ integration review (1.6.0)
+def test_restore_of_an_older_dump_migrates_down_first_and_up_after(app: Any, old_db: Any, swap_db: Any) -> None:
+    """The pre-upgrade dump (older schema) restored in the new version: the newer tables do not survive the
+    restore next to the old data, the schema is current again right away and the next start works."""
+    from mso.app import init_runtime
+    from mso.db import load_migrations, migrate_up, schema_version
+    from mso.vault import get_vault, set_vault
+
+    head = max(m.version for m in load_migrations())
+    assert backups.pre_upgrade_backup(old_db, log=lambda _m: None)["status"] == "created"
+    migrate_up(old_db)
+    swap_db(old_db)
+    backups.flush_pre_upgrade(old_db)
+    # life in the new version: rows in tables the old schema does not have
+    old_db.execute("INSERT INTO automation_failures(key,fingerprint,target,title,next_attempt_at) "
+                   "VALUES ('k','fp','sabnzbd','x',now())")
+    old_db.execute("INSERT INTO change_footprint(target,path,label,status) VALUES ('sabnzbd','servers/x/enable',"
+                   "'x','actief')")
+    bid = old_db.scalar("SELECT id FROM backups WHERE kind='pre-upgrade'")
+    res = backups.restore_backup(bid, "beheerder")
+    assert res["schema_version"] == head == schema_version(old_db)
+    assert old_db.scalar("SELECT count(*) FROM automation_failures") == 0
+    assert old_db.scalar("SELECT count(*) FROM change_footprint") == 0
+    detail = old_db.fetchone("SELECT detail FROM audit_log WHERE action='backup.restored'")["detail"]
+    assert detail["schema"] == {"dump": 600, "current": head} and detail["migrations_down"]
+    assert detail["migrations_up"] == sorted(detail["migrations_down"])
+    vault = get_vault()
+    try:
+        init_runtime(old_db)  # the next start: no DuplicateTable
+    finally:
+        set_vault(vault)
+    assert schema_version(old_db) == head
+
+
+def test_restore_of_a_newer_dump_is_refused(app: Any, db: Any) -> None:
+    b = backups.create_backup(actor="test")
+    db.execute("UPDATE backups SET schema_version=schema_version + 1000 WHERE id=%s", (b["id"],))
+    with pytest.raises(backups.BackupError, match="nieuwere MSO-versie"):
+        backups.restore_backup(b["id"], "test")
+    assert not db.scalar("SELECT count(*) FROM backups WHERE kind='pre-restore'")
+
+
+def test_restore_keeps_mode_pause_and_noodrem_and_settles_applying(app: Any, db: Any) -> None:
+    from mso import changes, state
+
+    state.set_state("mode", "autopilot")
+    ch = db.fetchone("INSERT INTO change_sets(target,title,risk,ops,status) VALUES ('sabnzbd','Verbindingen 8 → 12',"
+                     "'automatisch_veilig','[]','applying') RETURNING id")
+    b = backups.create_backup(actor="test")
+    # reality after the dump: the apply finished, the owner went to Alleen-lezen and the noodrem engaged
+    db.execute("UPDATE change_sets SET status='applied' WHERE id=%s", (ch["id"],))
+    state.set_state("mode", "read_only")
+    state.set_state(state.HOLD_KEY, {"active": True, "reason": "test"})
+    backups.restore_backup(b["id"], "test")
+    assert state.mode() == "read_only" and state.hold() is not None and not state.automation_allowed()
+    row = changes.get(ch["id"])
+    assert row["status"] == "failed" and "niets teruggezet" in row["error"]
+    assert changes.reconcile_interrupted()["checked"] == 0  # nothing for the reconciler to write back
+    rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key LIKE 'backup.restored_applying:%%'")
+    assert rec["status"] == "open" and rec["evidence"]["change_ids"] == [ch["id"]]
+    detail = db.fetchone("SELECT detail FROM audit_log WHERE action='backup.restored'")["detail"]
+    assert detail["applying_settled"] == [ch["id"]] and detail["kept_state"]["mode"] == "read_only"
+    # absent before the restore → absent after it (a hold in the dump does not come back either)
+    state.set_state(state.HOLD_KEY, {"active": True, "reason": "oud"})
+    b2 = backups.create_backup(actor="test")
+    db.execute("DELETE FROM system_state WHERE key=%s", (state.HOLD_KEY,))
+    backups.restore_backup(b2["id"], "test")
+    assert state.hold() is None
+
+
+def test_failing_upgrade_in_a_restart_loop_keeps_the_first_pre_upgrade_dump(app: Any, old_db: Any) -> None:
+    from mso.db import migrate_up
+
+    first = backups.pre_upgrade_backup(old_db, log=lambda _m: None)
+    assert first["status"] == "created"
+    migrate_up(old_db, 602)  # a later migration fails: 0601-0602 stay applied, no flush (marker stays)
+    for _ in range(4):  # the container restarts every hour
+        old_db.execute("UPDATE backups SET created_at = created_at - interval '61 minutes'")
+        res = backups.pre_upgrade_backup(old_db, log=lambda _m: None)
+        assert res["status"] == "exists" and res["file"] == first["file"]
+    assert old_db.scalar("SELECT count(*) FROM backups WHERE kind='pre-upgrade'") == 1
+    # even with newer pre-upgrade dumps around, the one of the unfinished upgrade is never pruned
+    for i in range(4):
+        old_db.execute("INSERT INTO backups(file,kind,schema_version) VALUES (%s,'pre-upgrade',602)", (f"n-{i}.dump",))
+    backups.prune_safety(old_db)
+    files = {r["file"] for r in old_db.fetchall("SELECT file FROM backups WHERE kind='pre-upgrade'")}
+    assert first["file"] in files and len(files) == 3

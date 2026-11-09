@@ -101,7 +101,9 @@ export function EvaluationSummary({ item }: { item: ChangeEvaluation }) {
         <p className="hint" style={{ margin: 0 }}>{t("safety.eval.notReversible")}</p>
       ) : item.applicable && item.status === "applied" && (ev.measures ?? []).some((m) => m.unit === "status") ? (
         <p className="hint" style={{ margin: 0 }}>{t("safety.eval.serverStatus")}</p>
-      ) : item.applicable && item.status === "applied" ? (
+      ) : item.applicable && item.status === "applied" && item.auto_rollback.reason ? (
+        <p className="hint" style={{ margin: 0 }}>{t("safety.eval.neverAuto", { reason: item.auto_rollback.reason })}</p>
+      ) : item.applicable && item.status === "applied" && ev.result !== "niet_van_toepassing" ? (
         <p className="hint" style={{ margin: 0 }}>
           Bij ‘slechter’: {item.auto_rollback.enabled ? "automatisch terugdraaien staat aan" : "automatisch terugdraaien staat uit — er komt een voorstel"} (<span className="mono">{item.auto_rollback.setting}</span>).
           {ev.evaluator === "generiek" ? " Gemeten met de algemene controle (downloaduitkomsten)." : ""}

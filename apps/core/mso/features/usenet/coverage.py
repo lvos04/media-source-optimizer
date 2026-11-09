@@ -81,14 +81,20 @@ def observe(servers: list[dict[str, Any]], db: Database | None = None) -> list[s
 
 
 def last_gain(db: Database | None = None) -> dict[str, Any] | None:
-    """The most recent coverage gain: ``{at, server, kind}`` (kind ``recovered`` or ``new_server``), or None."""
+    """The most recent coverage gain: ``{at, since, server, kind}`` (kind ``recovered`` or ``new_server``), or None.
+
+    ``at`` is when MSO knew (the trigger: ``recovered_at`` is set only after a watch of at least 2 hours, once
+    SABnzbd really used the server). ``since`` is when the coverage became available: for a recovered server the
+    switch-on that led to the recovery (``probe_started_at``), so a job that failed while SABnzbd already had that
+    server is not "before the gain"."""
     db = db or get_db()
     row = db.fetchone(
         "SELECT * FROM ("
-        "  SELECT recovered_at AS at, server, 'recovered' AS kind FROM usenet_server_autoheal "
-        "  WHERE recovered_at IS NOT NULL "
+        "  SELECT recovered_at AS at, LEAST(COALESCE(probe_started_at, recovered_at), recovered_at) AS since, server, "
+        "  'recovered' AS kind FROM usenet_server_autoheal WHERE recovered_at IS NOT NULL "
         "  UNION ALL "
-        "  SELECT gain_at AS at, server, 'new_server' AS kind FROM usenet_server_coverage WHERE gain_at IS NOT NULL"
+        "  SELECT gain_at AS at, gain_at AS since, server, 'new_server' AS kind FROM usenet_server_coverage "
+        "  WHERE gain_at IS NOT NULL"
         ") g ORDER BY at DESC LIMIT 1"
     )
     if row is None:
@@ -98,7 +104,8 @@ def last_gain(db: Database | None = None) -> dict[str, Any] | None:
         "(SELECT displayname FROM usenet_sab_servers WHERE server=%s))",
         (row["server"], row["server"]),
     )
-    return {"at": row["at"], "server": row["server"], "name": name or row["server"], "kind": row["kind"]}
+    return {"at": row["at"], "since": row["since"] or row["at"], "server": row["server"], "name": name or row["server"],
+            "kind": row["kind"]}
 
 
 def last_gain_at(db: Database | None = None) -> datetime | None:

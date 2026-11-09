@@ -17,8 +17,13 @@ Apply semantics:
 5. Rollback (1.6.0) checks drift per op first: a value that is neither MSO's value nor the original any more was
    changed outside MSO and is skipped ("overgeslagen"), never overwritten. Every written op is read back; a failed
    read-back keeps the change ``applied`` with the error — there is no "teruggedraaid" without verification.
+   A rollback by a person records an owner override for every op it put back, so Autopilot does not redo it on its
+   next round ("Je hebt dit zelf teruggezet").
 6. Status transitions are atomic: a per-change advisory lock (held for the whole apply/rollback, released by
    PostgreSQL when the process dies) plus ``UPDATE … WHERE status IN (…) RETURNING``.
+7. Writing a value back that *removes* something at the source (``Applier.rollback_deletes``, e.g. deleting a
+   SABnzbd category MSO created) is never done unattended: not by the restore after a failed apply, not by the
+   reconciler, not by an automatic rollback. Only a person with the admin role can roll such an op back.
 """
 
 from __future__ import annotations
@@ -68,6 +73,21 @@ class Applier:
     same: Callable[[str, Any, Any], bool] | None = None
     # path → rolling back is a no-op by design (a one-shot action that changes no data, e.g. a hash check)
     noop_rollback: Callable[[str], bool] | None = None
+    # (path, value) → writing ``value`` back removes something at the source (e.g. deleting a SABnzbd category):
+    # never unattended (hard rule 1), and a person's rollback needs the admin role
+    rollback_deletes: Callable[[str, Any], bool] | None = None
+
+
+def deletes_on_write(applier: Applier | None, path: str, value: Any) -> bool:
+    if applier is None or applier.rollback_deletes is None:
+        return False
+    try:
+        return bool(applier.rollback_deletes(path, value))
+    except Exception:
+        return True  # unsure → treat as a removal (the safe side)
+
+
+DELETE_NOTE = "niet automatisch teruggezet: terugzetten zou iets verwijderen; verwijder het zo nodig zelf"
 
 
 def _same(applier: Applier, path: str, a: Any, b: Any) -> bool:
@@ -245,6 +265,10 @@ def _restore(applier: Applier, written: list[dict[str, Any]]) -> list[str]:
             op["result"] = "toegepast"
             op["restore_note"] = "niet terug te draaien"
             continue
+        if deletes_on_write(applier, str(op["path"]), op.get("observed_before")):
+            op["result"] = "toegepast"
+            op["restore_note"] = DELETE_NOTE
+            continue
         try:
             applier.write(op["path"], op["observed_before"])
             check = applier.read(op["path"])
@@ -317,8 +341,11 @@ def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = 
                 _persist_ops(db, change_id, ops, "applying")
         except Exception as exc:
             rollback_errors = _restore(applier, written)
+            kept = [o["label"] for o in written if o.get("restore_note") == DELETE_NOTE]
             err = redact(f"{exc}") + (f" · herstel mislukt: {rollback_errors}" if rollback_errors
-                                      else " · automatisch hersteld")
+                                      else " · automatisch hersteld" if not kept else "")
+            if kept:
+                err += f" · blijft staan (terugzetten zou iets verwijderen; doe dat zo nodig zelf): {', '.join(kept)}"
             db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s, applied_by=NULL, applied_auto=false "
                        "WHERE id=%s AND status='applying'", (err, jsonb(ops), change_id))
             audit(actor, "change.failed", f"Toepassen mislukt: {ch['title']}", target=ch["target"],
@@ -353,13 +380,25 @@ def _record_override(ch: dict[str, Any], op: dict[str, Any], current: Any) -> No
         LOGGER.debug("override niet vastgelegd", exc_info=True)
 
 
-def rollback(change_id: int, actor: str, reason: str = "", db: Database | None = None) -> dict[str, Any]:
+def is_person(actor: str, db: Database | None = None) -> bool:
+    """A logged-in person (a row in ``users``), not MSO itself (automatisering, autopilot:*, systeem …)."""
+    try:
+        return bool((db or get_db()).scalar("SELECT 1 FROM users WHERE username=%s", (actor,)))
+    except Exception:
+        return False
+
+
+def rollback(change_id: int, actor: str, reason: str = "", db: Database | None = None, *,
+             allow_delete: bool = False) -> dict[str, Any]:
     """Write ``observed_before`` back for every applied, reversible op (reverse order).
 
     Per op: read the current value first — still MSO's value → write back + read back (verified); already the
     original → nothing to write (verified); anything else → changed outside MSO: skipped ("overgeslagen"), never
     overwritten (and recorded as an owner override). A failed write or read-back keeps the change ``applied`` with
-    the error (502). Nothing written back because everything drifted → :class:`RollbackSkipped` (409)."""
+    the error (502). Nothing written back because everything drifted → :class:`RollbackSkipped` (409).
+
+    An op whose write-back removes something (``Applier.rollback_deletes``) needs ``allow_delete`` (a person with
+    the admin role); otherwise 403 and nothing is written. Ops a person put back become an owner override."""
     db = db or get_db()
     state.require_manage_mode()
     ch = get(change_id, db)
@@ -381,6 +420,13 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
         except Exception as exc:
             raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
                 from exc
+        deleting = [op["label"] for op in ch["ops"] if op.get("result") == "toegepast" and reversible(op)
+                    and deletes_on_write(applier, str(op["path"]), op.get("observed_before"))]
+        if deleting and not allow_delete:
+            raise HTTPException(403, detail=(
+                f"Terugdraaien verwijdert hier iets ({', '.join(deleting)[:200]}); dat mag alleen een beheerder, "
+                "en nooit automatisch"))
+        person = is_person(actor, db)
         ops = [dict(op) for op in ch["ops"]]
         errors: list[str] = []
         skipped: list[dict[str, Any]] = []
@@ -434,6 +480,9 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
                 op.pop("rollback_error", None)
             _persist_ops(db, change_id, ops, "applied")
         reverted = [op for op in ops if op.get("result") == "teruggedraaid"]
+        if person:  # the person's own decision: Autopilot must not redo it on its next round
+            for op in reverted:
+                _record_override(ch, op, op.get("observed_before"))
         skip_line = "; ".join(f"{o['label']}: nu {_short(o.get('current'), 60)}" for o in skipped)
         if errors:
             db.execute("UPDATE change_sets SET error=%s, ops=%s WHERE id=%s AND status='applied'",
@@ -545,7 +594,9 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
         _resolve_item(ch["id"], db)
         return "afgerond"
     written = [op for op in ops if op.get("result") == "toegepast"]
-    if any(reversible(op) for op in written) and state.mode() not in ("manage", "autopilot"):
+    restorable = [op for op in written if reversible(op)
+                  and not deletes_on_write(applier, str(op["path"]), op.get("observed_before"))]
+    if restorable and state.mode() not in ("manage", "autopilot"):
         # something MSO can put back was written, but alleen-lezen never writes: wait (one item) for beheermodus.
         # Nothing reversible written (cut off before the first write, or only one_way ops) → handled below
         # without any write, so the change does not block its dedupe key in 'applying'.
@@ -559,7 +610,10 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
     for op in ops:
         if op.get("result") == "niet_toegepast":
             op["result"] = "niet_uitgevoerd"
-    kept = [o["label"] for o in written if o.get("result") == "toegepast"]  # one_way: cannot be undone
+    # one_way: cannot be undone; a write-back that would delete: never unattended (a person decides)
+    kept = [o["label"] for o in written if o.get("result") == "toegepast" and o.get("restore_note") != DELETE_NOTE]
+    kept_delete = [o["label"] for o in written if o.get("result") == "toegepast"
+                   and o.get("restore_note") == DELETE_NOTE]
     parts = ["Onderbroken tijdens toepassen (herstart)"]
     if not written:
         parts.append("onderbroken vóór de eerste schrijfactie; niets ingesteld")
@@ -567,6 +621,10 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
         parts.append("al geschreven waarden teruggezet en gecontroleerd")
     if kept:
         parts.append(f"niet terug te draaien en blijft: {', '.join(kept)}")
+    if kept_delete:
+        parts.append("blijft staan, want terugzetten zou iets verwijderen (MSO verwijdert nooit zonder jou; doe "
+                     f"dat zo nodig zelf): {', '.join(kept_delete)}")
+        kept = [*kept, *kept_delete]
     if errors:
         parts.append(f"terugzetten mislukt: {'; '.join(errors)}")
     if unclear:
@@ -574,7 +632,7 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
     err = " · ".join(parts)
     db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s WHERE id=%s AND status='applying'",
                (err[:1000], jsonb(ops), ch["id"]))
-    outcome = "deels" if (errors or unclear) else ("niets_ingesteld" if not written else "teruggezet")
+    outcome = "deels" if (errors or unclear or kept_delete) else ("niets_ingesteld" if not written else "teruggezet")
     if errors or unclear or kept or not ch.get("applied_auto"):
         _waiting_item(ch, f"Wijziging onderbroken: {title}",
                       f"MSO werd herstart terwijl '{title}' werd toegepast. {err}. "

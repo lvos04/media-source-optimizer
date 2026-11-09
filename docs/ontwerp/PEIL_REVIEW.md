@@ -47,6 +47,8 @@ onder Unreleased.
   alleen in emulatie gemeten.
 - e2e strikt **109/109**, nu ook met axe = 0 op alle impacts als eis.
 - vitest **55/55**.
+- GitHub `ci.yaml`: run 42682097953 (HEAD `c5ff0a8`) en run 42687980409 (HEAD `dbe0ab4`) waren elk volledig
+  groen, met alle 7 jobs geslaagd: python, web, images 3/3, stack en e2e.
 
 **Open:**
 - De schermstructuur van het Overzicht zet de status niet eerst. Dat is een bewuste regel van deze ronde (A-1).

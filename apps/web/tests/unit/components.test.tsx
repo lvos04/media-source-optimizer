@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { InlineState, StatusChip, TONE_ICON, type Tone } from "@/components/mg/primitives";
+import { Dot, ErnstLabel, InlineState, StatusChip, TONE_ICON, type Tone } from "@/components/mg/primitives";
 import { RiskChip } from "@/components/mso/risk-chip";
 import { I18nProvider } from "@/lib/i18n";
 
@@ -55,5 +55,44 @@ describe("InlineState", () => {
     const out = html(<InlineState tone="success">Klaar</InlineState>);
     expect(out).toContain("lucide-check");
     expect(out).not.toContain("healthy");
+  });
+});
+
+// Review stap 5 (docs/ontwerp/PEIL_REVIEW.md): amber alleen voor gezondheid, ernst een eigen vorm, geen statusstip.
+describe("InlineState — onbekend en verouderd zijn nooit amber", () => {
+  it("unknown: stippel + circle-help", () => {
+    const out = html(<InlineState tone="unknown">Prijs ontbreekt</InlineState>);
+    expect(out).toContain("border-dashed");
+    expect(out).toContain("lucide-circle-question-mark");
+    expect(out).not.toContain("degraded");
+  });
+  it("stale: stippel + clock-alert", () => {
+    const out = html(<InlineState tone="stale">Verouderd</InlineState>);
+    expect(out).toContain("border-dashed");
+    expect(out).toContain("lucide-clock-alert");
+    expect(out).not.toContain("degraded");
+  });
+});
+
+describe("ErnstLabel (T-20)", () => {
+  it.each([["hoog", "Hoog"], ["middel", "Middel"], ["info", "Info"]] as const)("%s → %s met linkerbalk, geen pil", (ernst, woord) => {
+    const out = html(<ErnstLabel ernst={ernst} />);
+    expect(out).toContain(woord);
+    expect(out).toContain("border-l-[6px]");
+    expect(out).toContain("Ernst");
+    expect(out).not.toContain("rounded-full");
+    expect(out).not.toContain("data-status");
+  });
+});
+
+describe("Dot — status nooit alleen kleur", () => {
+  it("gezondheidstonen krijgen het Peil-icoon", () => {
+    expect(html(<Dot tone="healthy" />)).toContain("lucide-circle-check");
+    expect(html(<Dot tone="warning" />)).toContain("lucide-triangle-alert");
+    expect(html(<Dot tone="danger" />)).toContain("lucide-octagon-x");
+    expect(html(<Dot tone="unknown" />)).toContain("lucide-circle-question-mark");
+  });
+  it("een neutrale stip is nooit groen", () => {
+    expect(html(<Dot tone="success" />)).not.toContain("healthy");
   });
 });

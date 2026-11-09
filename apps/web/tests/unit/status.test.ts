@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CHANGE_STATUS, healthLabel, healthTone, isHealthProblem, jobLabel, jobTone } from "@/lib/status";
+import { CHANGE_STATUS, healthLabel, healthTone, isHealthProblem, jobLabel, jobTone, peilStatusText } from "@/lib/status";
 
 // Peil §4.1: green (`healthy`) only for MEASURED health; "connected" is a link state; unknown is never "neutral/pause".
 describe("health → Peil", () => {
@@ -40,5 +40,18 @@ describe("jobs and changes are never green", () => {
     expect(CHANGE_STATUS.approved.tone).toBe("approval");
     expect(CHANGE_STATUS.applying.tone).toBe("accent");
     for (const v of Object.values(CHANGE_STATUS)) expect(v.tone).not.toBe("healthy");
+  });
+});
+
+describe("peilStatusText — oude statuswoorden uit backendteksten", () => {
+  const t = (k: string) => ({ "status.degraded": "Beperkt", "status.offline": "Storing" })[k] ?? k;
+  it("vervangt alleen een los statuswoord achter de naam", () => {
+    expect(peilStatusText("Prowlarr: Verstoord", t)).toBe("Prowlarr: Beperkt");
+    expect(peilStatusText("SABnzbd: Offline", t)).toBe("SABnzbd: Storing");
+  });
+  it("laat zinnen en andere teksten ongemoeid", () => {
+    expect(peilStatusText("Prowlarr onbereikbaar sinds 10:12", t)).toBe("Prowlarr onbereikbaar sinds 10:12");
+    expect(peilStatusText("2 mislukte taak/taken (24 u)", t)).toBe("2 mislukte taak/taken (24 u)");
+    expect(peilStatusText("Verstoord verkeer: Prowlarr", t)).toBe("Verstoord verkeer: Prowlarr");
   });
 });

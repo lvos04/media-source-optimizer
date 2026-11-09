@@ -1,10 +1,12 @@
 // Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/components/mg/toast.tsx — internally versioned copy, see PROVENANCE.md
 "use client";
 
-import { CircleCheck, CircleX, Info, X } from "lucide-react";
+import { Check, Info, OctagonX, X } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 type ToastTone = "success" | "danger" | "info";
 interface ToastItem { id: number; tone: ToastTone; title: string; body?: string }
@@ -25,14 +27,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="toast-region" aria-live="polite">
+      <div className="toast-region fixed right-4 bottom-[calc(var(--bottomnav-h)+1rem)] z-toast flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 lg:bottom-4" aria-live="polite">
         {items.map((item) => {
-          const Icon = item.tone === "success" ? CircleCheck : item.tone === "danger" ? CircleX : Info;
+          const Icon = item.tone === "success" ? Check : item.tone === "danger" ? OctagonX : Info;
           return (
-            <div key={item.id} className={`toast toast--${item.tone}`} role={item.tone === "danger" ? "alert" : "status"}>
-              <Icon className="ico" aria-hidden="true" />
-              <div className="grow"><strong>{item.title}</strong>{item.body ? <div className="t-2" style={{ fontSize: 12.5, marginTop: 2 }}>{item.body}</div> : null}</div>
-              <button type="button" className="icon-btn" style={{ width: 24, height: 24 }} onClick={() => dismiss(item.id)} aria-label={t("action.close")}><X className="ico ico-sm" aria-hidden="true" /></button>
+            <div key={item.id} className={cn("toast flex items-start gap-2.5 rounded-lg border-2 bg-popover px-3.5 py-3 text-base shadow-md", item.tone === "danger" ? "border-down" : "border-border")} role={item.tone === "danger" ? "alert" : "status"}>
+              <Icon className={cn("ico mt-0.5 size-5 shrink-0", item.tone === "danger" ? "text-down-ink" : "text-foreground")} aria-hidden="true" />
+              <div className="min-w-0 flex-1 break-words"><strong>{item.title}</strong>{item.body ? <div className="mt-0.5 text-sm text-muted-foreground">{item.body}</div> : null}</div>
+              <button type="button" className={buttonVariants({ variant: "stil", size: "icoon" })} onClick={() => dismiss(item.id)} aria-label={t("action.close")}><X className="ico" aria-hidden="true" /></button>
             </div>
           );
         })}

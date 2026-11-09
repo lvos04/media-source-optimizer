@@ -1,11 +1,16 @@
 /* Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/app/globals.css — internally versioned copy, see PROVENANCE.md */
-/* Peil 1.1.0, fase 1a (docs/ontwerp/PEIL_MIGRATIE.md §8): volgorde is bindend.
-   1. Tailwind 4 · 2. Peil-tokens en basislaag · 3. de bestaande MediaGuard-stijl (mg.css) + MSO-toevoegingen ·
-   4. de gedeelde, gegenereerde aliaslaag (zet alle --mg-* op Peil) · 5. MSO-eigen correcties (peil-mso.css).
-   Terugdraaien van fase 1a = de regels 2, 4 en 5 weghalen. */
+/* Peil 1.1.0 (docs/ontwerp/PEIL_MIGRATIE.md §8). Volgorde is bindend.
+   Fase 2: de bestaande MediaGuard-stijl staat in de cascadelaag "legacy" (tussen Tailwinds base en utilities), zodat
+   Tailwind-utilities en de shadcn/ui-componenten in components/ui altijd winnen van mg.css. Fase 1a is daarbinnen
+   ongewijzigd: Peil-tokens → mg.css + mso.css → gedeelde aliaslaag → MSO-correcties (peil-mso.css). */
+@layer theme, base, legacy, components, utilities;
 @import "tailwindcss";
 @import "../styles/peil/ontwerptaal.css";
-@import "../styles/mg.css";
-@import "../styles/mso.css";
-@import "../styles/peil/mediaguard-mso.css";
-@import "../styles/peil-mso.css";
+@import "../styles/mg.css" layer(legacy);
+@import "../styles/mso.css" layer(legacy);
+@import "../styles/peil/mediaguard-mso.css" layer(legacy);
+@import "../styles/peil-mso.css" layer(legacy);
+
+/* "table" is een MSO/MediaGuard-klassennaam (.table, .table--stack), geen Tailwind-utility: niet genereren, anders
+   wint display:table van de gestapelde tabel op de telefoon. */
+@source not inline("table");

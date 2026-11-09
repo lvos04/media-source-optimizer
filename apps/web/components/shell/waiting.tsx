@@ -83,16 +83,15 @@ export function WaitingPill() {
   const title = t("calm.pillTitle", { count: num(n) });
   return (
     <>
-      <Link className="top-pill top-pill--warning" href={WAITING_HREF} title={title} data-testid="waiting-pill">
-        <Hand className="ico ico-sm" aria-hidden="true" /><span><strong>{num(n)}</strong> {t("autopilot.waitTitle").toLowerCase()}</span>
+      {/* Peil: a counter is an ink pill (never amber/red); the name is part of the accessible text. ≥ 1024 px a pill,
+          below an icon button (44 px) with the count. */}
+      <Link className="focus-ring hidden min-h-touch items-center gap-1.5 rounded-full border-2 border-border-strong bg-card px-3 text-sm text-foreground no-underline hover:bg-accent lg:inline-flex" href={WAITING_HREF} title={title} data-testid="waiting-pill">
+        <Hand className="ico size-[1.125rem]" aria-hidden="true" /><span><strong className="cijfers">{num(n)}</strong> {t("autopilot.waitTitle").toLowerCase()}</span>
       </Link>
-      {/* .mobile-only sets `display: initial`, which would make an <a> inline (no 34×34 tap target, badge off): the
-          wrapper takes the show/hide, the link keeps icon-btn's inline-grid box */}
-      <span className="mobile-only" style={{ lineHeight: 0 }}>
-        <Link className="icon-btn" href={WAITING_HREF} title={title} aria-label={label} data-testid="waiting-pill-mobile">
-          <Hand className="ico" aria-hidden="true" /><span className="dot-badge" aria-hidden="true">{n > 99 ? "99+" : n}</span>
-        </Link>
-      </span>
+      <Link className="focus-ring relative inline-grid size-touch place-items-center rounded-lg text-foreground hover:bg-accent lg:hidden" href={WAITING_HREF} title={title} aria-label={label} data-testid="waiting-pill-mobile">
+        <Hand className="ico size-5" aria-hidden="true" />
+        <span className="absolute top-0.5 right-0 inline-grid h-5 min-w-5 place-items-center rounded-full bg-foreground px-1 text-sm leading-none font-bold text-background" aria-hidden="true">{n > 99 ? "99+" : n}</span>
+      </Link>
     </>
   );
 }
@@ -105,7 +104,7 @@ export function WaitingNavBadge() {
   if (!n) return null;
   // the count is read with the link text ("Automatisering 3 wacht op jou"); no aria-label on a plain span (axe)
   return (
-    <span className="nav-count nav-count--warning" title={t("calm.navBadge", { count: num(n) })} data-testid="nav-waiting-badge">
+    <span className="cijfers inline-grid h-6 min-w-6 place-items-center rounded-full bg-foreground px-1.5 text-sm font-bold text-background" title={t("calm.navBadge", { count: num(n) })} data-testid="nav-waiting-badge">
       {n > 99 ? "99+" : num(n)}<span className="sr-only"> {t("autopilot.waitTitle").toLowerCase()}</span>
     </span>
   );

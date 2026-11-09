@@ -2,16 +2,20 @@
 // (MSO: sidebar health from /system/health, topbar mode chip, "Automatisering pauzeren" instead of
 // the emergency stop, theme stored in localStorage `mso.theme`, no notifications/storage pill/SSE;
 // 1.6.0: "Wacht op jou" counter in the topbar, badge on Automatisering, "(N) " tab title — see ./waiting.tsx.)
+// Peil fase 2a (AppSchil C-01, zonder Hub-items): sidebar ≥ 1024 px (lg), bottom navigation below; "Meer" is a sheet
+// from the bottom; "Terug naar de Hub" (O-11) under the logo and as the first item of the sheet; testids and
+// accessible names unchanged (sidebar-health, waiting-pill(-mobile), mode-chip, theme-toggle, pause-button).
 "use client";
 
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
-  Bot, CircleCheck, Eye, LogOut, Menu, Monitor, Moon, PauseCircle, PlayCircle, Search, ShieldCheck, Sun, X,
+  ArrowLeft, Bot, CirclePause, CirclePlay, Eye, Keyboard, LogOut, Menu, Monitor, Moon, Search, ShieldCheck, Sun, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { Button, Dot, Kbd, Modal } from "@/components/mg/primitives";
+import { Button, Dot, Kbd, Modal, Segmented } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
 import { ToastProvider, useToast } from "@/components/mg/toast";
 import { AutopilotHoldBanner } from "@/components/mso/automation/hold-banner";
@@ -25,6 +29,8 @@ import { useI18n } from "@/lib/i18n";
 import { ModeProvider, useMode } from "@/lib/mode";
 import { SessionProvider, useSession } from "@/lib/session";
 import { BARE_STATUS_WORDS, healthLabel, healthTone, isHealthProblem } from "@/lib/status";
+import { buttonVariants } from "@/components/ui/button";
+import { HUB_URL_SETTING, hubUrl } from "@/lib/hub";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------- shell data (health/info)
@@ -72,7 +78,7 @@ function ThemeToggle() {
   const Icon = choice === "dark" ? Moon : choice === "light" ? Sun : Monitor;
   const label = t("topbar.themeToggle", { current: t(`theme.${choice}`), next: t(`theme.${next[choice]}`) });
   return (
-    <button type="button" className="icon-btn" data-testid="theme-toggle" onClick={() => setUserTheme(next[choice])} aria-label={label} title={label}>
+    <button type="button" className={buttonVariants({ variant: "stil", size: "icoon" })} data-testid="theme-toggle" onClick={() => setUserTheme(next[choice])} aria-label={label} title={label}>
       <Icon className="ico" aria-hidden="true" />
     </button>
   );
@@ -91,11 +97,11 @@ function ShellGate({ children }: { children: ReactNode }) {
   const { status, refresh } = useSession();
   const { t } = useI18n();
   if (status === "loading") {
-    return <div className="auth-main" style={{ minHeight: "100vh" }}><StateView kind="loading" /></div>;
+    return <div className="flex min-h-screen items-center justify-center px-4 py-8"><StateView kind="loading" /></div>;
   }
   if (status === "offline") {
     return (
-      <div className="auth-main" style={{ minHeight: "100vh" }}>
+      <div className="flex min-h-screen items-center justify-center px-4 py-8">
         <StateView kind="offline" title={t("offline.pageTitle")} body={t("offline.pageBody")} action={<Button variant="primary" onClick={() => void refresh()}>{t("action.retry")}</Button>} />
       </div>
     );
@@ -112,9 +118,9 @@ function ShellGate({ children }: { children: ReactNode }) {
 function ShellFrame({ children }: { children: ReactNode }) {
   const healthRes = useResource<SystemHealth>("/system/health", undefined, 30_000);
   const infoRes = useResource<SystemInfo>("/system/info");
-  const [drawer, setDrawer] = useState(false);
+  const [more, setMore] = useState(false);
   const pathname = usePathname();
-  useEffect(() => setDrawer(false), [pathname]);
+  useEffect(() => setMore(false), [pathname]);
 
   useEffect(() => {
     let local: ThemeChoice | null = null;
@@ -128,18 +134,20 @@ function ShellFrame({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   return (
     <ShellContext.Provider value={shell}>
-      <a className="skip-link" href="#main">{t("app.skipToContent")}</a>
-      <div className="app">
-        <aside className="sidebar" aria-label={t("nav.main")}><SidebarContent /></aside>
-        <div className="main">
-          <Topbar onMenu={() => setDrawer(true)} />
+      <a className="skip-link focus-ring fixed top-[-4rem] left-3 z-toast rounded-lg bg-primary px-3 py-2.5 font-semibold text-primary-foreground no-underline focus:top-3" href="#main">{t("app.skipToContent")}</a>
+      <div className="app min-h-screen lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
+        <aside className="sidebar sticky top-0 hidden h-screen flex-col gap-3 overflow-y-auto overscroll-contain border-r border-border bg-sidebar px-3 pt-4 pb-3 lg:flex" aria-label={t("nav.main")}>
+          <SidebarContent />
+        </aside>
+        <div className="main flex min-w-0 flex-col">
+          <Topbar onMenu={() => setMore(true)} />
           <PauseBanner />
           <AutopilotHoldBanner />
-          <main id="main" className="content" tabIndex={-1}>{children}</main>
+          <main id="main" className="content mx-auto w-full max-w-[95rem] px-4 pt-4 pb-[calc(var(--bottomnav-h)+1.75rem)] outline-none lg:px-6 lg:pt-6 lg:pb-12" tabIndex={-1}>{children}</main>
         </div>
       </div>
-      <BottomNav onMore={() => setDrawer(true)} moreOpen={drawer} />
-      {drawer ? <NavDrawer onClose={() => setDrawer(false)} /> : null}
+      <BottomNav onMore={() => setMore(true)} moreOpen={more} />
+      <MoreSheet open={more} onClose={() => setMore(false)} />
       <KeyboardShortcuts />
     </ShellContext.Provider>
   );
@@ -149,10 +157,31 @@ function ShellFrame({ children }: { children: ReactNode }) {
 function Brand() {
   const { t } = useI18n();
   return (
-    <Link href="/" className="brand">
+    <Link href="/" className="brand focus-ring flex min-h-touch items-center gap-2.5 rounded-lg px-2 text-foreground no-underline">
       <BrandMark />
-      <span><div className="brand-name">{t("app.name")}</div><div className="brand-sub">{t("app.tagline")}</div></span>
+      <span className="min-w-0">
+        <span className="block text-base leading-tight font-bold">{t("app.name")}</span>
+        <span className="block text-sm leading-tight text-muted-foreground">{t("app.tagline")}</span>
+      </span>
     </Link>
+  );
+}
+
+/**
+ * "Terug naar de Hub" (Peil O-11): only when `systeem.hub_url` holds a valid http(s) address (same rules as the
+ * core validator). Unknown, empty, invalid or not readable → nothing in the DOM (no empty spot, no disabled button).
+ * Same tab: it is the way back, not a deep link.
+ */
+export function HubLink({ onNavigate }: { onNavigate?: () => void }) {
+  const { t } = useI18n();
+  const res = useResource<{ values: Record<string, unknown> }>("/settings");
+  const href = hubUrl(res.data?.values?.[HUB_URL_SETTING]);
+  if (!href) return null;
+  return (
+    <a href={href} rel="noopener" onClick={onNavigate} data-testid="hub-link"
+      className={cn(buttonVariants({ variant: "secundair" }), "w-full justify-start")}>
+      <ArrowLeft className="ico" aria-hidden="true" />{t("nav.backToHub")}
+    </a>
   );
 }
 
@@ -160,16 +189,19 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { t } = useI18n();
   return (
-    <nav className="nav" aria-label={t("nav.main")}>
+    <nav className="nav flex flex-col gap-0.5" aria-label={t("nav.main")}>
       {NAV.map((group) => (
-        <div key={group.label ?? "root"} style={{ display: "contents" }}>
-          {group.label ? <div className="nav-group">{t(group.label)}</div> : null}
+        <div key={group.label ?? "root"} className="contents">
+          {group.label ? <div className="mt-3 mb-1 px-3 text-sm font-semibold text-muted-foreground">{t(group.label)}</div> : null}
           {group.items.map((item) => {
             const active = isActive(item.href, pathname);
             return (
-              <Link key={item.key} href={item.href} className="nav-item" aria-current={active ? "page" : undefined} onClick={onNavigate}>
-                <item.icon className="ico" aria-hidden="true" />
-                <span className="nav-label">{t(item.label)}</span>
+              <Link key={item.key} href={item.href} aria-current={active ? "page" : undefined} onClick={onNavigate}
+                className={cn("nav-item focus-ring relative flex min-h-touch items-center gap-3 rounded-lg px-3 text-base text-foreground no-underline hover:bg-accent",
+                  "aria-[current=page]:bg-accent aria-[current=page]:font-semibold",
+                  "aria-[current=page]:before:absolute aria-[current=page]:before:inset-y-2 aria-[current=page]:before:-left-3 aria-[current=page]:before:w-1 aria-[current=page]:before:rounded-r aria-[current=page]:before:bg-primary")}>
+                <item.icon className="ico size-5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 break-words">{t(item.label)}</span>
                 {item.key === "automation" ? <WaitingNavBadge /> : null}
               </Link>
             );
@@ -195,41 +227,45 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <>
       <Brand />
+      <HubLink onNavigate={onNavigate} />
       <NavList onNavigate={onNavigate} />
-      <div className="sidebar-footer" data-testid="sidebar-health">
-        <Link href="/systeem" className="health-line" title={problems.map((p) => `${p.label ?? p.name}: ${reason(p)}`).join("\n") || undefined}>
-          <Dot tone={dot} /><strong>{label}</strong>
+      <div className="sidebar-footer mt-auto flex flex-col gap-1 border-t border-border px-2 pt-2.5 text-sm" data-testid="sidebar-health">
+        <Link href="/systeem" className="health-line focus-ring flex min-h-touch items-center gap-2 rounded-lg text-foreground no-underline" title={problems.map((p) => `${p.label ?? p.name}: ${reason(p)}`).join("\n") || undefined}>
+          <Dot tone={dot} /><strong className="font-semibold">{label}</strong>
         </Link>
         {problems.slice(0, 3).map((p) => (
-          <div key={p.name} className="health-line"><Dot tone={healthTone(p.status) === "danger" ? "danger" : healthTone(p.status) === "warning" ? "warning" : "unknown"} /><span title={p.message ?? undefined}>{p.label ?? p.name.replace(/^connector:/, "")} — {reason(p)}</span></div>
+          <div key={p.name} className="health-line flex items-start gap-2 text-muted-foreground">
+            <span className="mt-1.5"><Dot tone={healthTone(p.status) === "danger" ? "danger" : healthTone(p.status) === "warning" ? "warning" : "unknown"} /></span>
+            <span title={p.message ?? undefined} className="min-w-0 break-words">{p.label ?? p.name.replace(/^connector:/, "")} — {reason(p)}</span>
+          </div>
         ))}
-        {problems.length > 3 ? <div className="health-line"><span>{t("health.issues", { count: problems.length })}</span></div> : null}
-        <div className="version-line"><span>{info ? t("health.version", { version: info.version }) : "—"}</span><span>{t("app.short")}</span></div>
+        {problems.length > 3 ? <div className="text-muted-foreground">{t("health.issues", { count: problems.length })}</div> : null}
+        <div className="flex justify-between pt-1 text-muted-foreground"><span>{info ? t("health.version", { version: info.version }) : "—"}</span><span>{t("app.short")}</span></div>
       </div>
     </>
   );
 }
 
-function NavDrawer({ onClose }: { onClose: () => void }) {
+/** "Meer" (< 1024 px): a sheet from the bottom with the way back to the Hub first, then the full navigation. */
+function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useI18n();
-  const ref = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
-  // focus once when the drawer opens; shell re-renders (health polling) must not move focus again
-  useEffect(() => {
-    ref.current?.querySelector<HTMLElement>("button, a")?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCloseRef.current(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
   return (
-    <>
-      <div className="drawer-overlay" onClick={onClose} aria-hidden="true" />
-      <div className="drawer" ref={ref} role="dialog" aria-modal="true" aria-label={t("nav.main")} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div className="row-between"><Brand /><button type="button" className="icon-btn" onClick={onClose} aria-label={t("nav.closeMenu")}><X className="ico" aria-hidden="true" /></button></div>
-        <NavList onNavigate={onClose} />
-      </div>
-    </>
+    <DialogPrimitive.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="drawer-overlay fixed inset-0 z-overlay bg-black/50 lg:hidden" />
+        <DialogPrimitive.Content aria-describedby={undefined}
+          className="drawer fixed inset-x-0 top-auto bottom-0 z-overlay w-auto animate-none flex max-h-[calc(100dvh-2rem)] flex-col gap-3 overflow-y-auto overscroll-contain rounded-t-xl border-2 border-border bg-sidebar px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-lg outline-none lg:hidden">
+          <div className="flex items-center justify-between gap-2">
+            <DialogPrimitive.Title className="px-2 text-lg font-bold">{t("nav.more")}</DialogPrimitive.Title>
+            <DialogPrimitive.Close className={buttonVariants({ variant: "stil", size: "icoon" })} aria-label={t("nav.closeMenu")}>
+              <X className="ico" aria-hidden="true" />
+            </DialogPrimitive.Close>
+          </div>
+          <HubLink onNavigate={onClose} />
+          <NavList onNavigate={onClose} />
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 
@@ -239,14 +275,16 @@ function BottomNav({ onMore, moreOpen }: { onMore: () => void; moreOpen: boolean
   const items = BOTTOM_NAV_KEYS.map((key) => ALL_NAV_ITEMS.find((i) => i.key === key)!).filter(Boolean);
   const short: Record<string, string> = { missing: t("nav.missingShort") };
   const inBottom = items.some((i) => isActive(i.href, pathname));
+  const item = cn("focus-ring relative flex min-h-bottomnav min-w-0 flex-1 basis-0 flex-col items-center justify-center gap-0.5 border-0 bg-transparent px-0.5 text-center text-sm leading-tight font-semibold text-muted-foreground no-underline [hyphens:auto] font-medium",
+    "aria-[current=page]:text-primary [&_svg]:size-6");
   return (
-    <nav className="bottomnav" aria-label={t("nav.mobile")}>
-      {items.map((item) => (
-        <Link key={item.key} href={item.href} aria-current={isActive(item.href, pathname) ? "page" : undefined}>
-          <item.icon className="ico" aria-hidden="true" /><span>{short[item.key] ?? t(item.label)}</span>
+    <nav className="bottomnav fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label={t("nav.mobile")}>
+      {items.map((it) => (
+        <Link key={it.key} href={it.href} className={item} aria-current={isActive(it.href, pathname) ? "page" : undefined}>
+          <it.icon className="ico" aria-hidden="true" /><span className="max-w-full break-words">{short[it.key] ?? t(it.label)}</span>
         </Link>
       ))}
-      <button type="button" onClick={onMore} aria-expanded={moreOpen} aria-current={!inBottom ? "page" : undefined}>
+      <button type="button" className={item} onClick={onMore} aria-expanded={moreOpen} aria-current={!inBottom ? "page" : undefined}>
         <Menu className="ico" aria-hidden="true" /><span>{t("nav.more")}</span>
       </button>
     </nav>
@@ -257,11 +295,12 @@ function BottomNav({ onMore, moreOpen }: { onMore: () => void; moreOpen: boolean
 function Topbar({ onMenu }: { onMenu: () => void }) {
   const { t } = useI18n();
   return (
-    <header className="topbar">
-      <button type="button" className="icon-btn mobile-only" onClick={onMenu} aria-label={t("nav.openMenu")}><Menu className="ico" aria-hidden="true" /></button>
+    // < 640 px the search field takes its own row under the icons (44 px targets for everything, no overflow at 320 px)
+    <header className="topbar sticky top-0 z-nav flex min-h-header flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-border bg-background px-3 py-1.5 sm:flex-nowrap sm:gap-2 lg:gap-3 lg:px-6 lg:py-0">
+      <button type="button" className={cn(buttonVariants({ variant: "stil", size: "icoon" }), "lg:hidden")} onClick={onMenu} aria-label={t("nav.openMenu")}><Menu className="ico" aria-hidden="true" /></button>
       <GlobalSearch />
-      <div className="topbar-spacer" />
-      <div className="topbar-cluster">
+      <div className="hidden flex-1 lg:block" />
+      <div className="ml-auto flex shrink-0 items-center gap-1 lg:gap-2">
         <WaitingPill />
         <ModeChip />
         <ThemeToggle />
@@ -272,20 +311,20 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
   );
 }
 
-/** Operating mode chip: "Alleen-lezen" / "Beheermodus" / "Autopilot" (accent tone) from GET /system/mode. */
+/** Operating mode: a neutral label (eye / shield-check / bot); "Modus onbekend" in the unknown shape. Icon only < lg. */
 function ModeChip() {
   const { t } = useI18n();
   const { mode, paused, error } = useMode();
   const label = mode ? t(`mode.${mode}`) : error ? t("mode.unknown") : "—";
   const title = mode === "autopilot" ? (paused ? t("mode.chipTitleAutopilotPaused") : t("mode.chipTitleAutopilot"))
     : mode === "manage" ? t("mode.chipTitleManage") : mode === "read_only" ? t("mode.chipTitleReadOnly") : t("mode.unknownReason");
-  const auto = mode === "autopilot";
+  const Icon = mode === "autopilot" ? Bot : mode === "manage" ? ShieldCheck : Eye;
   return (
-    // Peil §6.2: the mode is a neutral label (eye / shield-check / bot); "Modus onbekend" uses the unknown shape.
-    <Link className={cn("top-pill mode-pill", mode === null && "top-pill--unknown")} href="/instellingen?tab=systeem#modus" title={`${title} ${t("mode.chipChange")}`} aria-label={`${label} — ${t("mode.chipChange")}`} data-testid="mode-chip" data-mode={mode ?? "unknown"}>
-      {auto ? <Bot className="ico ico-sm" aria-hidden="true" />
-        : mode === "manage" ? <ShieldCheck className="ico ico-sm" aria-hidden="true" /> : <Eye className="ico ico-sm" aria-hidden="true" />}
-      <strong>{label}</strong>
+    <Link href="/instellingen?tab=systeem#modus" title={`${title} ${t("mode.chipChange")}`} aria-label={`${label} — ${t("mode.chipChange")}`} data-testid="mode-chip" data-mode={mode ?? "unknown"}
+      className={cn("mode-pill focus-ring inline-flex min-h-touch min-w-touch items-center justify-center gap-1.5 rounded-full border-2 px-2.5 text-sm font-semibold text-foreground no-underline hover:bg-accent lg:px-3",
+        mode === null ? "border-dashed border-unknown bg-unknown-bg text-unknown-ink" : "border-border-strong bg-card")}>
+      <Icon className="ico size-[1.125rem]" aria-hidden="true" />
+      <span className="hidden lg:inline">{label}</span>
     </Link>
   );
 }
@@ -303,9 +342,9 @@ function GlobalSearch() {
     router.push(`/zoeken?q=${encodeURIComponent(term)}`);
   };
   return (
-    <div style={{ position: "relative", flex: "0 1 440px", minWidth: 0, display: "flex" }}>
-      <label className="topbar-search" style={{ flex: 1 }}>
-        <Search className="ico" aria-hidden="true" />
+    <div className="relative order-last flex min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto lg:max-w-[28rem]">
+      <label className="topbar-search flex min-h-touch min-w-0 flex-1 items-center gap-2 rounded-lg border-2 border-input bg-card px-2.5 text-muted-foreground focus-within:border-ring">
+        <Search className="ico size-5 shrink-0" aria-hidden="true" />
         <span className="sr-only">{t("topbar.searchLabel")}</span>
         <input
           data-global-search
@@ -316,23 +355,22 @@ function GlobalSearch() {
           onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onKeyDown={(e) => { if (e.key === "Enter") go(); if (e.key === "Escape") (e.target as HTMLInputElement).blur(); }}
           aria-autocomplete="list"
+          className="min-w-0 flex-1 border-0 bg-transparent text-base text-foreground focus:outline-none focus-visible:shadow-none focus-visible:outline-none"
         />
-        <Kbd>/</Kbd>
+        <span className="hidden lg:inline-grid"><Kbd>/</Kbd></span>
       </label>
       {open && q.trim() ? (
-        <div className="popover" style={{ top: 42, left: 0, right: 0 }} role="listbox">
-          <div className="list">
-            <button type="button" role="option" aria-selected="true" className="list-row list-row--hover" style={{ border: 0, background: "none", width: "100%", textAlign: "left" }} onMouseDown={go}>
-              <span className="list-icon"><Search className="ico" aria-hidden="true" /></span><span className="list-title">{t("topbar.searchFor", { q: q.trim() })}</span>
-            </button>
-          </div>
+        <div className="absolute inset-x-0 top-full z-overlay mt-1 rounded-lg border-2 border-border bg-popover shadow-md" role="listbox">
+          <button type="button" role="option" aria-selected="true" className="focus-ring flex min-h-touch w-full items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 text-left text-base text-foreground hover:bg-accent" onMouseDown={go}>
+            <Search className="ico size-5" aria-hidden="true" /><span className="min-w-0 break-words">{t("topbar.searchFor", { q: q.trim() })}</span>
+          </button>
         </div>
       ) : null}
     </div>
   );
 }
 
-/** "Automatisering pauzeren" — POST /system/pause · /system/resume (replaces MediaGuard's emergency stop). */
+/** "Automatisering pauzeren" — POST /system/pause · /system/resume. Peil: Gepauzeerd = info (paused tokens), not amber. */
 function PauseButton() {
   const { t } = useI18n();
   const { paused, mode, error: modeError, pause, resume } = useMode();
@@ -358,20 +396,22 @@ function PauseButton() {
   };
   return (
     <>
-      <button type="button" className="estop estop--pause" aria-pressed={paused} onClick={() => { setError(null); setOpen(true); }} disabled={Boolean(disabledReason)} title={disabledReason ?? (paused ? t("pause.resumeTitle") : t("pause.button"))} data-testid="pause-button">
-        {paused ? <PlayCircle className="ico" aria-hidden="true" /> : <PauseCircle className="ico" aria-hidden="true" />}
-        <span className="estop-label">{paused ? t("pause.active") : t("pause.button")}</span>
+      <button type="button" aria-pressed={paused} onClick={() => { setError(null); setOpen(true); }} disabled={Boolean(disabledReason)} title={disabledReason ?? (paused ? t("pause.resumeTitle") : t("pause.button"))} data-testid="pause-button"
+        className={cn(buttonVariants({ variant: "secundair" }), "estop min-w-touch px-2.5 lg:px-3",
+          paused ? "border-paused bg-paused text-primary-foreground hover:bg-paused" : "border-paused bg-paused-bg text-paused-ink hover:bg-paused-bg")}>
+        {paused ? <CirclePlay className="ico" aria-hidden="true" /> : <CirclePause className="ico" aria-hidden="true" />}
+        <span className="estop-label sr-only lg:not-sr-only lg:text-sm">{paused ? t("pause.active") : t("pause.button")}</span>
       </button>
       <Modal
         open={open}
         onClose={() => setOpen(false)}
         role="alertdialog"
-        icon={paused ? PlayCircle : PauseCircle}
+        icon={paused ? CirclePlay : CirclePause}
         title={paused ? t("pause.resumeTitle") : t("pause.confirmTitle")}
         description={paused ? t("pause.resumeBody") : t("pause.confirmBody")}
         footer={<><Button onClick={() => setOpen(false)} data-autofocus>{t("action.cancel")}</Button><Button variant="primary" pending={pending} onClick={() => void submit()} data-testid="pause-confirm">{paused ? t("pause.resume") : t("pause.confirm")}</Button></>}
       >
-        {error ? <div className="field-error" role="alert">{error}</div> : null}
+        {error ? <div className="field-error flex items-center gap-1.5 text-sm font-semibold text-down-ink" role="alert">{error}</div> : null}
       </Modal>
     </>
   );
@@ -389,14 +429,15 @@ function PauseBanner() {
     try { await resume(); toast.push("success", t("pause.resumed")); } catch (e) { toast.push("danger", t("toast.failed", { message: errorMessage(e) })); } finally { setPending(false); }
   };
   return (
-    <div className="banner banner--warning" role="status" data-testid="pause-banner">
-      <PauseCircle className="ico" aria-hidden="true" />
-      <span className="grow"><strong>{t("pause.bannerTitle")}</strong> {t("pause.bannerBody")}</span>
-      {can("operator") ? <span className="banner-actions"><Button size="sm" icon={PlayCircle} pending={pending} onClick={() => void release()}>{t("pause.resume")}</Button></span> : null}
+    <div className="banner flex flex-wrap items-center gap-2.5 border-b-2 border-paused bg-paused-bg px-4 py-2 text-base text-paused-ink" role="status" data-testid="pause-banner">
+      <CirclePause className="ico size-5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1"><strong>{t("pause.bannerTitle")}</strong> {t("pause.bannerBody")}</span>
+      {can("operator") ? <span className="flex gap-2"><Button size="sm" icon={CirclePlay} pending={pending} onClick={() => void release()}>{t("pause.resume")}</Button></span> : null}
     </div>
   );
 }
 
+/** Profile: initials in the accessible name (WCAG 2.5.3) + ThemaKeuze Systeem / Licht / Donker (Peil, standard Systeem). */
 function ProfileMenu() {
   const { t } = useI18n();
   const { user, logout } = useSession();
@@ -404,22 +445,23 @@ function ProfileMenu() {
   const theme = useThemeChoice();
   const initials = (user?.username ?? "?").slice(0, 2).toUpperCase();
   return (
-    <div style={{ position: "relative" }}>
-      {/* WCAG 2.5.3: the visible initials are part of the accessible name (no differing aria-label) */}
-      <button type="button" className="avatar" aria-expanded={open} onClick={() => setOpen((v) => !v)} style={{ cursor: "pointer" }}>{initials}<span className="sr-only"> {t("topbar.profileSr")}</span></button>
+    <div className="relative">
+      <button type="button" className="avatar focus-ring inline-grid size-touch cursor-pointer place-items-center rounded-full border-2 border-border-strong bg-muted text-sm font-bold text-foreground" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {initials}<span className="sr-only"> {t("topbar.profileSr")}</span>
+      </button>
       {open ? (
-        <div className="popover" style={{ right: 0, top: 42, width: 260 }} role="dialog" aria-label={t("topbar.profile")}>
-          <div style={{ padding: 14 }} className="stack-sm">
-            <div><strong>{user?.username}</strong><div className="t-3" style={{ fontSize: 12 }}>{t("topbar.role", { role: user ? t(`role.${user.role}`) : "—" })}</div></div>
-            <hr className="divider" />
-            <span className="eyebrow">{t("topbar.theme")}</span>
-            <div className="segmented" role="group" aria-label={t("topbar.theme")}>
-              <button type="button" aria-pressed={theme === "dark"} onClick={() => setUserTheme("dark")}><Moon className="ico ico-sm" aria-hidden="true" />{t("theme.dark")}</button>
-              <button type="button" aria-pressed={theme === "light"} onClick={() => setUserTheme("light")}><Sun className="ico ico-sm" aria-hidden="true" />{t("theme.light")}</button>
-              <button type="button" aria-pressed={theme === "system"} onClick={() => setUserTheme("system")}><Monitor className="ico ico-sm" aria-hidden="true" />{t("theme.system")}</button>
-            </div>
-            <p className="hint" style={{ margin: 0 }}>{t("topbar.themeHint")}</p>
-            <hr className="divider" />
+        <div className="absolute top-full right-0 z-overlay mt-1 w-[min(18rem,calc(100vw-1.5rem))] rounded-lg border-2 border-border bg-popover p-3.5 shadow-md" role="dialog" aria-label={t("topbar.profile")}>
+          <div className="flex flex-col gap-2.5">
+            <div><strong>{user?.username}</strong><div className="text-sm text-muted-foreground">{t("topbar.role", { role: user ? t(`role.${user.role}`) : "—" })}</div></div>
+            <hr className="border-border" />
+            <span className="text-sm font-semibold">{t("topbar.theme")}</span>
+            <Segmented label={t("topbar.theme")} value={theme} onChange={setUserTheme} options={[
+              { value: "system", label: <><Monitor className="size-[1.125rem]" aria-hidden="true" />{t("theme.system")}</> },
+              { value: "light", label: <><Sun className="size-[1.125rem]" aria-hidden="true" />{t("theme.light")}</> },
+              { value: "dark", label: <><Moon className="size-[1.125rem]" aria-hidden="true" />{t("theme.dark")}</> },
+            ]} />
+            <p className="hint m-0 text-sm text-muted-foreground">{t("topbar.themeHint")}</p>
+            <hr className="border-border" />
             <Button variant="ghost" icon={LogOut} onClick={() => void logout()}>{t("topbar.logout")}</Button>
           </div>
         </div>
@@ -452,9 +494,9 @@ function KeyboardShortcuts() {
     ...ALL_NAV_ITEMS.filter((i) => i.shortcut).map((i): [string, string] => [i.shortcut!, t("keyboard.go", { page: t(i.label) })]),
   ];
   return (
-    <Modal open={help} onClose={() => setHelp(false)} title={t("keyboard.title")} icon={CircleCheck}>
-      <dl className="kv" style={{ gridTemplateColumns: "80px 1fr", rowGap: 10 }}>
-        {rows.map(([k, label]) => <div key={k} style={{ display: "contents" }}><dt><Kbd>{k}</Kbd></dt><dd>{label}</dd></div>)}
+    <Modal open={help} onClose={() => setHelp(false)} title={t("keyboard.title")} icon={Keyboard}>
+      <dl className="inline-grid w-full grid-cols-[5rem_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-base">
+        {rows.map(([k, label]) => <div key={k} className="contents"><dt><Kbd>{k}</Kbd></dt><dd className="m-0">{label}</dd></div>)}
       </dl>
     </Modal>
   );

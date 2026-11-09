@@ -35,6 +35,7 @@ export const messages = {
   "nav.more": "Meer",
   "nav.openMenu": "Menu openen",
   "nav.closeMenu": "Menu sluiten",
+  "nav.backToHub": "Terug naar de Hub",
 
   "topbar.search": "Zoek release, titel of indexer…",
   "topbar.searchLabel": "Zoeken",
@@ -221,6 +222,7 @@ export const messages = {
   "status.empty": "leeg",
 
   "dialog.typeToConfirm": "Typ {word} om te bevestigen",
+  "dialog.confirmReason": "De knop wordt actief zodra je {word} precies zo hebt getypt.",
 
   "copy.button": "Kopiëren",
   "copy.done": "Gekopieerd.",

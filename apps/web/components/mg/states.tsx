@@ -2,7 +2,7 @@
 // (MSO: ErrorState renders the "connector not configured" unavailable state for code=connector_not_configured.)
 "use client";
 
-import { Ban, CircleSlash, Inbox, Link2Off, OctagonX, SearchX, Settings2, WifiOff, type LucideIcon } from "lucide-react";
+import { Ban, CircleSlash, ClockAlert, Inbox, Link2Off, OctagonX, SearchX, Settings2, WifiOff, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button, CopyField, LinkButton, Skeleton } from "@/components/mg/primitives";
@@ -29,7 +29,7 @@ export function StateView({ kind, title, body, action, meta, compact, icon }: {
   const { t } = useI18n();
   if (kind === "loading") {
     return (
-      <div className={cn("state", compact && "state--compact")} role="status" aria-live="polite" style={{ alignItems: "stretch", textAlign: "left" }}>
+      <div className={cn("state", compact ? "px-4 py-3" : "px-6 py-8")} role="status" aria-live="polite">
         <span className="sr-only">{t("state.loading")}</span>
         <Skeleton lines={compact ? 2 : 4} />
       </div>
@@ -44,12 +44,17 @@ export function StateView({ kind, title, body, action, meta, compact, icon }: {
     forbidden: [t("state.forbiddenTitle"), t("state.forbiddenBody")],
     not_found: [t("state.notFoundTitle"), t("state.notFoundBody")],
   };
+  // Peil Leeg / Onbekend / Foutpaneel (C-14, C-17): icon in its axis shape, title, reason, what you can do.
+  const iconCls = kind === "error" ? "border-down bg-down-bg text-down-ink"
+    : kind === "offline" || kind === "unavailable" ? "border-dashed border-unknown bg-unknown-bg text-unknown-ink"
+      : "border-transparent bg-muted text-foreground";
   return (
-    <div className={cn("state", `state--${kind}`, compact && "state--compact")} role={kind === "error" ? "alert" : "status"} data-state={kind}>
-      <span className="state-icon"><Icon className="ico" aria-hidden="true" /></span>
-      <div className="state-title">{title ?? defaults[kind][0]}</div>
-      {(body ?? defaults[kind][1]) ? <div className="state-text">{body ?? defaults[kind][1]}</div> : null}
-      {meta ? <div className="state-meta">{meta}</div> : null}
+    <div className={cn("state flex flex-col items-center justify-center gap-2.5 text-center text-muted-foreground", `state--${kind}`, compact ? "state--compact px-4 py-5" : "px-6 py-10")}
+      role={kind === "error" ? "alert" : "status"} data-state={kind}>
+      <span className={cn("inline-grid size-11 place-items-center rounded-xl border-2", iconCls)}><Icon className="ico size-6" aria-hidden="true" /></span>
+      <div className="text-lg font-semibold text-foreground">{title ?? defaults[kind][0]}</div>
+      {(body ?? defaults[kind][1]) ? <div className="max-w-prose text-base">{body ?? defaults[kind][1]}</div> : null}
+      {meta ? <div className="text-sm">{meta}</div> : null}
       {action}
     </div>
   );
@@ -107,9 +112,7 @@ export function ResourceView<T>({ resource, children, endpoint, compact, empty, 
   if (resource.data === null) return <StateView kind="loading" compact={compact} />;
   // Peil: verouderd is always visible — also when the last known list was empty ("Wachtrij is leeg" may be outdated).
   const staleMark = resource.stale ? (
-    <div style={{ padding: "0 16px 8px" }}>
-      <span className="stale-mark" role="status">{t("state.stale", { age: relative(resource.fetchedAt) })}</span>
-    </div>
+    <div className="px-4 pb-2"><StaleMark>{t("state.stale", { age: relative(resource.fetchedAt) })}</StaleMark></div>
   ) : null;
   if (isEmpty?.(resource.data)) return <>{staleMark}{empty ?? <StateView kind="empty" compact={compact} />}</>;
   return (
@@ -117,5 +120,14 @@ export function ResourceView<T>({ resource, children, endpoint, compact, empty, 
       {staleMark}
       {children(resource.data)}
     </>
+  );
+}
+
+/** Peil Versheid (T-02): verouderd = dashed + hatched pill with clock-alert and the word; never colour alone. */
+export function StaleMark({ children }: { children: ReactNode }) {
+  return (
+    <span className="stale-mark arcering inline-flex max-w-full items-center gap-1.5 rounded-full border-2 border-dashed border-stale px-2 py-0.5 text-sm text-stale-ink" role="status" data-status="stale">
+      <ClockAlert className="size-4 shrink-0" aria-hidden="true" />{children}
+    </span>
   );
 }

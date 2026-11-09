@@ -8,7 +8,7 @@ import Link from "next/link";
 
 import { KpiCard, Timeline } from "@/components/mg/domain";
 import { Card, LinkButton, PageHeader, StatusChip, type Tone } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ResourceView, StaleMark, StateView } from "@/components/mg/states";
 import { AutopilotCard, WaitingCard } from "@/components/mso/automation/autopilot-summary";
 import { GoalsCard } from "@/components/mso/overview/goals-card";
 import { RiskChip } from "@/components/mso/risk-chip";
@@ -53,7 +53,7 @@ export default function OverviewPage() {
       ) : (
         <>
           {/* Peil: verouderd is visible (dashed + hatched mark, status Onbekend) — the last known numbers stay */}
-          {ov.stale && o ? <div className="stale-mark" role="status" style={{ marginBottom: 12 }}>{t("state.stale", { age: relative(ov.fetchedAt) })}</div> : null}
+          {ov.stale && o ? <div className="mb-3"><StaleMark>{t("state.stale", { age: relative(ov.fetchedAt) })}</StaleMark></div> : null}
           <section className="kpi-grid" aria-label={t("overview.kpis")}>
             <KpiCard label={t("overview.kpi.health")} icon={HeartPulse} loading={loading} unavailable={!loading && (!o || health?.status === "unknown" || ov.stale)}
               reason={ov.stale ? t("state.staleShort") : undefined}
@@ -178,7 +178,7 @@ function Recommendations({ o }: { o: Overview }) {
   const { t, num } = useI18n();
   const r = o.recommendations;
   return (
-    <Card className="span-4" title={<>{t("calm.otherRecs")} {r.open ? <span className="chip">{num(r.open)}</span> : null}</>} icon={Lightbulb} flush
+    <Card className="span-4" title={<>{t("calm.otherRecs")} {r.open ? <StatusChip tone="neutral">{num(r.open)}</StatusChip> : null}</>} icon={Lightbulb} flush
       sub={r.waiting ? <Link className="link-more" href="/#wacht-op-jou">{t("calm.inInbox", { count: num(r.waiting) })}</Link> : undefined}
       actions={<Link className="link-more" href="/automatisering">{t("overview.viewAll")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>}>
       <div className="toolbar" style={{ padding: "12px 16px 4px" }}>
@@ -202,7 +202,7 @@ function Changes({ o }: { o: Overview }) {
   const { t, num, relative } = useI18n();
   const c = o.changes;
   return (
-    <Card className="span-4" title={<>{t("overview.changes")} {c.open ? <span className="chip">{num(c.open)}</span> : null}</>} icon={GitPullRequestArrow} flush
+    <Card className="span-4" title={<>{t("overview.changes")} {c.open ? <StatusChip tone="neutral">{num(c.open)}</StatusChip> : null}</>} icon={GitPullRequestArrow} flush
       sub={[t("calm.otherChanges"), c.failed_7d ? t("overview.failedChanges", { count: num(c.failed_7d) }) : null].filter(Boolean).join(" · ")}
       actions={<Link className="link-more" href="/automatisering?tab=wijzigingen">{t("overview.viewAll")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>}>
       {c.items.length === 0 ? <StateView kind="empty" compact title={t("overview.noChanges")} /> : (

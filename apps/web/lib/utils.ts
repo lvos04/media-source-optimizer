@@ -1,6 +1,10 @@
 // Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/lib/utils.ts — internally versioned copy, see PROVENANCE.md
-export function cn(...classes: Array<string | false | null | undefined>): string {
-  return classes.filter(Boolean).join(" ");
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+/** shadcn/ui helper: conditional classes (clsx) with Tailwind conflict resolution (tailwind-merge). */
+export function cn(...classes: ClassValue[]): string {
+  return twMerge(clsx(classes));
 }
 
 export function bytes(value?: number | null): string {

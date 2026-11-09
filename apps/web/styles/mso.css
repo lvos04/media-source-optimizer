@@ -5,13 +5,8 @@
    ========================================================================== */
 
 /* brand mark with initials instead of the MediaGuard shield */
-.brand-mark--text { font-size: 11px; font-weight: 800; letter-spacing: .02em; line-height: 1; }
 
 /* "Automatisering pauzeren" — same shape as MediaGuard's emergency stop, warning tone */
-.estop--pause { border-color: color-mix(in srgb, var(--mg-warning) 55%, transparent); background: var(--mg-warning-tint); color: var(--mg-warning); }
-.estop--pause:hover { border-color: var(--mg-warning); }
-.estop--pause[aria-pressed="true"] { background: var(--mg-warning); color: var(--mg-on-accent); border-color: var(--mg-warning); }
-.estop:disabled { opacity: .55; cursor: not-allowed; }
 
 /* connector logos (InstanceLogo look) */
 .instance-logo--prowlarr { background: color-mix(in srgb, var(--mg-viz-3) 16%, transparent); color: var(--mg-viz-3); }
@@ -25,10 +20,6 @@
 .pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* operating-mode chip stays visible on mobile (icon only), unlike the other top pills */
-@media (max-width: 860px) {
-  .top-pill.mode-pill { display: inline-flex; padding: 0 9px; }
-  .top-pill.mode-pill strong { display: none; }
-}
 
 /* light theme: connector logo text must reach ≥ 4.5:1 on its tint (axe color-contrast) */
 :root[data-theme="light"] .instance-logo--prowlarr { color: #8F5300; }
@@ -41,11 +32,6 @@
 
 /* dialogs: always fully visible — vertically centred, capped to the (dynamic) viewport height, body scrolls inside.
    The Modal renders in a portal on <body>, so the topbar's backdrop-filter can no longer clip it. */
-.overlay { overflow: hidden; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
-.dialog { display: flex; flex-direction: column; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow: hidden; }
-.dialog-head, .dialog-foot { flex: none; }
-.dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.dialog--wide { width: min(880px, 100%); }
 
 /* non-library / inactive rows: muted via background + secondary text colour, never opacity (keeps ≥ 4.5:1 contrast) */
 tr[data-inactive="true"] > td { background: var(--mg-sunken); color: var(--mg-text-2); }

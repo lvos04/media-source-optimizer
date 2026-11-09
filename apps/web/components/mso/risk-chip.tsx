@@ -1,5 +1,6 @@
 "use client";
 
+import { riskVariants } from "@/components/ui/badge";
 import type { Risk } from "@/lib/api/contracts";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
@@ -21,13 +22,15 @@ export function RiskChip({ risk, size }: { risk: Risk | null | undefined; size?:
   if (!risk || !(risk in RISK)) return null;
   const r = RISK[risk];
   return (
-    <span className={`risk risk--${r.level}${size === "lg" ? " risk--lg" : ""}`} data-risico={t(r.code)} title={`${t(r.mso)} — ${t(r.help)}`}>
-      <span className="risk-code">
-        <span className="risk-steps" aria-hidden="true">{Array.from({ length: r.level + 1 }, (_, i) => <i key={i} />)}</span>
+    <span className={riskVariants({ level: r.level, size: size === "lg" ? "groot" : "standaard" })} data-risico={t(r.code)} title={`${t(r.mso)} — ${t(r.help)}`}>
+      <span className="risk-code inline-flex items-center gap-1 px-1.5 py-0.5 font-mono">
+        <span className="inline-flex h-3 items-end gap-px" aria-hidden="true">
+          {Array.from({ length: r.level + 1 }, (_, i) => <i key={i} className="block w-[3px] bg-current" style={{ height: `${(i + 1) * 25}%` }} />)}
+        </span>
         {t(r.code)}
       </span>
       <span className="sr-only"> · </span>
-      <span className="risk-word">{t(r.word)}</span>
+      <span className="risk-word inline-flex items-center px-2 py-0.5 break-words">{t(r.word)}</span>
     </span>
   );
 }

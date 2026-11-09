@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import { Timeline } from "@/components/mg/domain";
 import { Button, Card, Modal, PageHeader } from "@/components/mg/primitives";
-import { ErrorState, StateView } from "@/components/mg/states";
+import { ErrorState, StateView, StaleMark } from "@/components/mg/states";
 import { api, ApiError } from "@/lib/api/client";
 import type { AuditEntry, AuditPage } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -94,7 +94,7 @@ function AuditView() {
             : rows.length === 0 ? <StateView kind="empty" title={applied ? t("logs.emptyFiltered", { action: applied }) : t("logs.empty")} />
               : (
                 <>
-                  {first.stale ? <div className="stale-mark" role="status" style={{ padding: "0 16px 8px" }}>{t("state.stale", { age: relative(first.fetchedAt) })}</div> : null}
+                  {first.stale ? <div className="px-4 pb-2"><StaleMark>{t("state.stale", { age: relative(first.fetchedAt) })}</StaleMark></div> : null}
                   <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                     <table className="table table--compact table--stack">
                       <thead><tr><th>{t("logs.when")}</th><th>{t("logs.who")}</th><th>{t("logs.what")}</th><th>{t("logs.target")}</th><th>{t("logs.summary")}</th><th><span className="sr-only">{t("action.details")}</span></th></tr></thead>

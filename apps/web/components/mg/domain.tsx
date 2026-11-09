@@ -27,7 +27,7 @@ export function KpiCard({ label, icon: Icon, value, unit, meta, href, drill, ton
     <>
       <span className="kpi-label"><Icon className="ico" aria-hidden="true" />{label}</span>
       {loading ? (
-        <span className="kpi-value" role="status"><span className="sr-only">{t("state.loading")}</span><span className="skeleton skeleton-line" aria-hidden="true" style={{ display: "block", width: "60%", height: 28 }} /></span>
+        <span className="kpi-value" role="status"><span className="sr-only">{t("state.loading")}</span><span className="skeleton block h-7 w-3/5 rounded-md bg-muted motion-safe:animate-pulse" aria-hidden="true" /></span>
       ) : (
         <span className="kpi-value num">{unavailable ? <StatusChip tone="unknown" size="lg">{t("status.unknown")}</StatusChip> : value}{unit && !unavailable ? <small>{unit}</small> : null}</span>
       )}
@@ -194,7 +194,7 @@ export function Stepper({ steps }: { steps: Array<{ label: string; status: "done
       {steps.map((s, i) => (
         <li key={s.label} className={cn("step", s.status !== "todo" && `step--${s.status}`)} aria-current={s.status === "current" ? "step" : undefined}>
           <span className="step-no">{s.status === "done" ? <Check className="ico ico-sm" aria-hidden="true" /> : i + 1}</span>
-          {s.onClick ? <button type="button" className="btn--ghost" style={{ border: 0, background: "none", padding: 0, textAlign: "left", font: "inherit", color: "inherit" }} onClick={s.onClick}>{s.label}</button> : <span>{s.label}</span>}
+          {s.onClick ? <button type="button" className="focus-ring min-h-touch cursor-pointer border-0 bg-transparent p-0 text-left text-inherit [font:inherit]" onClick={s.onClick}>{s.label}</button> : <span>{s.label}</span>}
           <span>{s.meta}</span>
         </li>
       ))}
@@ -241,7 +241,9 @@ export function DangerDialog({ open, onClose, onConfirm, title, description, imp
       icon={icon}
       title={title}
       description={description}
-      footer={<><Button onClick={close} data-autofocus>{t("action.cancel")}</Button><Button variant="danger-solid" onClick={onConfirm} disabled={!ok} pending={pending}>{confirmLabel}</Button></>}
+      // Peil (AlertDialog, getypte bevestiging): the destructive button stays focusable with aria-disabled and a visible
+      // reason until the typed name matches; it never confirms while aria-disabled.
+      footer={<><Button onClick={close} data-autofocus>{t("action.cancel")}</Button><Button variant="danger-solid" onClick={ok ? onConfirm : undefined} aria-disabled={!ok || undefined} aria-describedby={!ok ? "danger-confirm-reason" : undefined} pending={pending}>{confirmLabel}</Button></>}
     >
       {impact?.length ? <div className="impact">{impact.map((i) => <div key={i.label}><span>{i.label}</span><strong>{i.value}</strong></div>)}</div> : null}
       {facts?.length ? <dl className="kv">{facts.map((f) => <div key={f.label} style={{ display: "contents" }}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl> : null}
@@ -251,6 +253,7 @@ export function DangerDialog({ open, onClose, onConfirm, title, description, imp
           <Field label={t("dialog.typeToConfirm", { word: confirmWord })} htmlFor="danger-confirm">
             <input id="danger-confirm" className="input" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
           </Field>
+          {!ok ? <p className="hint mt-1.5 text-sm text-muted-foreground" id="danger-confirm-reason">{t("dialog.confirmReason", { word: confirmWord })}</p> : null}
         </div>
       ) : null}
       {error ? <div className="field-error" role="alert" style={{ marginTop: 12 }}><OctagonX className="ico ico-sm" aria-hidden="true" />{error}</div> : null}

@@ -48,13 +48,13 @@ export function AutopilotHoldBanner() {
   const title = hold.mode === "autopilot" ? t("safety.hold.titleAutopilot") : t("safety.hold.titleManage");
   const reason = hold.reason ? hold.reason.charAt(0).toUpperCase() + hold.reason.slice(1) : "";
   return (
-    <div className="banner banner--danger" role="status" data-testid="hold-banner">
-      <OctagonPause className="ico" aria-hidden="true" />
-      <span className="grow">
+    <div className="banner flex flex-wrap items-center gap-2.5 border-b-2 border-down bg-down-bg px-4 py-2 text-base text-down-ink" role="status" data-testid="hold-banner">
+      <OctagonPause className="ico size-5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
         <strong>{title}</strong> {t("safety.hold.body", { reason })}{" "}
-        <span className="t-3">{t("safety.hold.since", { when: relative(hold.since) })}</span>
+        <span>{t("safety.hold.since", { when: relative(hold.since) })}</span>
       </span>
-      <span className="banner-actions">
+      <span className="flex flex-wrap gap-2">
         <LinkButton size="sm" href="/automatisering?tab=veiligheid">{t("safety.hold.review")}</LinkButton>
         <span title={can("operator") ? undefined : t("safety.hold.operatorOnly")}>
           <Button size="sm" icon={PlayCircle} pending={pending} disabled={!can("operator")} onClick={() => void resume()}>{t("safety.hold.resume")}</Button>

@@ -156,5 +156,6 @@ sr.define(
     help="Alleen in Autopilot. MediaGuard-items: MSO vraagt MediaGuard opnieuw te zoeken via de eigen route "
     "(binnen de MSO- en MediaGuard-quota; MediaGuard blijft eigenaar, MSO verstuurt niets zelf). Zelfstandige "
     "items: MSO verstuurt de beste vervanger automatisch (binnen 'Handmatige verzendingen per uur'). "
-    "Serverproblemen: SABnzbd probeert de download opnieuw zodra de kapotte servers uit staan.",
+    "Ontbrekende artikelen of een serverprobleem: SABnzbd probeert de download opnieuw zodra de dekking verbetert "
+    "(server hersteld of nieuwe server).",
 )

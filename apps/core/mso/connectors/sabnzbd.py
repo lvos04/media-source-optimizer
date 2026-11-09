@@ -122,9 +122,11 @@ class SabClient:
         limit: int = 100,
         failed_only: bool = False,
         last_history_update: int | None = None,
+        archive: bool = False,
     ) -> dict[str, Any] | None:
         """Returns the ``history`` object, or ``None`` when SAB reports nothing changed since
-        ``last_history_update`` (conditional polling)."""
+        ``last_history_update`` (conditional polling). ``archive=True`` (SABnzbd ≥ 4) returns the jobs that were
+        removed from the history and archived instead (``_api_history_default``: ``archive=1``)."""
         body = self._call(
             "history",
             {
@@ -132,6 +134,7 @@ class SabClient:
                 "limit": limit,
                 "failed_only": 1 if failed_only else None,
                 "last_history_update": last_history_update,
+                "archive": 1 if archive else None,
             },
         )
         hist = body.get("history")

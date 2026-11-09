@@ -178,7 +178,8 @@ def test_failed_download_names_state_per_server(app: Any, db: Any, admin: Any, v
 
     sab = _start(serve, admin, server_errors="field", scenario="empty")
     serverstatus.refresh()  # the 5-minute job: SABnzbd's server errors become events
-    slot = _slot(1, "Show.Name.S01E01.1080p.WEB.H264-GRP", "tv", "unpack", int(time.time()))
+    # 1.6.0: a server is only the likely cause when articles were missing (complete data + unpack failure is not)
+    slot = _slot(1, "Show.Name.S01E01.1080p.WEB.H264-GRP", "tv", "missing", int(time.time()))
     sab.add_history(slot)
     h = viewer.get("/api/v1/usenet/sab/history").json()["items"][0]
     cause = h["likely_cause"]

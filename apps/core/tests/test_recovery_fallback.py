@@ -265,9 +265,10 @@ def test_unmappable_or_client_caused_failures_are_skipped_with_reason(viewer: An
     _failed(FAILED, key="nzb:nocat", reason="unknown", ref="n3", cat=None)
     _run()
     by_key = {f["failed_release_key"]: f for f in _fallbacks(viewer)}
-    # 1.5.0: a login/account failure is a server problem → SABnzbd retries the same job (status 'retry')
+    # a login/account failure is a server problem, not a release problem. 1.6.0: SABnzbd only retries the same job
+    # after the coverage improved (none here), so until then it is skipped with the cause instead of 'retry'
     assert (
-        by_key["nzb:auth"]["status"] == "retry" and "andere release lost dit niet op" in by_key["nzb:auth"]["reason"]
+        by_key["nzb:auth"]["status"] == "skipped" and "andere release lost dit niet op" in by_key["nzb:auth"]["reason"]
     )
     assert by_key["nzb:obf"]["status"] == "skipped" and "niet herleidbaar" in by_key["nzb:obf"]["reason"]
     assert by_key["nzb:nocat"]["status"] == "skipped" and "Categorie onbekend" in by_key["nzb:nocat"]["reason"]

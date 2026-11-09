@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, RotateCcw, RefreshCw } from "lucide-react";
+import { Bot, Play, RotateCcw, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { Button, Card, InlineState, StatusChip, type Tone } from "@/components/mg/primitives";
@@ -12,6 +12,7 @@ import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
 import type { RetryProposeResult, RetryRow, ServerAutopilot, UsenetAutopilot } from "@/lib/api/usenet";
+import type { RetryDiag } from "@/lib/api/usenetdiag";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
 const AP_TONE: Record<ServerAutopilot["status"], Tone> = { disabled: "warning", probing: "accent", recovered: "success", given_up: "danger" };
@@ -70,6 +71,63 @@ function OpenBundle({ id, onChanged }: { id: number; onChanged: () => void }) {
   );
 }
 
+/** 1.6.0: retry only when it can help — success share, the self-pausing brake ("Hervatten") and the last coverage gain. */
+function RetryDiagnosis({ retry, onChanged }: { retry: UsenetAutopilot["retry"] & RetryDiag; onChanged: () => void | Promise<void> }) {
+  const { t, num, pct, relative } = useI18n();
+  const toast = useToast();
+  const gate = useWriteGate("operator", false);
+  const [busy, setBusy] = useState(false);
+  const eff = retry.efficacy;
+  const brake = retry.brake;
+  const gain = retry.coverage?.last_gain ?? null;
+  const resume = async () => {
+    setBusy(true);
+    try {
+      await api.post("/usenet/retries/resume", {});
+      toast.push("success", t("usenetdiag.retry.resumed"));
+      await onChanged();
+    } catch (e) {
+      toast.push("danger", errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      {eff ? (
+        <span className="t-2" style={{ fontSize: 13 }}>
+          {eff.since_kind === "rules"
+            ? eff.attempts
+              ? t("usenetdiag.retry.efficacySince", { when: relative(eff.since), n: num(eff.attempts), pct: pct((eff.ratio ?? 0) * 100) })
+              : t("usenetdiag.retry.efficacySinceNone", { when: relative(eff.since) })
+            : eff.attempts
+              ? t("usenetdiag.retry.efficacy", { days: num(eff.window_days), n: num(eff.attempts), pct: pct((eff.ratio ?? 0) * 100) })
+              : t("usenetdiag.retry.efficacyNone", { days: num(eff.window_days) })}
+          {eff.running ? ` · ${t("usenetdiag.retry.efficacyRunning", { n: num(eff.running) })}` : ""}
+        </span>
+      ) : null}
+      {brake?.paused ? (
+        <InlineState tone="warning" role="status">
+          <div className="stack-sm">
+            <span><StatusChip tone="warning">{t("usenetdiag.retry.paused")}</StatusChip> {brake.reason}</span>
+            <span>
+              <Button size="sm" icon={Play} onClick={() => void resume()} pending={busy} disabled={!gate.allowed}
+                title={gate.reason ?? t("usenetdiag.retry.resumeTitle")}>{t("usenetdiag.retry.resume")}</Button>
+            </span>
+          </div>
+        </InlineState>
+      ) : null}
+      <span className="t-3" style={{ fontSize: 12 }}>
+        {gain && retry.coverage?.description
+          ? t("usenetdiag.retry.lastGain", { what: retry.coverage.description, when: relative(gain.at) })
+          : t("usenetdiag.retry.noGain")}{" "}
+        {t("usenetdiag.retry.rule")}{" "}
+        {eff ? t("usenetdiag.retry.brakeRule", { min: num(eff.min_attempts), days: num(eff.window_days), pct: pct(eff.min_ratio * 100) }) : null}
+      </span>
+    </>
+  );
+}
+
 /** Autopilot on the Usenet page: servers MSO switched off/on and failed downloads it retries in SABnzbd. */
 export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
   const { t, num, relative } = useI18n();
@@ -84,7 +142,8 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
     try {
       const res = await api.post<RetryProposeResult>("/usenet/retries/propose", {});
       const key = res.change_status === "applied" ? "applied" : res.change_status === "preview" ? "preview" : res.status;
-      if (res.status === "waiting" && res.reason) toast.push("info", res.reason);
+      if ((res.status === "waiting" || res.status === "paused") && res.reason) toast.push("info", res.reason);
+      else if (res.status === "paused") toast.push("info", t("usenetdiag.retry.checked.paused"));
       else if (["applied", "preview", "nothing", "quota", "off"].includes(key)) {
         toast.push(key === "applied" ? "success" : "info", t(`usenet.ap.checked.${key}` as MessageKey, { count: num(res.count) }));
       } else if (res.auto_reason) toast.push("info", res.auto_reason);
@@ -142,8 +201,9 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
                       {t("usenet.ap.retryQuota", { hour: num(q.hour_used), hourMax: num(q.hour_max), day: num(q.day_used), dayMax: num(q.day_max) })}
                       {d.retry.last_run?.at ? ` · ${t("usenet.ap.lastRun", { when: relative(d.retry.last_run.at) })}` : ""}
                     </span>
+                    <RetryDiagnosis retry={d.retry as UsenetAutopilot["retry"] & RetryDiag} onChanged={async () => { await data.reload(); onChanged?.(); }} />
                     {d.retry.last_run?.retry?.status === "waiting" && d.retry.last_run.retry.reason ? (
-                      <InlineState tone="warning">{d.retry.last_run.retry.reason}</InlineState>
+                      <InlineState tone={(d.retry.last_run.retry as { kind?: string }).kind === "coverage" ? "info" : "warning"}>{d.retry.last_run.retry.reason}</InlineState>
                     ) : null}
                   </>
                 )}

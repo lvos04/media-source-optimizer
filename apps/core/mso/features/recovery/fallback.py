@@ -614,18 +614,13 @@ def handle_outcome(
     reason_code = o.get("failure_reason") or ""
     rs = _retry_status(o, events)
     if rs in ("candidate", "retried"):
+        from mso.features.usenet import retry  # rs is only set when the Usenet module is loaded
+
         _record(
             o,
             "retry",
-            reason=(
-                "Mislukt door een serverprobleem (inloggen/account) in SABnzbd; een andere release lost dit niet op. "
-                + (
-                    "MSO laat SABnzbd deze download opnieuw proberen."
-                    if rs == "retried"
-                    else "MSO laat SABnzbd deze download opnieuw proberen zodra de kapotte servers uit staan."
-                )
-            ),
-            detail={"server_related": True, "recheck": True},
+            reason=retry.recovery_text(o, rs),  # 1.6.0: missing articles + coverage gain, or a server cause
+            detail={"server_related": retry.basis(o) == "server", "recheck": True},
         )
         return "retry"
     failed_again = rs == "failed_again"

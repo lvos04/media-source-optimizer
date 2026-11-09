@@ -1,6 +1,10 @@
 """1.5.0 · Failed downloads caused by failing servers are retried in SABnzbd (mode=retry) once the failing servers
 are off and a healthy server remains: one bundle proposal outside Autopilot, automatic in Autopilot, bounded
-(per hour/day, once per job), one_way op verified by finding the job back in the queue, audited."""
+(per hour/day, once per job), one_way op verified by finding the job back in the queue, audited.
+
+1.6.0 (deliberate change): only when the coverage improved after the job failed — a server recovered
+(``usenet_server_autoheal.recovered_at``) or a new server appeared in SABnzbd. The tests below therefore add a
+coverage gain (:func:`_gain`) where 1.5.0 retried right after switching the failing servers off."""
 
 from __future__ import annotations
 
@@ -39,6 +43,26 @@ def _fail_jobs(sab: Any, n: int, kind: str = "auth") -> list[str]:
     return ids
 
 
+def _gain(sab: Any, db: Any, *, kind: str = "new_server") -> None:
+    """A coverage gain after the failures: a new server in SABnzbd (after MSO's first observation = baseline), or a
+    switched-off server confirmed working again (``recovered_at``, set by the server Autopilot)."""
+    from msomocks import sabnzbd as mock
+
+    from mso.connectors.sabnzbd import SabClient
+    from mso.features.usenet import coverage
+
+    if kind == "recovered":
+        db.execute(
+            "INSERT INTO usenet_server_autoheal(server,status,recovered_at) "
+            "VALUES ('news.eweka.test','recovered',now()) "
+            "ON CONFLICT (server) DO UPDATE SET recovered_at=now()"
+        )
+        return
+    with SabClient.from_config() as c:
+        coverage.observe(c.servers())  # baseline: the servers MSO already knew
+    sab.servers.append(mock._server("news.newbackbone.test", "Newbackbone", 0, 10))
+
+
 def _switch_off_failing(sab: Any) -> None:
     from mso.features.usenet import serverstatus
 
@@ -56,6 +80,7 @@ def test_bundle_proposal_outside_autopilot_waits_for_servers_then_applies_verifi
 
     sab = _start(serve, admin)
     ids = _fail_jobs(sab, 3)
+    _gain(sab, db)
     state.set_state("mode", "manage")
     # failing servers still on → wait (retrying now would fail the same way)
     res = retry.propose()
@@ -73,6 +98,7 @@ def test_bundle_proposal_outside_autopilot_waits_for_servers_then_applies_verifi
     assert sorted(o["path"] for o in ch["ops"]) == sorted(f"retry/{i}" for i in ids)
     assert all(o["one_way"] and o["before"] == "mislukt" and o["after"] == "opnieuw in wachtrij" for o in ch["ops"])
     assert "Eweka" in ch["explanation"] or "eweka" in ch["explanation"]
+    assert "server Newbackbone is nieuw ingeschakeld" in ch["explanation"]
     assert not sab.retried  # a proposal only
     # idempotent while open
     assert operator.post("/api/v1/usenet/retries/propose").json()["change_id"] == ch["id"]
@@ -108,6 +134,9 @@ def test_autopilot_retries_automatically_within_caps_once_per_job(
     out = autoheal.run()
     assert out["retry"]["status"] == "waiting" and not sab.retried
     _switch_off_failing(sab)
+    out = autoheal.run()  # 1.6.0: switching the broken servers off adds no articles → no retry yet
+    assert out["retry"]["status"] == "waiting" and out["retry"]["kind"] == "coverage" and not sab.retried
+    _gain(sab, db, kind="recovered")
     out = autoheal.run()
     assert out["retry"]["status"] == "applied" and out["retry"]["count"] == 2 and out["retry"]["more"] == 2
     assert len(sab.retried) == 2
@@ -140,6 +169,7 @@ def test_day_cap_and_new_nzo_id(app: Any, db: Any, admin: Any, serve: Any) -> No
 
     sab = _start(serve, admin, retry_new_id=1)
     _fail_jobs(sab, 3)
+    _gain(sab, db)
     _switch_off_failing(sab)
     assert admin.put("/api/v1/settings", json={"values": {"usenet.retry_per_day": 1}}).status_code == 200
     state.set_state("mode", "autopilot")
@@ -157,6 +187,7 @@ def test_verification_failure_marks_change_failed(app: Any, db: Any, admin: Any,
 
     sab = _start(serve, admin, retry_noop=1)
     _fail_jobs(sab, 1)
+    _gain(sab, db)
     _switch_off_failing(sab)
     state.set_state("mode", "autopilot")
     res = retry.propose()
@@ -186,6 +217,7 @@ def test_failed_downloads_from_server_problems_are_not_fallback_problems(
 
     sab = _start(serve, admin)
     _fail_jobs(sab, 2)
+    _gain(sab, db, kind="recovered")
     fallback.process_failed()
     items = viewer.get("/api/v1/recovery/fallbacks").json()
     rows = [i for i in items["items"] if i["failure_reason"] == "auth_failure"]

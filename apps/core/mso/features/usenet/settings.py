@@ -332,14 +332,16 @@ sr.define(
 )
 sr.define(
     "usenet.retry_failed_downloads",
-    "Mislukte downloads door serverproblemen opnieuw proberen",
+    "Mislukte downloads opnieuw proberen als het kan helpen",
     "bool",
     True,
     category=CAT,
     risk="automatisch_veilig",
-    help="Downloads die mislukten terwijl een server faalde, laat MSO SABnzbd opnieuw proberen zodra de kapotte "
-    "servers uit staan en er minstens één werkende server is. In Autopilot automatisch; anders één voorstel "
-    "'N mislukte downloads opnieuw proberen'. Eén keer per download.",
+    help="Downloads waarbij artikelen ontbraken (of waarbij SABnzbd zelf een serverprobleem noemde) laat MSO SABnzbd "
+    "opnieuw proberen zodra de dekking daarna verbeterde: een uitgezette server werkt weer of er kwam een nieuwe "
+    "server bij. Downloads met complete data waarvan het uitpakken mislukte, nooit. Voorwaarden: geen kapotte server "
+    "meer aan en minstens één werkende server. In Autopilot automatisch; anders één voorstel 'N mislukte downloads "
+    "opnieuw proberen'. Eén keer per download; pauzeert zichzelf als minder dan 30 % van de pogingen lukt.",
 )
 sr.define(
     "usenet.retry_per_hour", "Max. opnieuw geprobeerde downloads per uur", "int", 20, min=1, max=500, category=CAT

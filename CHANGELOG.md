@@ -4,6 +4,16 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 
 ## [Unreleased]
 
+### Tests: onafhankelijke QA van de Peil-omzetting
+Alleen tests; productcode, API (OpenAPI byte-gelijk), datamodel, poorten en installatie ongewijzigd.
+- **Hub-adres (`systeem.hub_url`):** negatieve paden erbij — operator en viewer mogen het adres lezen maar niet
+  wijzigen (403), anoniem 401; een geweigerd adres geeft 422 in het bestaande foutformaat zonder de waarde te herhalen.
+- **Terugzetdialoog:** zonder de exacte bestandsnaam blijft "Terugzetten" `aria-disabled` met reden en zet een klik of
+  Enter niets terug (geen schrijfaanroep naar `/api/v1/backups`).
+- **Kosten (B05-008):** diensten zonder prijs ⇒ "Deels onbekend" in de onbekend-vorm op Kosten en Overzicht, geen
+  besparingsbelofte.
+- `make e2e`: ondergrens 109 → 112 Playwright-tests.
+
 ### Uiterlijk: onafhankelijke Peil-review van de web-UI en reparaties (stap 5)
 Alleen uiterlijk, teksten en toegankelijkheid; functies, routes, API, foutformaat, datamodel, poorten en installatie
 gelijk, OpenAPI byte-gelijk. Review, metingen en schermafdrukken: `docs/ontwerp/PEIL_REVIEW.md` en

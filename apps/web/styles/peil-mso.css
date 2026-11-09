@@ -185,3 +185,6 @@ summary { min-height: var(--touch); padding-block: 0.625rem; cursor: pointer; }
 
 /* Geen kapitalen-labels (Peil §5): de oude eyebrow-koppen worden gewone kleine koppen. */
 .eyebrow { text-transform: none; letter-spacing: 0; font-size: 0.875rem; font-weight: 600; color: var(--foreground); }
+
+/* 44 px ook voor losse vervolglinks en klikbare labels buiten lopende tekst. */
+.link-more, [data-testid="sync-line"], a:has(> .chip) { display: inline-flex; align-items: center; min-height: var(--touch); }

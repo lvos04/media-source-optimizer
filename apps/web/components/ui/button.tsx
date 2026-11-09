@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 export const buttonVariants = cva(
   [
-    "btn focus-ring inline-flex min-h-touch max-w-full min-w-0 items-center justify-center gap-2 rounded-lg border-2 px-4 py-1.5",
+    "btn focus-ring inline-flex min-h-touch min-w-touch max-w-full items-center justify-center gap-2 rounded-lg border-2 px-4 py-1.5",
     "text-base font-semibold leading-snug whitespace-normal text-center no-underline transition-colors",
     "cursor-pointer [&_svg]:pointer-events-none [&_svg]:size-5 [&_svg]:shrink-0",
     "disabled:cursor-not-allowed disabled:border-dashed disabled:border-border-strong disabled:bg-muted disabled:text-disabled-foreground",

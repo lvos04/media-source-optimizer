@@ -206,8 +206,11 @@ export default function SearchPage() {
                           return (
                             <tr key={it.token}>
                               <td data-label={t("zoeken.compareSelect")}>
-                                <input type="checkbox" className="check" aria-label={`${t("zoeken.compareSelect")}: ${it.title}`}
-                                  checked={selected.includes(it.token)} onChange={() => toggle(it.token)} />
+                                {/* 44 px hit area around the 20 px checkbox (Peil §6); name and role unchanged */}
+                                <label className="inline-flex size-touch cursor-pointer items-center justify-center">
+                                  <input type="checkbox" className="check" aria-label={`${t("zoeken.compareSelect")}: ${it.title}`}
+                                    checked={selected.includes(it.token)} onChange={() => toggle(it.token)} />
+                                </label>
                               </td>
                               <td data-label={t("zoeken.col.release")}>
                                 <div className="cell-title" style={{ wordBreak: "break-word" }}>{it.title}</div>

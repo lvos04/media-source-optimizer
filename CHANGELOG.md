@@ -4,6 +4,19 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 
 ## [Unreleased]
 
+### Voorbereiding op publiek maken: licentie en opschoning
+Alleen documentatie, metadata en hulpscripts; productcode, API, datamodel, migraties, poorten en installatie
+ongewijzigd.
+- **Licentie GPL-3.0:** volledige tekst in `LICENSE`, licentiezin in de README en `license` in
+  `apps/core/pyproject.toml` (was "Proprietary" met een verwijzing naar een niet-bestaand `THIRD_PARTY.md`).
+- **Geen machinegegevens meer:** de Peil-reviewscripts (`docs/screenshots/peil/review/*.mjs`) zoeken Playwright en
+  axe-core standaard relatief, in `<WERKMAP>/.lokaal` (de map boven de repo), in plaats van via een absoluut pad op de
+  ontwikkelmachine; `PEIL_PLAYWRIGHT`/`PEIL_AXE` werken zoals voorheen. De herhaalinstructie in
+  `docs/screenshots/peil/voor/README.md` gebruikt `$WERKMAP`.
+- **Installatiedocs gecontroleerd (MS7):** alleen voorbeeldadressen (`192.168.1.10`, `<truenas-ip>`) en generieke
+  paden (`/mnt/tank/…`); placeholder in `docs/COWORK_TEST_PROMPT.md` rechtgezet.
+- **SECURITY.md:** kwetsbaarheden melden via een privé security advisory (GitHub kent geen privé issues).
+
 ### Tests: onafhankelijke QA van de Peil-omzetting
 Alleen tests; productcode, API (OpenAPI byte-gelijk), datamodel, poorten en installatie ongewijzigd.
 - **Hub-adres (`systeem.hub_url`):** negatieve paden erbij — operator en viewer mogen het adres lezen maar niet

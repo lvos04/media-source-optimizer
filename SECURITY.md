@@ -156,5 +156,6 @@ torrents; nooit automatisch abonnementen opzeggen; MediaGuard-kwaliteitseisen zi
 
 ## 9. Melden van kwetsbaarheden
 
-Dit is een zelf-gehoste applicatie zonder publieke dienst. Meld problemen via een privé issue in de
-repository `lvos04/media-source-optimizer`.
+Dit is een zelf-gehoste applicatie zonder publieke dienst. Meld een kwetsbaarheid via een privé *security
+advisory* in de repository `lvos04/media-source-optimizer` (Security → Report a vulnerability), niet als gewoon
+(openbaar) issue.

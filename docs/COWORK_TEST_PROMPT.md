@@ -10,7 +10,7 @@ ontwikkelsessie; daarmee worden de punten uit `docs/HARDWARE_ACCEPTANCE.md` afge
 schermafbeeldingen.**
 
 **Omgeving**
-- TrueNAS-webinterface: `<http://IP-VAN-TRUENAS>`
+- TrueNAS-webinterface: `http://<IP-VAN-TRUENAS>`
 - MSO: `http://<IP-VAN-TRUENAS>:38081` (Custom App, image `ghcr.io/lvos04/media-source-optimizer:1.2.0`)
 - Andere apps (open ze vanuit TrueNAS → Apps, of via deze adressen): Prowlarr `<url>`, SABnzbd `<url>`,
   qBittorrent `<url>`, MediaGuard `<url, meestal :30080>`

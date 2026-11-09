@@ -36,7 +36,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 VERSION = "4.3.3"
 CATEGORIES = ["*", "tv", "tv-anime", "movies", "movies-anime", "software"]
@@ -290,6 +290,7 @@ def create_app(**faults: Any) -> FastAPI:
             state.server_errors[name] = ""  # cleared after SABnzbd's retry pause; the warning stays
     app = FastAPI(title="Mock SABnzbd")
     app.state.sab = state
+    app.state.api_key = api_key
 
     def ok(data: dict[str, Any]) -> JSONResponse:
         return JSONResponse(data)
@@ -310,10 +311,12 @@ def create_app(**faults: Any) -> FastAPI:
         mode = params.get("mode", "")
         if mode == "version":  # SABnzbd answers version without a key
             return ok({"version": VERSION})
+        # like SABnzbd (interface.py secured_expose/check_apikey): HTTP 403 with a plain-text message.
+        # app.state.api_key can be changed at runtime (a key replaced in SABnzbd).
         if not params.get("apikey"):
-            return ok({"status": False, "error": "API Key Required"})
-        if params.get("apikey") != api_key:
-            return ok({"status": False, "error": "API Key Incorrect"})
+            return PlainTextResponse("API Key Required", status_code=403)
+        if params.get("apikey") != app.state.api_key:
+            return PlainTextResponse("API Key Incorrect", status_code=403)
         if broken and mode == broken:
             return JSONResponse({"error": "internal"}, status_code=500)
         with state.lock:

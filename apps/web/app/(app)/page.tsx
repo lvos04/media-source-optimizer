@@ -116,23 +116,42 @@ function FailureLocations({ o }: { o: Overview }) {
 }
 
 function Connectors({ o }: { o: Overview }) {
-  const { t, relative } = useI18n();
+  const { t, relative, duration, num } = useI18n();
   const items = o.connectors.items;
   return (
     <Card className="span-5" title={t("overview.connectors")} icon={Plug} flush
       actions={<Link className="link-more" href="/instellingen?tab=verbindingen">{t("overview.manageConnectors")}</Link>}>
       {items.length === 0 ? <Unavail reason={o.connectors.reason} /> : (
         <div className="list">
-          {items.map((c) => (
-            <div className="list-row" key={c.id}>
-              <div className="list-main">
-                <div className="list-title">{c.label}</div>
-                <div className="list-sub">{c.configured ? (c.last_checked_at ? t("overview.checked", { age: relative(c.last_checked_at) }) : t("overview.neverChecked")) : t("status.notConfigured")}{c.version ? ` · ${/^v/i.test(c.version) ? c.version : `v${c.version}`}` : ""}</div>
+          {items.map((c) => {
+            // background monitoring: a connector that is down says so, with how long ("Onbereikbaar sinds 2d 4u")
+            const down = c.configured && (c.status === "offline" || c.status === "auth_failed");
+            const downKey: MessageKey = c.status === "auth_failed" ? "maintenance.conn.authSince"
+              : c.failure_kind === "timeout" ? "maintenance.conn.timeoutSince" : "maintenance.conn.offlineSince";
+            const chip = c.status === "auth_failed" ? t("maintenance.status.authFailed")
+              : down && c.failure_kind === "timeout" ? t("maintenance.status.timeout") : t(healthLabel(c.status));
+            return (
+              <div className="list-row list-row--wrap" key={c.id} data-testid={`connector-${c.id}`}>
+                <div className="list-main">
+                  <div className="list-title">{c.label}</div>
+                  {down && c.down_for_s != null ? (
+                    <div className="list-sub t-danger" style={{ whiteSpace: "normal" }}>
+                      {t(downKey, { age: duration(c.down_for_s) })}{c.last_ok_at ? ` · ${t("maintenance.conn.lastOk", { when: relative(c.last_ok_at) })}` : ""}
+                    </div>
+                  ) : (
+                    <div className="list-sub">{c.configured ? (c.last_checked_at ? t("overview.checked", { age: relative(c.last_checked_at) }) : t("overview.neverChecked")) : t("status.notConfigured")}{c.version ? ` · ${/^v/i.test(c.version) ? c.version : `v${c.version}`}` : ""}</div>
+                  )}
+                  {down && c.message ? <div className="list-sub" style={{ whiteSpace: "normal" }}>{c.message}</div> : null}
+                  {down && c.job_failures_24h ? <div className="list-sub">{t("maintenance.conn.jobsFailed", { count: num(c.job_failures_24h) })}</div> : null}
+                </div>
+                <div className="list-aside">
+                  {c.configured ? <StatusChip tone={healthTone(c.status)} title={c.message ?? undefined}>{chip}</StatusChip>
+                    : <StatusChip tone="neutral">{t("status.notConfigured")}</StatusChip>}
+                  {down ? <Link className="link-more" href="/instellingen?tab=verbindingen">{t("maintenance.conn.fix")}</Link> : null}
+                </div>
               </div>
-              {c.configured ? <StatusChip tone={healthTone(c.status)} title={c.message ?? undefined}>{t(healthLabel(c.status))}</StatusChip>
-                : <StatusChip tone="neutral">{t("status.notConfigured")}</StatusChip>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
@@ -186,6 +205,8 @@ function Changes({ o }: { o: Overview }) {
 function SystemCard({ o }: { o: Overview }) {
   const { t, num, duration } = useI18n();
   const w = o.jobs.worker;
+  // failures caused by a connector outage are shown as that connector's state ("… onbereikbaar sinds …"), not here
+  const failing = Math.max(0, o.jobs.failing_24h - (o.connectors.outage_job_failures_24h ?? 0));
   return (
     <Card className="span-4" title={t("overview.system")} icon={ShieldCheck}>
       <dl className="kv">
@@ -202,7 +223,7 @@ function SystemCard({ o }: { o: Overview }) {
         <dt>{t("overview.worker")}</dt>
         <dd><StatusChip tone={w.healthy ? "success" : "warning"}>{w.healthy ? t("overview.workerOk") : w.seen ? t("overview.workerStale") : t("overview.workerNever")}</StatusChip></dd>
         <dt>{t("overview.jobsFailing")}</dt>
-        <dd>{o.jobs.failing_24h ? <Link href="/systeem"><StatusChip tone="danger">{num(o.jobs.failing_24h)}</StatusChip></Link> : <StatusChip tone="success">0</StatusChip>}</dd>
+        <dd>{failing ? <Link href="/systeem"><StatusChip tone="danger">{num(failing)}</StatusChip></Link> : <StatusChip tone="success">0</StatusChip>}</dd>
         <dt>{t("overview.queue")}</dt>
         <dd>{t("overview.queueValue", { queued: num(o.jobs.queued), running: num(o.jobs.running) })}</dd>
       </dl>

@@ -8,6 +8,7 @@ import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { SchedulesCard } from "@/components/mso/automation/schedules-card";
+import { BackupSpaceNote, MaintenanceCards } from "@/components/mso/system/maintenance-card";
 import { useShell } from "@/components/shell/app-shell";
 import { useToast } from "@/components/mg/toast";
 import { useAction } from "@/lib/api/actions";
@@ -74,6 +75,7 @@ export default function SystemPage() {
         </Card>
 
         <SchedulesCard />
+        <MaintenanceCards />
         <BackupsCard />
         <JobsCard num={num} />
       </div>
@@ -93,8 +95,9 @@ function componentLabel(c: { name: string; label?: string | null }, t: ReturnTyp
   }
 }
 
-const BACKUP_KINDS: Record<string, "system.backupKind.manual" | "system.backupKind.auto" | "system.backupKind.preRestore"> = {
+const BACKUP_KINDS: Record<string, "system.backupKind.manual" | "system.backupKind.auto" | "system.backupKind.preRestore" | "maintenance.backupKind.preUpgrade"> = {
   manual: "system.backupKind.manual", auto: "system.backupKind.auto", "pre-restore": "system.backupKind.preRestore",
+  "pre-upgrade": "maintenance.backupKind.preUpgrade",
 };
 
 function BackupsCard() {
@@ -141,6 +144,7 @@ function BackupsCard() {
           <Switch checked={includeSecrets} onChange={setIncludeSecrets} label={t("system.backupIncludeSecrets")} disabled={!admin} />{t("system.backupIncludeSecrets")}
         </label>
         {includeSecrets ? <InlineState tone="warning">{t("system.backupIncludeSecretsHelp")}</InlineState> : <p className="hint" style={{ margin: 0 }}>{t("system.backupIncludeSecretsHelp")}</p>}
+        <BackupSpaceNote />
         {creating ? (
           <div className="stack-sm" role="status" data-testid="backup-progress">
             <span className="t-2" style={{ fontSize: 12.5 }}>{t("system.backupRunning", { id: String(creating.jobId) })}{creating.progress ? ` · ${pct(creating.progress <= 1 ? creating.progress * 100 : creating.progress)}` : ""}</span>

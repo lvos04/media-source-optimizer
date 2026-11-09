@@ -8,6 +8,7 @@ import { messages as common } from "./nl/common";
 import { messages as insights } from "./nl/insights";
 import { messages as components } from "./nl/components";
 import { messages as logs } from "./nl/logs";
+import { messages as maintenance } from "./nl/maintenance";
 import { messages as settings } from "./nl/settings";
 import { messages as system } from "./nl/system";
 import { messages as recovery } from "./nl/recovery";
@@ -29,5 +30,6 @@ export const nl = {
   ...usenet,
   ...zoeken,
   ...safety,
+  ...maintenance,
 };
 export type MessageKey = keyof typeof nl;

@@ -70,6 +70,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   "mediaguard.sync": "MediaGuard synchroniseren",
   "prowlarr.sync": "Prowlarr synchroniseren",
   "recovery.analyze": "Ontbrekende items analyseren",
+  "system.retention": "Onderhoud (opruimen)",
   "torrent.cross_seed_scan": "Cross-seed zoeken",
   "torrent.ingest": "Torrents inlezen",
   "torrent.storage_scan": "Opslag scannen",

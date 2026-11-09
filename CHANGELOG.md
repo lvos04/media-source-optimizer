@@ -4,6 +4,18 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 
 ## [Unreleased]
 
+### Ontwerp (alleen documentatie; de app is niet gewijzigd)
+- **Omzettingsontwerp naar de platform-ontwerptaal Peil 1.1.0** (contract 1.2 §13): inventaris van alle schermen,
+  tabs en toestanden, nulmeting, kritiek, vertaling per scherm/component (tokens, shadcn/ui, lucide, statusvorm,
+  Nederlandse woorden), de twee fasen (aliaslaag; Tailwind 4 + shadcn/ui), de toegestane toevoegingen ("Terug naar de
+  Hub", tabelweergave + toetsenbord bij elke grafiek) en de geraakte tests: `docs/ontwerp/PEIL_MIGRATIE.md`.
+- **Schermafdrukken vóór de omzetting**: 250 afdrukken van de echte app met testdata (16 schermen × 360/390/768/1440 ×
+  licht/donker, tabs en toestanden) met nulmeting (`metingen.json`, `toetsenbord.json`) in `docs/screenshots/peil/voor/`.
+  Gevonden o.a.: 6 schermen lopen horizontaal over op 360/390 px (de huidige e2e-meting ziet dat niet), focus achter de
+  ondernavigatie, 163 groene chips voor zaken die geen gezondheid zijn.
+- **Versie-gepinde kopie van Peil 1.1.0** met herkomstkop en sha256 in `design/ontwerptaal/` (alleen referentie).
+- Besluiten: `docs/adr/ADR-0006-peil-omzetting-interpretaties.md`.
+
 ### Tests en CI (geen wijziging aan app, API of installatie)
 - **E2E-job is nu eerlijk.** `make e2e` (en de e2e-job in CI) bereidt de verse stack eerst voor: beheerder,
   koppelingen naar de mocks, één back-up en een afgeronde eerste-startwizard (`smoke.py --e2e-prepare`, inclusief

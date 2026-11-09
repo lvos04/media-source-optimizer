@@ -10,6 +10,7 @@ import { expect, test, type Page } from "@playwright/test";
  *  - status shapes: an unknown status never carries the pause icon; only a health badge is green
  *  - keyboard: every tab stop has the Peil ring (≥ 3 px) and is never hidden behind the top bar or bottom navigation
  *  - charts: table twin + keyboard read-out; "Terug naar de Hub" only for a valid systeem.hub_url
+ *  - costs (B05-008): services without a price ⇒ "Deels onbekend" (unknown shape) on Kosten and Overzicht, no savings promise
  */
 const USER = process.env.MSO_E2E_USER ?? "";
 const PASSWORD = process.env.MSO_E2E_PASSWORD ?? "";
@@ -184,6 +185,37 @@ test("peil grafiek: tabel bij de oorzaakverdeling (Source Baseline)", async ({ p
   await twin.getByText("Toon als tabel").click();
   await expect(twin.locator("table caption")).toBeVisible();
   await expect(twin.locator("thead th").filter({ hasText: "Onbekend" })).toHaveCount(1);
+});
+
+// B05-008 (acceptatie: "Provider zonder stats toont unknown; geen gegarandeerde besparing claimen") in de Peil-weergave:
+// diensten die MSO uit de mocks importeert hebben nog geen prijs. Dan is een totaal nooit stil compleet, maar
+// "Deels onbekend" in de onbekend-vorm (stippel + circle-help), op Kosten én op het Overzicht, en nergens een besparingsbelofte.
+test("peil kosten: dienst zonder prijs ⇒ 'Deels onbekend', geen besparingsbelofte (B05-008)", async ({ page }) => {
+  test.skip(!USER, "MSO_E2E_USER niet gezet");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, "/kosten");
+  // precondition of the prepared stack (GET imports the services idempotently; only the MSO database)
+  const services = (await (await page.request.get("/api/v1/costs/services")).json()) as { price_missing: number };
+  expect(services.price_missing, "voorbereide stack: diensten zonder prijs").toBeGreaterThan(0);
+  const summary = (await (await page.request.get("/api/v1/costs/summary")).json()) as { total: { unknown: unknown[] } };
+  expect(summary.total.unknown.length, "API: totaal met onbekende delen").toBeGreaterThan(0);
+  await page.reload();
+  await expect.poll(async () => page.locator(".skeleton").count(), { timeout: 15_000 }).toBe(0);
+  const total = page.locator(".kpi").filter({ hasText: "Totaal per maand" });
+  const partly = total.locator('[data-status="unknown"]').filter({ hasText: "Deels onbekend" });
+  await expect(partly).toBeVisible();
+  await expect(partly).toHaveClass(/border-dashed/);
+  await expect(partly.locator(".lucide-circle-question-mark")).toHaveCount(1);
+  await expect(total.locator(".chip--healthy, .chip--warning, .lucide-circle-check")).toHaveCount(0);
+  // the "price missing" banner uses the unknown shape too (never amber)
+  await expect(page.locator('.inline-state[data-tone="unknown"]').filter({ hasText: "zonder prijs" })).toBeVisible();
+  const text = (await page.locator("main").innerText()).toLowerCase();
+  expect(text).toContain("belooft geen besparing");
+  expect(text).not.toMatch(/gegarandeerde? besparing|bespaar(t|ing)? gegarandeerd|garantie op besparing/);
+  // Overzicht: the cost KPI is never a silently complete amount either
+  await open(page, "/");
+  const kpi = page.locator(".kpi").filter({ hasText: "Kosten per maand" });
+  await expect(kpi.locator('[data-status="unknown"]').filter({ hasText: "Deels onbekend" })).toBeVisible();
 });
 
 test("peil Terug naar de Hub: alleen bij een geldig systeem.hub_url", async ({ page }) => {

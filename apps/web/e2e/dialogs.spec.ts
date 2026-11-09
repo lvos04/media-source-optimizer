@@ -7,6 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
  *  - P5: typing in a DangerDialog's typed confirmation keeps focus in the field (no jump to "Annuleren")
  *  - K: a dialog opened from the topbar is fully visible, also on a low viewport
  *  - P1: the topbar mode chip opens Instellingen → Systeem → Bedrijfsmodus
+ *  - QA Peil: without the exact typed name the (aria-disabled) confirm button restores nothing (click and Enter)
  * Nothing is confirmed: every dialog is cancelled.
  */
 const USER = process.env.MSO_E2E_USER ?? "";
@@ -39,6 +40,47 @@ test("terugzetdialoog: typen houdt de focus in het bevestigingsveld", async ({ p
   await expect(field).toHaveValue(word);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+});
+
+// QA Peil-ronde: de bevestigknop werd van `disabled` naar `aria-disabled` (focusbaar, met reden) omgezet. Negatief pad:
+// zolang de naam niet exact is getypt, zet een klik of Enter NIETS terug (geen enkele schrijfaanroep naar /backups).
+test("terugzetdialoog: zonder de exacte bestandsnaam zet Terugzetten niets terug", async ({ page }) => {
+  test.skip(!USER, "MSO_E2E_USER niet gezet");
+  await login(page);
+  const writes: string[] = [];
+  page.on("request", (req) => {
+    if (req.method() !== "GET" && /\/api\/v1\/backups/.test(req.url())) writes.push(`${req.method()} ${req.url()}`);
+  });
+  await page.goto("/systeem");
+  const restore = page.getByRole("button", { name: "Terugzetten" }).first();
+  const hasBackup = await restore.waitFor({ state: "visible", timeout: 15_000 }).then(() => true, () => false);
+  test.skip(!hasBackup, "geen back-up om mee te testen");
+  await restore.click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  const label = (await dialog.locator('label[for="danger-confirm"]').textContent()) ?? "";
+  const word = /^Typ (.+) om te bevestigen/.exec(label.trim())?.[1] ?? "";
+  expect(word, "bevestigwoord staat in het label").not.toBe("");
+  const confirm = dialog.getByRole("button", { name: "Terugzetten" });
+  const field = dialog.locator("#danger-confirm");
+  const reason = dialog.locator("#danger-confirm-reason");
+  for (const typed of ["", word.slice(0, -1), `${word}x`, word.toUpperCase()].filter((w) => w !== word)) {
+    await field.fill(typed);
+    await expect(confirm, `"${typed}" ⇒ knop onbruikbaar`).toHaveAttribute("aria-disabled", "true");
+    await expect(reason).toBeVisible();
+    await confirm.click({ force: true });
+    await confirm.press("Enter");
+  }
+  await page.waitForTimeout(500);
+  await expect(dialog, "dialoog blijft open").toBeVisible();
+  expect(writes, "geen terugzet-aanroep").toEqual([]);
+  // the exact name makes the button usable (not clicked: this test never restores anything)
+  await field.fill(word);
+  await expect(confirm).not.toHaveAttribute("aria-disabled", "true");
+  await expect(reason).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Annuleren" }).click();
+  await expect(dialog).toBeHidden();
+  expect(writes).toEqual([]);
 });
 
 test("pauzeer-dialoog is volledig zichtbaar, ook bij een lage viewport", async ({ page }) => {

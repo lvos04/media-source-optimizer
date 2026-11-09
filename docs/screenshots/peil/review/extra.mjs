@@ -10,12 +10,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WERKMAP = path.resolve(HERE, "../../../../.."); // <WERKMAP>: de map boven de repo
 const OUT = path.resolve(process.argv[2] ?? HERE);
 const BASE = process.env.MSO_E2E_BASE_URL ?? "http://127.0.0.1:48081";
 const USER = process.env.MSO_E2E_USER ?? "";
 const PASSWORD = process.env.MSO_E2E_PASSWORD ?? "";
 if (!USER || !PASSWORD) throw new Error("MSO_E2E_USER en MSO_E2E_PASSWORD zijn verplicht");
-const { chromium, request } = await import(process.env.PEIL_PLAYWRIGHT ?? "/home/transcode/truenas-v2/.lokaal/ontwerp-tools/node_modules/playwright/index.mjs");
+const { chromium, request } = await import(process.env.PEIL_PLAYWRIGHT ?? path.join(WERKMAP, ".lokaal/ontwerp-tools/node_modules/playwright/index.mjs"));
 
 const SCREENS = [
   ["overzicht", "/"], ["zoeken", "/zoeken"], ["usenet-providers", "/usenet-providers"], ["nzb-indexers", "/nzb-indexers"],

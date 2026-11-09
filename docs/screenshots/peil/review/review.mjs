@@ -16,22 +16,24 @@
 // Alleen-lezen hulpscript (hoort niet bij de app). Wachtwoorden alleen uit de omgeving.
 //   MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin MSO_E2E_PASSWORD=… \
 //   node docs/screenshots/peil/review/review.mjs [schermen|tabs|toetsenbord|toestanden|beheer|alles] [uitmap]
-// Standaard: playwright 1.65 en axe-core 4.14 uit .lokaal (PEIL_PLAYWRIGHT / PEIL_AXE overschrijven dat).
+// Standaard: playwright 1.65 en axe-core 4.14 uit <WERKMAP>/.lokaal, waarbij <WERKMAP> de map is waarin deze repo
+// staat (PEIL_PLAYWRIGHT / PEIL_AXE overschrijven dat).
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WERKMAP = path.resolve(HERE, "../../../../.."); // <WERKMAP>: de map boven de repo
 const BASE = process.env.MSO_E2E_BASE_URL ?? "http://127.0.0.1:48081";
 const USER = process.env.MSO_E2E_USER ?? "";
 const PASSWORD = process.env.MSO_E2E_PASSWORD ?? "";
-const AXE = process.env.PEIL_AXE ?? "/home/transcode/truenas-v2/.lokaal/ontwerptaal/.review-tools/node_modules/axe-core/axe.min.js";
+const AXE = process.env.PEIL_AXE ?? path.join(WERKMAP, ".lokaal/ontwerptaal/.review-tools/node_modules/axe-core/axe.min.js");
 const WHAT = process.argv[2] ?? "alles";
 const OUT = path.resolve(process.argv[3] ?? HERE);
 const ONLY = process.env.PEIL_ALLEEN ? new RegExp(process.env.PEIL_ALLEEN) : null;
 const SHOTS = process.env.PEIL_GEEN_AFDRUK ? false : true;
 if (!USER || !PASSWORD) throw new Error("MSO_E2E_USER en MSO_E2E_PASSWORD zijn verplicht");
-const { chromium, request } = await import(process.env.PEIL_PLAYWRIGHT ?? "/home/transcode/truenas-v2/.lokaal/ontwerp-tools/node_modules/playwright/index.mjs");
+const { chromium, request } = await import(process.env.PEIL_PLAYWRIGHT ?? path.join(WERKMAP, ".lokaal/ontwerp-tools/node_modules/playwright/index.mjs"));
 
 const THEMES = [["licht", "light"], ["donker", "dark"]];
 const WIDTHS = [320, 360, 390, 768, 1024, 1440];

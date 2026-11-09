@@ -37,17 +37,19 @@ Bestandsnaam: `<scherm of toestand>-<licht|donker>-<breedte>.png`. Telefoonbreed
 ## Opnieuw maken
 
 ```sh
+# 0. vanuit de repo: <WERKMAP> is de map waarin de repo staat; daar staan in .lokaal/ de sloten en hulpmiddelen
+WERKMAP=$(dirname "$PWD")
 # 1. kloon buiten de repo (run.sh schrijft in tests/stack/results), images bouwen onder het machinebrede slot
 git clone -q file://$PWD /var/tmp/mso-peil && cd /var/tmp/mso-peil
-flock /home/transcode/truenas-v2/.lokaal/docker-build.lock bash -c \
+flock "$WERKMAP"/.lokaal/docker-build.lock bash -c \
   'for i in core mocks web; do MSO_IMAGE_TAG=stack nice -n 10 scripts/build-images.sh $i; done'
 # 2. stack starten en voorbereiden (wachtwoord alleen in de omgeving)
 export MSO_STACK_ADMIN_PW="E2e-$(openssl rand -hex 16)"
-flock /home/transcode/truenas-v2/.lokaal/stack.lock env MSO_STACK_NO_BUILD=1 MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 \
+flock "$WERKMAP"/.lokaal/stack.lock env MSO_STACK_NO_BUILD=1 MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 \
   MSO_STACK_PYTHON=/pad/naar/venv-met-httpx/bin/python tests/stack/run.sh
 # 3. afdrukken + nulmeting (vanuit de repo)
 export MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin MSO_E2E_PASSWORD="$MSO_STACK_ADMIN_PW"
-export PEIL_PLAYWRIGHT=/home/transcode/truenas-v2/.lokaal/ontwerp-tools/node_modules/playwright/index.mjs
+export PEIL_PLAYWRIGHT="$WERKMAP"/.lokaal/ontwerp-tools/node_modules/playwright/index.mjs
 export PEIL_AXE=/pad/naar/axe-core/axe.min.js
 node docs/screenshots/peil/voor/maak-afdrukken.mjs alles     # of: schermen | tabs | toestanden; PEIL_ALLEEN=<regex>
 node docs/screenshots/peil/voor/toetsenbord.mjs

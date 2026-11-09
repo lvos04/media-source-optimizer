@@ -130,7 +130,7 @@ export function ConnectorForm({ connector, onSaved, onTested, canEdit = true, di
         <ConnectorLogo connector={connector} />
         <div className="grow">
           <div className="instance-name" id={`${idBase}-title`}>{connector.label}</div>
-          <div className="instance-id">{connector.id}{connector.version ? ` · ${connector.version}` : ""}{connector.last_checked_at ? ` · ${t("connector.checked")} ${relative(connector.last_checked_at)}` : ""}</div>
+          <div className="instance-id font-sans [overflow-wrap:anywhere]"><span className="font-mono">{connector.id}</span>{connector.version ? <> · <span className="font-mono">{connector.version}</span></> : null}{connector.last_checked_at ? ` · ${t("connector.checked")} ${relative(connector.last_checked_at)}` : ""}</div>
         </div>
         {optional ? <StatusChip tone="neutral" icon={null} outline>{t("connector.optional")}</StatusChip> : null}
         <ConnectorStatusChip connector={connector} />

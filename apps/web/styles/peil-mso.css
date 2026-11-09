@@ -71,6 +71,10 @@ html { scroll-padding-top: calc(var(--header-h) + 0.75rem); scroll-padding-botto
    breed (de actieknoppen vielen buiten de kaart). */
 .setting-key, .table td .mono { overflow-wrap: anywhere; min-width: 0; }
 
+/* Een pictogram in lopende tekst blijft op de regel: Tailwind-preflight maakt elke svg display:block, waardoor het vinkje
+   bij "Geen knelpunten gevonden" (Torrentclient) op een eigen regel stond. In flex/grid maakt dit geen verschil. */
+.ico { display: inline-block; vertical-align: -0.125em; }
+
 /* Bevindingskop (zekerheid naast de diagnose) loopt om op 320 px in plaats van 12 px uit te steken (review stap 5). */
 .evidence-head { flex-wrap: wrap; row-gap: 0.375rem; }
 

@@ -2,6 +2,23 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
+## [Unreleased]
+
+### Tests en CI (geen wijziging aan app, API of installatie)
+- **E2E-job is nu eerlijk.** `make e2e` (en de e2e-job in CI) bereidt de verse stack eerst voor: beheerder,
+  koppelingen naar de mocks, één back-up en een afgeronde eerste-startwizard (`smoke.py --e2e-prepare`, inclusief
+  `POST /api/v1/setup/complete`). Daarna draaien alle 78 Playwright-tests met inloggegevens. Een overgeslagen test of
+  minder dan 78 tests laat de run falen (`apps/web/e2e/strict-reporter.ts`, `MSO_E2E_STRICT=1`). Voorheen werden 76
+  van de 78 tests stil overgeslagen.
+- **Race in de inlogpagina-test opgelost.** `smoke.spec.ts` wacht op het antwoord van `/api/v1/setup/status` en
+  beslist pas dan of hij de setup-wizard of het inlogformulier moet zien.
+- **Logcontrole van de stacktest niet meer afhankelijk van de schijf.** De PostgreSQL-meldingen "the database system
+  is shutting down / starting up" zijn alleen nog toegestaan binnen de bewuste herstartvensters van de test (compose
+  restart en down/up), op basis van de Docker-tijdstempels. Daarbuiten blijven ze een fout. Met unit-test
+  (`tests/stack/test_smoke_logcheck.py`).
+- **python-job:** pg_dump/pg_restore 16 via `MSO_PG_BIN`, net als `release.yaml`.
+- Besluiten: `docs/adr/ADR-0005-eerlijke-ci-e2e-en-logcontrole.md`.
+
 ## [1.6.0] — 2026-11-09
 
 De echte oorzaak, eerlijk gemeten. MSO pakt nu aan waaróm downloads mislukken, in plaats van kapotte servers de schuld

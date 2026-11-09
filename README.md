@@ -57,9 +57,11 @@ Alternatief met losse containers via *Install via YAML*: [docs/TRUENAS_INSTALL.m
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e 'apps/core[test]'
-make lint test            # ruff + pytest (vereist PostgreSQL 16; MSO_TEST_DATABASE_URL)
+make lint test            # ruff + pytest (vereist PostgreSQL 16; MSO_TEST_DATABASE_URL;
+                          #   meerdere pg-clients naast elkaar: MSO_PG_BIN=/usr/lib/postgresql/16/bin)
 make stack                # images bouwen + volledige containerstack met mocks + smoke-test
-make e2e                  # Playwright-browsertests tegen de stack
+make e2e                  # verse stack voorbereid (beheerder, koppelingen, back-up, wizard afgerond)
+                          #   + alle Playwright-tests; een overgeslagen test laat de run falen
 cd apps/web && npm ci && npm run dev
 ```
 

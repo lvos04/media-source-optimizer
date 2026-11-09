@@ -224,6 +224,14 @@ export const messages = {
   "dialog.typeToConfirm": "Typ {word} om te bevestigen",
   "dialog.confirmReason": "De knop wordt actief zodra je {word} precies zo hebt getypt.",
 
+  "chart.showTable": "Toon als tabel",
+  "chart.hideTable": "Verberg tabel",
+  "chart.keysHelp": "Gebruik de pijltjestoetsen om per dag te lezen.",
+  "chart.noMeasurement": "Geen meting",
+  "chart.gapNote": "Een gat betekent dat er geen meting was (nooit 0).",
+  "chart.estimated": "geschat",
+  "chart.measured": "gemeten",
+
   "copy.button": "Kopiëren",
   "copy.done": "Gekopieerd.",
   "copy.selected": "Tekst geselecteerd. Kopieer via het menu van je browser.",

@@ -57,6 +57,13 @@ export const messages = {
   "usenetcat.days.bar": "{day}: {star} van {total} in '*'",
   "usenetcat.days.legendStar": "in '*'",
   "usenetcat.days.legendTotal": "alle SABnzbd-downloads",
+  "usenetcat.days.legendOther": "overige SABnzbd-downloads",
+  "usenetcat.days.readout": "{day}: {star} van {total} in '*'",
+  "usenetcat.days.tableCaption": "Downloads in '*' per dag",
+  "usenetcat.days.colDay": "Dag",
+  "usenetcat.days.colStar": "In '*'",
+  "usenetcat.days.colTotal": "Totaal",
+  "usenetcat.days.colShare": "Aandeel",
   "usenetcat.days.none": "Nog geen SABnzbd-downloads in de laatste {days} dagen.",
 
   // per instance

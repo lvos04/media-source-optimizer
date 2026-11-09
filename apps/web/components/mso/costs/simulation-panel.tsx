@@ -4,9 +4,11 @@ import { ShieldQuestion } from "lucide-react";
 
 import { Card, InlineState, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
+import { TableToggle } from "@/components/mso/charts/chart-frame";
 import { useResource } from "@/lib/api/hooks";
 import type { ConfidenceLabel, Simulation } from "@/lib/api/insights";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 // certainty is not health (Peil T-24): neutral labels; "onbekend" uses the unknown shape
 export const CONF_TONE: Record<ConfidenceLabel, Tone> = { onbekend: "unknown", laag: "neutral", middel: "neutral", hoog: "neutral" };
@@ -16,23 +18,34 @@ export function ConfidenceChip({ value }: { value: ConfidenceLabel | null | unde
   return <StatusChip tone={CONF_TONE[v]}>{t("costs.confidence")}: {t(`costs.conf.${v}` as MessageKey)}</StatusChip>;
 }
 
-/** Three-part bar: lower bound (no alternative observed) · uncertainty · rest. Never a single point estimate. */
+/**
+ * Uncertainty bar (Peil §7): thin segment bar — certainly affected = chart-1, uncertain = chart-1 with the "geschat"
+ * hatching, unaffected = meter track; no red/amber. The bar is aria-hidden: the legend and the table twin carry the
+ * numbers. Never a single point estimate.
+ */
 export function UncertaintyBar({ low, high, total }: { low: number; high: number; total: number }) {
-  const { t, num } = useI18n();
+  const { t, num, pct } = useI18n();
   const w = (n: number) => (total ? `${(n / total) * 100}%` : "0%");
   const seg = [
-    { key: "certain", n: low, bg: "var(--mg-danger)", label: t("costs.sim.legend.certain") },
-    { key: "uncertain", n: Math.max(0, high - low), bg: "repeating-linear-gradient(45deg, var(--mg-warning) 0 6px, color-mix(in srgb, var(--mg-warning) 45%, transparent) 6px 12px)", label: t("costs.sim.legend.uncertain") },
-    { key: "rest", n: Math.max(0, total - high), bg: "var(--mg-raised)", label: t("costs.sim.legend.unaffected") },
+    { key: "certain", n: low, cls: "bg-chart-1", label: t("costs.sim.legend.certain") },
+    { key: "uncertain", n: Math.max(0, high - low), cls: "text-chart-1 arcering-geschat border border-chart-1", label: t("costs.sim.legend.uncertain") },
+    { key: "rest", n: Math.max(0, total - high), cls: "bg-chart-meter-track", label: t("costs.sim.legend.unaffected") },
   ];
   return (
     <div>
-      <div className="stackbar" role="img" aria-label={t("costs.sim.ariaBar", { low: num(low), high: num(high), total: num(total) })} style={{ height: 12 }}>
-        {seg.map((s) => <span key={s.key} style={{ width: w(s.n), background: s.bg }} />)}
+      <p className="sr-only">{t("costs.sim.ariaBar", { low: num(low), high: num(high), total: num(total) })}</p>
+      <div className="stackbar flex h-3 gap-0.5 overflow-hidden rounded-full" aria-hidden="true">
+        {seg.map((s) => <span key={s.key} className={cn("h-full", s.cls)} style={{ width: w(s.n) }} />)}
       </div>
-      <div className="legend" style={{ marginTop: 8 }}>
-        {seg.map((s) => <span className="legend-item" key={s.key}><span className="legend-swatch" style={{ background: s.bg }} />{s.label} <strong className="num">{num(s.n)}</strong></span>)}
+      <div className="mt-2 flex flex-wrap gap-x-3.5 gap-y-1.5 text-sm text-muted-foreground">
+        {seg.map((s) => <span className="inline-flex items-center gap-1.5" key={s.key}><span className={cn("inline-block size-3 rounded-sm border border-border", s.cls)} aria-hidden="true" />{s.label} <strong className="cijfers text-foreground">{num(s.n)}</strong></span>)}
       </div>
+      <TableToggle testid="grafiek-onzekerheid-tabel" table={{
+        caption: t("costs.sim.tableCaption"),
+        columns: [t("costs.sim.colPart"), t("costs.sim.colCount"), t("costs.sim.colShare")],
+        numeric: [false, true, true],
+        rows: seg.map((s) => ({ key: s.key, cells: [s.label, num(s.n), total ? pct((s.n / total) * 100, 0) : "—"] })),
+      }} />
     </div>
   );
 }

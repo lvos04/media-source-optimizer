@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Button, Card, InlineState, LinkButton, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
+import { ChartFrame } from "@/components/mso/charts/chart-frame";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview } from "@/components/mso/change-preview";
 import { RiskChip } from "@/components/mso/risk-chip";
@@ -127,35 +128,54 @@ function quoted(names: string[]) {
 }
 
 /** 14 days of SABnzbd downloads: all (muted) and those in '*' (warning), with a text summary for screen readers. */
+/**
+ * Downloads in '*' per day (Peil §7): stacked columns — "in '*'" in chart-1 on the baseline, the other downloads in
+ * chart-other above it (no status colours as a series), 2 px gap; keyboard/pointer read-out per day and a table twin.
+ */
 function StarDaysChart({ days, recentDays, recentStar, recentTotal }: { days: StarDay[]; recentDays: number; recentStar: number; recentTotal: number }) {
-  const { t, num, date } = useI18n();
+  const { t, num, date, pct } = useI18n();
   const max = Math.max(1, ...days.map((d) => d.total));
   const slot = 20;
   const h = 56;
   const summary = t("usenetcat.days.summary", { days: num(recentDays), star: num(recentStar), total: num(recentTotal) });
   if (!days.some((d) => d.total)) return <p className="t-3" style={{ margin: 0, fontSize: 12.5 }}>{t("usenetcat.days.none", { days: num(days.length) })}</p>;
+  const share = (d: StarDay) => (d.total ? pct((d.star / d.total) * 100, 0) : "—");
   return (
-    <div className="stack-sm" style={{ gap: 4 }}>
-      <svg viewBox={`0 0 ${days.length * slot} ${h}`} width="100%" height={h} preserveAspectRatio="none" role="img" aria-label={summary}
-        style={{ maxWidth: 520, display: "block" }}>
-        {days.map((d, i) => {
-          const th = (d.total / max) * (h - 4);
-          const sh = (d.star / max) * (h - 4);
-          return (
-            <g key={d.day}>
-              <title>{t("usenetcat.days.bar", { day: date(d.day), star: num(d.star), total: num(d.total) })}</title>
-              <rect x={i * slot + 3} y={h - th} width={slot - 6} height={th} rx={2} fill="var(--mg-neutral-tint)" />
-              <rect x={i * slot + 3} y={h - sh} width={slot - 6} height={sh} rx={2} fill="var(--mg-warning)" />
-            </g>
-          );
-        })}
-      </svg>
-      <div className="row wrap t-3" style={{ gap: 12, fontSize: 12 }}>
-        <span>{summary}</span>
-        <span className="row" style={{ gap: 4 }}><span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 2, background: "var(--mg-warning)", display: "inline-block" }} />{t("usenetcat.days.legendStar")}</span>
-        <span className="row" style={{ gap: 4 }}><span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 2, background: "var(--mg-neutral-tint)", display: "inline-block" }} />{t("usenetcat.days.legendTotal")}</span>
-      </div>
-    </div>
+    <ChartFrame
+      name="ster-per-dag"
+      className="max-w-[32.5rem]"
+      summary={summary}
+      points={days.map((d) => t("usenetcat.days.readout", { day: date(d.day), star: num(d.star), total: num(d.total) }))}
+      caption={
+        <span className="flex flex-wrap gap-x-3 gap-y-1">
+          <span>{summary}</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block size-3 rounded-sm bg-chart-1" />{t("usenetcat.days.legendStar")}</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block size-3 rounded-sm border border-border bg-chart-other" />{t("usenetcat.days.legendOther")}</span>
+        </span>
+      }
+      table={{
+        caption: t("usenetcat.days.tableCaption"),
+        columns: [t("usenetcat.days.colDay"), t("usenetcat.days.colStar"), t("usenetcat.days.colTotal"), t("usenetcat.days.colShare")],
+        numeric: [false, true, true, true],
+        rows: days.map((d) => ({ key: d.day, cells: [date(d.day), num(d.star), num(d.total), share(d)] })),
+      }}
+    >
+      {(active) => (
+        <svg viewBox={`0 0 ${days.length * slot} ${h}`} width="100%" height={h} preserveAspectRatio="none" aria-hidden="true" className="block">
+          {days.map((d, i) => {
+            const sh = (d.star / max) * (h - 4);
+            const oh = ((d.total - d.star) / max) * (h - 4);
+            return (
+              <g key={d.day}>
+                {i === active ? <rect x={i * slot} y={0} width={slot} height={h} className="fill-accent" /> : null}
+                <rect x={i * slot + 3} y={h - sh} width={slot - 6} height={sh} rx={2} className="fill-chart-1" />
+                {oh > 0 ? <rect x={i * slot + 3} y={h - sh - oh - (sh > 0 ? 2 : 0)} width={slot - 6} height={oh} rx={2} className="fill-chart-other" /> : null}
+              </g>
+            );
+          })}
+        </svg>
+      )}
+    </ChartFrame>
   );
 }
 

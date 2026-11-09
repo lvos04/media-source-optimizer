@@ -168,20 +168,32 @@ export function DiffViewer({ rows, headers, keyWidth = 120 }: {
 }
 
 // ------------------------------------------------------------------ Distribution
-const VIZ = ["var(--mg-viz-1)", "var(--mg-viz-2)", "var(--mg-viz-3)", "var(--mg-viz-4)", "var(--mg-viz-5)", "var(--mg-viz-6)"];
+const VIZ = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-other)"];
 
-/** Stacked bar + legend. Colours default to the categorical --mg-viz-* palette in order. */
-export function DistributionBar({ segments }: { segments: Array<{ key: string; label: string; value: number; color?: string }> }) {
+/**
+ * Peil Segmentbalk (C-32): a thin part-of-whole bar without text, 2 px gaps, colours per entity (never by rank, never a
+ * status colour); the bar is aria-hidden — the legend (with counts) and the table twin carry the numbers.
+ * `pattern`: "other" = chart-other with hatching, "unknown" = no colour (dashed, hatched) — never grey-as-a-series.
+ */
+export function DistributionBar({ segments }: { segments: Array<{ key: string; label: string; value: number; color?: string; pattern?: "other" | "unknown" }> }) {
   const { num } = useI18n();
   const total = segments.reduce((sum, s) => sum + (s.value ?? 0), 0) || 1;
-  const aria = segments.map((s) => `${s.label} ${num(s.value)}`).join(", ");
+  const fill = (s: { pattern?: "other" | "unknown" }) =>
+    s.pattern === "unknown" ? "border border-dashed border-unknown bg-unknown-bg arcering-gat"
+      : s.pattern === "other" ? "bg-chart-other arcering-gat" : "";
+  const bg = (s: { color?: string; pattern?: "other" | "unknown" }, i: number) => (s.pattern ? undefined : s.color ?? VIZ[i % VIZ.length]);
   return (
     <div>
-      <div className="stackbar" role="img" aria-label={aria}>
-        {segments.map((s, i) => <span key={s.key} style={{ width: `${(s.value / total) * 100}%`, background: s.color ?? VIZ[i % VIZ.length] }} />)}
+      <div className="stackbar flex h-2.5 gap-0.5 overflow-hidden rounded-full" aria-hidden="true">
+        {segments.map((s, i) => <span key={s.key} className={cn("h-full", fill(s))} style={{ width: `${(s.value / total) * 100}%`, background: bg(s, i) }} />)}
       </div>
-      <div className="legend" style={{ marginTop: 10 }}>
-        {segments.map((s, i) => <span className="legend-item" key={s.key}><span className="legend-swatch" style={{ background: s.color ?? VIZ[i % VIZ.length] }} />{s.label} <strong className="num">{num(s.value)}</strong></span>)}
+      <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1.5 text-sm text-muted-foreground">
+        {segments.map((s, i) => (
+          <span className="inline-flex items-center gap-1.5" key={s.key}>
+            <span className={cn("inline-block size-3 rounded-sm border border-border", fill(s))} style={{ background: bg(s, i) }} aria-hidden="true" />
+            {s.label} <strong className="cijfers text-foreground">{num(s.value)}</strong>
+          </span>
+        ))}
       </div>
     </div>
   );

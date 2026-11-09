@@ -143,6 +143,8 @@ export const messages = {
   "rec.baseline.category": "Categorie",
   "rec.baseline.source": "Bron",
   "rec.baseline.total": "Totaal",
+  "rec.baseline.tableCaption": "Ontbrekend en mislukt per oorzaak (categorie en bron)",
+  "rec.baseline.allCategories": "Alle categorieën",
   "rec.baseline.causes": "Oorzaken",
   "rec.baseline.none": "Geen",
   "rec.baseline.excluded": "Niet meegeteld (geen fout): {list}",

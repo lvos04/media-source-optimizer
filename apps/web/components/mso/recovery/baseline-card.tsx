@@ -6,16 +6,20 @@ import { useState } from "react";
 import { Confidence, DistributionBar } from "@/components/mg/domain";
 import { Card, InlineState, Segmented, StatusChip } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
+import { TableToggle } from "@/components/mso/charts/chart-frame";
 import { useResource } from "@/lib/api/hooks";
 import type { Baseline, BaselineCounts } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
 
-/** Fixed colour per cause so the same cause has the same colour in every bar; 'unknown' stays neutral. */
+/**
+ * Fixed slot per cause (Peil §7: colour follows the cause, never the rank): five named causes on chart-1…5, the rest
+ * as "Overig" (chart-other, hatched); "unknown" gets no colour but its own column and word.
+ */
 const COLORS: Record<string, string> = {
-  no_indexer_hit: "var(--mg-viz-1)", false_positive: "var(--mg-viz-2)", rejected_quality: "var(--mg-viz-3)",
-  no_retention: "var(--mg-viz-4)", incomplete: "var(--mg-viz-5)", client_failure: "var(--mg-viz-6)",
-  import_failure: "var(--mg-danger)", other: "var(--mg-text-3)", unknown: "var(--mg-border)",
+  no_indexer_hit: "var(--chart-1)", rejected_quality: "var(--chart-2)", incomplete: "var(--chart-3)",
+  client_failure: "var(--chart-4)", import_failure: "var(--chart-5)",
 };
+const PATTERN: Record<string, "other" | "unknown"> = { false_positive: "other", no_retention: "other", other: "other", unknown: "unknown" };
 const CATEGORY_KEY = { tv: "rec.cat.tv", "tv-anime": "rec.cat.tvAnime", movies: "rec.cat.movies", "movies-anime": "rec.cat.moviesAnime", onbekend: "rec.cat.unknown" } as const;
 
 /** Dutch label for tv | tv-anime | movies | movies-anime. */
@@ -25,7 +29,7 @@ export function useCategoryLabel(): (cat: string | null | undefined) => string {
 }
 
 function segments(b: Baseline, counts: BaselineCounts) {
-  return b.buckets.map((x) => ({ key: x.key, label: x.label, value: counts[x.key] ?? 0, color: COLORS[x.key] }))
+  return b.buckets.map((x) => ({ key: x.key, label: x.label, value: counts[x.key] ?? 0, color: COLORS[x.key], pattern: PATTERN[x.key] }))
     .filter((s) => s.value > 0);
 }
 
@@ -57,6 +61,17 @@ export function BaselineCard({ className = "span-12" }: { className?: string }) 
               {d.coverage.known_share != null ? <Confidence value={d.coverage.known_share} tone={d.coverage.known_share >= 0.5 ? "success" : "warning"} /> : null}
             </div>
             <DistributionBar segments={segments(d, d.totals)} />
+            {/* table twin (Peil §9.2): every number of the bars below, per category and per source, one column per cause */}
+            <TableToggle testid="grafiek-oorzaken-tabel" table={{
+              caption: t("rec.baseline.tableCaption"),
+              columns: [t("rec.baseline.category"), t("rec.baseline.total"), ...d.buckets.map((x) => x.label)],
+              numeric: [false, true, ...d.buckets.map(() => true)],
+              rows: [
+                { key: "__total", cells: [t("rec.baseline.allCategories"), num(total(d.totals)), ...d.buckets.map((x) => num(d.totals[x.key] ?? 0))] },
+                ...Object.entries(d.by_category).map(([cat, counts]) => ({ key: `c-${cat}`, cells: [categoryLabel(cat), num(total(counts)), ...d.buckets.map((x) => num(counts[x.key] ?? 0))] })),
+                ...d.by_source.slice(0, 15).map((src) => ({ key: `s-${src.source_id}`, cells: [src.label || src.source_id, num(total(src.counts)), ...d.buckets.map((x) => num(src.counts[x.key] ?? 0))] })),
+              ],
+            }} />
             <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
               <table className="table table--stack">
                 <thead><tr><th>{t("rec.baseline.category")}</th><th>{t("rec.baseline.total")}</th><th style={{ width: "60%" }}>{t("rec.baseline.causes")}</th></tr></thead>

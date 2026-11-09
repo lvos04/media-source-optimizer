@@ -7,6 +7,7 @@ import {
 import Link from "next/link";
 
 import { Card, InlineState, StatusChip, type Tone } from "@/components/mg/primitives";
+import { ChartFrame } from "@/components/mso/charts/chart-frame";
 import { ResourceView } from "@/components/mg/states";
 import type { Goal, GoalKey, Goals, GoalStatus, GoalTrendPoint, GoalsTrial } from "@/lib/api/goals";
 import { useResource } from "@/lib/api/hooks";
@@ -225,38 +226,66 @@ function TrendLine({ goal }: { goal: Goal }) {
   const max = Math.max(goal.target, ...known.map((p) => p.value), goal.unit === "ratio" ? 0.05 : 1);
   const x = (i: number) => P + (pts.length === 1 ? (W - 2 * P) / 2 : (i / (pts.length - 1)) * (W - 2 * P));
   const y = (v: number) => H - P - (v / max) * (H - 2 * P);
-  const segments: string[][] = [];
+  // Peil §7: line in chart-1 (never the goal's status colour), the goal as chart-limit, reconstructed (= estimated)
+  // days as a dashed line with open points and "≈", a missing day is a hatched gap ("Geen meting", never 0).
+  const segments: Array<{ pts: string[]; estimated: boolean }> = [];
   let cur: string[] = [];
+  let curEst = false;
   pts.forEach((p, i) => {
+    const est = p.source === "reconstructed";
     if (p.value === null) {
-      if (cur.length) segments.push(cur);
+      if (cur.length) segments.push({ pts: cur, estimated: curEst });
       cur = [];
       return;
     }
-    cur.push(`${x(i).toFixed(1)},${y(p.value).toFixed(1)}`);
+    const xy = `${x(i).toFixed(1)},${y(p.value).toFixed(1)}`;
+    if (cur.length && est !== curEst) { segments.push({ pts: [...cur, xy], estimated: est || curEst }); cur = [xy]; curEst = est; return; }
+    if (!cur.length) curEst = est;
+    cur.push(xy);
   });
-  if (cur.length) segments.push(cur);
+  if (cur.length) segments.push({ pts: cur, estimated: curEst });
   const first = known[0], last = known[known.length - 1];
   const label = t("goals.trendLabel", {
     from: `${shortDay(first.date)} ${value(goal, first.value)}`, to: `${shortDay(last.date)} ${value(goal, last.value)}`, target: value(goal, goal.target),
   });
-  const tone = goal.status === "met" ? "var(--mg-success)" : goal.status === "not_met" ? "var(--mg-danger)" : "var(--mg-accent)";
   const reconstructed = pts.some((p) => p.source === "reconstructed");
+  const est = (p: GoalTrendPoint) => p.source === "reconstructed";
+  const readout = (p: GoalTrendPoint) => p.value === null ? `${shortDay(p.date)}: ${t("chart.noMeasurement")}`
+    : `${shortDay(p.date)}: ${est(p) ? "≈ " : ""}${value(goal, p.value)} (${est(p) ? t("chart.estimated") : t("chart.measured")})`;
+  const gaps = pts.map((p, i) => (p.value === null ? i : -1)).filter((i) => i >= 0);
+  const slot = pts.length > 1 ? (W - 2 * P) / (pts.length - 1) : W - 2 * P;
   return (
-    <figure style={{ margin: 0 }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={label} style={{ display: "block", maxHeight: 72 }}>
-        <line x1={P} x2={W - P} y1={y(goal.target)} y2={y(goal.target)} stroke="var(--mg-success)" strokeWidth="1.25" strokeDasharray="4 3" opacity="0.8" />
-        {segments.map((s, i) => s.length > 1
-          ? <polyline key={i} points={s.join(" ")} fill="none" stroke={tone} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-          : null)}
-        {pts.map((p, i) => (p.value === null ? null : (
-          <circle key={p.date} cx={x(i)} cy={y(p.value)} r={i === pts.length - 1 ? 3 : 2} fill={tone}
-            opacity={p.source === "reconstructed" ? 0.4 : 1}><title>{`${shortDay(p.date)}: ${value(goal, p.value)}`}</title></circle>
-        )))}
-      </svg>
-      <figcaption className="t-3" style={{ fontSize: 11 }}>
-        {t("goals.trendLegend")}{reconstructed ? ` · ${t("goals.trendReconstructed")}` : ""}
-      </figcaption>
-    </figure>
+    <ChartFrame
+      name={`doel-${goal.key}`}
+      summary={label}
+      points={pts.map(readout)}
+      caption={<>{t("goals.trendLegend")}{reconstructed ? ` · ${t("goals.trendReconstructed")}` : ""}{gaps.length ? ` ${t("chart.gapNote")}` : ""}</>}
+      table={{
+        caption: `${t(TITLE[goal.key])} — ${t("goals.trendTable")}`,
+        columns: [t("goals.col.day"), t("goals.col.value"), t("goals.col.quality"), t("goals.col.target")],
+        numeric: [false, true, false, true],
+        rows: pts.map((p) => ({ key: p.date, cells: [
+          shortDay(p.date),
+          p.value === null ? t("chart.noMeasurement") : `${est(p) ? "≈ " : ""}${value(goal, p.value)}`,
+          p.value === null ? t("chart.noMeasurement") : est(p) ? t("chart.estimated") : t("chart.measured"),
+          value(goal, goal.target),
+        ] })),
+      }}
+    >
+      {(active) => (
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" aria-hidden="true" className="block max-h-20 text-chart-1">
+          {gaps.map((i) => <rect key={`gap-${i}`} x={x(i) - slot / 2} y={P} width={slot} height={H - 2 * P} className="fill-chart-gap" opacity="0.35" />)}
+          <line x1={P} x2={W - P} y1={y(goal.target)} y2={y(goal.target)} className="stroke-chart-limit" strokeWidth="1.5" strokeDasharray="5 3" />
+          {segments.map((s, i) => s.pts.length > 1
+            ? <polyline key={i} points={s.pts.join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={s.estimated ? "3 3" : undefined} />
+            : null)}
+          {pts.map((p, i) => (p.value === null ? null : (
+            <circle key={p.date} cx={x(i)} cy={y(p.value)} r={i === active ? 4 : i === pts.length - 1 ? 3 : 2}
+              fill={est(p) ? "var(--card)" : "currentColor"} stroke="currentColor" strokeWidth="1.5" />
+          )))}
+          {active !== null ? <line x1={x(active)} x2={x(active)} y1={1} y2={H - 1} className="stroke-foreground" strokeWidth="1" /> : null}
+        </svg>
+      )}
+    </ChartFrame>
   );
 }

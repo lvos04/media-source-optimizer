@@ -35,12 +35,16 @@ export interface UsenetProvider {
   /** Primary health: MSO's own current check, otherwise SABnzbd's view. */
   health: { status: ProviderStatus; detail: string | null; source: "mso" | "sabnzbd"; stale?: boolean };
   updated_at: string;
+  /** 1.6.0: block remaining + forecast, account expiry (from SABnzbd) and SABnzbd's own test of the linked server. */
+  block?: BlockInfo | null; expiry?: ExpiryInfo | null; sab_test?: ServerTest | null;
 }
 export interface ProviderPreset { slug: string; label: string; kind: "unlimited" | "block"; host: string; port: number; ssl: boolean }
 /** `POST /usenet/providers/{slug}/test` */
 export interface ProviderTestResult {
   status: ProviderStatus; message: string; capabilities: string[]; latency_ms: number | null; code: number | null;
   tested: boolean; provider: UsenetProvider;
+  /** 1.6.0: "sabnzbd" = no credentials in MSO, SABnzbd's own server test of the linked server was used. */
+  source?: "sabnzbd"; change?: ServerTestChange | null; test?: ServerTest & { supported: boolean };
 }
 /** `POST /usenet/providers/import-sab` */
 export interface ProviderImportResult { items: UsenetProvider[]; note: string | null }
@@ -54,6 +58,8 @@ export interface ProviderInput {
 export interface SabServer {
   name: string; displayname: string; port: number; ssl: boolean; connections: number; priority: number;
   enable: number; optional: number; retention: number; username_set: boolean;
+  /** 1.6.0: account fields SABnzbd keeps (only when filled in there). */
+  expire_date?: string | null; quota_bytes?: number | null; usage_at_start?: number;
   /** `status` is the provider's effective health (see `UsenetProvider.health`). */
   provider: { slug: string; label: string; kind: "unlimited" | "block"; status: ProviderStatus; source?: "mso" | "sabnzbd" } | null;
   period: { bytes: number; articles_tried: number | null; articles_success: number | null; success_ratio: number | null };
@@ -68,8 +74,12 @@ export type ServerAutopilotStatus = "disabled" | "probing" | "recovered" | "give
 export interface ServerAutopilot {
   status: ServerAutopilotStatus; reason: string | null; reason_label: string | null; disabled_at: string | null;
   probes: number; next_probe_at: string | null; probe_started_at: string | null;
-  probe_trigger: "autopilot" | "user" | "sabnzbd" | "own_test" | null; last_result: string | null;
+  probe_trigger: "autopilot" | "user" | "sabnzbd" | "own_test" | "server_test" | null; last_result: string | null;
   disable_change_id: number | null; updated_at: string | null;
+  /** 1.6.0: SABnzbd's own server test instead of blind probes. */
+  next_test_at?: string | null; tests_failed?: number; last_test_at?: string | null;
+  last_test_result?: ServerTestResult | null; last_test_label?: string | null; test_supported?: boolean;
+  recovered_at?: string | null; waiting_for_use?: boolean;
 }
 export interface RetryRow {
   id: number; nzo_id: string; title: string; reason: string | null; reason_label: string | null;
@@ -85,6 +95,7 @@ export interface AutopilotRunSummary {
 /** `GET /usenet/autopilot` */
 export interface UsenetAutopilot {
   autopilot: boolean; auto_disable_after_h: number; probe_interval_h: number;
+  test_interval_h?: number; slow_test_interval_h?: number;
   servers: Record<string, ServerAutopilot | null>;
   retry: {
     enabled: boolean; counts: Partial<Record<RetryRow["status"], number>>; quota: RetryQuota;
@@ -97,6 +108,34 @@ export interface RetryProposeResult {
   reason?: string; change_id?: number; change_status?: string; auto_reason?: string | null;
 }
 export interface SabServerList { items: SabServer[]; period_days: number; last_stats_at: string | null }
+
+/** 1.6.0 · SABnzbd's own server test (`POST /usenet/sab/servers/{server}/test`, `GET /usenet/sab/server-tests`). */
+export type ServerTestResult =
+  | "ok" | "auth_failed" | "account_expired" | "access_denied" | "block_exhausted" | "rate_limited" | "unreachable"
+  | "tls_error" | "unknown" | "unsupported";
+export interface ServerTest {
+  result: ServerTestResult; label: string | null; ok: boolean; message: string | null;
+  trigger: "schedule" | "user" | "confirm" | "config_changed" | "own_test" | null; at: string;
+}
+export interface ServerTestChange { id: number; status: string; title: string; auto_applied: boolean; auto_reason: string | null }
+export interface ServerTestResponse { server: string; test: ServerTest & { supported: boolean }; change: ServerTestChange | null; state: ServerAutopilot | null }
+export interface ServerTestOverview {
+  items: Record<string, { latest: ServerTest | null; history: ServerTest[]; flapping: boolean }>;
+  interval_h: number; slow_interval_h: number;
+}
+/** 1.6.0 · account data SABnzbd keeps per server (`GET /usenet/sab/accounts`). */
+export interface ExpiryInfo { expire_date: string; days_left: number }
+export interface BlockInfo {
+  source: "sabnzbd" | "mso"; size_bytes: number; used_bytes: number | null; remaining_bytes: number | null;
+  used_ratio: number | null; avg_daily_bytes: number | null; days_left: number | null; run_out_date: string | null;
+  baseline_at: string | null; low: boolean;
+  /** Block size from before 1.6.0 without baseline: usage = SABnzbd's counter since its last reset (no forecast). */
+  legacy?: boolean;
+}
+export interface ServerAccounts {
+  items: Record<string, { expiry: ExpiryInfo | null; block: BlockInfo | null; updated_at: string | null }>;
+  reminder_days: number[];
+}
 
 /** `GET /usenet/contribution` */
 export interface ProviderContribution {

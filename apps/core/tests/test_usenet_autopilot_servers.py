@@ -1,6 +1,11 @@
 """1.5.0 · Autopilot for SABnzbd servers: failing servers off automatically (expired immediately, others after
-``usenet.auto_disable_after_h``), never the last enabled server, back on as a probe with backoff, on MSO's own
-successful test, or via "Opnieuw proberen". Reversible change sets, verified by read-back, audited."""
+``usenet.auto_disable_after_h``), never the last enabled server, back on via "Opnieuw proberen". Reversible change
+sets, verified by read-back, audited.
+
+1.6.0 (WP-B, deliberately changed): a server is switched off only after SABnzbd's own server test confirms the
+problem, and back on only after that test passes (no blind probe, never given up while SABnzbd can test; the 1.5.0
+probe with backoff is only the fallback when SABnzbd does not offer the test); "werkt weer" only once SABnzbd used the
+server. More in test_usenet_server_tests.py."""
 
 from __future__ import annotations
 
@@ -71,8 +76,10 @@ def test_autopilot_switches_failing_servers_off_expired_immediately(
     ) == 1
     row = _row(db, XS)
     assert row["status"] == "disabled" and row["reason"] == "account_expired" and row["probes"] == 0
-    wait = row["next_probe_at"] - datetime.now(UTC)
-    assert timedelta(hours=23) < wait <= timedelta(hours=24)
+    # 1.6.0: SABnzbd's own test confirmed it; an expired account is never probed, only tested weekly
+    assert row["next_probe_at"] is None and row["last_test_result"] == "account_expired"
+    wait = row["next_test_at"] - datetime.now(UTC)
+    assert timedelta(days=6, hours=23) < wait <= timedelta(days=7)
 
     # failing for longer than 6 h → the other three go off too; eweka (works) stays on
     _backdate(db)
@@ -109,63 +116,115 @@ def test_never_switches_off_the_last_enabled_server(app: Any, db: Any, admin: An
     assert out["servers"]["switched_off"] == [] and _enabled(sab) == {"news.eweka.test": 1}
 
 
-def test_probe_reenable_with_backoff_then_recovered(app: Any, db: Any, admin: Any, serve: Any) -> None:
+def _test_due(db: Any, server: str) -> None:
+    db.execute("UPDATE usenet_server_autoheal SET next_test_at = now() - interval '1 minute' WHERE server=%s",
+               (server,))
+
+
+def _use(sab: Any, server: str, nbytes: int = 50_000_000) -> None:
+    """SABnzbd downloads something from ``server`` (its server_stats counters rise)."""
+    from datetime import date
+
+    day = date.today().isoformat()
+    st = sab.stats.setdefault(server, {"daily": {}, "articles_tried": {}, "articles_success": {}})
+    st["daily"][day] = st["daily"].get(day, 0) + nbytes
+    st["articles_tried"][day] = st["articles_tried"].get(day, 0) + 70
+
+
+def test_reenable_only_after_passing_test_then_recovered_on_use(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    """1.6.0 replaces test_probe_reenable_with_backoff_then_recovered: no blind probe; a test that still fails keeps
+    the server off; after the owner fixed the account the passing test switches it on; it goes off again only when
+    SABnzbd's test confirms the returning error; "werkt weer" only after SABnzbd really used it."""
     from mso import state
 
     sab = _start(serve, admin, server_errors="field")
     state.set_state("mode", "autopilot")
     _pass()
     assert _enabled(sab)[XS] == 0
-    # probe due → switched on again and watched
-    db.execute("UPDATE usenet_server_autoheal SET next_probe_at = now() - interval '1 minute' WHERE server=%s", (XS,))
+    # test due, account still expired → stays off, next test in a week (expired)
+    _test_due(db, XS)
+    out = _pass()
+    assert out["servers"]["tested"] == [XS] and out["servers"]["switched_on"] == [] and _enabled(sab)[XS] == 0
+    row = _row(db, XS)
+    assert row["tests_failed"] == 2 and row["next_probe_at"] is None  # the confirming test + this one
+    assert timedelta(days=6) < row["next_test_at"] - datetime.now(UTC) <= timedelta(days=7)
+
+    # the owner renewed the account → the next test passes → switched on and watched
+    sab.fix_account(XS)
+    _test_due(db, XS)
     out = _pass()
     assert out["servers"]["switched_on"] == [XS] and _enabled(sab)[XS] == 1
     row = _row(db, XS)
-    assert row["status"] == "probing" and row["probe_trigger"] == "autopilot"
+    assert row["status"] == "probing" and row["probe_trigger"] == "server_test" and row["probe_usage"] is not None
     on = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s", (f"usenet.auto_on:{XS}",))
     assert on["status"] == "applied" and not on["ops"][0].get("destructive")
 
-    # the error returns → off again, backoff doubles (48 h)
+    # the error returns and SABnzbd's test confirms it → off again
     sab.set_server_error(XS, f"Server {XS} reported: 482 Account expired.", at=int(time.time()) + 2)
     out = _pass()
     assert out["servers"]["probe_failed"] == [XS] and _enabled(sab)[XS] == 0
     row = _row(db, XS)
-    assert row["status"] == "disabled" and row["probes"] == 1
-    wait = row["next_probe_at"] - datetime.now(UTC)
-    assert timedelta(hours=47) < wait <= timedelta(hours=48)
+    assert row["status"] == "disabled" and row["probes"] == 1 and row["next_probe_at"] is None
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='usenet.server_probe_failed'") == 1
 
-    # next probe: no new error for usenet.probe_watch_h → recovered
+    # fixed again → on; no new error, but SABnzbd has not used it yet → not "recovered"
     db.execute("UPDATE usenet_sab_server_events SET last_at = now() - interval '1 day' WHERE server=%s", (XS,))
-    db.execute("UPDATE usenet_server_autoheal SET next_probe_at = now() - interval '1 minute' WHERE server=%s", (XS,))
-    sab.warnings.clear()
-    sab.server_errors[XS] = ""
+    sab.fix_account(XS)
+    _test_due(db, XS)
     _pass()
     assert _enabled(sab)[XS] == 1 and _row(db, XS)["status"] == "probing"
     db.execute("UPDATE usenet_server_autoheal SET probe_started_at = now() - interval '3 hours' WHERE server=%s",
                (XS,))
     out = _pass()
-    assert out["servers"]["recovered"] == [XS] and _row(db, XS)["status"] == "recovered"
+    assert out["servers"]["recovered"] == [] and _row(db, XS)["status"] == "probing"
+    assert "nog niet gebruikt" in _row(db, XS)["last_result"]
+    # SABnzbd downloads from it without errors → recovered (recovered_at set)
+    _use(sab, XS)
+    out = _pass()
+    row = _row(db, XS)
+    assert out["servers"]["recovered"] == [XS] and row["status"] == "recovered" and row["recovered_at"] is not None
 
 
-def test_bounded_probes_give_up(app: Any, db: Any, admin: Any, serve: Any) -> None:
+def test_bounded_probes_give_up_only_without_server_test(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    """1.6.0: with SABnzbd's test MSO never gives up (tests keep running); the 1.5.0 bounded probe remains only as the
+    fallback when SABnzbd does not offer the test (and never for an expired account)."""
     from mso import state
 
-    sab = _start(serve, admin, server_errors="field")
+    _start(serve, admin, server_errors="field")
     assert admin.put("/api/v1/settings", json={"values": {"usenet.auto_probe_max": 1}}).status_code == 200
     state.set_state("mode", "autopilot")
     _pass()
-    db.execute("UPDATE usenet_server_autoheal SET next_probe_at = now() - interval '1 minute' WHERE server=%s", (XS,))
-    _pass()
-    sab.set_server_error(XS, f"Server {XS} reported: 482 Account expired.", at=int(time.time()) + 2)
-    _pass()
+    for _ in range(3):
+        _test_due(db, XS)
+        _pass()
     row = _row(db, XS)
-    assert row["status"] == "given_up" and row["next_probe_at"] is None and _enabled(sab)[XS] == 0
+    assert row["status"] == "disabled" and row["tests_failed"] == 4 and row["next_test_at"] is not None
+
+    # fallback: SABnzbd without the test → blind probe with backoff for a login problem, given up after the max
+    sab2 = _start(serve, admin, server_errors="field", test_server="unsupported")
+    db.execute("DELETE FROM usenet_server_autoheal")
+    db.execute("DELETE FROM usenet_server_tests")
+    _backdate(db)
+    _pass()
+    nh = "news.newshosting.test"
+    row = _row(db, nh)
+    assert _enabled(sab2)[nh] == 0 and row["last_test_result"] == "unsupported"
+    assert timedelta(hours=23) < row["next_probe_at"] - datetime.now(UTC) <= timedelta(hours=24)
+    assert _row(db, XS)["next_probe_at"] is None  # expired: never a probe
+    db.execute("UPDATE usenet_server_autoheal SET next_probe_at = now() - interval '1 minute' WHERE server=%s", (nh,))
+    out = _pass()
+    assert nh in out["servers"]["switched_on"] and _row(db, nh)["probe_trigger"] == "autopilot"
+    sab2.set_server_error(nh, f"Server {nh} reported: 502 Authentication Failed", at=int(time.time()) + 2)
+    _pass()
+    row = _row(db, nh)
+    assert row["status"] == "given_up" and row["next_probe_at"] is None and _enabled(sab2)[nh] == 0
     _pass()  # no more automatic probes
-    assert _enabled(sab)[XS] == 0
+    assert _enabled(sab2)[nh] == 0
 
 
 def test_own_successful_test_switches_server_back_on(app: Any, db: Any, admin: Any, serve: Any) -> None:
+    """1.6.0 (deliberately changed): MSO's own NNTP test (its credentials may differ from SABnzbd's) now triggers
+    SABnzbd's test right away; only when that passes too does the server go back on."""
     from mso import state
 
     sab = _start(serve, admin, server_errors="field")
@@ -178,12 +237,19 @@ def test_own_successful_test_switches_server_back_on(app: Any, db: Any, admin: A
     state.set_state("mode", "autopilot")
     _pass()
     assert _enabled(sab)[XS] == 0
-    # MSO's own NNTP test with credentials succeeds (after the switch-off) → back on, watched
+    # MSO's own NNTP test with credentials succeeds, but SABnzbd still can't log in → SABnzbd's test runs, stays off
     db.execute("UPDATE usenet_providers SET status='ok', last_check_at=now() + interval '1 second' WHERE slug='xsnews'")
     sab.warnings.clear()
     out = _pass()
+    assert out["servers"]["tested"] == [XS] and out["servers"]["switched_on"] == [] and _enabled(sab)[XS] == 0
+    assert db.scalar("SELECT trigger FROM usenet_server_tests WHERE server=%s ORDER BY id DESC LIMIT 1",
+                     (XS,)) == "own_test"
+    # the account works in SABnzbd too; a newer own test → SABnzbd's test passes → back on, watched
+    sab.fix_account(XS)
+    db.execute("UPDATE usenet_providers SET last_check_at=now() + interval '5 seconds' WHERE slug='xsnews'")
+    out = _pass()
     assert out["servers"]["switched_on"] == [XS] and _enabled(sab)[XS] == 1
-    assert _row(db, XS)["probe_trigger"] == "own_test"
+    assert _row(db, XS)["probe_trigger"] == "server_test"
 
 
 def test_opnieuw_proberen_reenables_and_watches(

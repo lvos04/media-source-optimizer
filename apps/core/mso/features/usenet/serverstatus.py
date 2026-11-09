@@ -99,12 +99,17 @@ _UNREACHABLE = re.compile(
 )
 _TLS = re.compile(r"certificate|\bssl\b|\btls\b|handshake", re.I)
 _SERVER_WORDS = re.compile(r"server|login|account|authenticat|access|connect", re.I)
+# SABnzbd's own informational warnings that say nothing about the account (1.6.0): the latency hint SABnzbd ≥ 5.1
+# adds after a passing server test ("Server h took 481 ms to respond … 'Articles per request' …" — the number must
+# never be read as an NNTP code) and the advance notice "Server X is expiring in 3 day(s)" (the account still works;
+# MSO's own 14/7/1-day reminders cover it, and a really expired account is reported by the provider itself).
+_SAB_NOTICE = re.compile(r"took \d+ ms to respond|articles per request|is expiring in -?\d+ day", re.I)
 
 
 def classify_message(text: str) -> str | None:
     """SABnzbd server message → status, or ``None`` when it says nothing about the server's health."""
     t = (text or "").strip()
-    if not t:
+    if not t or _SAB_NOTICE.search(t):
         return None
     m = _CODE.search(t)
     code = int(m.group(1)) if m else 0
@@ -124,6 +129,50 @@ def classify_message(text: str) -> str | None:
     if code and code >= 400:
         return "error"
     return None
+
+
+# ------------------------------------------------------------------ SABnzbd's own server test (1.6.0)
+TEST_LABELS = {
+    "ok": "Test geslaagd",
+    "auth_failed": "Inloggen geweigerd",
+    "account_expired": "Account verlopen",
+    "access_denied": "Toegang geweigerd",
+    "block_exhausted": "Blok op / limiet",
+    "rate_limited": "Te veel verbindingen",
+    "unreachable": "Onbereikbaar",
+    "tls_error": "TLS-fout",
+    "unknown": "Onbekend",
+    "unsupported": "Test niet beschikbaar",
+}
+_TEST_NEEDS_LOGIN = re.compile(r"requires username and password", re.I)
+_TEST_CONFIG = re.compile(r"password masked|hostname is not set|no connections set|invalid server details", re.I)
+# SABnzbd's own wording only: a provider answer such as "481 Username is not valid" must reach classify_message
+_TEST_UNREACHABLE = re.compile(
+    r"server address \".*\" is not valid|could not connect to|^timed out|operates as a web server", re.I
+)
+
+
+def classify_test(result: dict[str, Any]) -> str:
+    """:meth:`SabClient.test_server` → ``ok`` / ``auth_failed`` / ``account_expired`` / ``access_denied`` /
+    ``block_exhausted`` / ``rate_limited`` (too many connections: not a dead account) / ``unreachable`` /
+    ``tls_error`` / ``unknown`` / ``unsupported``. SABnzbd passes the provider's own NNTP answer on unchanged
+    ("502 Authentication Failed", "482 Account expired"); its own texts ("Timed out", 'Server address "h:563" is not
+    valid.') are matched first so a port number is never read as an NNTP code."""
+    if not result.get("supported"):
+        return "unsupported"
+    if result.get("ok") is True:
+        return "ok"
+    if result.get("ok") is None:
+        return "unknown"
+    text = str(result.get("message") or "")
+    if _TEST_NEEDS_LOGIN.search(text):
+        return "auth_failed"
+    if _TEST_CONFIG.search(text):
+        return "unknown"
+    if _TEST_UNREACHABLE.search(text):
+        return "unreachable"
+    st = classify_message(text)
+    return st if st in TEST_LABELS else "unknown"
 
 
 def short_name(name: str) -> str:
@@ -441,6 +490,33 @@ def _sync_recommendations(states: list[dict[str, Any]]) -> None:
             )
 
 
+def _outdated_by_test(states: list[dict[str, Any]]) -> None:
+    """A login/account error that only comes from SABnzbd's warning list is outdated when SABnzbd's own server test
+    passed AFTER that warning (1.6.0): the server counts as working again. A new warning after the test (e.g. a
+    connection limit) keeps the error; SABnzbd's live ``servererror`` is never overridden."""
+    from mso.features.usenet import servertest  # lazy: servertest imports this module
+
+    latest = servertest.latest_all()
+    for st in states:
+        test = latest.get(st["server"])
+        if (
+            test
+            and test["result"] == "ok"
+            and st["status"] in DISABLE_SUGGESTED
+            and st["source"] == "warnings"
+            and st["message_at"] is not None
+            and test["at"] > st["message_at"]
+        ):
+            st.update(
+                status="ok",
+                label=LABELS["ok"],
+                explanation="SABnzbd's eigen servertest slaagde na de laatste foutmelding; die melding is achterhaald.",
+                message=None,
+                source="test",
+                message_at=test["at"],
+            )
+
+
 def refresh(client: SabClient | None = None) -> dict[str, Any]:
     """Read SABnzbd's server state + warnings, persist, sync recommendations."""
     own = client is None
@@ -463,12 +539,21 @@ def refresh(client: SabClient | None = None) -> dict[str, Any]:
         if own:
             c.close()
     states = evaluate(servers, live, warns)
+    _outdated_by_test(states)
     persist(states)
     _sync_recommendations(states)
+    try:  # account data SABnzbd keeps per server: expiry/block reminders, Kosten pre-fill (1.6.0)
+        from mso.features.usenet import accounts  # lazy: accounts imports this module
+
+        acc: dict[str, Any] | None = accounts.sync(servers)
+    except Exception as exc:  # never let this break the server status
+        LOGGER.info("SABnzbd-accountgegevens overgeslagen: %s", type(exc).__name__)
+        acc = None
     return {
         "servers": len(states),
         "failing": sorted(s["server"] for s in states if s["status"] in FAILING),
         "status_available": live is not None,
+        "accounts": acc,
     }
 
 

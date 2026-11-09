@@ -17,6 +17,7 @@ import { messages as safety } from "./nl/safety";
 import { messages as torrent } from "./nl/torrent";
 import { messages as usenet } from "./nl/usenet";
 import { messages as usenetdiag } from "./nl/usenetdiag";
+import { messages as usenetserver } from "./nl/usenetserver";
 import { messages as zoeken } from "./nl/zoeken";
 
 export const nl = {
@@ -31,6 +32,7 @@ export const nl = {
   ...torrent,
   ...usenet,
   ...usenetdiag,
+  ...usenetserver,
   ...zoeken,
   ...safety,
   ...maintenance,

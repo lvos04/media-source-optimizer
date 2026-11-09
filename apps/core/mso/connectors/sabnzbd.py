@@ -13,9 +13,11 @@ messages and never returned by MSO's API.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
+import re
 import time
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import httpx
@@ -145,29 +147,43 @@ class SabClient:
     def server_stats(self) -> dict[str, Any]:
         return dict(self._call("server_stats"))
 
-    def servers(self) -> list[dict[str, Any]]:
-        """Server list from ``get_config&section=servers`` without credentials."""
+    def _raw_servers(self) -> list[dict[str, Any]]:
+        """``get_config&section=servers`` as SABnzbd returns it (incl. username; the password is masked)."""
         body = self._call("get_config", {"section": "servers"})
         servers = (body.get("config") or {}).get("servers") or []
         if isinstance(servers, dict):  # very old versions: {name: {...}}
             servers = [dict(v, name=k) for k, v in servers.items()]
+        return [s for s in servers if isinstance(s, dict)]
+
+    def servers(self, *, fingerprint_key: bytes | None = None) -> list[dict[str, Any]]:
+        """Server list from ``get_config&section=servers`` without credentials.
+
+        Account fields (SABnzbd ≥ 3.2, only when the owner filled them in SABnzbd): ``expire_date`` (ISO date or
+        ``None``; SABnzbd clears it on the day itself), ``quota_bytes`` (``quota`` in K/M/G/T notation, 1024-based
+        like SABnzbd's ``from_units``) and ``usage_at_start`` (SABnzbd's byte total when the quota was set).
+        With ``fingerprint_key`` every server also gets ``fingerprint``: a keyed hash of host/port/SSL/username/
+        expiry/quota, so a change in SABnzbd can be noticed without storing the username."""
         out = []
-        for s in servers:
-            out.append(
-                {
-                    "name": str(s.get("name", "")),
-                    "displayname": str(s.get("displayname") or s.get("name", "")),
-                    "host": str(s.get("host", "")),
-                    "port": _int(s.get("port"), 0),
-                    "ssl": bool(_int(s.get("ssl"), 0)),
-                    "connections": _int(s.get("connections"), 0),
-                    "priority": _int(s.get("priority"), 0),
-                    "enable": _int(s.get("enable"), 1),
-                    "optional": _int(s.get("optional"), 0),
-                    "retention": _int(s.get("retention"), 0),
-                    "username_set": bool(s.get("username")),
-                }
-            )
+        for s in self._raw_servers():
+            item = {
+                "name": str(s.get("name", "")),
+                "displayname": str(s.get("displayname") or s.get("name", "")),
+                "host": str(s.get("host", "")),
+                "port": _int(s.get("port"), 0),
+                "ssl": bool(_int(s.get("ssl"), 0)),
+                "connections": _int(s.get("connections"), 0),
+                "priority": _int(s.get("priority"), 0),
+                "enable": _int(s.get("enable"), 1),
+                "optional": _int(s.get("optional"), 0),
+                "retention": _int(s.get("retention"), 0),
+                "username_set": bool(s.get("username")),
+                "expire_date": self._sab_date(s.get("expire_date")),
+                "quota_bytes": self._sab_units(s.get("quota")),
+                "usage_at_start": max(0, _int(s.get("usage_at_start"), 0)),
+            }
+            if fingerprint_key:
+                item["fingerprint"] = self._fingerprint(fingerprint_key, s)
+            out.append(item)
         return out
 
     def server_status(self) -> list[dict[str, Any]] | None:
@@ -234,6 +250,91 @@ class SabClient:
                 else:
                     out.append({"text": redact(w).strip()[:500], "type": "WARNING", "time": None})
         return out
+
+    # ------------------------------------------------------------------ server test + account fields (1.6.0)
+    TEST_TIMEOUT_S = 45.0  # SABnzbd's test blocks: 5 s per connection attempt, up to 3 extra ports when unreachable
+
+    def test_server(self, name: str) -> dict[str, Any]:
+        """SABnzbd's own "Test server" for one configured server (``mode=config&name=test_server``, the call behind
+        the button in SABnzbd's server settings): SABnzbd connects to the provider and logs in.
+
+        MSO sends the server's settings from ``get_config`` with the password exactly as SABnzbd masks it
+        (``**********``) plus ``server=<name>``: SABnzbd then substitutes the password it has stored itself
+        (``api.test_nntp_server_dict``). MSO never sees or sends a password. The username is only held in memory
+        for this one call (POST body, never in the URL or a log) and is removed from SABnzbd's answer.
+
+        Returns ``{"supported": bool, "ok": bool | None, "message": str}``; ``supported`` is False when SABnzbd
+        does not offer the call or its configuration is locked, ``ok`` is None when SABnzbd gave no verdict.
+        Raises :class:`SabError` when SABnzbd itself is unreachable or refuses the API key, or (code ``not_found``)
+        the server does not exist.
+
+        ``pipelining_requests`` is sent as at least 5: SABnzbd ≥ 5.1 adds a "helpful warning" ("Server … took N ms
+        to respond … 'Articles per request'") to its warning list after every passing test slower than 50 ms with
+        fewer than 5 articles per request. It only feeds that hint; a single login test sends no article requests."""
+        raw = next((s for s in self._raw_servers() if str(s.get("name", "")) == name), None)
+        if raw is None:
+            raise SabError(f"SABnzbd-server '{name}' bestaat niet", "not_found")
+        username = str(raw.get("username") or "").strip()
+        data: dict[str, Any] = {
+            "server": name,
+            "host": str(raw.get("host") or ""),
+            "port": _int(raw.get("port"), 0),
+            "ssl": _int(raw.get("ssl"), 0),
+            "connections": max(1, _int(raw.get("connections"), 1)),
+            "username": username,
+            # never a real password: SABnzbd resolves the masked value from its own config (needs ``server``)
+            "password": "**********" if raw.get("password") else "",
+        }
+        for key in ("ssl_verify", "ssl_ciphers"):
+            if raw.get(key) not in (None, ""):
+                data[key] = raw[key]
+        data["pipelining_requests"] = max(5, _int(raw.get("pipelining_requests"), 2))
+        raw.clear()
+        old = self._http.timeout
+        self._http.timeout = httpx.Timeout(self.TEST_TIMEOUT_S, connect=5.0)
+        try:
+            body = self._call("config", {"name": "test_server"}, method="POST", data=data)
+        except SabError as exc:
+            if exc.code != "api":
+                raise
+            locked = "locked" in str(exc).lower()
+            return {
+                "supported": False,
+                "ok": None,
+                "message": "SABnzbd-configuratie is vergrendeld" if locked else "SABnzbd biedt de servertest niet aan",
+            }
+        finally:
+            self._http.timeout = old
+            data.clear()
+        value = body.get("value") if isinstance(body, dict) else None
+        if not isinstance(value, dict) or "result" not in value:
+            return {"supported": True, "ok": None, "message": "SABnzbd gaf geen testresultaat terug"}
+        message = str(value.get("message") or "")
+        if len(username) >= 2:
+            message = re.sub(re.escape(username), "<gebruiker>", message, flags=re.I)
+        return {"supported": True, "ok": bool(value.get("result")), "message": redact(message).strip()[:300]}
+
+    @staticmethod
+    def _sab_date(v: Any) -> str | None:
+        """SABnzbd ``expire_date`` ("YYYY-MM-DD" or "") → ISO date or None."""
+        try:
+            return date.fromisoformat(str(v or "").strip()[:10]).isoformat()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _sab_units(v: Any) -> int | None:
+        """SABnzbd ``quota`` ("500G", "1.5T", "" …) → bytes (1024-based, as SABnzbd's ``from_units``) or None."""
+        m = re.fullmatch(r"\s*(\d+(?:\.\d*)?)\s*([KMGTP]?)B?\s*", str(v or ""), re.I)
+        if not m:
+            return None
+        value = float(m.group(1)) * 1024 ** "_KMGTP".index((m.group(2) or "_").upper())
+        return int(value) if value > 0 else None
+
+    @staticmethod
+    def _fingerprint(key: bytes, raw: dict[str, Any]) -> str:
+        parts = [str(raw.get(k) or "") for k in ("host", "port", "ssl", "username", "expire_date", "quota")]
+        return hmac.new(key, "\x1f".join(parts).encode(), hashlib.sha256).hexdigest()[:32]
 
     def categories(self) -> list[str]:
         cats = self._call("get_cats").get("categories") or []

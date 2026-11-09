@@ -4,10 +4,10 @@ Implements: version, queue, history (incl. fail_message, stage_log in SABnzbd's 
 conditional polling, ``archive=1`` for jobs removed from the history as SABnzbd ≥ 4 keeps them),
 server_stats (per-server daily bytes + articles_tried/articles_success — like the real SABnzbd, whose
 ``articles_success`` field holds the number of FAILED articles: ``sabnzbd/api.py`` ``_api_server_stats`` →
-``BPSMeter.amounts`` → ``article_stats_failed``), get_config&section=servers,
-set_config&section=servers, retry (failed history job back into the queue),
-status/fullstatus (per-server ``servererror``/``serveractive``), warnings
-(``[{text, type, time}]``), get_cats, addurl, addfile (multipart parsed without extra dependencies).
+``BPSMeter.amounts`` → ``article_stats_failed``), get_config&section=servers (password masked,
+``expire_date``/``quota``/``usage_at_start``), set_config&section=servers, config&name=test_server,
+retry (failed history job back into the queue), status/fullstatus (per-server ``servererror``/``serveractive``),
+warnings (``[{text, type, time}]``), get_cats, addurl, addfile (multipart parsed without extra dependencies).
 
 Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``api_key``             expected key (default ``sabkey``)
@@ -25,6 +25,8 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``retry_new_id=1``      ``mode=retry`` gives the retried job a new nzo_id (as newer SABnzbd versions can)
 - ``retry_noop=1``        ``mode=retry`` answers ``status: true`` but nothing reaches the queue (verification)
 - ``status_mode=fullstatus|none``  only answer the old ``fullstatus`` mode / neither (old SABnzbd)
+- ``test_server=unsupported|locked``  ``mode=config&name=test_server`` answers "not implemented" / "Configuration
+                          locked" (otherwise like SABnzbd 5.1: masked password + ``server`` → stored password)
 Tests can reach the live state through ``app.state.sab`` (a ``SabState``).
 """
 
@@ -154,7 +156,10 @@ class SabState:
                 "optional": 0,
                 "retention": 0,
                 "username": "user1",
-                "password": "*****",
+                "password": "**********",
+                "expire_date": "",
+                "quota": "",
+                "usage_at_start": 0,
             },
             {
                 "name": "news.newshosting.test",
@@ -168,7 +173,10 @@ class SabState:
                 "optional": 0,
                 "retention": 0,
                 "username": "user2",
-                "password": "*****",
+                "password": "**********",
+                "expire_date": "",
+                "quota": "",
+                "usage_at_start": 0,
             },
             {
                 "name": "block.example.test",
@@ -182,7 +190,10 @@ class SabState:
                 "optional": 1,
                 "retention": 0,
                 "username": "user3",
-                "password": "*****",
+                "password": "**********",
+                "expire_date": "",
+                "quota": "",
+                "usage_at_start": 0,
             },
         ]
         today = date.today()
@@ -213,10 +224,77 @@ class SabState:
         self.warnings: list[dict[str, Any]] = []
         self.retried: list[str] = []  # nzo_ids for which mode=retry was called
 
+        # Server test (mode=config&name=test_server): the stored passwords (never returned by get_config), the
+        # account problem a login gets (set by set_server_error, kept after SABnzbd clears ``servererror``),
+        # explicit overrides per server name and every call as received (tests check what MSO sent).
+        self.passwords: dict[str, str] = {}
+        self.account_errors: dict[str, str] = {}
+        self.test_results: dict[str, tuple[bool, str]] = {}
+        self.test_calls: list[dict[str, Any]] = []
+
     def set_server_error(self, name: str, text: str, *, warn: bool = True, at: int | None = None) -> None:
         self.server_errors[name] = text
+        if text:
+            self.account_errors[name] = text
         if warn and text:
             self.warnings.append({"text": text, "type": "WARNING", "time": at or int(time.time())})
+
+    def fix_account(self, name: str) -> None:
+        """The owner repaired the account: logins work again, SABnzbd's error and warnings for it are gone."""
+        self.account_errors.pop(name, None)
+        self.test_results.pop(name, None)
+        self.server_errors[name] = ""
+        self.warnings = [w for w in self.warnings if name not in w["text"]]
+
+    def public_servers(self, keyword: str | None = None) -> list[dict[str, Any]]:
+        """``get_config&section=servers[&keyword=<name>]``: like SABnzbd, the password only as asterisks."""
+        return [dict(s) for s in self.servers if not keyword or s["name"] == keyword]
+
+    def test_server(self, kw: dict[str, Any]) -> tuple[bool, str]:
+        """``api.test_nntp_server_dict`` (SABnzbd 5.1): a masked password is replaced by the stored one only when
+        ``server`` names a configured server; the result follows the account state of the server at ``host``."""
+        self.test_calls.append({k: v for k, v in kw.items() if k not in ("apikey", "mode", "output", "name")})
+        host = str(kw.get("host", "")).strip()
+        port = str(kw.get("port", "0")).strip()
+        username = str(kw.get("username", "")).strip()
+        password = str(kw.get("password", "")).strip()
+        server = str(kw.get("server", "")).strip()
+        if not host:
+            return False, "The hostname is not set."
+        if not str(kw.get("connections", "1")).strip("0 "):
+            return False, "There are no connections set. Please set at least one connection."
+        if "*" in password and not password.strip("*"):
+            stored = next((s for s in self.servers if s["name"] == server), None)
+            if stored is None:
+                return False, "Password masked in ******, please re-enter"
+            password = self.passwords.get(server, "secret")
+        target = next((s for s in self.servers if s["host"] == host), None)
+        if target is None:
+            return False, f'Server address "{host}:{port}" is not valid.'
+        if target["name"] in self.test_results:
+            return self.test_results[target["name"]]
+        if not username or not password:
+            return False, "Server requires username and password."
+        if username != target["username"] or password != self.passwords.get(target["name"], "secret"):
+            return False, "481 Authentication failed"
+        err = self.account_errors.get(target["name"])
+        if err:
+            return False, err.split("reported: ", 1)[-1].rstrip(".") if "reported: " in err else err
+        # SABnzbd ≥ 5.1: after a passing test slower than 50 ms with fewer than 5 articles per request, a "helpful
+        # warning" lands in the warning list (the mock's provider always answers in 481 ms)
+        try:
+            pipelining = int(str(kw.get("pipelining_requests", "2")).strip() or 2)
+        except ValueError:
+            pipelining = 2
+        if pipelining < 5:
+            self.warnings.append({
+                "text": f"Server {host} took 481 ms to respond. On high-latency connections, increasing 'Articles per "
+                "request' to a value between 5 and 10 can improve download speed. See: "
+                "https://sabnzbd.org/wiki/advanced/nntp-pipelining\nTo prevent all helpful warnings, disable "
+                "Special setting 'helpful_warnings'.",
+                "type": "WARNING", "time": int(time.time()),
+            })
+        return True, "Connection Successful!"
 
     def status(self) -> dict[str, Any]:
         servers = []
@@ -288,7 +366,10 @@ def _server(name: str, display: str, priority: int, connections: int) -> dict[st
         "optional": 0,
         "retention": 0,
         "username": "user",
-        "password": "*****",
+        "password": "**********",
+        "expire_date": "",
+        "quota": "",
+        "usage_at_start": 0,
     }
 
 
@@ -314,6 +395,7 @@ def create_app(**faults: Any) -> FastAPI:
     status_mode = str(faults.get("status_mode", "status"))
     retry_new_id = str(faults.get("retry_new_id", "0")) in ("1", "true")
     retry_noop = str(faults.get("retry_noop", "0")) in ("1", "true")
+    test_mode = str(faults.get("test_server", ""))
     if str(faults.get("server_errors", "")) == "report":
         state.set_server_error(
             "news.newshosting.test", "Server news.newshosting.test reported: 502 Authentication Failed"
@@ -410,10 +492,17 @@ def create_app(**faults: Any) -> FastAPI:
                 return ok(state.status())
             if mode == "warnings":
                 return ok({"warnings": list(state.warnings)})
+            if mode == "config":
+                if test_mode == "locked":
+                    return ok({"status": False, "error": "Configuration locked"})
+                if params.get("name") != "test_server" or test_mode == "unsupported":
+                    return ok({"status": False, "error": "not implemented"})
+                result, message = state.test_server(params)
+                return ok({"value": {"result": result, "message": message}})
             if mode == "get_config":
                 if params.get("section") != "servers":
                     return ok({"config": {}})
-                return ok({"config": {"servers": [dict(s) for s in state.servers]}})
+                return ok({"config": {"servers": state.public_servers(params.get("keyword"))}})
             if mode == "set_config":
                 if params.get("section") != "servers":
                     return ok({"status": False, "error": "not supported by mock"})

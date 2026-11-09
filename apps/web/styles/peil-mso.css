@@ -156,3 +156,29 @@ html { scroll-padding-top: calc(var(--header-h) + 0.75rem); scroll-padding-botto
 .field-error { color: var(--down-ink); font-size: 0.875rem; font-weight: 600; }
 .check { width: 1.25rem; height: 1.25rem; accent-color: var(--primary); }
 .choice, label:has(> .check) { min-height: var(--touch); }
+
+/* ResponsieveLijst (C-34): een tabel met .table--stack wordt een kaartenlijst zodra de KAART smaller is dan 56 rem
+   (container query op .card), niet alleen op een smal scherm. Zo loopt een brede tabel naast de zijbalk (1024 px)
+   nooit meer horizontaal over; kerninformatie krijgt nooit een horizontale scroll. */
+@container (max-width: 56rem) {
+  .table--stack thead { display: none; }
+  .table--stack, .table--stack tbody, .table--stack tr, .table--stack td { display: block; width: 100%; }
+  .table--stack tr { padding: 0.625rem 0.875rem; border-bottom: 1px solid var(--border); }
+  .table--stack tr:last-child { border-bottom: 0; }
+  .table--stack td { height: auto; padding: 0.1875rem 0; border: 0; text-align: left !important; min-width: 0 !important; max-width: 100% !important; }
+  .table--stack td[data-label] { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 0.75rem; row-gap: 0.125rem; }
+  .table--stack td[data-label]::before { content: attr(data-label); color: var(--muted-foreground); font-weight: 600; }
+  .table--stack td[data-label] > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  .table--stack td.cell-primary { padding-bottom: 0.375rem; }
+  .table--stack td.hide-mobile { display: none; }
+  .table--stack td.cell-block[data-label] { display: block; }
+}
+
+/* Lijstrijen op de telefoon: de knoppen rechts gaan naar een eigen regel in plaats van uit te steken. */
+@media (max-width: 39.99rem) {
+  .list-row > .list-main { flex: 1 1 12rem; }
+  .list-aside { flex: 1 1 auto; justify-content: flex-start; }
+}
+
+/* Uitklapbare blokken (details/summary): 44 px raakvlak. */
+summary { min-height: var(--touch); padding-block: 0.625rem; cursor: pointer; }

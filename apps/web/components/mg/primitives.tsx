@@ -82,7 +82,7 @@ export function Card({ title, icon: Icon, sub, actions, children, className, bod
   const headingId = id ?? `card-${autoId}`;
   return (
     <section
-      className={cn("card min-w-0 rounded-lg border bg-card text-card-foreground shadow-none",
+      className={cn("card @container min-w-0 rounded-lg border bg-card text-card-foreground shadow-none",
         tone === "danger" ? "card--danger border-2 border-down" : tone === "warning" ? "card--warning border-2 border-degraded" : "border-border", className)}
       aria-labelledby={title ? headingId : undefined}>
       {title || actions ? (
@@ -343,6 +343,8 @@ export function Modal({ open, onClose, title, children, footer, danger, icon: Ic
   open: boolean; onClose: () => void; title: ReactNode; children?: ReactNode; footer?: ReactNode; danger?: boolean; icon?: LucideIcon;
   labelledBy?: string; role?: "dialog" | "alertdialog"; description?: ReactNode; wide?: boolean;
 }) {
+  // Radix returns focus to a Dialog.Trigger; MSO opens dialogs from ordinary buttons, so remember the opener ourselves.
+  const opener = useRef<HTMLElement | null>(null);
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogPrimitive.Portal>
@@ -352,8 +354,13 @@ export function Modal({ open, onClose, title, children, footer, danger, icon: Ic
           {...(labelledBy ? { "aria-labelledby": labelledBy } : {})}
           {...(description ? {} : { "aria-describedby": undefined })}
           onOpenAutoFocus={(e) => {
+            opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
             const target = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>("[data-autofocus]");
             if (target) { e.preventDefault(); target.focus(); }
+          }}
+          onCloseAutoFocus={(e) => {
+            if (opener.current?.isConnected) { e.preventDefault(); opener.current.focus(); }
+            opener.current = null;
           }}
           className={cn(
             "dialog fixed z-overlay flex flex-col overflow-hidden border-2 bg-popover text-popover-foreground shadow-lg outline-none",

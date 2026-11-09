@@ -355,7 +355,7 @@ function GlobalSearch() {
           onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onKeyDown={(e) => { if (e.key === "Enter") go(); if (e.key === "Escape") (e.target as HTMLInputElement).blur(); }}
           aria-autocomplete="list"
-          className="min-w-0 flex-1 border-0 bg-transparent text-base text-foreground focus:outline-none focus-visible:shadow-none focus-visible:outline-none"
+          className="focus-ring min-w-0 flex-1 rounded-sm border-0 bg-transparent text-base text-foreground"
         />
         <span className="hidden lg:inline-grid"><Kbd>/</Kbd></span>
       </label>

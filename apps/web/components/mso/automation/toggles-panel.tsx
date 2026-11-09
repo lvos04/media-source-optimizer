@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, ListChecks, ScrollText, ShieldCheck } from "lucide-react";
+import { Bot, ListChecks, Lock, ScrollText, ShieldCheck } from "lucide-react";
 
 import { Card, InlineState, StatusChip, Switch } from "@/components/mg/primitives";
 import { StateView } from "@/components/mg/states";
@@ -73,7 +73,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
             if (s.hold?.active && liveMode !== "read_only" && !livePaused) return <InlineState tone="danger">{t("safety.stateHeld")}</InlineState>;
             if (liveMode === "autopilot" && !livePaused) return <InlineState tone="success" icon={Bot}>{t("automation.allowedAutopilot")}</InlineState>;
             if (liveMode === "manage" && !livePaused) return <InlineState tone="success">{t("automation.allowed")}</InlineState>;
-            return <InlineState tone="warning">{liveMode === "read_only" ? t("automation.notAllowedReadOnly") : t("automation.notAllowedPaused")}</InlineState>;
+            return <InlineState tone="neutral" icon={Lock}>{liveMode === "read_only" ? t("automation.notAllowedReadOnly") : t("automation.notAllowedPaused")}</InlineState>;
           })()}
           <dl className="kv">
             <dt>{t("automation.appliedLastHour")}</dt><dd>{num(s.applied_last_hour)}</dd>
@@ -116,7 +116,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
                 <div className="list-main"><div className="list-title">{jobKindLabel(j.kind)} <span className="mono t-3">{j.kind}</span></div><div className="list-sub">{j.last_update ? relative(j.last_update) : "—"}</div></div>
                 <div className="list-aside">
                   {j.pending ? <StatusChip tone="accent" pending>{t("automation.jobPending", { count: num(j.pending) })}</StatusChip> : null}
-                  {j.failed_24h ? <StatusChip tone="danger">{t("automation.jobFailed", { count: num(j.failed_24h) })}</StatusChip> : <StatusChip tone="success">OK</StatusChip>}
+                  {j.failed_24h ? <StatusChip tone="danger">{t("automation.jobFailed", { count: num(j.failed_24h) })}</StatusChip> : <StatusChip tone="success">{t("automation.jobNoFailures")}</StatusChip>}
                 </div>
               </div>
             ))}

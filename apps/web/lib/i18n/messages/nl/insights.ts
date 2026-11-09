@@ -309,6 +309,7 @@ export const messages = {
   "automation.jobs": "Taken",
   "automation.jobsEmpty": "Nog geen taken uitgevoerd",
   "automation.jobFailed": "{count} mislukt (24 u)",
+  "automation.jobNoFailures": "Niets mislukt (24 u)",
   "automation.jobPending": "{count} wachtend",
   "automation.on": "Aan",
   "automation.off": "Uit",

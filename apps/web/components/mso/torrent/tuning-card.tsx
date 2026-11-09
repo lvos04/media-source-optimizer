@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, FlaskConical, Hourglass, Play, Sparkles } from "lucide-react";
+import { Check, FlaskConical, Hourglass, Lock, Play, Sparkles } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { Button, Card, InlineState, StatusChip, type Tone } from "@/components/mg/primitives";
@@ -231,7 +231,7 @@ export function TuningCard() {
           <div className="stack">
             <div className="row wrap" style={{ gap: 6 }}>
               <StatusChip tone={d.settings.autotune_enabled ? "success" : "neutral"}>{d.settings.autotune_enabled ? t("torrent.tuning.autoOn") : t("torrent.tuning.autoOff")}</StatusChip>
-              <StatusChip tone={d.automation_allowed ? "success" : "warning"}>{d.automation_allowed ? t("torrent.tuning.automationAllowed") : t("torrent.tuning.automationBlocked")}</StatusChip>
+              <StatusChip tone={d.automation_allowed ? "success" : "neutral"} icon={d.automation_allowed ? undefined : Lock}>{d.automation_allowed ? t("torrent.tuning.automationAllowed") : t("torrent.tuning.automationBlocked")}</StatusChip>
               <span className="t-3">{t("torrent.tuning.params", { eval: num(d.settings.evaluation_hours), base: num(d.settings.baseline_hours), hyst: num(d.settings.hysteresis_pct) })}</span>
             </div>
             <p className="t-2" style={{ margin: 0 }}>{t("torrent.tuning.explain")}</p>

@@ -68,7 +68,7 @@ export default function MediaGuardPage() {
                   <dt>{t("mg.role")}</dt><dd>{d.role ? <StatusChip tone={d.role === "operator" ? "success" : d.role === "admin" ? "warning" : "info"}>{d.role}</StatusChip> : "—"}</dd>
                   <dt>{t("mg.authMethod")}</dt><dd>{d.auth_method === "apikey" ? t("mg.auth.apikey") : d.auth_method === "token" ? t("mg.auth.token") : d.auth_method === "user" ? t("mg.auth.user") : "—"}</dd>
                   <dt>{t("mg.reachable")}</dt><dd>{d.configured ? (d.reachable ? <StatusChip tone="success">{t("mg.yes")}</StatusChip> : <StatusChip tone="danger">{t("mg.no")}</StatusChip>) : t("mg.notConfiguredShort")}</dd>
-                  <dt>{t("mg.emergency")}</dt><dd>{d.emergency_stop ? <StatusChip tone="danger" icon={ShieldAlert}>{t("mg.emergencyActive")}</StatusChip> : d.emergency_stop === false ? <StatusChip tone="success">{t("mg.emergencyOff")}</StatusChip> : "—"}</dd>
+                  <dt>{t("mg.emergency")}</dt><dd>{d.emergency_stop ? <StatusChip tone="danger" icon={ShieldAlert}>{t("mg.emergencyActive")}</StatusChip> : d.emergency_stop === false ? <StatusChip tone="neutral">{t("mg.emergencyOff")}</StatusChip> : "—"}</dd>
                   <dt>{t("mg.latency")}</dt><dd className="num">{d.latency_ms != null ? `${num(d.latency_ms)} ms` : "—"}</dd>
                   <dt>{t("mg.checked")}</dt><dd>{d.checked_at ? relative(d.checked_at) : "—"}</dd>
                   <dt>{t("mg.searchRoute")}</dt><dd>{d.search.available ? <StatusChip tone="success">{t("mg.available")}</StatusChip> : <span>{d.search.reason ?? t("mg.unavailable")}</span>}</dd>
@@ -111,7 +111,7 @@ export default function MediaGuardPage() {
             {(q) => (
               <div className="stack-sm">
                 <QuotaMeter quota={q} />
-                {q.mediaguard_stale ? <InlineState tone="warning">{t("mg.quota.stale")}</InlineState> : null}
+                {q.mediaguard_stale ? <InlineState tone="stale">{t("mg.quota.stale")}</InlineState> : null}
               </div>
             )}
           </ResourceView>

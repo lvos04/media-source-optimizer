@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, KeyRound, Plus, Search, Settings, UserCheck, UserX } from "lucide-react";
+import { Info, KeyRound, Lock, Plus, Search, Settings, UserCheck, UserX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 
@@ -195,7 +195,7 @@ function UsersTab() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
-  if (!can("admin")) return <InlineState tone="warning">{t("users.adminOnly")}</InlineState>;
+  if (!can("admin")) return <InlineState tone="neutral" icon={Lock}>{t("users.adminOnly")}</InlineState>;
 
   const patch = async (user: UserRow, body: Record<string, unknown>) => {
     setPending(`patch-${user.id}`);

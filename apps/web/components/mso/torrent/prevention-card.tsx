@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, CircleSlash, Eye, ShieldCheck, ShieldPlus, TriangleAlert } from "lucide-react";
+import { CircleSlash, Eye, ShieldCheck, ShieldPlus } from "lucide-react";
 import { useState } from "react";
 
 import { Button, Card, InlineState, StatusChip } from "@/components/mg/primitives";
@@ -56,9 +56,9 @@ export function PreventionCard() {
         {(d) => (
           <div className="stack">
             <div className="row wrap">
-              {d.active ? <StatusChip tone="success" icon={CircleCheck}>{t("torrent.prevention.active")}</StatusChip>
+              {d.active ? <StatusChip tone="success">{t("torrent.prevention.active")}</StatusChip>
                 : !d.supported ? <StatusChip tone="neutral" icon={CircleSlash}>{t("torrent.prevention.unsupported")}</StatusChip>
-                  : <StatusChip tone="warning" icon={TriangleAlert}>{t("torrent.prevention.inactive")}</StatusChip>}
+                  : <StatusChip tone="neutral">{t("torrent.prevention.inactive")}</StatusChip>}
               <span className="t-2">{d.message}</span>
             </div>
             <p className="t-2" style={{ margin: 0 }}>{t("torrent.prevention.body")}</p>

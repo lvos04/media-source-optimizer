@@ -147,7 +147,7 @@ export function HeaderIndexCard({ providers }: { providers: UsenetProvider[] }) 
       <ResourceView resource={status} endpoint="GET /api/v1/usenet/headerindex">
         {(s) => (
           <div className="stack">
-            <InlineState tone="warning">{s.disclaimer}</InlineState>
+            <InlineState tone="info">{s.disclaimer}</InlineState>
             <p className="t-2" style={{ margin: 0 }}>{t(s.config.enabled ? "usenet.hi.endpointOn" : "usenet.hi.endpointOff")}</p>
             {s.config.enabled || s.usage.headers ? (
               <div className="grid" style={{ gap: 16 }}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleSlash, Pencil, PlugZap, Repeat, Trash2, TriangleAlert } from "lucide-react";
+import { CircleSlash, Lock, Pencil, PlugZap, Repeat, Trash2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { DangerDialog } from "@/components/mg/domain";
@@ -36,7 +36,7 @@ function StatusCell({ s }: { s: IndexerSource }) {
     && new Date(lastAt) >= new Date(s.prowlarr_broken_since));
   const brokenPrimary = Boolean(s.prowlarr_broken) && !resultsDespiteBroken;
   if (brokenPrimary) {
-    chips.push(<StatusChip key="broken" tone="danger" icon={TriangleAlert} title={t("idx.brokenHelp")}>{t("idx.broken")}</StatusChip>);
+    chips.push(<StatusChip key="broken" tone="danger" title={t("idx.brokenHelp")}>{t("idx.broken")}</StatusChip>);
     for (const h of s.prowlarr_health ?? []) if (h.broken) notes.push({ text: h.message, danger: true });
     if (lastAt && lastStatus === "ok") notes.push({ text: t("idx.brokenEarlierResults", { when: relative(lastAt) }) });
   }
@@ -160,7 +160,7 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
                   <div className="cell-title">{s.label}</div>
                   <div className="cell-sub row wrap" style={{ gap: 4 }}>
                     <StatusChip tone="neutral" icon={null} outline>{t(originKey)}</StatusChip>
-                    {s.private ? <StatusChip tone="warning" icon={null} outline>{t("idx.private")}</StatusChip> : null}
+                    {s.private ? <StatusChip tone="info" icon={Lock}>{t("idx.private")}</StatusChip> : null}
                     <span className="mono">{s.id}</span>
                   </div>
                 </td>

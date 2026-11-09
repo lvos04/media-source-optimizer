@@ -105,12 +105,16 @@ export default function CostsPage() {
         </>} />
       <InlineState tone="info" icon={CircleHelp}><span><strong>{t("costs.disclaimerTitle")}:</strong> {t("costs.disclaimer")}</span></InlineState>
       {services.data?.price_missing ? (
-        <div style={{ marginTop: 12 }}><InlineState tone="warning">{t("costs.priceMissingBanner", { count: num(services.data.price_missing) })}</InlineState></div>
+        <div style={{ marginTop: 12 }}><InlineState tone="unknown">{t("costs.priceMissingBanner", { count: num(services.data.price_missing) })}</InlineState></div>
       ) : null}
 
       <section className="kpi-grid" aria-label={t("overview.kpis")} style={{ marginTop: 16 }}>
         <KpiCard label={t("costs.kpi.total")} icon={Coins} unavailable={!s || s.total.services === 0}
-          value={s ? money(s.total.monthly_cents / 100, s.total.currency) : "—"} meta={s ? t("costs.kpi.totalMeta", { count: num(s.total.services) }) : null} />
+          value={s ? money(s.total.monthly_cents / 100, s.total.currency) : "—"}
+          meta={s ? (s.total.unknown.length
+            // Peil §4.3: een totaal met onbekende delen is nooit stil compleet ("Deels onbekend", zoals op het Overzicht)
+            ? <><StatusChip tone="unknown">{t("overview.kpi.costsPartlyUnknown")}</StatusChip> {t("costs.kpi.totalMeta", { count: num(s.total.services) })}</>
+            : t("costs.kpi.totalMeta", { count: num(s.total.services) })) : null} />
         <KpiCard label={t("costs.kpi.unknown")} icon={CircleHelp} unavailable={!s} tone={s?.total.unknown.length ? "warning" : undefined}
           value={num(s?.total.unknown.length ?? 0)} meta={s?.total.unknown.length ? s.total.unknown.map((u) => u.label).join(", ") : t("costs.kpi.unknownMeta")} />
         <KpiCard label={t("costs.kpi.nextRenewal")} icon={CalendarClock} unavailable={!s}

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, CircleHelp, CircleSlash, CircleX, Link2, Link2Off, Unplug } from "lucide-react";
+import { CircleSlash, Link2, Link2Off, Unplug } from "lucide-react";
 
 import { Progress, StatusChip, type Tone } from "@/components/mg/primitives";
 import type { CompatMatrix, MgMode, MgQuotaOverview } from "@/lib/api/recovery";
@@ -13,7 +13,7 @@ const MODE_KEY = { connected: "mg.mode.connected", degraded: "mg.mode.degraded",
 /** connected / degraded / standalone — colour + icon + text. */
 export function MgModeChip({ mode, size }: { mode: MgMode | null | undefined; size?: "lg" }) {
   const { t } = useI18n();
-  if (!mode) return <StatusChip tone="neutral" icon={CircleHelp} size={size}>{t("mg.mode.unknown")}</StatusChip>;
+  if (!mode) return <StatusChip tone="unknown" size={size}>{t("mg.mode.unknown")}</StatusChip>;
   return <StatusChip tone={MODE_TONE[mode]} icon={MODE_ICON[mode]} size={size}>{t(MODE_KEY[mode])}</StatusChip>;
 }
 
@@ -58,9 +58,9 @@ export function QuotaMeter({ quota, instanceId, compact }: { quota: MgQuotaOverv
 
 function LiveChip({ live }: { live: "aanwezig" | "ontbreekt" | "onbekend" }) {
   const { t } = useI18n();
-  if (live === "aanwezig") return <StatusChip tone="success" icon={CircleCheck}>{t("mg.compat.present")}</StatusChip>;
-  if (live === "ontbreekt") return <StatusChip tone="danger" icon={CircleX}>{t("mg.compat.missing")}</StatusChip>;
-  return <StatusChip tone="neutral" icon={CircleHelp}>{t("mg.compat.unknown")}</StatusChip>;
+  if (live === "aanwezig") return <StatusChip tone="success">{t("mg.compat.present")}</StatusChip>;
+  if (live === "ontbreekt") return <StatusChip tone="danger">{t("mg.compat.missing")}</StatusChip>;
+  return <StatusChip tone="unknown">{t("mg.compat.unknown")}</StatusChip>;
 }
 
 export function CompatTable({ compat }: { compat: CompatMatrix }) {

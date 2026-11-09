@@ -6,7 +6,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
-  Check, ChevronRight, CircleCheck, CircleHelp, CirclePause, ClipboardCheck, Copy, Info, Link2, Link2Off, Loader, LoaderCircle, Lock,
+  Check, ChevronRight, CircleCheck, CircleHelp, CirclePause, ClipboardCheck, ClockAlert, Copy, Info, Link2, Link2Off, Loader, LoaderCircle, Lock,
   OctagonX, TriangleAlert, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -17,7 +17,7 @@ import {
 
 import { badgeVariants } from "@/components/ui/badge";
 import { buttonVariants, type ButtonVariantProps } from "@/components/ui/button";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,6 +61,27 @@ export function StatusChip({ tone, children, icon, pending = false, size, outlin
   );
 }
 
+/**
+ * ErnstLabel (T-20, COMPONENTEN §9): rechthoek met een linkerbalk van 6 px, alleen tekst — een eigen vorm, zodat ernst
+ * nooit op een gezondheidspil lijkt. Kritiek · Hoog · Middel · Laag · Info.
+ */
+export type Ernst = "kritiek" | "hoog" | "middel" | "laag" | "info";
+const ERNST_CLASS: Record<Ernst, string> = {
+  kritiek: "border-l-down-ink bg-destructive text-destructive-foreground",
+  hoog: "border-l-down bg-down-bg text-down-ink",
+  middel: "border-l-foreground bg-muted text-foreground",
+  laag: "border-l-unknown bg-unknown-bg text-unknown-ink",
+  info: "border-l-info bg-info-bg text-info-ink",
+};
+export function ErnstLabel({ ernst }: { ernst: Ernst }) {
+  const { t } = useI18n();
+  return (
+    <span className={cn("ernst inline-flex w-fit shrink-0 items-center rounded-sm border-l-[6px] px-2 py-0.5 text-sm font-semibold leading-tight", ERNST_CLASS[ernst])} data-ernst={ernst}>
+      <span className="sr-only">{t("ernst.label")}: </span>{t(`ernst.${ernst}` as MessageKey)}
+    </span>
+  );
+}
+
 export function LockedChip() {
   const { t } = useI18n();
   return <StatusChip tone="neutral" icon={Lock}>{t("status.locked")}</StatusChip>;
@@ -68,9 +89,14 @@ export function LockedChip() {
 
 /** Decorative dot next to a word; `healthy` is the only green one (measured health); unknown is a dashed ring. */
 export function Dot({ tone }: { tone: "healthy" | "success" | "warning" | "danger" | "accent" | "neutral" | "unknown" }) {
-  const cls = tone === "healthy" ? "bg-healthy" : tone === "warning" ? "bg-degraded" : tone === "danger" ? "bg-down"
-    : tone === "unknown" ? "border-2 border-dashed border-unknown bg-transparent" : "bg-muted-foreground";
-  return <span className={cn("dot inline-block size-2.5 shrink-0 rounded-full shadow-none", cls)} aria-hidden="true" />;
+  // Review stap 5: een gekleurde stip verschilde per status alleen in kleur. Een gezondheidsstatus krijgt nu het
+  // Peil-icoon (circle-check / triangle-alert / octagon-x / circle-help) in de statuskleur; het woord staat ernaast.
+  const Icon = tone === "healthy" ? CircleCheck : tone === "warning" ? TriangleAlert : tone === "danger" ? OctagonX : tone === "unknown" ? CircleHelp : null;
+  if (Icon) {
+    const kleur = tone === "healthy" ? "text-healthy" : tone === "warning" ? "text-degraded" : tone === "danger" ? "text-down" : "text-unknown";
+    return <Icon className={cn("dot ico size-4 shrink-0", kleur)} data-tone={tone} aria-hidden="true" />;
+  }
+  return <span className="dot inline-block size-2.5 shrink-0 rounded-full bg-muted-foreground shadow-none" aria-hidden="true" />;
 }
 
 /** Card (C-02): 1 px border instead of shadows; the title is an h2 that labels the section. */
@@ -258,14 +284,20 @@ export function Field({ label, hint, error, htmlFor, children }: { label: ReactN
 }
 
 /** Inline notice (Peil melding). `success` = something went as asked (neutral with a check, not "healthy"). */
-export function InlineState({ tone = "info", icon: Icon, children, role }: { tone?: "info" | "warning" | "danger" | "success" | "neutral"; icon?: LucideIcon; children: ReactNode; role?: "status" | "alert" }) {
-  const I = Icon ?? (tone === "danger" ? OctagonX : tone === "warning" ? TriangleAlert : tone === "success" ? Check : Info);
+/**
+ * Inline melding. Amber (`warning`) alleen voor gemeten gezondheid (Peil §4.1 regel 3); onbekend = stippel + circle-help,
+ * verouderd = stippel + clock-alert (nooit amber), een voorwaarde/rol = `neutral` met slot.
+ */
+export function InlineState({ tone = "info", icon: Icon, children, role }: { tone?: "info" | "warning" | "danger" | "success" | "neutral" | "unknown" | "stale"; icon?: LucideIcon; children: ReactNode; role?: "status" | "alert" }) {
+  const I = Icon ?? (tone === "danger" ? OctagonX : tone === "warning" ? TriangleAlert : tone === "success" ? Check : tone === "unknown" ? CircleHelp : tone === "stale" ? ClockAlert : Info);
   const cls = {
     info: "border-info bg-info-bg text-info-ink [&_strong]:text-info-ink",
     warning: "border-degraded bg-degraded-bg text-degraded-ink [&_strong]:text-degraded-ink",
     danger: "border-down bg-down-bg text-down-ink [&_strong]:text-down-ink",
     success: "border-border bg-card text-foreground",
     neutral: "border-border bg-muted text-foreground",
+    unknown: "border-dashed border-unknown bg-unknown-bg text-unknown-ink [&_strong]:text-unknown-ink",
+    stale: "border-dashed border-stale bg-stale-bg text-foreground [&_svg]:text-stale",
   }[tone];
   return (
     <div className={cn("inline-state flex items-start gap-2.5 rounded-lg border-2 px-3 py-2.5 text-sm", cls)} role={role} data-tone={tone}>

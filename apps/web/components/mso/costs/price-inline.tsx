@@ -24,7 +24,7 @@ export function PriceInline({ service, canEdit, onSaved }: { service: Service; c
   if (!open) {
     return (
       <div className="stack-sm" style={{ alignItems: "flex-start" }}>
-        {service.price_missing ? <StatusChip tone="warning">{t("costs.priceMissing")}</StatusChip> : null}
+        {service.price_missing ? <StatusChip tone="unknown">{t("costs.priceMissing")}</StatusChip> : null}
         <Button size="sm" variant={service.price_missing ? "primary" : "ghost"} disabled={!canEdit} title={canEdit ? undefined : t("costs.adminOnly")}
           onClick={() => setOpen(true)}>{service.price_missing ? t("costs.fillPrice") : t("costs.editPrice")}</Button>
       </div>

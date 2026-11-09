@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, CircleX, GitCompareArrows, X } from "lucide-react";
+import { GitCompareArrows, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, InlineState, StatusChip } from "@/components/mg/primitives";
@@ -104,8 +104,8 @@ export function CompareDrawer({ tokens, category, onClose }: { tokens: string[];
                       {data.candidates.map((c) => (
                         <td key={c.token}>
                           {c.rejections && c.rejections.length === 0
-                            ? <StatusChip tone="success" icon={CircleCheck}>{t("zoeken.compareOk")}</StatusChip>
-                            : <><StatusChip tone="danger" icon={CircleX}>{t("zoeken.compareRejected")}</StatusChip><div className="cell-sub">{c.rejections?.join(" · ")}</div></>}
+                            ? <StatusChip tone="success">{t("zoeken.compareOk")}</StatusChip>
+                            : <><StatusChip tone="neutral" icon={X}>{t("zoeken.compareRejected")}</StatusChip><div className="cell-sub">{c.rejections?.join(" · ")}</div></>}
                         </td>
                       ))}
                     </tr>

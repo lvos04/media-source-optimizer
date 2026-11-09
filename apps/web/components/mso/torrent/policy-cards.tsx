@@ -109,7 +109,7 @@ export function PolicyCards() {
                   <dt>{t("torrent.speed.status")}</dt>
                   <dd>{s.status === "ok" ? <StatusChip tone="success">{t("torrent.speed.ok")}</StatusChip>
                     : s.status === "boven_grens" ? <StatusChip tone="warning">{t("torrent.speed.over")}</StatusChip>
-                      : <StatusChip tone="neutral">{t("torrent.speed.unknown")}</StatusChip>}</dd>
+                      : <StatusChip tone="unknown">{t("torrent.speed.unknown")}</StatusChip>}</dd>
                   <dt>{t("torrent.speed.conns")}</dt><dd>{lim(s.current_max_connec)} / {t("torrent.max")} {num(s.max_connections_cap)} · {t("torrent.speed.perTorrent")} {lim(s.current_max_connec_per_torrent)} / {num(s.max_connections_per_torrent_cap)}</dd>
                   <dt>{t("torrent.speed.slots")}</dt><dd>{lim(s.current_max_uploads)} / {t("torrent.max")} {num(s.max_uploads_cap)} · {t("torrent.speed.perTorrent")} {lim(s.current_max_uploads_per_torrent)} / {num(s.max_uploads_per_torrent_cap)}</dd>
                   <dt>{t("torrent.speed.connStatus")}</dt>

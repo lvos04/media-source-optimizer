@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, CircleX, Download, FileSearch, RotateCcw, SearchCheck, Send, SlidersHorizontal, Stethoscope } from "lucide-react";
+import { Check, Download, FileSearch, RotateCcw, SearchCheck, Send, SlidersHorizontal, Stethoscope, X } from "lucide-react";
 import { useState } from "react";
 
 import { DiffViewer, Timeline } from "@/components/mg/domain";
@@ -47,7 +47,7 @@ function CandidateRow({ c, canSend, sendReason, onSend, pending }: {
   return (
     <article className="evidence" style={{ marginBottom: 8 }}>
       <div className="evidence-head" style={{ flexWrap: "wrap" }}>
-        {c.passed ? <StatusChip tone="success" icon={CircleCheck}>{t("rec.cand.passes")}</StatusChip> : <StatusChip tone="danger" icon={CircleX}>{t("rec.cand.rejected")}</StatusChip>}
+        {c.passed ? <StatusChip tone="success">{t("rec.cand.passes")}</StatusChip> : <StatusChip tone="neutral" icon={X}>{t("rec.cand.rejected")}</StatusChip>}
         <span className="tag">{c.protocol === "usenet" ? "Usenet" : "Torrent"}</span>
         <span className="mono" style={{ overflowWrap: "anywhere" }}>{c.title}</span>
         <span className="grow" />
@@ -69,7 +69,7 @@ function CandidateRow({ c, canSend, sendReason, onSend, pending }: {
           <DiffViewer headers={[t("rec.cand.requirement"), t("rec.cand.required"), t("rec.cand.actual")]} keyWidth={140}
             rows={c.evidence.map((e) => ({
               key: e.key, label: e.label, before: e.required, change: e.ok ? "same" : "changed",
-              after: <span className="row" style={{ gap: 6 }}>{e.ok ? <CircleCheck className="ico ico-sm t-success" aria-label={t("rec.cand.ok")} /> : <CircleX className="ico ico-sm t-danger" aria-label={t("rec.cand.notOk")} />}{e.actual}{e.reasons.length ? <span className="t-danger"> — {e.reasons.join("; ")}</span> : null}</span>,
+              after: <span className="row" style={{ gap: 6 }}>{e.ok ? <Check className="ico ico-sm" aria-label={t("rec.cand.ok")} /> : <X className="ico ico-sm" aria-label={t("rec.cand.notOk")} />}{e.actual}{e.reasons.length ? <span> — {e.reasons.join("; ")}</span> : null}</span>,
             }))} />
         </div>
       ) : null}

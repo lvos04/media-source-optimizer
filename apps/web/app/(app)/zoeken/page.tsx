@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Clock, Flag, GitCompareArrows, RotateCw, Search, Send } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Flag, GitCompareArrows, Lock, RotateCw, Search, Send } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { Confidence } from "@/components/mg/domain";
@@ -155,7 +155,7 @@ export default function SearchPage() {
                 <Field label="TMDB" htmlFor="tmdb"><input id="tmdb" className="input mono" inputMode="numeric" style={{ width: 120 }} value={tmdb} onChange={(e) => setTmdb(e.target.value)} /></Field>
               </div>
             </details>
-            {formError ? <InlineState tone="warning" role="alert">{formError}</InlineState> : null}
+            {formError ? <InlineState tone="danger" role="alert">{formError}</InlineState> : null}
           </form>
         </Card>
 
@@ -218,7 +218,7 @@ export default function SearchPage() {
                                   {it.media_category ? <span className="tag">{t(categoryKey(it.media_category))}</span> : null}
                                   {nr ? <span className="tag mono">{nr}</span> : null}
                                   <ReleaseRibbon p={it.parsed} />
-                                  {it.private ? <StatusChip tone="warning" icon={null} outline>{t("zoeken.private")}</StatusChip> : null}
+                                  {it.private ? <StatusChip tone="info" icon={Lock}>{t("zoeken.private")}</StatusChip> : null}
                                   {it.freeleech ? <StatusChip tone="success" icon={null} outline>{t("zoeken.freeleech")}</StatusChip> : null}
                                 </div>
                                 <div style={{ marginTop: 4 }}><FlagChips flags={it.false_positive_flags} details={Array.isArray(it.extra?.release_gate) ? (it.extra.release_gate as string[]) : undefined} /></div>

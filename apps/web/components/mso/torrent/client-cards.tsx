@@ -29,7 +29,7 @@ export function ClientCard({ data }: { data: TorrentOverview }) {
       {!c ? <InlineState tone="info">{t("torrent.client.noSnapshot")}</InlineState> : (
         <div className="stack">
           {c.error ? <InlineState tone="danger" role="alert">{t("torrent.client.error", { error: c.error })}</InlineState> : null}
-          {c.stale && !c.error ? <InlineState tone="warning">{t("torrent.staleData")}</InlineState> : null}
+          {c.stale && !c.error ? <InlineState tone="stale">{t("torrent.staleData")}</InlineState> : null}
           <dl className="kv">
             <dt>{t("torrent.client.version")}</dt><dd className="mono">{c.version ?? "—"}</dd>
             <dt>{t("torrent.client.webapi")}</dt><dd className="mono">{c.webapi ?? "—"}</dd>

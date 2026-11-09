@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Magnet, Megaphone, RefreshCw, ScanSearch, ShieldAlert, TriangleAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, Magnet, Megaphone, RefreshCw, ScanSearch, ShieldAlert } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 
 import { Button, Card, InlineState, Progress, Segmented, StatusChip } from "@/components/mg/primitives";
@@ -70,7 +70,7 @@ function EtaCell({ row }: { row: TorrentRow }) {
     <span className="stack-sm" style={{ gap: 2 }}>
       <span className={row.eta_unreliable ? "t-3" : undefined} style={row.eta_unreliable ? { textDecoration: "line-through" } : undefined}>{row.eta_s === null ? "∞" : duration(row.eta_s)}</span>
       {row.eta_unreliable ? (
-        <StatusChip tone="warning" icon={TriangleAlert} title={row.eta_reasons.join("; ")}>{t("torrent.etaUnreliable")}</StatusChip>
+        <StatusChip tone="unknown" title={row.eta_reasons.join("; ")}>{t("torrent.etaUnreliable")}</StatusChip>
       ) : null}
       {row.eta_unreliable && row.realistic_eta_s !== null ? <span className="t-2">{t("torrent.etaRealistic", { eta: duration(row.realistic_eta_s) })}</span> : null}
     </span>
@@ -150,7 +150,7 @@ export function TorrentDownloadsTab() {
           ]} />
           <input className="input input--sm" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("torrent.searchPlaceholder")} aria-label={t("torrent.searchPlaceholder")} style={{ maxWidth: 260 }} />
         </div>
-        {list.data?.stale ? <div style={{ padding: "0 16px 12px" }}><InlineState tone="warning">{t("torrent.staleData")}</InlineState></div> : null}
+        {list.data?.stale ? <div style={{ padding: "0 16px 12px" }}><InlineState tone="stale">{t("torrent.staleData")}</InlineState></div> : null}
         {suspicious ? <div style={{ padding: "0 16px 12px" }}><SuspiciousCleanup compact onChanged={() => void list.reload()} /></div> : null}
         <ResourceView resource={list} endpoint="GET /api/v1/torrent/torrents" isEmpty={(d) => d.items.length === 0}
           empty={<StateView kind="empty" title={t("torrent.empty")} body={t("torrent.emptyBody")} />}>

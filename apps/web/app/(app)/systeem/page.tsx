@@ -17,7 +17,7 @@ import { useResource } from "@/lib/api/hooks";
 import { waitForJob } from "@/lib/api/jobs";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
-import { healthLabel, healthTone, jobIcon, jobKindLabel, jobLabel, jobTone } from "@/lib/status";
+import { BARE_STATUS_WORDS, healthLabel, healthTone, jobIcon, jobKindLabel, jobLabel, jobTone } from "@/lib/status";
 
 const JOB_FILTERS = ["", "queued", "running", "done", "failed", "cancelled"] as const;
 type JobFilter = (typeof JOB_FILTERS)[number];
@@ -47,7 +47,7 @@ export default function SystemPage() {
             health.components.length ? (
               <div className="list">{health.components.map((c) => (
                 <div className="list-row" key={c.name}>
-                  <div className="list-main"><div className="list-title">{componentLabel(c, t)}</div>{c.message && c.message !== c.status ? <div className="list-sub" style={{ whiteSpace: "normal" }}>{c.message}</div> : null}</div>
+                  <div className="list-main"><div className="list-title">{componentLabel(c, t)}</div>{c.message && c.message !== c.status && !BARE_STATUS_WORDS.has(c.message.trim().toLowerCase()) ? <div className="list-sub" style={{ whiteSpace: "normal" }}>{c.message}</div> : null}</div>
                   <StatusChip tone={healthTone(c.status)}>{t(healthLabel(c.status))}</StatusChip>
                 </div>
               ))}</div>

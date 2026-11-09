@@ -3,7 +3,7 @@
 // 1.6.0 WP-G1 (C35) — Automatisering → Voetafdruk: per system what MSO changed (origineel → MSO → nu), the owner's own
 // choices that MSO respects, what cannot be put back, and "Alles terugzetten" (list first, then a DangerDialog).
 
-import { Ban, CircleCheck, Footprints, Info, RefreshCw, Undo2, UserCheck } from "lucide-react";
+import { Ban, Footprints, Info, ListChecks, RefreshCw, Undo2, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -235,7 +235,7 @@ export function FootprintPage() {
           <RestoreAll onDone={(nv) => res.setData(() => nv)} />
         </>} />
       <div className="grid">
-        <Card className="span-12" title={t("calm.fp.summary")} icon={CircleCheck} flush>
+        <Card className="span-12" title={t("calm.fp.summary")} icon={ListChecks} flush>
           <ResourceView resource={res} endpoint={ENDPOINT} compact>
             {(data) => (
               <div className="stack-sm" style={{ padding: "12px 16px" }}>

@@ -3,20 +3,17 @@
 import { GitBranch, RefreshCw, Scale } from "lucide-react";
 
 import { Trace } from "@/components/mg/domain";
-import { Button, Card, StatusChip, type Tone } from "@/components/mg/primitives";
+import { Button, Card, ErnstLabel, type Ernst } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { ConnectorList } from "@/components/mso/connector-form";
 import { useAction } from "@/lib/api/actions";
 import { useResource } from "@/lib/api/hooks";
 import type { OriginGraph, ProwlarrConflict, ProwlarrView } from "@/lib/api/search";
-import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
-const SEVERITY: Record<ProwlarrConflict["severity"], { tone: Tone; label: MessageKey }> = {
-  error: { tone: "danger", label: "idx.severity.error" },
-  warning: { tone: "warning", label: "idx.severity.warning" },
-  info: { tone: "info", label: "idx.severity.info" },
-};
+/** Ernst van een afstemmingsbevinding (Peil T-20): eigen vorm, geen gezondheidspil en geen "Let op". */
+const SEVERITY: Record<ProwlarrConflict["severity"], Ernst> = { error: "hoog", warning: "middel", info: "info" };
 
 function PreviewFacts({ preview }: { preview: Record<string, unknown> }) {
   const { t } = useI18n();
@@ -70,7 +67,7 @@ export function ProwlarrPanel({ configured, onSynced }: { configured: boolean; o
                   return (
                     <div key={`${c.code}:${c.subject}`} className="list-row" style={{ alignItems: "flex-start" }}>
                       <div className="list-main">
-                        <div className="list-title row wrap" style={{ gap: 6 }}><StatusChip tone={sev.tone}>{t(sev.label)}</StatusChip>{c.title}</div>
+                        <div className="list-title row wrap" style={{ gap: 6 }}><ErnstLabel ernst={sev} />{c.title}</div>
                         <div className="list-sub">{c.explanation}</div>
                         {Object.keys(c.preview).length ? (
                           <details style={{ marginTop: 4 }}>

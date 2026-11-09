@@ -43,6 +43,16 @@ export function healthLabel(status: string | null | undefined): MessageKey {
  */
 export const BARE_STATUS_WORDS = new Set(["gezond", "verstoord", "offline", "onbekend", "healthy", "degraded", "ok", "storing", "beperkt"]);
 
+/**
+ * Backendteksten van de vorm "<naam>: <oud statuswoord>" (overview.health.issues, "Prowlarr: Verstoord") tonen het
+ * Peil-woord (Beperkt/Storing). De API en de opgeslagen tekst blijven ongewijzigd (ADR-0006 punt 3); alleen de weergave.
+ */
+const LEGACY_STATUS: Record<string, MessageKey> = { verstoord: "status.degraded", offline: "status.offline" };
+export function peilStatusText(text: string, t: (key: MessageKey) => string): string {
+  const m = /^(.+?):\s*(Verstoord|Offline)\s*$/i.exec(text);
+  return m ? `${m[1]}: ${t(LEGACY_STATUS[m[2].toLowerCase()])}` : text;
+}
+
 /** True when a component counts as a problem for the sidebar/overview (everything that is not measured healthy). */
 export function isHealthProblem(status: string | null | undefined): boolean {
   const tone = healthTone(status);

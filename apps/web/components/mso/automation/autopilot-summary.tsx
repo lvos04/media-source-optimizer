@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  ArrowRight, Bot, CalendarDays, CircleCheck, CircleX, Eye, Hand, History, Info, type LucideIcon, Power, RefreshCw, RotateCcw, Search, Server, ShieldAlert,
-  SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow, Wrench,
+  ArrowRight, Bot, CalendarDays, Check, Eye, Hand, History, Info, type LucideIcon, Power, RefreshCw, RotateCcw, Search, Server, ShieldAlert,
+  OctagonX, SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow, Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -24,7 +24,7 @@ const ENDPOINT = "GET /api/v1/overview/autopilot";
 const WAIT_ENDPOINT = "GET /api/v1/overview/waiting";
 const ICON: Record<AutopilotCategoryKey, LucideIcon> = {
   applied: SlidersHorizontal, switched_off: Power, rolled_back: Undo2, servers: Server, retries: RotateCcw, remedies: Wrench, searches: Search,
-  prepared: Hand, guarded: ShieldAlert, evaluated: Sparkles, syncs: RefreshCw, failed: CircleX, other: Workflow,
+  prepared: Hand, guarded: ShieldAlert, evaluated: Sparkles, syncs: RefreshCw, failed: OctagonX, other: Workflow,
 };
 const ACTIONS_SHOWN = 5;
 
@@ -244,7 +244,7 @@ export function WaitingCard({ className = "span-12" }: { className?: string }) {
     return (
       <section className={`card ${className}`} id="wacht-op-jou" aria-label={t("autopilot.waitTitle")} data-testid="waiting-none">
         <div className="row wrap" style={{ gap: 10, padding: "12px 16px" }}>
-          <span className="list-icon list-icon--success"><CircleCheck className="ico" aria-hidden="true" /></span>
+          <span className="list-icon list-icon--success"><Check className="ico" aria-hidden="true" /></span>
           <div style={{ minWidth: 0, flex: "1 1 240px" }}>
             <strong>{t("calm.waitNothing")}</strong>
             <div className="t-3">{t("calm.waitNothingBody")}</div>

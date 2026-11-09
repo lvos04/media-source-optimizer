@@ -2,7 +2,7 @@
 // (MSO: own brand mark/initials and selling points; Dutch-only, no locale switch.)
 "use client";
 
-import { CircleCheck, Gauge, SearchX } from "lucide-react";
+import { Check, Gauge, SearchX } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { I18nProvider, useI18n } from "@/lib/i18n";
@@ -27,7 +27,7 @@ function Frame({ children, wide }: { children: ReactNode; wide?: boolean }) {
         <div className="auth-points">
           <div className="auth-point"><span className="list-icon list-icon--accent"><Gauge className="ico" aria-hidden="true" /></span><span><strong>{t("auth.point1Title")}</strong>{t("auth.point1Body")}</span></div>
           <div className="auth-point"><span className="list-icon list-icon--success"><SearchX className="ico" aria-hidden="true" /></span><span><strong>{t("auth.point2Title")}</strong>{t("auth.point2Body")}</span></div>
-          <div className="auth-point"><span className="list-icon list-icon--info"><CircleCheck className="ico" aria-hidden="true" /></span><span><strong>{t("auth.point3Title")}</strong>{t("auth.point3Body")}</span></div>
+          <div className="auth-point"><span className="list-icon list-icon--info"><Check className="ico" aria-hidden="true" /></span><span><strong>{t("auth.point3Title")}</strong>{t("auth.point3Body")}</span></div>
         </div>
         <p className="t-3">{t("auth.footer")}</p>
       </aside>

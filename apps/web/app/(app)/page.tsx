@@ -17,7 +17,7 @@ import { useResource } from "@/lib/api/hooks";
 import { localizeAuditSummary, type Overview } from "@/lib/api/insights";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useMode } from "@/lib/mode";
-import { healthLabel, healthTone } from "@/lib/status";
+import { healthLabel, healthTone, peilStatusText } from "@/lib/status";
 
 const RISKS: Risk[] = ["toestemming_nodig", "automatisch_veilig", "advies"];
 const LOC_LABEL: Record<string, MessageKey> = { source: "overview.loc.source", provider: "overview.loc.provider", client: "overview.loc.client" };
@@ -248,7 +248,7 @@ function SystemCard({ o }: { o: Overview }) {
       {o.health.issues.length ? (
         <div style={{ marginTop: 12 }}>
           <div className="label">{t("overview.issues")}</div>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>{o.health.issues.map((i) => <li key={i}>{i}</li>)}</ul>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>{o.health.issues.map((i) => <li key={i}>{peilStatusText(i, t)}</li>)}</ul>
         </div>
       ) : null}
     </Card>

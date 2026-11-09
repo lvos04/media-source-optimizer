@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
  * Peil-testmatrix (ONTWERPTAAL §12, PEIL_MIGRATIE §10.2) against a stack prepared by `make e2e`. Runs only in the
  * desktop project (playwright.config.ts: the mobile project ignores this file) and sets its own viewports:
  *  - main screens × 320 / 768 / 1024 (light): no horizontal overflow against the device width, axe (wcag2a, 2aa, 21a,
- *    21aa, 22aa) = 0 serious/critical, exactly one h1, no duplicate ids, every control in <main> ≥ 44 px
+ *    21aa, 22aa) = 0 violations of any impact (Peil §12; review stap 5), exactly one h1, no duplicate ids, every control in <main> ≥ 44 px
  *  - axe on the shell's dialogs and sheets (Meer, pauze-dialoog, profielmenu) in light and dark
  *  - status shapes: an unknown status never carries the pause icon; only a health badge is green
  *  - keyboard: every tab stop has the Peil ring (≥ 3 px) and is never hidden behind the top bar or bottom navigation
@@ -47,7 +47,8 @@ async function open(page: Page, route: string, theme: "light" | "dark" = "light"
 
 async function axe(page: Page): Promise<string[]> {
   const res = await new AxeBuilder({ page: page as unknown as ConstructorParameters<typeof AxeBuilder>[0]["page"] }).withTags(AXE_TAGS).analyze();
-  return res.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`);
+  // Peil §12: axe = 0, ongeacht de impact (tot stap 5 alleen serious/critical; de review mat 0 op alle impacts)
+  return res.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`);
 }
 
 test.describe.configure({ mode: "default" });
@@ -60,7 +61,7 @@ for (const width of [320, 768, 1024]) {
       await open(page, s.route);
       const overflow = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w, width);
       expect(overflow, `geen horizontale overloop op ${width} px`).toBeLessThanOrEqual(1);
-      expect(await axe(page), "axe (Peil-set) serious/critical").toEqual([]);
+      expect(await axe(page), "axe (Peil-set), alle impacts").toEqual([]);
       expect(await page.locator("h1").count(), "precies één h1").toBe(1);
       const dupIds = await page.evaluate(() => {
         const seen = new Map<string, number>();

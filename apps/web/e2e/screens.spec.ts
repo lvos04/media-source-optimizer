@@ -16,7 +16,7 @@ import { expect, test, type Page } from "@playwright/test";
  *  - renders real backend data (no error state, h1 present)
  *  - no horizontal page scroll, measured against the DEVICE width (ADR-0006 punt 7: with isMobile Chromium widens the
  *    layout viewport to the widest content, so scrollWidth − innerWidth is always 0 and hides real overflow)
- *  - axe-core with the Peil tag set wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa: zero serious/critical violations
+ *  - axe-core with the Peil tag set wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa: zero violations of any impact
  *  - every enabled button has an accessible name; every disabled button explains why (title / aria-describedby / text)
  *  - screenshot into docs/screenshots/ for the visual comparison with MediaGuard
  */
@@ -107,8 +107,7 @@ for (const theme of ["dark", "light"] as const) {
       expect(unexplained, "uitgeschakelde knoppen zonder uitleg").toEqual([]);
 
       const axe = await new AxeBuilder({ page: page as unknown as ConstructorParameters<typeof AxeBuilder>[0]["page"] }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-      const serious = axe.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-      expect(serious.map((v) => `${v.id}: ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`), "axe serious/critical").toEqual([]);
+      expect(axe.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`), "axe, alle impacts").toEqual([]);
 
       const width = info.project.name.includes("390") ? 390 : 1440;
       await page.screenshot({ path: path.join(SHOT_DIR, `${s.slug}-${theme}-${width}.png`), fullPage: width === 1440 });

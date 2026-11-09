@@ -12,6 +12,8 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
  7  start as --user 568 on a 568-owned folder → healthy
  8  start as --user 568 on a root-owned folder → clear Dutch error in the log (no crash loop spam)
  9  no secret (admin password, connector key) in the container log
+10  upgrade: database back to the 1.5.0 schema (migrate --down 501), restart → a ``pre-upgrade`` backup is made
+    before the migrations, every migration is applied again, data and login intact
 """
 
 from __future__ import annotations
@@ -202,6 +204,27 @@ def main() -> int:
         c, csrf = login()
         n_users = len(c.get("/api/v1/users").json()["items"])
         record("4 docker restart → data en login blijven", st == "healthy" and n_users == 1, f"health={st}")
+
+        # 10 (upgrade from the previous release's schema)
+        latest = c.get("/api/v1/system/info").json()["schema_version"]
+        before_kinds = [b.get("kind") for b in c.get("/api/v1/backups").json()["items"]]
+        down = subprocess.run(["docker", "exec", "-u", "568", NAME, "mso", "migrate", "--down", "501"],
+                              capture_output=True, text=True, check=False, timeout=180)
+        sh("docker", "restart", NAME)
+        st = wait_healthy()
+        c, csrf = login()
+        info10 = c.get("/api/v1/system/info").json()
+        kinds = [b.get("kind") for b in c.get("/api/v1/backups").json()["items"]]
+        n_users = len(c.get("/api/v1/users").json()["items"])
+        log10 = sh("docker", "logs", NAME, check=False)
+        record(
+            "10 upgrade vanaf 1.5.0-schema → eerst back-up, dan migraties",
+            down.returncode == 0 and st == "healthy" and info10["schema_version"] == latest
+            and kinds.count("pre-upgrade") == before_kinds.count("pre-upgrade") + 1 and n_users == 1,
+            f"down rc={down.returncode}; schema {info10['schema_version']}/{latest}; pre-upgrade back-ups "
+            f"{before_kinds.count('pre-upgrade')}→{kinds.count('pre-upgrade')}; "
+            f"melding={'back-up vóór upgrade' in log10}; health={st}",
+        )
 
         # 5
         sh("docker", "kill", "-s", "KILL", NAME)

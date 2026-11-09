@@ -144,6 +144,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install httpx==0.28.1
+      - name: Unit test of the smoke log check (restart windows)
+        run: python tests/stack/test_smoke_logcheck.py
       - name: Container stack smoke/e2e
         env:
           MSO_STACK_PYTHON: python

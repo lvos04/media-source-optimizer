@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import secrets
 import shlex
 import subprocess
@@ -32,9 +33,10 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +72,8 @@ class Check:
 
 CHECKS: list[Check] = []
 LOG_ARCHIVE: dict[str, str] = {}  # logs of containers removed by `down` (checked for secrets/errors too)
+# (start, end) in UTC of every restart the test performs on purpose (docker compose restart, down/up)
+RESTART_WINDOWS: list[tuple[datetime, datetime]] = []
 STATS: dict[str, Any] = {}
 
 
@@ -105,6 +109,21 @@ def compose(*args: str, check_rc: bool = True, timeout: int = 300) -> str:
     if check_rc and proc.returncode != 0:
         raise RuntimeError(f"compose {' '.join(args)} → rc {proc.returncode}: {proc.stderr.strip()[-600:]}")
     return proc.stdout
+
+
+def service_logs(svc: str, timeout: int = 300) -> str:
+    """Logs of one service, every line prefixed with the RFC 3339 UTC timestamp of the Docker daemon."""
+    return compose("logs", "--no-color", "--no-log-prefix", "--timestamps", svc, timeout=timeout)
+
+
+@contextmanager
+def restart_window() -> Iterator[None]:
+    """Record the period of a deliberate restart (from the command until the stack is healthy again)."""
+    start = datetime.now(UTC)
+    try:
+        yield
+    finally:
+        RESTART_WINDOWS.append((start, datetime.now(UTC)))
 
 
 def ps() -> list[dict[str, Any]]:
@@ -609,8 +628,9 @@ def _persisted(s: Session) -> dict[str, Any]:
 def c_restart(c: Check) -> None:
     s: Session = S["admin"]
     before = _persisted(s)
-    compose("restart", timeout=600)
-    wait_healthy(300)
+    with restart_window():
+        compose("restart", timeout=600)
+        wait_healthy(300)
     s2 = Session()
     expect(s2.login(ADMIN, ADMIN_PW), 200)
     after = _persisted(s2)
@@ -629,10 +649,11 @@ def c_down_up(c: Check) -> None:
     before = _persisted(s)
     services = os.environ.get("MSO_STACK_SERVICES", "").split()
     for svc in sorted({r["Service"] for r in ps()}):
-        LOG_ARCHIVE[svc] = LOG_ARCHIVE.get(svc, "") + compose("logs", "--no-color", "--no-log-prefix", svc)
-    compose("down", timeout=600)  # no -v: bind-mounted datasets stay
-    compose("up", "-d", *services, timeout=600)
-    wait_healthy(300)
+        LOG_ARCHIVE[svc] = LOG_ARCHIVE.get(svc, "") + service_logs(svc)
+    with restart_window():
+        compose("down", timeout=600)  # no -v: bind-mounted datasets stay
+        compose("up", "-d", *services, timeout=600)
+        wait_healthy(300)
     s2 = Session()
     expect(s2.login(ADMIN, ADMIN_PW), 200)
     after = _persisted(s2)
@@ -736,7 +757,7 @@ def _all_logs() -> dict[str, str]:
     out: dict[str, str] = {}
     (RESULTS / "logs").mkdir(parents=True, exist_ok=True)
     for svc in sorted({r["Service"] for r in ps()} | set(LOG_ARCHIVE)):
-        out[svc] = LOG_ARCHIVE.get(svc, "") + compose("logs", "--no-color", "--no-log-prefix", svc, timeout=60)
+        out[svc] = LOG_ARCHIVE.get(svc, "") + service_logs(svc, timeout=60)
         (RESULTS / "logs" / f"{svc}.full.log").write_text(out[svc])
     return out
 
@@ -776,25 +797,72 @@ def c_secret_logs(c: Check) -> None:
 #  - PostgreSQL logs "FATAL: terminating connection due to administrator command" for every pooled client
 #    connection when the test stops/restarts postgres (docker compose restart / down).
 ALLOWED_ERROR_LINES = ("terminating connection due to administrator command",)
+# Only inside a deliberate restart window (c_restart, c_down_up) and only in the postgres log: a client (healthcheck,
+# api, worker) that connects while PostgreSQL is still shutting down or not yet up gets these refusals. How often that
+# happens depends on how long the shutdown checkpoint takes (disk I/O, load). Outside a window they stay a fault.
+RESTART_ONLY_LINES: dict[str, tuple[str, ...]] = {
+    "postgres": ("the database system is shutting down", "the database system is starting up"),
+}
+RESTART_MARGIN = timedelta(seconds=2)  # timestamps come from the Docker daemon on the same host
+ERROR_TOKENS = (" ERROR ", "ERROR:", " CRITICAL ", "Traceback", "FATAL:", "PANIC:")
+_TS = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d) ")
+
+
+def log_time(line: str) -> datetime | None:
+    """Docker timestamp at the start of a ``service_logs`` line (nanoseconds truncated to microseconds)."""
+    m = _TS.match(line)
+    if not m:
+        return None
+    frac = (m.group(2) or "0")[:6].ljust(6, "0")
+    zone = "+00:00" if m.group(3) == "Z" else m.group(3)
+    return datetime.fromisoformat(f"{m.group(1)}.{frac}{zone}").astimezone(UTC)
+
+
+def in_restart_window(ts: datetime | None, windows: list[tuple[datetime, datetime]]) -> bool:
+    return ts is not None and any(a - RESTART_MARGIN <= ts <= b + RESTART_MARGIN for a, b in windows)
+
+
+def classify_error_lines(
+    svc: str, text: str, windows: list[tuple[datetime, datetime]]
+) -> tuple[list[str], list[str]]:
+    """Split the error lines of one service into (faults, tolerated restart-window lines)."""
+    bad: list[str] = []
+    tolerated: list[str] = []
+    restart_only = RESTART_ONLY_LINES.get(svc, ())
+    for ln in text.splitlines():
+        if not any(tok in ln for tok in ERROR_TOKENS) or any(ok in ln for ok in ALLOWED_ERROR_LINES):
+            continue
+        if any(msg in ln for msg in restart_only) and in_restart_window(log_time(ln), windows):
+            tolerated.append(ln)
+        else:
+            bad.append(ln)
+    return bad, tolerated
 
 
 @check("logs: 0 foutmeldingen (ERROR/CRITICAL/Traceback/FATAL/PANIC)")
 def c_error_logs(c: Check) -> None:
     hits: dict[str, list[str]] = {}
+    tolerated: dict[str, list[str]] = {}
     for svc in sorted({r["Service"] for r in ps()}):
-        out = LOG_ARCHIVE.get(svc, "") + compose("logs", "--no-color", "--no-log-prefix", svc, timeout=60)
-        bad = [
-            ln
-            for ln in out.splitlines()
-            if any(tok in ln for tok in (" ERROR ", "ERROR:", " CRITICAL ", "Traceback", "FATAL:", "PANIC:"))
-            and not any(ok in ln for ok in ALLOWED_ERROR_LINES)
-        ]
+        out = LOG_ARCHIVE.get(svc, "") + service_logs(svc, timeout=60)
+        bad, ok = classify_error_lines(svc, out, RESTART_WINDOWS)
         if bad:
             hits[svc] = bad[:10]
-    c.data = {"hits": hits}
+        if ok:
+            tolerated[svc] = ok[:10]
+    c.data = {
+        "hits": hits,
+        "restart_windows": [[a.isoformat(), b.isoformat()] for a, b in RESTART_WINDOWS],
+        "tolerated_in_restart_window": tolerated,
+    }
     if hits:
         raise AssertionError(json.dumps(hits, ensure_ascii=False)[:1500])
-    c.detail = "geen foutregels in de logs van alle containers"
+    n = sum(len(v) for v in tolerated.values())
+    c.detail = "geen foutregels in de logs van alle containers" + (
+        f"; {n} verwachte PostgreSQL-weigering(en) binnen {len(RESTART_WINDOWS)} bewuste herstartvenster(s)"
+        if n
+        else ""
+    )
 
 
 # ---------------------------------------------------------------- report

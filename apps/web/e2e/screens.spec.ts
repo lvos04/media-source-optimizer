@@ -32,6 +32,7 @@ const SCREENS: Array<{ route: string; slug: string; title: RegExp }> = [
   { route: "/opslag", slug: "opslag", title: /Opslag/ },
   { route: "/kosten", slug: "kosten", title: /Kosten/ },
   { route: "/automatisering", slug: "automatisering", title: /Automatisering/ },
+  { route: "/automatisering/voetafdruk", slug: "voetafdruk", title: /Voetafdruk/ },
   { route: "/logs", slug: "logs", title: /Logs|Audit/ },
   { route: "/instellingen", slug: "instellingen", title: /Instellingen/ },
   { route: "/systeem", slug: "systeem", title: /Back-up|Systeem/ },

@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from mso.db import Database, get_db
-from mso.domain.outcomes import FAILURE_REASONS
+from mso.domain.outcomes import FAILURE_REASONS, outcome_at
 
 LOGGER = logging.getLogger(__name__)
 USENET_KINDS = {"usenet_provider", "block_account"}
@@ -91,8 +91,8 @@ def outcomes_in_period(
     db = db or get_db()
     sql = (
         "SELECT id, protocol, client, status, failure_reason, source_id, release_key, title, provider_bytes, "
-        "meta, size_bytes, downloaded_bytes, COALESCE(finished_at, observed_at) AS ts FROM download_outcomes "
-        "WHERE COALESCE(finished_at, observed_at) >= now() - make_interval(days => %s)"
+        f"meta, size_bytes, downloaded_bytes, {outcome_at()} AS ts FROM download_outcomes "
+        f"WHERE {outcome_at()} >= now() - make_interval(days => %s)"
     )
     params: list[Any] = [period_days]
     if protocol:
@@ -616,7 +616,7 @@ def _recovered(sid: str | None, period_days: int, db: Database) -> dict[str, Any
         db.scalar(
             "SELECT count(*) FROM download_outcomes WHERE status='success' AND source_id=%s "
             "AND (meta ? 'recovery' OR meta ? 'recovered_for') "
-            "AND COALESCE(finished_at, observed_at) >= now() - make_interval(days => %s)",
+            f"AND {outcome_at()} >= now() - make_interval(days => %s)",
             (sid, period_days),
         )
         or 0

@@ -7,6 +7,7 @@ import { messages as auth } from "./nl/auth";
 import { messages as common } from "./nl/common";
 import { messages as insights } from "./nl/insights";
 import { messages as components } from "./nl/components";
+import { messages as goals } from "./nl/goals";
 import { messages as logs } from "./nl/logs";
 import { messages as maintenance } from "./nl/maintenance";
 import { messages as settings } from "./nl/settings";
@@ -31,5 +32,6 @@ export const nl = {
   ...zoeken,
   ...safety,
   ...maintenance,
+  ...goals,
 };
 export type MessageKey = keyof typeof nl;

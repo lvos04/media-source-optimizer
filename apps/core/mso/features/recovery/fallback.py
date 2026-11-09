@@ -50,7 +50,7 @@ from mso import settings_registry as sr
 from mso.audit import audit
 from mso.db import get_db, jsonb
 from mso.domain import categories
-from mso.domain.outcomes import FAILURE_REASONS, recommend
+from mso.domain.outcomes import FAILURE_REASONS, outcome_at, recommend
 from mso.domain.release import is_episodic, parse_title, title_part, title_similarity
 from mso.features.recovery import actions, blacklist, candidates
 from mso.security import redact
@@ -759,7 +759,7 @@ def process_failed() -> dict[str, Any]:
     rows = get_db().fetchall(
         "SELECT o.* FROM download_outcomes o LEFT JOIN recovery_fallbacks f ON f.outcome_id=o.id "
         "WHERE o.status='failed' AND o.protocol IN ('usenet','torrent') "
-        "AND COALESCE(o.finished_at, o.observed_at) > now() - make_interval(hours => %s) "
+        f"AND {outcome_at('o')} > now() - make_interval(hours => %s) "
         "AND (f.id IS NULL OR (f.status='waiting' AND f.next_attempt_at <= now()) "
         "     OR (f.status IN ('skipped','retry') AND f.detail->>'recheck'='true' "
         "         AND COALESCE(o.finished_at, o.observed_at) > f.updated_at)) "
@@ -802,7 +802,7 @@ def reevaluate() -> int:
         "UPDATE recovery_fallbacks f SET status='waiting', next_attempt_at=now(), updated_at=now() "
         "FROM download_outcomes o WHERE o.id=f.outcome_id AND f.status IN ('skipped','retry') "
         "AND f.detail->>'recheck'='true' "
-        "AND COALESCE(o.finished_at, o.observed_at) > now() - make_interval(hours => %s)",
+        f"AND {outcome_at('o')} > now() - make_interval(hours => %s)",
         (MAX_AGE_H,),
     )
 

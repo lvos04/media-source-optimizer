@@ -19,6 +19,7 @@ from typing import Any
 
 from mso import jobs
 from mso.db import get_db, jsonb
+from mso.domain.outcomes import outcome_at
 from mso.features.search import settings as S
 
 MIN_SAMPLES = 5
@@ -64,7 +65,7 @@ def compute_all() -> dict[str, Any]:
         for r in db.fetchall(
             "SELECT source_id, count(*) FILTER (WHERE failure_reason='false_positive') AS fp, count(*) AS n "
             "FROM download_outcomes WHERE source_id IS NOT NULL AND status IN ('success','failed') "
-            "AND observed_at > now() - make_interval(days => %s) GROUP BY source_id",
+            f"AND {outcome_at()} > now() - make_interval(days => %s) GROUP BY source_id",
             (days,),
         )
     }

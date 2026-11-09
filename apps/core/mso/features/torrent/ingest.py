@@ -10,7 +10,7 @@ Tracker URLs are never stored (they contain passkeys): only the announce host.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from mso import jobs
@@ -315,6 +315,13 @@ def ingest(adapter: TorrentClientAdapter | None = None) -> dict[str, Any]:
             detail = "Verdacht uitvoerbaar bestand in media-download: " + sus["evidence"]["matches"][0]["name"]
         counts["failed"] += status == "failed"
         ref = v1 or v2 or h
+        # the moment it became failed: a stall counts from last progress + the stall threshold; anything else
+        # (error state, fake release) from now. upsert_outcome keeps the first value while it stays failed.
+        failed_at = None
+        if status == "failed" and not sus and t.get("state") not in ("error", "missingFiles") and (
+            stalled_for_h is not None and last_progress_at is not None
+        ):
+            failed_at = min(now, last_progress_at + timedelta(hours=float(ts.get("stalled_fail_hours"))))
         oid = outcomes.upsert_outcome(
             {
                 "protocol": "torrent",
@@ -333,6 +340,7 @@ def ingest(adapter: TorrentClientAdapter | None = None) -> dict[str, Any]:
                 "private": private,
                 "started_at": _ts(t.get("added_on")),
                 "finished_at": _ts(t.get("completion_on")) if complete else None,
+                "failed_at": failed_at,
                 "meta": {
                     "state": t.get("state"),
                     "diagnosis": diag["primary"]["code"] if diag["primary"] else None,

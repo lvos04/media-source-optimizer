@@ -162,13 +162,17 @@ def _outcome_filter(protocol: str | None, client: str | None) -> tuple[str, list
 def failure_series(
     start: datetime, end: datetime, *, protocol: str | None = None, client: str | None = None
 ) -> list[float]:
-    """1.0 per failed and 0.0 per successful download finished in the window (mean = failure ratio)."""
+    """1.0 per failed and 0.0 per successful download finished (or failed) in the window (mean = failure ratio).
+    A failure counts at the moment it became failed, so a torrent stuck in the client is not counted again in
+    every later window."""
     from mso.db import get_db
+    from mso.domain.outcomes import outcome_at
 
     extra, params = _outcome_filter(protocol, client)
+    at = outcome_at()
     rows = get_db().fetchall(
-        "SELECT status FROM download_outcomes WHERE status IN ('success','failed') "
-        "AND COALESCE(finished_at, observed_at) >= %s AND COALESCE(finished_at, observed_at) < %s" + extra,
+        f"SELECT status FROM download_outcomes WHERE status IN ('success','failed') "
+        f"AND {at} >= %s AND {at} < %s" + extra,
         [start, end, *params],
     )
     return [1.0 if r["status"] == "failed" else 0.0 for r in rows]

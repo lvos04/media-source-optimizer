@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends
 from mso import state
 from mso.auth import Principal, require
 from mso.db import Database, get_db
-from mso.domain.outcomes import FAILURE_REASONS
+from mso.domain.outcomes import FAILURE_REASONS, outcome_at
 
 LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["overzicht"])
@@ -151,13 +151,17 @@ def failures_block(db: Database) -> dict[str, Any]:
             "reason": "Nog geen downloads waargenomen",
             "last_24h": 0,
             "last_7d": 0,
+            "ratio": None,
             "by_reason": [],
             "by_location": [],
         }
+    # a failure counts at the moment it became failed (failed_at), not at its last observation: a torrent stuck in
+    # the client is not "failed in the last 24 h" forever
+    at = outcome_at()
     rows = db.fetchall(
         "SELECT protocol, client, source_id, failure_reason, provider_bytes, "
-        "COALESCE(finished_at, observed_at) > now() - interval '24 hours' AS recent FROM download_outcomes "
-        "WHERE status='failed' AND COALESCE(finished_at, observed_at) > now() - interval '7 days'"
+        f"{at} > now() - interval '24 hours' AS recent FROM download_outcomes "
+        f"WHERE status='failed' AND {at} > now() - interval '7 days'"
     )
     reasons: dict[str, dict[str, int]] = {}
     for r in rows:
@@ -168,10 +172,19 @@ def failures_block(db: Database) -> dict[str, Any]:
     done_7d = (
         db.scalar(
             "SELECT count(*) FROM download_outcomes WHERE status IN ('success','failed') AND "
-            "COALESCE(finished_at, observed_at) > now() - interval '7 days'"
+            f"{at} > now() - interval '7 days'"
         )
         or 0
     )
+    ratio_block = None
+    try:  # the dashboard never fails on the netto/bruto ratio
+        from mso.features.overview import goals
+
+        ratio = goals.ratio_now(db)
+        ratio_block = {"net": {k: ratio["net"][k] for k in ("value", "failed", "n", "insufficient")},
+                       "gross": ratio["gross"], "min_n": ratio["min_n"]}
+    except Exception as exc:
+        LOGGER.warning("faalratio netto/bruto niet te berekenen: %s", exc)
     return {
         "available": True,
         "reason": None,
@@ -179,6 +192,8 @@ def failures_block(db: Database) -> dict[str, Any]:
         "last_7d": len(rows),
         "finished_7d": int(done_7d),
         "failure_rate_7d": round(len(rows) / done_7d, 4) if done_7d else None,
+        # netto (per episode/film: arrived after all = succeeded) next to bruto (per attempt), each with n
+        "ratio": ratio_block,
         "by_reason": sorted(
             ({"reason": k, "label": FAILURE_REASONS.get(k, k)} | v for k, v in reasons.items()),
             key=lambda x: -x["last_7d"],
@@ -384,8 +399,20 @@ def overview(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "jobs": jobs_b,
         "mediaguard": mediaguard_block(db),
         "backup": backup_block(db),
+        "goals": goals_block(db),
         "recent_audit": db.fetchall(
             "SELECT id, ts, actor, action, target, summary FROM audit_log ORDER BY id DESC LIMIT 8"
         ),
         "generated_at": db.scalar("SELECT now()"),
     }
+
+
+def goals_block(db: Database) -> dict[str, Any]:
+    """Compact goals summary (status, value now, target per goal); the full card is ``GET /overview/goals``."""
+    from mso.features.overview import goals
+
+    try:
+        return goals.summary(db)
+    except Exception as exc:  # the dashboard never fails on the goals card
+        LOGGER.warning("doelenkaart niet te berekenen: %s", exc)
+        return {"available": False, "reason": "Doelen konden niet worden berekend", "items": []}

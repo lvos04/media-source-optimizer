@@ -10,6 +10,7 @@ import { KpiCard, Timeline } from "@/components/mg/domain";
 import { Card, LinkButton, PageHeader, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
 import { AutopilotCard, WaitingCard } from "@/components/mso/automation/autopilot-summary";
+import { GoalsCard } from "@/components/mso/overview/goals-card";
 import { RiskChip } from "@/components/mso/risk-chip";
 import type { Risk } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -38,6 +39,7 @@ export default function OverviewPage() {
         sub={t("overview.sub", { date: date(new Date()), mode: shownMode ? t(`mode.${shownMode}`) : "—" })}
         actions={<LinkButton href="/automatisering" icon={Lightbulb}>{t("nav.automation")}</LinkButton>}
       />
+      <div className="grid" style={{ marginBottom: 16 }}><GoalsCard /></div>
       {ov.error && !o ? (
         <ResourceView resource={ov} endpoint="GET /api/v1/overview">{() => null}</ResourceView>
       ) : (

@@ -27,6 +27,7 @@ test("inlogpagina wordt getoond", async ({ page }) => {
   await expect(page.getByLabel("Gebruikersnaam")).toBeVisible();
   await expect(page.getByLabel("Wachtwoord", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Inloggen" })).toBeVisible();
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  const deviceWidth = page.viewportSize()?.width ?? 1440;
+  const overflow = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w, deviceWidth);
   expect(overflow, "page must not scroll horizontally").toBeLessThanOrEqual(1);
 });

@@ -14,8 +14,9 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * Per screen × theme (dark/light) × viewport (project 1440 / 390):
  *  - renders real backend data (no error state, h1 present)
- *  - no horizontal page scroll
- *  - axe-core WCAG 2.x A/AA: zero serious/critical violations
+ *  - no horizontal page scroll, measured against the DEVICE width (ADR-0006 punt 7: with isMobile Chromium widens the
+ *    layout viewport to the widest content, so scrollWidth − innerWidth is always 0 and hides real overflow)
+ *  - axe-core with the Peil tag set wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa: zero serious/critical violations
  *  - every enabled button has an accessible name; every disabled button explains why (title / aria-describedby / text)
  *  - screenshot into docs/screenshots/ for the visual comparison with MediaGuard
  */
@@ -93,18 +94,19 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(s.title);
       await expect(page.locator(".state--error"), "geen foutstaat").toHaveCount(0);
 
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      expect(overflow, "geen horizontale paginascroll").toBeLessThanOrEqual(1);
+      const deviceWidth = page.viewportSize()?.width ?? 1440;
+      const overflow = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w, deviceWidth);
+      expect(overflow, `geen horizontale paginascroll t.o.v. de apparaatbreedte (${deviceWidth} px)`).toBeLessThanOrEqual(1);
 
       const unnamed = await page.$$eval("button:not([disabled])", (bs) =>
         bs.filter((b) => !(b.getAttribute("aria-label") || b.textContent?.trim() || b.getAttribute("title"))).length);
       expect(unnamed, "knoppen zonder toegankelijke naam").toBe(0);
-      const unexplained = await page.$$eval("button[disabled]", (bs) =>
+      const unexplained = await page.$$eval('button[disabled], button[aria-disabled="true"]', (bs) =>
         bs.filter((b) => !(b.getAttribute("title") || b.getAttribute("aria-describedby") || b.getAttribute("aria-busy") === "true"
           || b.closest("[data-disabled-reason]") || b.textContent?.trim())).map((b) => b.outerHTML.slice(0, 120)));
       expect(unexplained, "uitgeschakelde knoppen zonder uitleg").toEqual([]);
 
-      const axe = await new AxeBuilder({ page: page as unknown as ConstructorParameters<typeof AxeBuilder>[0]["page"] }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+      const axe = await new AxeBuilder({ page: page as unknown as ConstructorParameters<typeof AxeBuilder>[0]["page"] }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
       const serious = axe.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
       expect(serious.map((v) => `${v.id}: ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`), "axe serious/critical").toEqual([]);
 

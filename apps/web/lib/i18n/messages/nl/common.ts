@@ -157,7 +157,7 @@ export const messages = {
   "action.filter": "Filteren",
   "action.clear": "Wissen",
 
-  "state.loading": "Laden…",
+  "state.loading": "Gegevens ophalen…",
   "state.emptyTitle": "Nog niets te tonen",
   "state.errorTitle": "Ophalen is mislukt.",
   "state.errorBody": "MSO-core gaf een fout terug. Je configuratie is niet gewijzigd. Probeer het opnieuw; blijft het mislukken, kopieer dan de trace-ID voor het logboek.",

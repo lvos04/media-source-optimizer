@@ -23,8 +23,10 @@ const ICONS: Record<Exclude<StateKind, "loading">, LucideIcon> = {
   not_found: SearchX,
 };
 
-export function StateView({ kind, title, body, action, meta, compact, icon }: {
+export function StateView({ kind, title, body, action, meta, compact, icon, pageLevel = false }: {
   kind: StateKind; title?: ReactNode; body?: ReactNode; action?: ReactNode; meta?: ReactNode; compact?: boolean; icon?: LucideIcon;
+  /** Foutpaneel op paginaniveau (Peil §9, A-02): de titel is dan de enige h1 van de pagina. */
+  pageLevel?: boolean;
 }) {
   const { t } = useI18n();
   if (kind === "loading") {
@@ -52,7 +54,9 @@ export function StateView({ kind, title, body, action, meta, compact, icon }: {
     <div className={cn("state flex flex-col items-center justify-center gap-2.5 text-center text-muted-foreground", `state--${kind}`, compact ? "state--compact px-4 py-5" : "px-6 py-10")}
       role={kind === "error" ? "alert" : "status"} data-state={kind}>
       <span className={cn("inline-grid size-11 place-items-center rounded-xl border-2", iconCls)}><Icon className="ico size-6" aria-hidden="true" /></span>
-      <div className="text-lg font-semibold text-foreground">{title ?? defaults[kind][0]}</div>
+      {pageLevel
+        ? <h1 className="m-0 text-2xl font-bold text-foreground [text-wrap:balance]">{title ?? defaults[kind][0]}</h1>
+        : <div className="text-lg font-semibold text-foreground">{title ?? defaults[kind][0]}</div>}
       {(body ?? defaults[kind][1]) ? <div className="max-w-prose text-base">{body ?? defaults[kind][1]}</div> : null}
       {meta ? <div className="text-sm">{meta}</div> : null}
       {action}

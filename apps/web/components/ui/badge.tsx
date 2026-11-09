@@ -1,12 +1,12 @@
 // Peil Badge family (ONTWERPTAAL §4.2–4.5, COMPONENTEN C-03/C-08): one shape per axis, always icon + word.
-//   health  → pill (rounded-full), 2 px border; Gezond without fill; Onbekend dashed
+//   health  → pill (radius 1rem: volledig rond op één regel, leesbaar als hij omloopt), 2 px border; Gezond without fill; Onbekend dashed
 //   risk    → angular tag (4 px) with a code block + step glyph (RisicoBadge)
 //   label   → neutral pill (no status meaning)
 // The hook class `chip` stays on status/label pills (CSS hooks and tests).
 import { cva, type VariantProps } from "class-variance-authority";
 
 export const badgeVariants = cva(
-  "chip inline-flex w-fit max-w-full min-h-6 items-center gap-1.5 rounded-full border-2 px-2 py-0.5 text-sm font-semibold leading-tight break-words align-middle [&_svg]:size-[1.125rem] [&_svg]:shrink-0",
+  "chip inline-flex w-fit max-w-full min-h-6 items-center gap-1.5 rounded-[1rem] border-2 px-2 py-0.5 text-sm font-semibold leading-tight break-words align-middle [&_svg]:size-[1.125rem] [&_svg]:shrink-0",
   {
     variants: {
       tone: {

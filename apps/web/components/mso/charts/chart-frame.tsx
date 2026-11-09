@@ -7,7 +7,7 @@
 //    hetzelfde (tooltip nooit alleen met de muis); voorlezen via één aria-live-regel die ook zichtbaar is
 //  - <details> "Toon als tabel" / "Verberg tabel": de WCAG-tweeling met caption, th scope, cijfers rechts
 //  - testhaken: data-testid="grafiek-<naam>" en "grafiek-<naam>-tabel"
-import { useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -21,8 +21,24 @@ export interface ChartTable {
 }
 
 export function DataTable({ table, testid }: { table: ChartTable; testid?: string }) {
+  const { t } = useI18n();
+  // Review stap 5 (axe scrollable-region-focusable): een tabel die op een smal scherm horizontaal scrollt, krijgt een
+  // tabstop en een naam, zodat je hem ook met het toetsenbord kunt scrollen. Past hij, dan geen extra tabstop.
+  const wrap = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const check = () => setScrolls(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return (
-    <div className="overflow-x-auto" data-testid={testid}>
+    <div ref={wrap} className="focus-ring overflow-x-auto rounded-md" data-testid={testid}
+      tabIndex={scrolls ? 0 : undefined} role={scrolls ? "region" : undefined}
+      aria-label={scrolls ? `${table.caption} ${t("chart.tableScrolls")}` : undefined}>
       <table className="w-full border-collapse text-sm">
         <caption className="mb-1 text-left text-sm font-semibold text-foreground">{table.caption}</caption>
         <thead>

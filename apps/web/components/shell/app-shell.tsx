@@ -101,9 +101,9 @@ function ShellGate({ children }: { children: ReactNode }) {
   }
   if (status === "offline") {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4 py-8">
-        <StateView kind="offline" title={t("offline.pageTitle")} body={t("offline.pageBody")} action={<Button variant="primary" onClick={() => void refresh()}>{t("action.retry")}</Button>} />
-      </div>
+      <main className="flex min-h-screen items-center justify-center px-4 py-8">
+        <StateView kind="offline" pageLevel title={t("offline.pageTitle")} body={t("offline.pageBody")} action={<Button variant="primary" onClick={() => void refresh()}>{t("action.retry")}</Button>} />
+      </main>
     );
   }
   return (
@@ -235,7 +235,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </Link>
         {problems.slice(0, 3).map((p) => (
           <div key={p.name} className="health-line flex items-start gap-2 text-muted-foreground">
-            <span className="mt-1.5"><Dot tone={healthTone(p.status) === "danger" ? "danger" : healthTone(p.status) === "warning" ? "warning" : "unknown"} /></span>
+            <span className="mt-0.5"><Dot tone={healthTone(p.status) === "danger" ? "danger" : healthTone(p.status) === "warning" ? "warning" : "unknown"} /></span>
             <span title={p.message ?? undefined} className="min-w-0 break-words">{p.label ?? p.name.replace(/^connector:/, "")} — {reason(p)}</span>
           </div>
         ))}
@@ -269,23 +269,32 @@ function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
+/** Zachte afbreekstreepjes op Nederlandse lettergrepen voor de smalle ondernavigatie (alleen weergave). */
+const LETTERGREPEN: Record<string, string> = { Overzicht: "Over\u00ADzicht", Downloads: "Down\u00ADloads", Ontbrekend: "Ont\u00ADbre\u00ADkend" };
+function lettergrepen(label: string): string {
+  return LETTERGREPEN[label] ?? label;
+}
+
 function BottomNav({ onMore, moreOpen }: { onMore: () => void; moreOpen: boolean }) {
   const pathname = usePathname();
   const { t } = useI18n();
   const items = BOTTOM_NAV_KEYS.map((key) => ALL_NAV_ITEMS.find((i) => i.key === key)!).filter(Boolean);
   const short: Record<string, string> = { missing: t("nav.missingShort") };
   const inBottom = items.some((i) => isActive(i.href, pathname));
-  const item = cn("focus-ring relative flex min-h-bottomnav min-w-0 flex-1 basis-0 flex-col items-center justify-center gap-0.5 border-0 bg-transparent px-0.5 text-center text-sm leading-tight font-semibold text-muted-foreground no-underline [hyphens:auto] font-medium",
+  // Review stap 5: vijf gelijke kolommen van 64 px braken op 320 px midden in een woord ("Downlo-ads"). Nu krijgt elk
+  // item zijn eigen tekstbreedte (flex-auto, min-width = min-content: de langste lettergreep, en ≥ 44 px) en breekt een label alleen op een
+  // zacht afbreekstreepje (Nederlandse lettergrepen). Vanaf 360 px past alles op één regel.
+  const item = cn("focus-ring relative flex min-h-bottomnav min-w-min flex-auto flex-col items-center justify-center gap-0.5 border-0 bg-transparent px-0.5 text-center text-sm leading-tight font-medium text-muted-foreground no-underline [hyphens:manual]",
     "aria-[current=page]:text-primary [&_svg]:size-6");
   return (
     <nav className="bottomnav fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label={t("nav.mobile")}>
       {items.map((it) => (
         <Link key={it.key} href={it.href} className={item} aria-current={isActive(it.href, pathname) ? "page" : undefined}>
-          <it.icon className="ico" aria-hidden="true" /><span className="max-w-full break-words">{short[it.key] ?? t(it.label)}</span>
+          <it.icon className="ico" aria-hidden="true" /><span className="min-w-10">{lettergrepen(short[it.key] ?? t(it.label))}</span>
         </Link>
       ))}
       <button type="button" className={item} onClick={onMore} aria-expanded={moreOpen} aria-current={!inBottom ? "page" : undefined}>
-        <Menu className="ico" aria-hidden="true" /><span>{t("nav.more")}</span>
+        <Menu className="ico" aria-hidden="true" /><span className="min-w-10">{t("nav.more")}</span>
       </button>
     </nav>
   );

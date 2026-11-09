@@ -2,7 +2,7 @@
 // (MSO: steps admin → connectors → operating mode → summary; language/theme step dropped.)
 "use client";
 
-import { ArrowLeft, ArrowRight, Bot, CircleCheck, Eye, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, Check, Eye, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -57,7 +57,7 @@ function SetupWizard() {
 
   if (phase === "checking") return <StateView kind="loading" />;
   if (phase === "offline") {
-    return <StateView kind="offline" title={t("offline.pageTitle")} body={t("offline.pageBody")} action={<Button variant="primary" onClick={() => void check()}>{t("action.retry")}</Button>} />;
+    return <StateView kind="offline" pageLevel title={t("offline.pageTitle")} body={t("offline.pageBody")} action={<Button variant="primary" onClick={() => void check()}>{t("action.retry")}</Button>} />;
   }
   if (phase === "done") {
     return (
@@ -89,7 +89,7 @@ function SetupWizard() {
         {steps.map((label, i) => (
           <li key={label} className="hstep" style={i === step ? { color: "var(--mg-text)" } : undefined} aria-current={i === step ? "step" : undefined}>
             {i > 0 ? <span className="hstep-line" aria-hidden="true" /> : null}
-            <span className={cn("step-no")} style={i <= step ? { borderColor: "var(--mg-accent)", color: "var(--mg-accent)" } : undefined}>{i < step ? <CircleCheck className="ico ico-sm" aria-hidden="true" /> : i + 1}</span>{label}
+            <span className={cn("step-no")} style={i <= step ? { borderColor: "var(--mg-accent)", color: "var(--mg-accent)" } : undefined}>{i < step ? <Check className="ico ico-sm" aria-hidden="true" /> : i + 1}</span>{label}
           </li>
         ))}
       </ol>

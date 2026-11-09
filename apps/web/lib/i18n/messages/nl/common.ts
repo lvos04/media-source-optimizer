@@ -226,6 +226,7 @@ export const messages = {
 
   "chart.showTable": "Toon als tabel",
   "chart.hideTable": "Verberg tabel",
+  "chart.tableScrolls": "(horizontaal scrollbaar)",
   "chart.keysHelp": "Gebruik de pijltjestoetsen om per dag te lezen.",
   "chart.noMeasurement": "Geen meting",
   "chart.gapNote": "Een gat betekent dat er geen meting was (nooit 0).",
@@ -257,4 +258,11 @@ export const messages = {
   "change.dangerReversible": "Terugdraaien kan daarna wel.",
   "change.dangerNeverAuto": "Dit wordt nooit automatisch toegepast; alleen na goedkeuring en jouw klik op Toepassen.",
   "change.rollbackImpossible": "Terugdraaien kan niet: deze wijziging bevat alleen onderdelen die niet terug te draaien zijn (bijv. verwijderde bestanden).",
+  // Peil ErnstLabel (T-20)
+  "ernst.label": "Ernst",
+  "ernst.kritiek": "Kritiek",
+  "ernst.hoog": "Hoog",
+  "ernst.middel": "Middel",
+  "ernst.laag": "Laag",
+  "ernst.info": "Info",
 };

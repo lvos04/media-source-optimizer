@@ -2,7 +2,7 @@
 #
 # python   ruff + pytest (unit/contract/integration incl. mocks over real HTTP) against a PostgreSQL 16 service,
 #          with pg_dump/pg_restore 16 via MSO_PG_BIN (as release.yaml)
-# web      Peil drift check + typecheck + lint + production build of the Next.js UI
+# web      Peil drift check + typecheck + lint + unit tests (vitest) + production build of the Next.js UI
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
 # stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
 # e2e      fresh stack, prepared (admin, connectors → mocks, backup, wizard completed) + ALL Playwright tests
@@ -95,6 +95,8 @@ jobs:
         run: npm run check:peil
       - run: npm run typecheck
       - run: npm run lint
+      - name: Unit tests (vitest)
+        run: npm run test:unit
       - run: npm run build
 
   images:

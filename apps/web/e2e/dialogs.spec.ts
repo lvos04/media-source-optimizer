@@ -21,7 +21,9 @@ test("terugzetdialoog: typen houdt de focus in het bevestigingsveld", async ({ p
   await login(page);
   await page.goto("/systeem");
   const restore = page.getByRole("button", { name: "Terugzetten" }).first();
-  test.skip(!(await restore.isVisible().catch(() => false)), "geen back-up om mee te testen");
+  // wait for the backup list to load (a check right after goto races the first fetch)
+  const hasBackup = await restore.waitFor({ state: "visible", timeout: 15_000 }).then(() => true, () => false);
+  test.skip(!hasBackup, "geen back-up om mee te testen");
   await restore.click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toBeVisible();
@@ -44,7 +46,9 @@ test("pauzeer-dialoog is volledig zichtbaar, ook bij een lage viewport", async (
   await login(page);
   await page.goto("/automatisering");
   const button = page.getByTestId("pause-button");
-  test.skip(await button.isDisabled(), "pauzeknop niet beschikbaar voor deze gebruiker");
+  // the button is disabled while the mode loads ("Modus wordt geladen"); wait for that before deciding
+  const ready = await expect(button).toBeEnabled({ timeout: 15_000 }).then(() => true, () => false);
+  test.skip(!ready, "pauzeknop niet beschikbaar voor deze gebruiker");
   await button.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();

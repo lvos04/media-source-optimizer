@@ -13,6 +13,9 @@ alleen uit te voeren op de echte NAS / met echte accounts (D01–D18 onbekend). 
 
 Er is in fase P0 **geen productcode** gewijzigd. Alle "minimale wijzigingen" hieronder zijn voorstellen voor P3.
 
+> **Tweede lezing (2026-11-09):** §11 onderaan weerlegt 8 rijen, preciseert of vult 14 rijen aan en voegt 15 rijen
+> toe. Bij tegenstrijdigheid met §0–§10 geldt §11; de oorspronkelijke rijen blijven staan als spoor.
+
 ---
 
 ## 0. Samenvatting
@@ -314,6 +317,9 @@ Ontbreekt (in volgorde van belang):
 
 ## 9. Geprioriteerde bouwlijst fase P3 (alleen hiaten)
 
+> Correcties op deze lijst staan in §11.5: P3-12 vervalt als bouwwerk; P3-02, P3-04, P3-05, P3-06, P3-07, P3-08,
+> P3-10 en P3-13 zijn aangepast.
+
 | # | Prio | Excel | Wat (minimaal) | Module / route / migratie | Test (sim) | Afhankelijk van |
 |---|---|---|---|---|---|---|
 | P3-01 | P0 | B05-001, B05-010, EX15 | Weiger starten/migreren als `max(schema_migrations) > hoogste bekende migratie`, met NL-melding "database is van een nieuwere MSO-versie; zet de bijpassende snapshot/back-up terug" | `db.py` `migrate_up` (+ `__main__` CLI), geen migratie | unit + alles-in-één-scenario | — |
@@ -345,3 +351,158 @@ codebase (vervolgpunt), een eigen logcollector.
 - Geen automatische verwijdering van torrents/bestanden/categorieën; vergrendelde integriteitsgrenzen blijven
   vergrendeld; AI-adviseur blijft standaard uit en zonder betaalde overage.
 - Niet zelf taggen of `release/VERSION` wijzigen zonder expliciete releasebeslissing (start `release.yaml`).
+
+---
+
+## 11. Controle (tweede lezing)
+
+Peildatum **2026-11-09** · code-HEAD **`018b119`** (ongewijzigd) · onafhankelijke, sceptische herlezing van §0–§10 en
+van `EVIDENCE.json`. Er is **geen productcode** gewijzigd. Bij tegenstrijdigheid met §0–§10 geldt deze sectie; de
+oorspronkelijke rijen blijven staan als spoor.
+
+**Methode.**
+1. *Mechanisch:* alle 68 genoemde testnamen per tabelcel tegen `apps/core/tests/` gecontroleerd (script) en alle 91
+   bestand:regel-verwijzingen (85 citaten) opengeslagen en inhoudelijk gelezen.
+2. *Weerleggen:* voor elke rij **Ontbrekend/Onvolledig/Afwijkend** (56 stuks) gezocht in code, tests, migraties, web,
+   deploy, docs en workflows, met NL- en EN-synoniemen: `connector/v1`, `Idempotency-Key`/`idempoten`, `readyz`,
+   `jwks`/`jwt`/`enroll`/`koppelcode`/`HUB_URL`, `envelope`/`outbox`/`webhook`/`event_id`, `preview_hash`/`etag`/`if-match`,
+   `kandidaat`/`candidate`/`git_sha`/`build_time`/`channel`/`org.opencontainers`, `geschat`/`gemeten`/`estimated`/`physical`/
+   `provenance`/`herkomst`, `pg_stat_activity`, `groei`/`growth`, `log_bytes`/`FileHandler`/`/appdata/logs`,
+   `nieuwer`/`newer`, `offset`/`page`/`cursor`/`before_id`, `ed25519`, `tank`/`192.168.`; plus een AST-telling van de routes
+   en een overzicht welke tabellen ergens worden opgeschoond (`DELETE`/`TRUNCATE`).
+3. *Elke 'Bestaand'-rij:* bestand:regel en genoemde tests nagelezen op "doet het wat er staat".
+4. *Dekking:* B05 §1–§7 (incl. de per-taak-foutafhandeling), I04 §1–§4, I17/I18, A19, A13/A14, `INTEGRALE_E2E_TESTMATRIX`
+   (EX01–EX50), `PLATFORM_CONTRACTEN.md` 1.1 §1–§12, `01_ARCHITECTUUR` 02/03/05/07/08 en `00_START/BESLUITEN_EN_ONBEKENDEN.md`.
+5. *Alleen lezen* op GitHub/GHCR en in `ai-server-manager`; een gerichte testrun (§11.7).
+
+### 11.1 Telling
+
+| Onderwerp | Aantal |
+|---|---|
+| Geclassificeerde rijen in §1–§5 en §7 | **137** |
+| **Bevestigd** | **129** — waarvan 115 ongewijzigd, 12 met preciezer of gecorrigeerd bewijs (§11.3), 2 met een gemist hiaat aangevuld (§11.3 P5, P13) |
+| **Weerlegd** | **8** — 4 met een andere klasse (W2, W3, W5, W7), 4 met een feitelijk onjuiste bewering in bewijs of "wat mist" (W1, W4, W6, W8) (§11.2) |
+| …waarvan van de 56 rijen Ontbrekend/Onvolledig/Afwijkend | 6 weerlegd (W2, W3, W4, W5, W6, W8), **50 bevestigd als echt hiaat** |
+| Nieuwe rijen (eisen zonder rij) | **15** (§11.4) |
+| Testnamen | 68/68 bestaan; 1 rij noemt het verkeerde testbestand (P11), 10 rijen noemen `::naam` zonder bestand in de cel (§11.6) |
+| Bestand:regel | 91/91 bestaan; 2 tonen iets anders dan beweerd (`tests/test_autopilot.py:51`, `tests/test_torrent_cleanup.py:153`, zie W4) |
+
+Bevestigd zonder weerlegging (ondanks gericht zoeken, 0 treffers in productcode): geen `/connector/v1/*`, geen
+backend-verwerking van `Idempotency-Key`, geen `/readyz`, geen JWT/JWKS/enrollment/koppelcode, geen event-envelope/outbox/
+webhooks/push, geen `preview_hash`/ETag, geen build-metadata (git-sha, build-tijd, kanaal), geen startweigering bij een
+nieuwer schema (`db.py:126-152` slaat onbekende toegepaste versies stil over; ook `app.py:64-80` en
+`deploy/allinone/supervisor.py:276-282` controleren dat niet), geen meting van DB-verbindingen, geen logvolume (alles naar
+stdout; `supervisor.py:69` kent een map `logs` maar niets schrijft erin), Playwright alleen 1440/390 en geen
+offline/leeg-E2E (er zijn ook geen web-unittests), geen manifest, `.env.example`, `deploy/truenas/CUSTOM_APP.md`,
+`release/digests.json`, SBOM of `THIRD_PARTY.md`; base-images zonder digest en `node:22` zwevend; `ci.yaml` heeft nooit
+gedraaid; `mso_core.egg-info` is getrackt (`PKG-INFO`: `Version: 1.0.0`); 211 routes, 7 zonder `require()`.
+
+### 11.2 Weerlegde rijen (gecorrigeerd)
+
+| # | Rij (sectie) | Was | Wordt | Bewijs (code-HEAD `018b119`) |
+|---|---|---|---|---|
+| W1 | §1 B05-001 "Inspecteer … CI" → wat mist; ook §8 punt 4, P3-04 en `INVENTARIS.md` §1/§10 ("triggert alleen op `main`, `v*`-tags en PR's") | "trigger uitbreiden met `push` op `ccr-*` + `workflow_dispatch`" | **`workflow_dispatch` bestaat al** (met invoer `release_version`). Dat `ci.yaml` nooit draaide is **bevestigd**. Minimale wijziging: de eigenaar start `ci` handmatig via *Actions → ci → Run workflow*, of P3-04 voegt alleen `push` op `ccr-*` toe | `.github/workflows/ci.yaml:12-20`; `gh api …/actions/runs`: 9 runs, alle `release`, 0 `ci` |
+| W2 | §1 B05-001 "Scherm: Release checker toont 'development kandidaat'" | **Ontbrekend** | **Onvolledig.** Het Systeem-scherm toont al versie, schemaversie en de lijst toegepaste migraties met datum. Ontbreekt: kanaal/kandidaatstatus, git-sha, build-tijd, image-digest. P3-02 breidt deze bestaande kaart uit; geen nieuw scherm | `apps/web/app/(app)/systeem/page.tsx:28-39, :59-66` op `GET /api/v1/system/info` (`api/foundation.py:386-397`) |
+| W3 | §1 B05-004 "Scherm: voetafdruk met echt/gemeten/geschat" | **Ontbrekend** | **Onvolledig.** Voor de grootste groeier (header-index) bestaat al *geschat* naast *gemeten* met budget: `estimated_bytes`, `physical_bytes` (`pg_total_relation_size`), `budget_bytes`, `budget_reached`, zichtbaar in de UI. Ontbreekt: herkomstlabel voor de overige waarden (DB, back-ups, `/appdata`) en een verloop in de tijd | `features/usenet/headerindex/engine.py:88-103`; `apps/web/components/mso/usenet/header-index.tsx:157-161`; `test_usenet_headerindex.py::test_storage_budget_stops_and_alerts` |
+| W4 | §1 B05-009 "Acceptatie: geen dubbele actie …" (ook §4 EX20) | "sequentiële dubbele apply → 409 (`test_autopilot.py:51`, `test_torrent_cleanup.py:153`)"; "**geen paralleltest**" | Beide geciteerde regels zijn weigeringen in **alleen-lezen** (409 door de modus), géén tweede apply. Er bestaat wél een deterministische gelijktijdigheidstest: een **tweede databaseverbinding** houdt de advisory lock van de change set vast; `apply` via de functie én via `POST /api/v1/changes/{id}/apply` geeft 409 ("al toegepast of teruggedraaid") en **schrijft niets bij de bron**; plus approve/discard/apply op status `applying` → 409. Klasse blijft **Onvolledig**: een echte race met twee HTTP-clients (Hub + MSO) en een herhaling ná `applied` zijn niet getest (de code weigert dat wel). P3-08 hergebruikt de bestaande helper | `test_change_safety.py::test_apply_and_rollback_refuse_while_another_holds_the_change`, `::test_status_transitions_are_guarded`, helper `_Holder`/`_hold_lock` (`test_change_safety.py:88-102`); `changes.py:126-143, :211-216, :243-245, :295-297` |
+| W5 | §1 B05-010 "Acceptatie: na terugzet audit, index en credentials aanwezig; jobs niet dubbel hervat" (en P3-12) | **Onvolledig**: "header-index wordt niet expliciet na herstel herbouwd" | **Bestaand (Sim-getest).** Na herstel zet `resync_after_restore()` `usenet_hi_groups.last_article` op NULL, zodat de index "opnieuw vanaf de nieuwste headers" opbouwt; de geplande job `usenet.headerindex_run` (elke 900 s zolang de index aanstaat) vult hem. De test controleert dat expliciet. Eerlijke kanttekening: direct na herstel is de index leeg tot de volgende geplande run, en headers buiten het opslagbudget komen niet terug — bewuste keuze (index = herbouwbare cache, ADR-0004). **P3-12 vervalt als bouwwerk** | `backups.py:63` (`REFETCHABLE`), `:377-394`; `features/usenet/headerindex/engine.py:384-392`; `test_maintenance.py::test_backup_excludes_refetchable_data_and_resyncs_after_restore` (`last_article … is None  # header index starts fresh`) |
+| W6 | §2 "§1 zoek/filter/paginering" | "overige lijsten alleen `limit`" | Klasse blijft **Onvolledig** (geen `cursor` zoals contract §5), maar de bewering klopt niet: `page`/`page_size` op `GET /api/v1/mediaguard/wanted` en `/recovery/wanted`, `offset` op `GET /api/v1/search`; filters op `/torrent/torrents` (`state`, `diagnosis`, `category`, `q`), `/jobs` (`status`, `kind`), `/changes` (`status`, `target`), `/mediaguard/wanted` (`q`, `reason_code`, `media_category`) | `features/mediaguard/api.py:73-84`; `features/recovery/api.py:81-88`; `features/search/api.py:57`; `features/torrent/api.py:165-172`; `api/foundation.py:430-482` |
+| W7 | §5 "§3 Geheimen bij eerste start in `/appdata/secrets`" | **Bestaand** | **Onvolledig.** `vault.key` en DB-geheimen bestaan, maar contract §3 vraagt ook een **eigen Ed25519-identiteit** in `/appdata/secrets/`; die ontbreekt. → onderdeel van P3-06 (0600, eigenaar 568, nooit overschrijven; ADR-0004) | `vault.py`; `deploy/allinone/supervisor.py:80-84`; grep `ed25519`/`signing` in `apps/core/mso` = 0 |
+| W8 | §5 "§1 Geen voorbeeldwaarden als echte waarden" | "`/mnt/tank` in compose; docs gebruiken 'bijv.'" | Klasse blijft **Onvolledig**, maar de **installatiehandleiding zelf** zet `tank` in het formulier: Host Path `/mnt/tank/apps/media-source-optimizer` en "onder `tank/apps`". Ook in `docs/OPERATIONS.md` en `docs/TRUENAS_INSTALL.md` (`POOL=tank`, `TRUENAS_IP=192.168.1.10` als scriptvariabelen) en de compose-kop. P3-05 zet al deze plekken op `<POOL>`/datasetkiezer | `docs/TRUENAS_CUSTOM_APP.md:34, :59`; `docs/OPERATIONS.md:98, :242`; `docs/TRUENAS_INSTALL.md:35, :53, :55`; `deploy/truenas/compose.yaml:4-5` |
+
+### 11.3 Bevestigde rijen met preciezer bewijs of een gemist hiaat
+
+| # | Rij | Klasse (ongewijzigd) | Precisering / aanvulling |
+|---|---|---|---|
+| P1 | §1 B05-001 "Acceptatie: geen 1.6.0 als stable …" | Onvolledig / Geblokkeerd | Blokkade ook **D05** (OneDrive-herstelbewijs, "verplicht vóór bestaande app updates") en **D06** (ZFS-gezondheid, "verplicht vóór data-mutaties"), `00_START/BESLUITEN_EN_ONBEKENDEN.md:7-8` |
+| P2 | §1 B05-002 "`outcome_at`/`failed_at`, … stale-detectie" | Bestaand | `test_usenet_stale_mso_test.py` gaat over verouderde **providertests**. Bewijs voor verouderde **downloads**: `domain/outcomes.py:32-39` (een vastgelopen torrent telt niet eeuwig als recente mislukking), `features/overview/api.py:50-115` (`stale_s` per bron), `test_overview_goals.py::test_stuck_torrent_is_not_a_recent_failure_forever`, `::test_failed_at_set_on_transition_kept_and_cleared` |
+| P3 | §1 B05-004 "DB-tabellen/opslag meten" | Onvolledig | Naast `database_usage()` bestaan al: header-index-budget (W3), schijfruimte per pad in `GET /api/v1/system/health` (`api/foundation.py:307-314`), back-upruimte `backups.space_status()` (`backups.py:128-156`), qBittorrent-opslag/reserve (`features/torrent/storage.py:1-10`). P3-10 hergebruikt deze; alleen verloop en herkomstlabel zijn nieuw |
+| P4 | §1 B05-004 "Verbindingen …, begrensde steekproef" | Onvolledig | "Begrensd" bestaat: header-index stopt bij `max_storage_mb` (`engine.py:95`), retentie + uur-rollup. DB-verbindingen worden inderdaad niet gemeten (`pg_stat_activity` = 0 treffers) |
+| P5 | §1 B05-004 "Acceptatie: … DB groeit gecontroleerd" | Onvolledig / Geblokkeerd | **Gemist hiaat.** `retention.py` ruimt alleen `jobs`, `observations(_hourly)`, `automation_log`, `login_attempts` (+ veiligheidsback-ups). Append-only tabellen **zonder enige opschoning** in de code: `usenet_sab_server_events`, `torrent_actions`, `torrent_tuning_runs`, `usenet_article_tests`, `usenet_hi_runs`, `ai_usage`, `change_sets`, `recovery_manual_wanted`; daarnaast groeien per nieuw item (upsert): `download_outcomes`, `mg_search_requests`, `search_sends`, `recovery_sends`. Of dat in de praktijk telt is onbekend (geen 30-daagse meting). P3-10 krijgt erbij: per tabel een besluit "bewijs, nooit opruimen" (zoals `audit_log`) of een instelbare bewaartermijn **in het bestaande `retention.py`** (geen tweede opruimer), met test |
+| P6 | §1 B05-007 "Echte API-versies op NAS, …, retentiechecks …" | Geblokkeerd | Sim-bewijs retentiecheck: `test_sabnzbd_history.py::test_no_retention_only_with_evidence` |
+| P7 | §1 B05-009 "Action ownership + expliciete idempotentie" | Onvolledig | Ook aanwezig: unieke partiële index op open change sets per `dedupe_key` (`migrations/0605_v160_change_safety.sql:12-13`) + `changes.create(dedupe_key=…)` (`changes.py:181-185`); NZB-verzending idempotent binnen 24 u (`features/usenet/nzbs.py:30, :117-123`). De web-client kan al een `Idempotency-Key` meesturen (`apps/web/lib/api/client.ts:92, :110`), maar **de backend leest die header nergens**. P3-07 hergebruikt die client-optie |
+| P8 | §1 B05-009 "Hub keurt goed via de door MSO ondersteunde flow" | Onvolledig | `changes.apply(force=True)` slaat de driftcontrole over (`changes.py:285, :319`), maar geen enkele route roept dat aan — P3-07 mag `force` nooit blootstellen. Afhankelijkheid: `POST /api/v1/services/enroll` en `GET /api/v1/auth/jwks` staan op de peildatum alleen als **niet-gecommit werk** in `ai-server-manager` (`ai-server-manager/apps/api/src/hub/routers/services.py:171` en `…/routers/auth.py:352`; alleen gelezen) — nog niet op de branch, dus nog steeds een blokkade |
+| P9 | §1 B05-010 "Terugkeer met bijpassende snapshot + image" | Onvolledig | Blokkade ook **D16** (RPO/RTO, "verplicht vóór restore-policy") |
+| P10 | §2 "Fase-exit: …, negatieve permissietest" | Onvolledig | Het deel *negatieve permissietest* is **Bestaand (Sim-getest)**: `test_foundation.py::test_role_enforcement` plus 45 asserts "viewer/operator → 403" in 28 testbestanden. Open: code review per P3-fase en een mobiele reis op een echt toestel (Geblokkeerd) |
+| P11 | §2 "§7 veilig degraderen …" | Onvolledig | `::test_old_version_capability_detection` staat in `test_mediaguard_integration.py`, niet in `test_mediaguard_apikey.py` |
+| P12 | §3 I18-18-03 "Exclude-executables tegen echte qBit-versie" | Bestaand (sim) | Bewijs "geen valse uitsluiting van media" en versiedetectie: `test_torrent_autopilot.py::test_prevention_policy_refuses_media_patterns`, `::test_prevention_unsupported_on_old_qbittorrent`, `::test_prevention_merge_apply_verify_rollback` |
+| P13 | §4 EX19 "approval drift" | Onvolledig | **Gemist hiaat.** Een goedkeuring vervalt nooit (geen `approved_at`/`expires_at` in `change_sets`, `migrations/0001_foundation.sql:91-112`); drift bij de bron wordt wél geweigerd (409, `test_usenet_categories.py::test_apply_detects_drift_and_failed_writes`). P3-08: vervaltermijn op een Hub-goedkeuring naast `preview_hash` (07_API "approval record") |
+| P14 | §5 "§1 Installatie als standaard Custom App, nooit YAML/compose" | Onvolledig | Ook `docs/MIGRATION.md:68, :142` en heel `docs/TRUENAS_INSTALL.md` beschrijven *Install via YAML*; `docs/HARDWARE_ACCEPTANCE.md:20, :29` test de YAML-multicontainerinstallatie. De live-acceptatie kan pas lopen na herschrijven naar de Custom App (P3-05) |
+
+### 11.4 Nieuwe rijen (eisen die nog geen rij hadden)
+
+| # | Eis (bron) | Klasse | Bewijs / wat mist |
+|---|---|---|---|
+| N1 | B05-002…010 "een externe storing mag niet als succes worden gelogd" (B05 §4, bij elke taak) | **Bestaand (Sim-getest)** | teruglezen na schrijven, anders `failed`/502: `test_usenet_disable_failing.py::test_verification_failure_restores_and_nothing_to_disable`, `test_usenet_categories.py::test_apply_verification_failure_when_sab_config_is_locked`, `test_sabnzbd_priorities.py::test_verification_failure_restores`, `test_change_safety.py::test_rollback_verification_failure_is_not_reported_as_rolled_back`, `::test_reconcile_waits_for_unreachable_source_then_reports`; koppelingen: `test_connector_monitoring.py::test_classify_connector_errors`, `::test_redirect_instead_of_an_api_answer_is_down`; MediaGuard: `test_mediaguard_integration.py::test_failed_requests_back_off_exponentially` |
+| N2 | idem "leg testscenario, image-versie, screenshots, geredigeerde request/response, timestamps, audit/rollback en incidentlink vast" | **Onvolledig / Geblokkeerd** | audit/rollback ✔ (`audit_log`, change sets), redactie ✔ (`security.py`), dienstversie per koppeling ✔ (`connectors/base.py:125`); incidentlink pas met Hub-events (P3-07); echte runs op de NAS Geblokkeerd |
+| N3 | I04 §1 "Vooraf": poort 38081 op hostconflict, één dataset naar `/appdata`, optioneel `/media` alleen-lezen; preflight "herstelbare back-up + exacte image-pin" | **Geblokkeerd** (D03, D05) / MSO-kant **Bestaand** | `deploy/allinone/Dockerfile:79-81`; `/media` alleen lezen (`features/torrent/storage.py:6-9`, `test_torrent_engine.py::test_storage_hardlink_scan_read_only`); pin op digest pas met manifest (P3-05) |
+| N4 | I04 §3 GO/NO-GO (start, auth, persistent na herstart, poort, metrics, back-up+herstel, rolrechten; NO-GO o.a. onveilige WAN-blootstelling) | **Bestaand (Sim)** / live **Geblokkeerd** | alles-in-één scenario 2–5 (`docs/test-evidence/allinone-report.md`); rollen P10; MSO publiceert alleen 38081 en opent geen tunnel; echte firewall/WAN = D03 |
+| N5 | I04 §4 Terugdraaien 1–6 | **Onvolledig** | (1) automatisering uit = alleen-lezen/pauze ✔ (`state.py:41-72`, `api/foundation.py:293-305`); (2) audit bewaren ✔ (nooit opgeruimd); (3) oude image + passend databestand: nu alleen via terminal (`docs/TRUENAS_CUSTOM_APP.md:88-98`) → P3-13 + P3-01; (4) credentials/clients controleren ✔ (`POST /api/v1/connectors/{id}/test`); (5) incidentrapport = Hub; (6) data verwijderen los van app-stop = TrueNAS/gebruiker (**N.v.t.** voor MSO) |
+| N6 | A19 "Verplichte inventaris" 1–5 | **Geblokkeerd** (1: D07; 2: D03; 3: D02/D04/D05; 5: NAS) / punt 4 repo-kant **Bestaand** | punt 4 (welke apps praten met MSO en wat mogen ze): `INVENTARIS.md` §5, `connectors/mediaguard.py:42` (`ALLOWED_WRITES`), Newznab/Torznab-consumersleutels per afnemer |
+| N7 | A19 Acceptatie "echte service mocks/live parity en geen owner writes" | **Onvolledig** | geen owner writes ✔ (`test_mediaguard_integration.py::test_client_refuses_forbidden_write_routes_before_io`, `INTEGRATION_MEDIAGUARD.md` §1); parity mock ↔ MediaGuard → P3-09; parity voor SAB/qBit/Prowlarr alleen live (**Geblokkeerd**) |
+| N8 | EX12 "Backup stale" | MSO-kant **Bestaand (Sim)** | `GET /api/v1/overview` → `backup.stale`/`age_s` (`features/overview/api.py:362-367`), `test_overview_api.py::test_backup_and_mediaguard_connector`; de gate zelf is van de Hub; doorgeven via `/connector/v1/health` (P3-07) |
+| N9 | EX17/EX18 (prompt-injectie in log, vervalste risicoklasse) | MSO-kant **Bestaand** | de AI-adviseur kan alleen uitleggen/adviseren en maakt nooit change sets (`features/ai/__init__.py:1-6`; geen `changes.create` in `features/ai/`); het risico bepaalt de code: verwijderen ⇒ `toestemming_nodig`, uitschakelen nooit als advies (`changes.py:161-166`), nooit automatisch (`changes.py:243-256`) |
+| N10 | EX21 "AI credits op" / contract §1 "geen betaalde API-overage" | MSO-kant **Bestaand (Sim)** | standaard uit, budget €0 = uit, harde weigering vóór de aanroep, regelgebaseerde terugval: `test_ai_advisor.py::test_opt_in_default_off_and_deterministic`, `::test_enabled_but_zero_budget_stays_off`, `::test_budget_cap_refuses_before_calling`, `::test_api_error_and_refusal_fall_back`. Inschakelen pas na **D09** |
+| N11 | EX22 "Hub offline" / charter "falende module degradeert afzonderlijk" | **Bestaand** (MSO heeft geen Hub-afhankelijkheid) | eis voor P3-06/07: zonder Hub blijven lokale accounts, UI en automatisering werken; verlopen JWKS → alleen machine-toegang 401, nooit open toegang |
+| N12 | Contract §5 tijdlimieten + retry (exponentieel + jitter, max 3) | **Bestaand** (op jobniveau) | uitgaand 5 s connect / 15 s read (`connectors/base.py:243`); jobs: backoff + jitter, `max_attempts` standaard 3 (`jobs.py:7, :75, :166`); losse HTTP-aanroepen herhalen niet zelf |
+| N13 | `05_OPERATIES_EN_UPDATES` runbook "MSO provider outage" (observeren → isoleren → mitigeren → rollback → bewijs → oorzaak) | **Onvolledig** (docs) | inhoud bestaat verspreid (`docs/OPERATIONS.md:201` Koppelingsbewaking, `docs/USER_GUIDE.md:165-175` kapotte servers), maar niet in dit formaat → P3-13 |
+| N14 | `07_API_EN_EVENTSCHEMA` approval record (`preview_hash`, `resource_etag`, `expires_at`, `one_time_nonce`, `backup_checkpoint_id`) | **Ontbrekend** (alleen onveranderlijke preview + bewaakte statusovergang bestaan) | P3-08 (zie P13); `backup_checkpoint_id` **N.v.t.**: MSO draait per op terug via `observed_before`, niet via een back-up |
+| N15 | Besluiten (D-lijst) die MSO raken | **Open** | D01, D02, D03, D07 (al genoemd) + **D05, D06, D09, D16** (P1, P9, N10) |
+
+### 11.5 Gecorrigeerde bouwlijst P3 (alleen wijzigingen t.o.v. §9)
+
+| # | Correctie |
+|---|---|
+| P3-02 | De bestaande Systeem-kaart (versie, schema, migraties) uitbreiden met kanaal, git-sha, build-tijd en acceptatiestatus; geen nieuw scherm (W2) |
+| P3-04 | `workflow_dispatch` bestaat al: alleen `push` op `ccr-*` toevoegen, óf de eigenaar start `ci` handmatig (W1) |
+| P3-05 | Scope groter: ook `docs/TRUENAS_CUSTOM_APP.md:34, :59`, `docs/OPERATIONS.md:98, :242`, `docs/MIGRATION.md:68, :142`, `docs/TRUENAS_INSTALL.md` (→ alleen ontwikkeling) en `docs/HARDWARE_ACCEPTANCE.md` §0–§1 naar de Custom App (W8, P14) |
+| P3-06 | Plus eigen Ed25519-identiteit in `/appdata/secrets` (W7); MSO blijft zonder Hub werken (N11); Hub-routes nog in aanbouw (P8) |
+| P3-07 | Hergebruik de `Idempotency-Key`-optie van de web-client (P7); `force` nooit via de connector (P8); back-upveroudering in `health` (N8) |
+| P3-08 | Hergebruik `_Holder`/`_hold_lock` uit `test_change_safety.py` (W4); plus een echte race met twee HTTP-clients en een herhaling ná `applied`; plus een vervaltermijn op Hub-goedkeuringen (P13, N14). `preview_hash` over `target` + `risk` + `ops` zoals aangemaakt, **niet** over `impact` (dat wordt na de evaluatie bijgewerkt, `features/automation/engine.py:114-118`) |
+| P3-10 | Hergebruik header-index-`usage()`, schijfruimte uit `/system/health`, `backups.space_status()` en het torrent-opslagrapport (W3, P3); plus een retentiebesluit voor de 12 groeiende tabellen in het bestaande `retention.py` (P5) |
+| P3-12 | **Vervalt** als P1-bouwwerk (W5). Hooguit P2: `usenet.headerindex_run` direct na herstel inplannen + één zin in `docs/OPERATIONS.md` |
+| P3-13 | Plus het runbook "MSO provider outage" in het zesstappenformaat (N13) |
+
+Ongewijzigd bevestigd: P3-01, P3-03, P3-09, P3-11 en P3-14.
+
+### 11.6 Notatie van testverwijzingen
+
+Tien rijen noemen een test als `::naam` zonder bestandsnaam in dezelfde cel (in §1–§4 de rijen voor B05-002 "Scherm",
+B05-003 "Alleen … na goedkeuring" en "Acceptatie", B05-004 "Logretentie", B05-008 "Scherm" en "Acceptatie", B05-009
+"Action ownership", EX06, EX40, EX41). Alle tests bestaan; de bestanden zijn respectievelijk `test_usenet_stagelog.py`,
+`test_usenet_categories.py` (2×), `test_maintenance.py`, `test_costs_analysis.py` (2×), `test_mediaguard_integration.py`
+(B05-009, EX06), `test_usenet_autopilot_servers.py` en `test_torrent_engine.py`.
+
+### 11.7 Uitgevoerde controles (deze lezing)
+
+| Commando (vanuit de repo-root tenzij anders) | Uitkomst |
+|---|---|
+| `python3 -I <scratch>/check_tests.py .` + celgebonden variant | 68/68 testnamen bestaan; 1 verkeerd bestand (P11), 10 zonder bestand in de cel (§11.6) |
+| `python3 -I <scratch>/check_lines.py . docs/platform-v2/DELTA_MATRIX.md` (en idem `EVIDENCE.json`) | 91 bestand:regel-verwijzingen opengeslagen; alle bestaan. De 6 "niet gevonden" zijn bestanden die de matrix zelf als *ontbrekend* noemt (`deploy/truenas/CUSTOM_APP.md`, het manifest, `release/digests.json`, `THIRD_PARTY.md`, `tests/stack/mediaguard_contract.py`, jelly-leon-platform-EVIDENCE) |
+| `python3 -I <scratch>/routes2.py apps/core/mso` (AST) | 211 routes, 7 zonder `require()` — gelijk aan `INVENTARIS.md` §15 |
+| `gh api "repos/lvos04/media-source-optimizer/actions/runs?per_page=100"`; `gh api repos/lvos04/media-source-optimizer --jq .default_branch` | 9 runs, alle `release`, alle success; 0 `ci`; standaardbranch `ccr-17c40d68-3nxnlb` |
+| `docker buildx imagetools inspect` op `media-source-optimizer:1.6.0`, `:1.5.0`, `mediaguard-core:1.2.2`, `media-source-optimizer-core:1.6.0`; `git ls-remote --tags origin` | `sha256:9bcdec69…f3da`, `sha256:7ee5cb5e…6be2`, `sha256:a8daf269…bc2b` (publiek); `-core` 401 (privé); `v1.6.0` → `018b119` — gelijk aan `INVENTARIS.md` §1/§16 |
+| `cd apps/core && MSO_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres nice -n 10 ../../.venv/bin/python -m pytest -q -p no:warnings -p no:cacheprovider` met de 16 node-ID's hieronder | **16 geslaagd, 0 mislukt, 0 fouten, 0 overgeslagen**, 12,8 s (2026-11-09 09:39 UTC); daarna geen `mso*`-database achtergebleven |
+
+De 16 tests: `test_maintenance.py::test_backup_excludes_refetchable_data_and_resyncs_after_restore`,
+`test_change_safety.py::test_apply_and_rollback_refuse_while_another_holds_the_change`, `::test_status_transitions_are_guarded`,
+`::test_rollback_verification_failure_is_not_reported_as_rolled_back`, `test_usenet_headerindex.py::test_storage_budget_stops_and_alerts`,
+`test_overview_api.py::test_backup_and_mediaguard_connector`, `test_ai_advisor.py::test_budget_cap_refuses_before_calling`,
+`::test_api_error_and_refusal_fall_back`, `::test_enabled_but_zero_budget_stays_off`,
+`test_torrent_autopilot.py::test_prevention_policy_refuses_media_patterns`, `::test_prevention_unsupported_on_old_qbittorrent`,
+`test_overview_goals.py::test_stuck_torrent_is_not_a_recent_failure_forever`, `test_foundation.py::test_first_run_setup_creates_admin_once`,
+`::test_role_enforcement`, `test_usenet_categories.py::test_apply_detects_drift_and_failed_writes`,
+`test_usenet_disable_failing.py::test_verification_failure_restores_and_nothing_to_disable`.
+De volledige suite is in deze lezing **niet** opnieuw gedraaid (geen codewijziging); de 789/789 uit de eerste lezing is
+niet door deze controle herhaald. Niets hiervan is een test op echte TrueNAS-hardware of tegen echte diensten.
+
+### 11.8 EVIDENCE.json
+
+Statussen eerlijk bevonden en **ongewijzigd**: nergens `Gereed`/`Geslaagd`; B05-007 `Geblokkeerd`, B05-009 `Niet
+gestart`, de rest `Bezig`; overal NIET GEVALIDEERD voor de echte NAS. Aangepast:
+- `validatie` bevat alleen nog de waarden uit contract §11, gescheiden door "; " (bv. `Sim-getest; NIET GEVALIDEERD
+  (echte NAS)`); de vrije toelichting staat nu in `opmerking` (ADR-0004). B05-008 krijgt er `NIET GEVALIDEERD (account)`
+  bij (echte providerfacturen/-accounts). B05-009 krijgt alleen `NIET GEVALIDEERD (echte NAS)`: er is niets gebouwd.
+- `bewijs`/`blokkade` volgen W1–W8 en P1–P14: o.a. B05-001 + D05/D06 en `workflow_dispatch` bestaat; B05-004 +
+  header-index-budget en het retentiegat (P5); B05-009 + gelijktijdigheidstests, unieke `dedupe_key`-index en de status
+  van de Hub-afhankelijkheid; B05-010 zonder P3-12, + D16.

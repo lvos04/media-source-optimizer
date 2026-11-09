@@ -18,6 +18,11 @@ regel nagelopen. De routetabel (§3) is met een eigen AST-extractie vergeleken: 
 bestand:regel en dezelfde minimale rol; alle genoemde testnamen bestaan; tags, release-run, GHCR-digests en
 base-image-digests zijn opnieuw opgevraagd; de testsuite en de OpenAPI-export zijn opnieuw gedraaid (§15).
 
+**Tweede lezing (2026-11-09):** correcties staan in `DELTA_MATRIX.md` §11. Voor dit document relevant: `ci.yaml`
+triggert ook op `pull_request` en heeft `workflow_dispatch` (`.github/workflows/ci.yaml:16-20`; §1 en §10 hieronder
+noemen alleen `main`/`v*`/PR); de header-index wordt na herstel opnieuw opgebouwd (`backups.py:377-394`, §7); het
+Systeem-scherm toont al versie, schema en migraties; een eigen Ed25519-identiteit (contract §3) ontbreekt.
+
 Legenda bij elk onderdeel: **[INTEGRITEIT]**, **[ROLLBACK]**, **[MONITORING]** = levert die functie al; mag in het
 V2-programma **nooit dubbel gebouwd, vervangen of uitgeschakeld** worden (contract §12, 03_RISICO_AUTONOMIE). De Hub
 leest deze onderdelen alleen uit of delegeert naar hun bestaande routes.

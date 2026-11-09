@@ -1,0 +1,163 @@
+{
+ "zoom200": {
+  "overzicht": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "zoeken": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "usenet-providers": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "nzb-indexers": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "torrent-indexers": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "torrentclient": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "downloads": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "ontbrekend": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "mediaguard": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "opslag": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "kosten": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "automatisering": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "voetafdruk": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "logs": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "instellingen": {
+   "overloop_px": 0,
+   "h1": 1
+  },
+  "systeem": {
+   "overloop_px": 0,
+   "h1": 1
+  }
+ },
+ "forced": {
+  "overzicht-390": {
+   "forced": true,
+   "statusbadges": 10,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 2,
+   "gestippeld": 2,
+   "focus": {
+    "el": "button",
+    "outline": "solid 3px"
+   }
+  },
+  "overzicht-1440": {
+   "forced": true,
+   "statusbadges": 10,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 2,
+   "gestippeld": 2,
+   "focus": {
+    "el": "a",
+    "outline": "solid 3px"
+   }
+  },
+  "downloads-390": {
+   "forced": true,
+   "statusbadges": 7,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 1,
+   "gestippeld": 1,
+   "focus": {
+    "el": "button",
+    "outline": "solid 3px"
+   }
+  },
+  "downloads-1440": {
+   "forced": true,
+   "statusbadges": 7,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 1,
+   "gestippeld": 1,
+   "focus": {
+    "el": "a",
+    "outline": "solid 3px"
+   }
+  },
+  "kosten-390": {
+   "forced": true,
+   "statusbadges": 4,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 4,
+   "gestippeld": 4,
+   "focus": {
+    "el": "button",
+    "outline": "solid 3px"
+   }
+  },
+  "kosten-1440": {
+   "forced": true,
+   "statusbadges": 4,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 4,
+   "gestippeld": 4,
+   "focus": {
+    "el": "a",
+    "outline": "solid 3px"
+   }
+  },
+  "ontbrekend-390": {
+   "forced": true,
+   "statusbadges": 0,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 0,
+   "gestippeld": 0,
+   "focus": {
+    "el": "button",
+    "outline": "solid 3px"
+   }
+  },
+  "ontbrekend-1440": {
+   "forced": true,
+   "statusbadges": 0,
+   "zonder_rand": [],
+   "onbekend_of_verouderd": 0,
+   "gestippeld": 0,
+   "focus": {
+    "el": "a",
+    "outline": "solid 3px"
+   }
+  }
+ },
+ "beweging": {
+  "overzicht": [],
+  "downloads": [],
+  "automatisering": []
+ }
+}

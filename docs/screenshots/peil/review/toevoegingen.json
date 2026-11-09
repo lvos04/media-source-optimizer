@@ -1,0 +1,223 @@
+{
+ "hub": {
+  "oorspronkelijk": "",
+  "ongeldig": [
+   {
+    "waarde": "http://localhost:30080",
+    "http": 422
+   },
+   {
+    "waarde": "http://127.0.0.1:30080",
+    "http": 422
+   },
+   {
+    "waarde": "ftp://hub.thuis.test",
+    "http": 422
+   },
+   {
+    "waarde": "http://hub.thuis.test:30080/pad",
+    "http": 422
+   },
+   {
+    "waarde": "http://gebruiker:geheim@hub.thuis.test",
+    "http": 422
+   },
+   {
+    "waarde": "geen-url",
+    "http": 422
+   }
+  ],
+  "desktop": {
+   "zichtbaar": 1,
+   "tekst": "Terug naar de Hub",
+   "href": "http://hub.thuis.test:30080",
+   "target": null,
+   "b": 231,
+   "h": 44,
+   "eersteInDialoog": null
+  },
+  "mobiel": {
+   "zichtbaar": 1,
+   "tekst": "Terug naar de Hub",
+   "href": "http://hub.thuis.test:30080",
+   "target": null,
+   "b": 362,
+   "h": 44,
+   "eersteInDialoog": "Terug naar de Hub"
+  },
+  "teruggezet": 200
+ },
+ "grafieken": [
+  {
+   "route": "/ontbrekend",
+   "breedte": 390,
+   "tabel": "grafiek-oorzaken-tabel",
+   "knop_voor": "Toon als tabel",
+   "knop_na": "Verberg tabel",
+   "rijen": 10,
+   "kolomkoppen": 11,
+   "caption": "Ontbrekend en mislukt per oorzaak (categorie en bron)"
+  },
+  {
+   "route": "/ontbrekend",
+   "breedte": 1440,
+   "tabel": "grafiek-oorzaken-tabel",
+   "knop_voor": "Toon als tabel",
+   "knop_na": "Verberg tabel",
+   "rijen": 10,
+   "kolomkoppen": 11,
+   "caption": "Ontbrekend en mislukt per oorzaak (categorie en bron)"
+  },
+  {
+   "route": "/usenet-providers",
+   "breedte": 390,
+   "tabel": "grafiek-ster-per-dag-tabel",
+   "knop_voor": "Toon als tabel",
+   "knop_na": "Verberg tabel",
+   "rijen": 14,
+   "kolomkoppen": 4,
+   "caption": "Downloads in '*' per dag",
+   "end": "9 nov 2026: 0 van 6 in '*'",
+   "home": "27 okt 2026: 0 van 0 in '*'",
+   "rechts": "28 okt 2026: 0 van 0 in '*'",
+   "esc": "",
+   "plot_label": "Laatste 7 dagen: 0 van 6 SABnzbd-downloads in '*' Gebruik de pijltjestoetsen om per dag te lezen."
+  },
+  {
+   "route": "/usenet-providers",
+   "breedte": 1440,
+   "tabel": "grafiek-ster-per-dag-tabel",
+   "knop_voor": "Toon als tabel",
+   "knop_na": "Verberg tabel",
+   "rijen": 14,
+   "kolomkoppen": 4,
+   "caption": "Downloads in '*' per dag",
+   "end": "9 nov 2026: 0 van 6 in '*'",
+   "home": "27 okt 2026: 0 van 0 in '*'",
+   "rechts": "28 okt 2026: 0 van 0 in '*'",
+   "esc": "",
+   "plot_label": "Laatste 7 dagen: 0 van 6 SABnzbd-downloads in '*' Gebruik de pijltjestoetsen om per dag te lezen."
+  }
+ ],
+ "controles": [
+  {
+   "naam": "zonder instelling: geen link (1440)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "naam": "zonder instelling: geen link in de Meer-sheet (390)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "naam": "ongeldig adres geweigerd: http://localhost:30080",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "naam": "ongeldig adres geweigerd: http://127.0.0.1:30080",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "naam": "ongeldig adres geweigerd: ftp://hub.thuis.test",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "naam": "ongeldig adres geweigerd: http://hub.thuis.test:30080/pad",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "naam": "ongeldig adres geweigerd: http://gebruiker:geheim@hub.thuis.test",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "naam": "ongeldig adres geweigerd: geen-url",
+   "ok": true,
+   "detail": "HTTP 422"
+  },
+  {
+   "naam": "na ongeldige pogingen nog steeds geen link",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "naam": "geldig adres opgeslagen",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "naam": "link zichtbaar in de zijbalk (1440)",
+   "ok": true,
+   "detail": "{\"zichtbaar\":1,\"tekst\":\"Terug naar de Hub\",\"href\":\"http://hub.thuis.test:30080\",\"target\":null,\"b\":231,\"h\":44,\"eersteInDialoog\":null}"
+  },
+  {
+   "naam": "link wijst naar het ingestelde adres, zelfde tabblad",
+   "ok": true,
+   "detail": "http://hub.thuis.test:30080 target=null"
+  },
+  {
+   "naam": "link ≥ 44 px hoog (1440)",
+   "ok": true,
+   "detail": "231×44"
+  },
+  {
+   "naam": "link zichtbaar in de Meer-sheet (390)",
+   "ok": true,
+   "detail": "{\"zichtbaar\":1,\"tekst\":\"Terug naar de Hub\",\"href\":\"http://hub.thuis.test:30080\",\"target\":null,\"b\":362,\"h\":44,\"eersteInDialoog\":\"Terug naar de Hub\"}"
+  },
+  {
+   "naam": "link ≥ 44 px hoog (390)",
+   "ok": true,
+   "detail": "362×44"
+  },
+  {
+   "naam": "leeg maken mag",
+   "ok": true,
+   "detail": "HTTP 200"
+  },
+  {
+   "naam": "leeg: link weer weg",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "naam": "grafiek-oorzaken-tabel 390: tabel opent met rijen",
+   "ok": true,
+   "detail": "10 rijen, 11 kolommen, \"Ontbrekend en mislukt per oorzaak (categorie en bron)\""
+  },
+  {
+   "naam": "grafiek-oorzaken-tabel 1440: tabel opent met rijen",
+   "ok": true,
+   "detail": "10 rijen, 11 kolommen, \"Ontbrekend en mislukt per oorzaak (categorie en bron)\""
+  },
+  {
+   "naam": "grafiek-ster-per-dag-tabel 390: toetsenbord leest voor",
+   "ok": true,
+   "detail": "27 okt 2026: 0 van 0 in '*' | 28 okt 2026: 0 van 0 in '*' | 9 nov 2026: 0 van 6 in '*'"
+  },
+  {
+   "naam": "grafiek-ster-per-dag-tabel 390: tabel opent met rijen",
+   "ok": true,
+   "detail": "14 rijen, 4 kolommen, \"Downloads in '*' per dag\""
+  },
+  {
+   "naam": "grafiek-ster-per-dag-tabel 1440: toetsenbord leest voor",
+   "ok": true,
+   "detail": "27 okt 2026: 0 van 0 in '*' | 28 okt 2026: 0 van 0 in '*' | 9 nov 2026: 0 van 6 in '*'"
+  },
+  {
+   "naam": "grafiek-ster-per-dag-tabel 1440: tabel opent met rijen",
+   "ok": true,
+   "detail": "14 rijen, 4 kolommen, \"Downloads in '*' per dag\""
+  }
+ ],
+ "samenvatting": {
+  "controles": 23,
+  "mislukt": 0
+ }
+}

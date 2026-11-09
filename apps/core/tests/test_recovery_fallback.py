@@ -42,7 +42,8 @@ def _search(monkeypatch: Any, items: list[Any]) -> list[Any]:
 def sab(app: Any, serve: Any, admin: Any) -> Any:
     from msomocks import sabnzbd as mock
 
-    mock_app = mock.create_app(api_key=SAB_KEY)
+    # SABnzbd files a job with an unknown category under '*' (1.6.0 mock); MSO's own category must exist there
+    mock_app = mock.create_app(api_key=SAB_KEY, categories="tv,tv-anime,movies,movies-anime,software,mso-tv")
     url = serve(mock_app)
     r = admin.put("/api/v1/connectors/sabnzbd", json={"url": url, "enabled": True, "secrets": {"api_key": SAB_KEY}})
     assert r.status_code == 200, r.text

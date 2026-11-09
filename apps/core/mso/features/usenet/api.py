@@ -22,6 +22,7 @@ from mso.domain.categories import MEDIA_CATEGORIES
 from mso.features.usenet import (
     articles,
     autoheal,
+    categories,
     history,
     metrics,
     nzbs,
@@ -252,6 +253,26 @@ def sab_category_map(body: CategoryMapIn, p: Principal = Depends(require("admin"
             detail={"before": changed["usenet.category_map"][0], "after": lines},
         )
     return sab_categories(p)
+
+
+# ---- 1.6.0: why downloads land in '*' (categories.py) + the one proposal for case (a)
+@router.get("/categories/diagnosis")
+def categories_diagnosis(refresh: bool = False, p: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+    if refresh:
+        _limit("usenet-categories-refresh", p.actor, 6)
+    return categories.diagnose(refresh=refresh)
+
+
+class CategoryProposalIn(BaseModel):
+    names: list[str] | None = Field(None, max_length=20)
+
+
+@router.post("/categories/propose")
+def categories_propose(
+    body: CategoryProposalIn | None = None, p: Principal = Depends(require("admin"))
+) -> dict[str, Any]:
+    _limit("usenet-categories-propose", p.actor, 6)
+    return categories.propose(body.names if body else None, p.actor)
 
 
 class RefreshBody(BaseModel):

@@ -1,8 +1,9 @@
 """Compatibility matrix: every MediaGuard route MSO uses (and the ones it deliberately never uses).
 
 Each entry was verified by reading the read-only reference source ``lvos04/media-guard-ultimate`` at commit
-``e92c2ac`` (file + function in ``ref``). The live column comes from the last capability probe of the
-configured instance (OpenAPI document, or route probing when OpenAPI is unavailable).
+``e92c2ac`` (file + function in ``ref``; a commit in brackets marks routes verified against a later commit). The
+live column comes from the last capability probe of the configured instance (OpenAPI document, or route probing
+when OpenAPI is unavailable).
 """
 
 from __future__ import annotations
@@ -187,6 +188,49 @@ ROUTES: list[RouteSpec] = [
         "komt op de blocklist van Sonarr/Radarr; MSO verwijdert de torrent zelf.",
         "mediaguard/instances/manage.py::queue_remove (aec9e64)",
     ),
+    # 1.6.0: read-only routes for the SABnzbd-category diagnosis ('*'). Optional: a 403/404 only hides that part.
+    RouteSpec(
+        "instances_list",
+        "GET",
+        "/api/v1/instances",
+        "viewer",
+        "read",
+        "Sonarr/Radarr-instanties",
+        "Welke instanties er zijn (id, type, naam, MediaGuard-downloadcategorie); URL's en sleutels bewaart MSO niet.",
+        "mediaguard/instances/api.py::list_all (9bed266)",
+    ),
+    RouteSpec(
+        "instance_download_clients",
+        "GET",
+        "/api/v1/instances/{instance_id}/download-clients",
+        "viewer",
+        "read",
+        "Downloadclients per instantie",
+        "Welke SABnzbd-categorie Sonarr/Radarr meestuurt (tvCategory/movieCategory). MediaGuard maskeert "
+        "geheimen; MSO bewaart alleen naam, type, aan/uit en categorie.",
+        "mediaguard/instances/manage.py::_register_provider_routes p_list (9bed266)",
+    ),
+    RouteSpec(
+        "instance_health",
+        "GET",
+        "/api/v1/instances/{instance_id}/health",
+        "viewer",
+        "read",
+        "Gezondheidsmeldingen Sonarr/Radarr",
+        "Meldingen van Sonarr/Radarr zelf over downloadclient, categorie, import en paden (geredigeerd).",
+        "mediaguard/instances/manage.py::health (9bed266)",
+    ),
+    RouteSpec(
+        "provisioning_config",
+        "GET",
+        "/api/v1/provisioning/config",
+        "viewer",
+        "read",
+        "Inrichting (categorieën)",
+        "Alleen de categorie per instantie en of MediaGuard de downloadclients inricht; adressen, "
+        "gebruikersnamen en geheimen laat MSO weg.",
+        "mediaguard/provisioning/api.py::get_config (9bed266)",
+    ),
 ]
 
 NEVER_USED: list[dict[str, str]] = [
@@ -221,9 +265,20 @@ NEVER_USED: list[dict[str, str]] = [
         "why": "Fork-hooks zijn uitsluitend voor de Sonarr/Radarr-forks.",
     },
     {
+        "method": "POST|PUT|PATCH|DELETE",
+        "path": "/api/v1/instances/{instance_id}/download-clients…",
+        "why": "Downloadclients aanmaken, wijzigen of testen is MediaGuard-inrichting; MSO leest alleen.",
+    },
+    {
+        "method": "PUT|POST",
+        "path": "/api/v1/provisioning/config|plan|apply|drift-check",
+        "why": "De inrichting (ook de categorie per instantie) beheert de gebruiker in MediaGuard zelf.",
+    },
+    {
         "method": "*",
         "path": "/api/v1/instances|library|profiles|recovery|encoding|…",
-        "why": "Bibliotheek, import, AV1 en bestandsvervanging zijn exclusief MediaGuard.",
+        "why": "Bibliotheek, import, AV1 en bestandsvervanging zijn exclusief MediaGuard (MSO leest alleen de "
+        "instantie-routes hierboven).",
     },
 ]
 

@@ -1,0 +1,104 @@
+// 1.6.0 WP-C: why SABnzbd puts downloads in its default category '*' and where to fix it.
+export const messages = {
+  "usenetcat.title": "Waarom staan downloads in '*'?",
+  "usenetcat.refresh": "Opnieuw controleren",
+  "usenetcat.refreshed": "SABnzbd-categorieën opnieuw gecontroleerd",
+  "usenetcat.checked": "gecontroleerd {when}",
+  "usenetcat.why": "SABnzbd zet een download in zijn standaardcategorie '*' als hij geen categorie meekrijgt of de meegestuurde categorie niet kent. Sonarr/Radarr zien zulke downloads dan niet terug (geen automatische import, geen afhandeling van mislukte downloads) en MediaGuard levert en ruimt ze niet op.",
+
+  // verdicts
+  "usenetcat.verdict.a": "SABnzbd kent {cats} niet. Sonarr/Radarr sturen die categorie wel mee, dus zet SABnzbd die downloads in '*' en zien Sonarr/Radarr ze niet terug: geen automatische import en geen afhandeling van mislukte downloads (blokkeren en opnieuw zoeken).",
+  "usenetcat.verdict.b": "Bij {count} downloadclient(s) sturen Sonarr/Radarr geen categorie mee. SABnzbd zet die downloads daarom in '*'.",
+  "usenetcat.verdict.c": "De categorieën kloppen: SABnzbd kent alles wat Sonarr/Radarr meesturen. Toch kwamen er de laatste {days} dagen {n} downloads in '*'; die komen van een andere bron.",
+  "usenetcat.verdict.cQueue": "De categorieën kloppen: SABnzbd kent alles wat Sonarr/Radarr meesturen. De laatste {days} dagen kwam er geen afgeronde download in '*', maar nu staan er {n} in '*' in de SABnzbd-wachtrij; die komen van een andere bron.",
+  "usenetcat.verdict.ok": "Alles klopt: SABnzbd kent elke categorie die Sonarr/Radarr meesturen, en de laatste {days} dagen kwam er geen download in '*'.",
+  "usenetcat.verdict.noStar": "De laatste {days} dagen kwam er geen download in '*'. Welke categorie Sonarr/Radarr meesturen, kan MSO niet zien: {reason}.",
+  "usenetcat.verdict.unknownMg": "MSO kan niet zien welke categorie Sonarr/Radarr meesturen: {reason}. Controleer het zelf in Sonarr/Radarr (Instellingen → Download Clients → SABnzbd → veld 'Category') en kijk of die categorie in SABnzbd bestaat (Config → Categories).",
+  "usenetcat.verdict.unknownSab": "SABnzbd is niet bereikbaar, dus MSO kan de categorieën niet vergelijken: {error}",
+  "usenetcat.verdict.noSab": "SABnzbd is niet gekoppeld. Koppel SABnzbd onder Koppelingen om dit te controleren.",
+  "usenetcat.mgReason.niet_gekoppeld": "MediaGuard is niet gekoppeld (rol viewer is genoeg)",
+  "usenetcat.mgReason.offline": "MediaGuard is niet bereikbaar",
+  "usenetcat.mgReason.geen_toegang": "de MediaGuard-koppeling heeft geen toegang tot deze gegevens",
+  "usenetcat.mgReason.route_ontbreekt": "deze MediaGuard-versie biedt deze gegevens nog niet",
+  "usenetcat.mgReason.niet_gevonden": "MediaGuard vond de instantie niet",
+  "usenetcat.mgReason.fout": "MediaGuard gaf een fout",
+  "usenetcat.mgReason.geen_instanties": "MediaGuard kent geen Sonarr/Radarr-instantie met een uit te lezen SABnzbd-downloadclient",
+
+  // case (a)
+  "usenetcat.a.item": "gestuurd door {instances} · nieuwe map {folder}",
+  "usenetcat.a.probable": "Waarschijnlijk: MSO kon de downloadclients niet uitlezen; dit is de categorie die MediaGuard voor deze instantie instelt.",
+  "usenetcat.a.fixTitle": "Oplossing: de categorie aanmaken in SABnzbd",
+  "usenetcat.a.fixBody": "MSO kan de ontbrekende categorie in SABnzbd aanmaken, met een eigen downloadmap met dezelfde naam (daar zoekt MediaGuard). Nabewerking, script en prioriteit volgen '*'. Je ziet vooraf precies wat er verandert; het gebeurt pas na jouw goedkeuring, ook in Autopilot.",
+  "usenetcat.a.warning": "Let op: daarna ruimt MediaGuard downloads in die categorie op volgens zijn eigen regels (geïmporteerd of afgehandeld: meteen; nooit geïmporteerd: na 7 dagen; eerst naar de MediaGuard-prullenbak). Dat deel kan MSO niet terugdraaien. Downloads die nu al in '*' staan, blijven daar.",
+  "usenetcat.a.alternative": "Liever niet? Kies dan in MediaGuard (Inrichting → Downloadclients, categorie per instantie) een categorie die SABnzbd al kent.",
+  "usenetcat.a.propose": "Voorstel maken: {cats} aanmaken",
+  "usenetcat.a.proposed": "Voorstel klaargezet; het wacht op goedkeuring",
+  "usenetcat.a.manual": "MSO zet deze naam niet zelf in SABnzbd (bijzondere tekens). Maak de categorie zelf aan in SABnzbd (Config → Categories) of kies in MediaGuard een andere categorie.",
+  "usenetcat.a.manualOnly": "MSO kan geen van deze categorieën zelf aanmaken; maak ze zelf aan in SABnzbd (Config → Categories).",
+  "usenetcat.a.declined": "Je hebt een voorstel voor {cats} eerder verworpen of teruggedraaid. MSO zet het daarom niet opnieuw klaar in 'Wacht op jou'; je kunt het hier wel zelf maken.",
+
+  // case (b)
+  "usenetcat.b.mediaguard": "{instance}: {client} stuurt geen categorie mee. Oplossen in MediaGuard: Inrichting → Downloadclients → categorie per instantie (bijvoorbeeld {expected}), daarna de inrichting toepassen. MediaGuard beheert deze downloadclient; een wijziging in Sonarr/Radarr zelf ziet MediaGuard als afwijking.",
+  "usenetcat.b.arr": "{instance}: {client} stuurt geen categorie mee. Oplossen in Sonarr/Radarr zelf: Instellingen → Download Clients → SABnzbd → veld 'Category' (bijvoorbeeld {expected}). MediaGuard beheert deze downloadclient niet.",
+  "usenetcat.b.unnamed": "de SABnzbd-downloadclient",
+  "usenetcat.b.noExample": "een categorie die SABnzbd kent",
+
+  // case (c)
+  "usenetcat.c.mso": "{n} daarvan stuurde MSO zelf.",
+  "usenetcat.c.other": "{n} kwamen van een andere bron: handmatig in SABnzbd toegevoegd, RSS in SABnzbd of een andere app.",
+  "usenetcat.c.queue": "Nu in de wachtrij in '*': {n}.",
+
+  // MSO's own sends
+  "usenetcat.mso.body": "MSO stuurt zelf downloads met categorie {cats}; SABnzbd kent die niet en zet ze in '*'. Dat is onschuldig: zo worden ze bewust niet automatisch geïmporteerd. Wil je dat Sonarr/Radarr ze oppakken, kies dan bij Instellingen → Herstel → 'Downloadcategorie bij handmatig versturen' de MediaGuard-categorie.",
+
+  // per day
+  "usenetcat.days.title": "Downloads in '*' per dag",
+  "usenetcat.days.summary": "Laatste {days} dagen: {star} van {total} SABnzbd-downloads in '*'",
+  "usenetcat.days.bar": "{day}: {star} van {total} in '*'",
+  "usenetcat.days.legendStar": "in '*'",
+  "usenetcat.days.legendTotal": "alle SABnzbd-downloads",
+  "usenetcat.days.none": "Nog geen SABnzbd-downloads in de laatste {days} dagen.",
+
+  // per instance
+  "usenetcat.inst.title": "Per Sonarr/Radarr-instantie",
+  "usenetcat.inst.instance": "Instantie",
+  "usenetcat.inst.sends": "Stuurt categorie",
+  "usenetcat.inst.inSab": "In SABnzbd",
+  "usenetcat.inst.managed": "Beheerd door",
+  "usenetcat.inst.health": "Meldingen",
+  "usenetcat.inst.noSab": "geen SABnzbd-downloadclient",
+  "usenetcat.inst.unreadable": "downloadclients niet uit te lezen: {reason}",
+  "usenetcat.inst.probable": "waarschijnlijk",
+  "usenetcat.inst.none": "Geen Sonarr/Radarr-instanties gevonden in MediaGuard.",
+  "usenetcat.status.ok": "bestaat",
+  "usenetcat.status.ontbreekt_in_sab": "ontbreekt",
+  "usenetcat.status.geen_categorie": "geen categorie",
+  "usenetcat.status.uit": "uitgeschakeld",
+  "usenetcat.status.onbekend": "onbekend",
+  "usenetcat.managed.mediaguard": "MediaGuard",
+  "usenetcat.managed.arr": "Sonarr/Radarr zelf",
+  "usenetcat.health.source": "melding van {app} via MediaGuard",
+  "usenetcat.health.cached": "laatst bekende melding van {app} via MediaGuard",
+  "usenetcat.health.none": "geen meldingen over downloadclient, categorie of import",
+  "usenetcat.health.DownloadClientCheck": "Downloadclient niet bereikbaar",
+  "usenetcat.health.DownloadClientStatusCheck": "Eén of meer downloadclients geven fouten",
+  "usenetcat.health.DownloadClientSortingCheck": "Sortering in de downloadclient staat aan voor deze categorie",
+  "usenetcat.health.DownloadClientRootFolderCheck": "De downloadclient zet bestanden in een mediamap",
+  "usenetcat.health.DownloadClientRemovesCompletedDownloadsCheck": "De downloadclient ruimt voltooide downloads zelf op",
+  "usenetcat.health.ImportMechanismCheck": "Automatisch importeren van voltooide downloads staat uit",
+  "usenetcat.health.RemotePathMappingCheck": "Het downloadpad van de client is niet te vinden (remote path mapping)",
+
+  // history of the proposal
+  "usenetcat.applied": "Aangemaakt in SABnzbd op {when}: {cats}.",
+  "usenetcat.rolledBack": "Aangemaakt en weer teruggedraaid op {when}: {cats}.",
+  "usenetcat.openChanges": "Naar Wijzigingen",
+
+  // note on the Downloads page
+  "usenetcat.note.a": "Oorzaak: SABnzbd kent {cats} niet, die Sonarr/Radarr wel meesturen.",
+  "usenetcat.note.b": "Oorzaak: bij {count} downloadclient(s) sturen Sonarr/Radarr geen categorie mee.",
+  "usenetcat.note.c": "De categorieën kloppen; deze downloads komen van een andere bron (bijvoorbeeld MSO's eigen verzendingen of handmatig toegevoegd).",
+  "usenetcat.note.ok": "De categorieën kloppen nu; dit zijn oudere downloads.",
+  "usenetcat.note.noStar": "De laatste dagen kwam er niets meer in '*'; dit zijn oudere downloads.",
+  "usenetcat.note.unknown": "MSO kan de oorzaak nog niet vaststellen.",
+  "usenetcat.note.link": "Uitleg en oplossing",
+};

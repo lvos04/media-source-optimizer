@@ -27,6 +27,15 @@ Faults (``create_app(**faults)`` / ``--fault key=value``):
 - ``status_mode=fullstatus|none``  only answer the old ``fullstatus`` mode / neither (old SABnzbd)
 - ``test_server=unsupported|locked``  ``mode=config&name=test_server`` answers "not implemented" / "Configuration
                           locked" (otherwise like SABnzbd 5.1: masked password + ``server`` → stored password)
+- ``categories=tv,movies``  the categories besides '*' (default: tv, tv-anime, movies, movies-anime, software)
+- ``config_locked=1``     set_config/del_config answer "Configuration locked" (SABnzbd ``cfg.configlock``)
+
+Categories (1.6.0) behave like SABnzbd 4.x/5.x: ``get_cats`` lists '*' first, ``get_config&section=categories``
+returns ``[{name, order, pp, script, dir, newzbin, priority}]`` (''keyword'' = one category), ``set_config
+&section=categories&keyword=<name>`` creates/updates a category with a lower-case name (``api.handle_cat_api``),
+``del_config&section=categories&keyword=<name>`` removes it, ``get_config&section=misc&keyword=complete_dir``
+returns that folder. A job sent with a category SABnzbd does not know lands in '*' (``misc.cat_to_opts``:
+"Ignore the input category if we don't know it"); ``ignore_set_config=1`` also makes del_config a no-op.
 Tests can reach the live state through ``app.state.sab`` (a ``SabState``).
 """
 
@@ -45,6 +54,16 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 VERSION = "4.3.3"
 CATEGORIES = ["*", "tv", "tv-anime", "movies", "movies-anime", "software"]
+COMPLETE_DIR = "/downloads/complete"
+DEFAULT_PRIORITY = -100  # SABnzbd: category priority "Default" (= that of '*')
+
+
+def _category(name: str, order: int) -> dict[str, Any]:
+    """SABnzbd ``ConfigCat.get_dict``; '*' gets the defaults of ``config.get_categories``."""
+    if name == "*":
+        return {"name": "*", "order": 0, "pp": "3", "script": "None", "dir": "", "newzbin": "", "priority": 0}
+    return {"name": name, "order": order, "pp": "", "script": "Default", "dir": "", "newzbin": "",
+            "priority": DEFAULT_PRIORITY}
 
 FAIL_MESSAGES = {
     "expired": "Failed login for server news.eweka.test: 481 Account expired",
@@ -136,8 +155,11 @@ def _history_for(scenario: str) -> list[dict[str, Any]]:
 
 
 class SabState:
-    def __init__(self, scenario: str = "mixed") -> None:
+    def __init__(self, scenario: str = "mixed", categories: list[str] | None = None) -> None:
         self.lock = threading.Lock()
+        names = ["*", *(c for c in (categories if categories is not None else CATEGORIES) if c != "*")]
+        self.categories: list[dict[str, Any]] = [_category(n, i) for i, n in enumerate(names)]
+        self.complete_dir = COMPLETE_DIR
         self.history: list[dict[str, Any]] = _history_for(scenario)
         self.archive: list[dict[str, Any]] = []  # jobs removed from the history (SABnzbd ≥ 4 archives them)
         self.queue: list[dict[str, Any]] = []
@@ -317,6 +339,33 @@ class SabState:
             )
         return {"status": {"paused": False, "servers": servers, "warnings": list(self.warnings)}}
 
+    # ---- categories (config.get_ordered_categories / misc.cat_to_opts)
+    def ordered_categories(self) -> list[dict[str, Any]]:
+        star = [c for c in self.categories if c["name"] == "*"]
+        rest = sorted((c for c in self.categories if c["name"] != "*"), key=lambda c: c["order"])
+        return [dict(c) for c in star + rest]
+
+    def category(self, name: str) -> dict[str, Any] | None:
+        return next((c for c in self.categories if c["name"] == name), None)
+
+    def resolve_cat(self, cat: str | None) -> str:
+        """The category SABnzbd really files a new job under: unknown → '*'."""
+        name = (cat or "").strip().lower()
+        if name in ("", "none", "default"):
+            return "*"
+        return name if self.category(name) is not None else "*"
+
+    def add_category(self, name: str, **fields: Any) -> dict[str, Any]:
+        name = name.lower()
+        cat = self.category(name)
+        if cat is None:
+            cat = _category(name, 0)
+            self.categories.append(cat)
+        for k in ("order", "pp", "script", "dir", "newzbin", "priority"):
+            if k in fields and fields[k] is not None:
+                cat[k] = int(fields[k]) if k in ("order", "priority") else str(fields[k])
+        return cat
+
     def add_history(self, slot: dict[str, Any]) -> None:
         with self.lock:
             self.history.append(slot)
@@ -387,9 +436,46 @@ def _parse_multipart(content_type: str, body: bytes) -> dict[str, tuple[str | No
     return out
 
 
+def _category_config(state: SabState, mode: str, params: dict[str, Any], *, ignore: bool,
+                     locked: bool) -> dict[str, Any]:
+    """get/set/del_config for ``section=categories`` (and ``misc`` reads), as ``sabnzbd/api.py`` answers them."""
+    section, keyword = params.get("section"), params.get("keyword")
+    if section == "misc":
+        if mode != "get_config":
+            return {"status": False, "error": "not implemented"}
+        misc = {"complete_dir": state.complete_dir, "download_dir": "/downloads/incomplete"}
+        return {"config": {"misc": {keyword: misc[keyword]} if keyword in misc else ({} if keyword else misc)}}
+    if mode in ("set_config", "del_config") and locked:
+        return {"status": False, "error": "Configuration locked"}
+    if mode == "get_config":
+        if keyword:
+            cat = state.category(str(keyword))
+            return {"config": {"categories": [dict(cat)]}} if cat else {"config": {}}
+        return {"config": {"categories": state.ordered_categories()}}
+    if mode == "set_config":
+        name = str(keyword or params.get("name") or "").lower()
+        if not name:
+            return {"config": {"categories": state.ordered_categories()}}
+        if ignore:
+            cat = state.category(name)
+            return {"config": {"categories": [dict(cat)]}} if cat else {"config": {}}
+        fields = {k: params[k] for k in ("order", "pp", "script", "dir", "newzbin", "priority") if k in params}
+        return {"config": {"categories": [dict(state.add_category(name, **fields))]}}
+    # del_config: SABnzbd answers status true, also for a name that does not exist
+    cat = state.category(str(keyword or ""))
+    if cat is not None and cat["name"] != "*" and not ignore:
+        state.categories.remove(cat)
+    return {"status": True}
+
+
 def create_app(**faults: Any) -> FastAPI:
     api_key = str(faults.get("api_key", "sabkey"))
-    state = SabState(str(faults.get("scenario", "mixed")))
+    cat_fault = faults.get("categories")
+    state = SabState(
+        str(faults.get("scenario", "mixed")),
+        [c.strip() for c in str(cat_fault).split(",") if c.strip()] if cat_fault is not None else None,
+    )
+    config_locked = str(faults.get("config_locked", "0")) in ("1", "true")
     ignore_set = str(faults.get("ignore_set_config", "0")) in ("1", "true")
     broken = str(faults.get("broken_mode", ""))
     status_mode = str(faults.get("status_mode", "status"))
@@ -449,6 +535,8 @@ def create_app(**faults: Any) -> FastAPI:
         if broken and mode == broken:
             return JSONResponse({"error": "internal"}, status_code=500)
         with state.lock:
+            if mode in ("get_config", "set_config", "del_config") and params.get("section") in ("categories", "misc"):
+                return ok(_category_config(state, mode, params, ignore=ignore_set, locked=config_locked))
             if mode == "queue":
                 slots = state.queue[int(params.get("start", 0)) :][: int(params.get("limit", 100))]
                 return ok(
@@ -541,7 +629,7 @@ def create_app(**faults: Any) -> FastAPI:
                 )
                 return ok({"status": True, "nzo_id": new_id})
             if mode == "get_cats":
-                return ok({"categories": CATEGORIES})
+                return ok({"categories": [c["name"] for c in state.ordered_categories()]})
             if mode in ("addurl", "addfile"):
                 if mode == "addurl":
                     url = params.get("name", "")
@@ -558,7 +646,7 @@ def create_app(**faults: Any) -> FastAPI:
                     {
                         "nzo_id": nzo,
                         "filename": title,
-                        "cat": params.get("cat") or "*",
+                        "cat": state.resolve_cat(params.get("cat")),
                         "status": "Queued",
                         "percentage": "0",
                         "mb": "1024.0",

@@ -1,24 +1,8 @@
 // Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/app/layout.tsx — internally versioned copy, see PROVENANCE.md
 import type { Metadata, Viewport } from "next";
-import localFont from "next/font/local";
-
 import "./globals.css";
 
-// Self-hosted, SIL Open Font License 1.1 (see app/fonts/OFL-*.txt). No external font requests.
-const inter = localFont({
-  src: [
-    { path: "./fonts/InterVariable-latin.woff2", weight: "100 900", style: "normal" },
-    { path: "./fonts/InterVariable-latin-ext.woff2", weight: "100 900", style: "normal" },
-  ],
-  variable: "--font-inter",
-  display: "swap",
-});
-const mono = localFont({
-  src: [{ path: "./fonts/JetBrainsMonoVariable-latin.woff2", weight: "100 800", style: "normal" }],
-  variable: "--font-mono",
-  display: "swap",
-});
-
+// Peil O-01: system font and system mono (ontwerptaal.css --font-sans/--font-mono); no web fonts, no font requests.
 export const metadata: Metadata = {
   title: { default: "Media Source Optimizer", template: "%s · MSO" },
   description: "Bronnen, indexers en downloads optimaliseren — companion van MediaGuard Ultimate",
@@ -43,7 +27,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             sets the resolved data-theme="dark|light" — without the attribute Peil is light. Key mso.theme unchanged. */}
         <script dangerouslySetInnerHTML={{ __html: "(function(){var r=document.documentElement,c='system';try{c=localStorage.getItem('mso.theme')||'system'}catch(e){}if(c!=='dark'&&c!=='light')c='system';var d=c==='dark'||(c==='system'&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'dark':'light';r.dataset.themeChoice=c})()" }} />
       </head>
-      <body className={`${inter.variable} ${mono.variable}`}>{children}</body>
+      <body>{children}</body>
     </html>
   );
 }

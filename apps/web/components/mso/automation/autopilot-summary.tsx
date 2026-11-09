@@ -47,7 +47,7 @@ function SyncLine({ syncs }: { syncs: CalmSyncs }) {
     : syncs.state === "idle" ? t("calm.syncIdle")
       : syncs.failed ? t("calm.syncOkRecovered", { count: num(syncs.failed) }) : t("calm.syncOk");
   return (
-    <Link href={syncs.link} className="row t-2" style={{ gap: 6, fontSize: 12.5 }} title={failing ? (syncs.failing_labels ?? syncs.failing_now).join(", ") : t("calm.syncLinkTitle")} data-testid="sync-line">
+    <Link href={syncs.link} className="row t-2" style={{ gap: 6 }} title={failing ? (syncs.failing_labels ?? syncs.failing_now).join(", ") : t("calm.syncLinkTitle")} data-testid="sync-line">
       <Dot tone={failing ? "danger" : syncs.state === "idle" ? "neutral" : "success"} />{text}{failing ? <ArrowRight className="ico ico-sm" aria-hidden="true" /> : null}
     </Link>
   );
@@ -79,7 +79,7 @@ function ActionRow({ a, onRollback }: { a: AutopilotAction; onRollback: (a: Auto
     <div className="list-row list-row--wrap" data-testid="autopilot-action">
       <span className={`list-icon ${tone}`}><Icon className="ico" aria-hidden="true" /></span>
       <div className="list-main" style={{ minWidth: 0 }}>
-        <div className="list-title" style={{ whiteSpace: "normal" }}>{a.what} <span className="t-3" style={{ fontWeight: 400, fontSize: 12 }}>· {a.target_label} · {relative(a.ts)}</span></div>
+        <div className="list-title" style={{ whiteSpace: "normal" }}>{a.what} <span className="t-3" style={{ fontWeight: 400 }}>· {a.target_label} · {relative(a.ts)}</span></div>
         {a.why ? <div className="list-sub" style={{ whiteSpace: "normal" }}><strong>{t("calm.why")}:</strong> {a.why}</div> : null}
         <div className="list-sub" style={{ whiteSpace: "normal", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 2 }}>
           <strong>{t("calm.effect")}:</strong>
@@ -132,7 +132,7 @@ export function AutopilotCard({ className = "span-12" }: { className?: string })
           <>
             <div className="row wrap" style={{ gap: 10, padding: "12px 16px 4px" }}>
               <ModeLine s={s} />
-              <span className="t-2" style={{ fontSize: 12.5 }} data-testid="actions-total">{t("calm.actionsTotal", { count: num(s.actions_total) })}</span>
+              <span className="t-2" data-testid="actions-total">{t("calm.actionsTotal", { count: num(s.actions_total) })}</span>
               <SyncLine syncs={s.syncs} />
             </div>
             {s.actions_total === 0 ? (
@@ -154,7 +154,7 @@ export function AutopilotCard({ className = "span-12" }: { className?: string })
               </>
             )}
             <div className="row-between wrap" style={{ padding: "8px 16px 12px", gap: 8 }}>
-              <span className="t-3" style={{ fontSize: 12 }}>{t("autopilot.updated", { age: relative(s.generated_at) })}</span>
+              <span className="t-3">{t("autopilot.updated", { age: relative(s.generated_at) })}</span>
               <Link className="link-more" href="/automatisering?tab=samenvatting">{t("autopilot.digestLink")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>
             </div>
           </>
@@ -247,7 +247,7 @@ export function WaitingCard({ className = "span-12" }: { className?: string }) {
           <span className="list-icon list-icon--success"><CircleCheck className="ico" aria-hidden="true" /></span>
           <div style={{ minWidth: 0, flex: "1 1 240px" }}>
             <strong>{t("calm.waitNothing")}</strong>
-            <div className="t-3" style={{ fontSize: 12.5 }}>{t("calm.waitNothingBody")}</div>
+            <div className="t-3">{t("calm.waitNothingBody")}</div>
           </div>
           {w.info_count ? <Link className="link-more" href={w.info[0]?.link ?? "/automatisering?tab=aanbevelingen"}><Info className="ico ico-sm" aria-hidden="true" />{t("calm.infoCount", { count: num(w.info_count) })}</Link> : null}
         </div>
@@ -276,7 +276,7 @@ export function WeeklyDigest() {
             <>
               <div className="row wrap" style={{ gap: 10, padding: "12px 16px 4px" }}>
                 <ModeLine s={s} />
-                <span className="t-2" style={{ fontSize: 12.5 }}>{t("calm.actionsTotalWeek", { count: num(s.actions_total) })}</span>
+                <span className="t-2">{t("calm.actionsTotalWeek", { count: num(s.actions_total) })}</span>
                 <SyncLine syncs={s.syncs} />
                 {s.waiting.decisions ? <Link href="/#wacht-op-jou"><StatusChip tone="neutral" icon={Hand}>{t("autopilot.waitingChip", { count: num(s.waiting.decisions) })}</StatusChip></Link> : null}
               </div>
@@ -302,7 +302,7 @@ export function WeeklyDigest() {
                   })}
                 </div>
                 {d.items.length ? (
-                  <ul className="t-2" style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }}>
+                  <ul className="t-2" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55 }}>
                     {d.items.slice(0, 8).map((i) => (
                       <li key={i.id}><Link href={i.link}>{localizeAuditSummary(i.summary)}</Link> <span className="t-3">· {dateTime(i.ts)}</span></li>
                     ))}

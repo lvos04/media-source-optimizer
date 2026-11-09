@@ -53,9 +53,9 @@ function Details({ hash }: { hash: string }) {
                   </li>
                 ))}
               </ul>
-            ) : <p className="t-3" style={{ margin: "4px 0 0", fontSize: 12.5 }}>{t("torrent.noTrackers")}</p>}
+            ) : <p className="t-3" style={{ margin: "4px 0 0" }}>{t("torrent.noTrackers")}</p>}
           </div>
-          <p className="t-3" style={{ margin: 0, fontSize: 12 }}>{t("torrent.updated", { when: relative(d.updated_at) })} · <span className="mono">{d.hash}</span></p>
+          <p className="t-3" style={{ margin: 0 }}>{t("torrent.updated", { when: relative(d.updated_at) })} · <span className="mono">{d.hash}</span></p>
         </div>
       )}
     </ResourceView>
@@ -72,7 +72,7 @@ function EtaCell({ row }: { row: TorrentRow }) {
       {row.eta_unreliable ? (
         <StatusChip tone="warning" icon={TriangleAlert} title={row.eta_reasons.join("; ")}>{t("torrent.etaUnreliable")}</StatusChip>
       ) : null}
-      {row.eta_unreliable && row.realistic_eta_s !== null ? <span className="t-2" style={{ fontSize: 12 }}>{t("torrent.etaRealistic", { eta: duration(row.realistic_eta_s) })}</span> : null}
+      {row.eta_unreliable && row.realistic_eta_s !== null ? <span className="t-2">{t("torrent.etaRealistic", { eta: duration(row.realistic_eta_s) })}</span> : null}
     </span>
   );
 }
@@ -137,7 +137,7 @@ export function TorrentDownloadsTab() {
     <div className="stack">
       <Card title={t("torrent.tab.title")} icon={Magnet} flush
         actions={<>
-          {list.data?.updated_at ? <span className="t-3" style={{ fontSize: 12 }}>{t("torrent.updated", { when: relative(list.data.updated_at) })}</span> : null}
+          {list.data?.updated_at ? <span className="t-3">{t("torrent.updated", { when: relative(list.data.updated_at) })}</span> : null}
           <Button size="sm" icon={RefreshCw} pending={pending === "refresh"} disabled={!isOperator} title={isOperator ? undefined : t("torrent.operatorOnly")} onClick={() => void refresh()}>{t("torrent.refresh")}</Button>
         </>}>
         <div className="toolbar" style={{ padding: "0 16px 12px", flexWrap: "wrap" }}>
@@ -180,24 +180,24 @@ export function TorrentDownloadsTab() {
                             {x.category ? <span className="tag">{x.category}</span> : null}
                             <PrivateChip value={x.private} />
                             {x.suspicious ? <StatusChip tone="danger" icon={ShieldAlert} title={x.suspicious.explanation}>{t("torrent.suspicious")}</StatusChip> : null}
-                            {x.tracker_host ? <span className="t-3 mono" style={{ fontSize: 11.5 }}>{x.tracker_host}</span> : null}
+                            {x.tracker_host ? <span className="t-3 mono">{x.tracker_host}</span> : null}
                           </div>
                         </td>
                         <td data-label={t("torrent.col.state")}><StateChip state={x.state} /></td>
                         <td data-label={t("torrent.col.progress")} style={{ minWidth: 120 }}>
                           <Progress value={(x.progress ?? 0) * 100} thin label={t("torrent.col.progress")} tone={(x.progress ?? 0) >= 1 ? "success" : undefined} />
-                          <span className="t-2" style={{ fontSize: 12 }}>{pct((x.progress ?? 0) * 100, 1)} · {bytes(x.size)}</span>
+                          <span className="t-2">{pct((x.progress ?? 0) * 100, 1)} · {bytes(x.size)}</span>
                         </td>
                         <td data-label={t("torrent.col.speed")}>
-                          <div style={{ fontSize: 12.5 }}>↓ {rate(x.dlspeed)}</div>
-                          <div style={{ fontSize: 12.5 }}>↑ {rate(x.upspeed)}</div>
-                          <div className="t-3" style={{ fontSize: 11.5 }}>{t("torrent.seedsPeers", { seeds: num(x.num_seeds ?? 0), peers: num(x.num_leechs ?? 0) })}</div>
+                          <div>↓ {rate(x.dlspeed)}</div>
+                          <div>↑ {rate(x.upspeed)}</div>
+                          <div className="t-3">{t("torrent.seedsPeers", { seeds: num(x.num_seeds ?? 0), peers: num(x.num_leechs ?? 0) })}</div>
                         </td>
                         <td data-label={t("torrent.col.eta")}><EtaCell row={x} /></td>
                         <td data-label={t("torrent.col.diagnosis")} style={{ maxWidth: 320 }}>
                           <DiagnosisChip finding={x.diagnosis} />
-                          {x.diagnosis ? <div className="t-2" style={{ fontSize: 12, marginTop: 4 }}>{x.diagnosis.explanation}</div> : null}
-                          {x.findings_count > 1 ? <div className="t-3" style={{ fontSize: 11.5 }}>{t("torrent.moreFindings", { count: num(x.findings_count - 1) })}</div> : null}
+                          {x.diagnosis ? <div className="t-2" style={{ marginTop: 4 }}>{x.diagnosis.explanation}</div> : null}
+                          {x.findings_count > 1 ? <div className="t-3">{t("torrent.moreFindings", { count: num(x.findings_count - 1) })}</div> : null}
                         </td>
                         <td data-label={t("torrent.col.actions")}>
                           <div className="toolbar" style={{ justifyContent: "flex-end" }}>

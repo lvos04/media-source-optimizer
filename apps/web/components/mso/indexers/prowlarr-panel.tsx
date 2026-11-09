@@ -27,7 +27,7 @@ function PreviewFacts({ preview }: { preview: Record<string, unknown> }) {
       {entries.map(([k, v]) => (
         <div key={k} style={{ display: "contents" }}>
           <dt className="mono">{k}</dt>
-          <dd className="mono" style={{ fontSize: 12 }}>{Array.isArray(v) ? (v.length ? v.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(", ") : "—") : typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
+          <dd className="mono">{Array.isArray(v) ? (v.length ? v.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(", ") : "—") : typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
         </div>
       ))}
     </dl>
@@ -74,7 +74,7 @@ export function ProwlarrPanel({ configured, onSynced }: { configured: boolean; o
                         <div className="list-sub">{c.explanation}</div>
                         {Object.keys(c.preview).length ? (
                           <details style={{ marginTop: 4 }}>
-                            <summary className="t-2" style={{ fontSize: 12, cursor: "pointer" }}>{t("idx.conflicts.preview")}</summary>
+                            <summary className="t-2" style={{ cursor: "pointer" }}>{t("idx.conflicts.preview")}</summary>
                             <PreviewFacts preview={c.preview} />
                           </details>
                         ) : null}
@@ -86,7 +86,7 @@ export function ProwlarrPanel({ configured, onSynced }: { configured: boolean; o
             )}
           </ResourceView>
         )}
-        {view.data ? <div className="card-footer t-3" style={{ fontSize: 12 }}>{view.data.policy} · {num(view.data.indexers.length)} indexers · {num(view.data.applications.length)} applicaties</div> : null}
+        {view.data ? <div className="card-footer t-3">{view.data.policy} · {num(view.data.indexers.length)} indexers · {num(view.data.applications.length)} applicaties</div> : null}
       </Card>
     </>
   );

@@ -76,7 +76,7 @@ export function ModeSettingsCard() {
       <Card title={t("mode.section.title")} sub={t("mode.section.sub")} icon={ShieldCheck}>
         <div className="stack">
           <div className="row wrap" style={{ gap: 8 }}>
-            <span className="t-2" style={{ fontSize: 13 }}>{t("mode.section.current")}:</span>
+            <span className="t-2">{t("mode.section.current")}:</span>
             {mode === "autopilot" ? <StatusChip tone="accent" icon={Bot}>{t("mode.autopilot")}</StatusChip>
               : mode === "manage" ? <StatusChip tone="warning" icon={ShieldCheck}>{t("mode.manage")}</StatusChip>
               : mode === "read_only" ? <StatusChip tone="info" icon={Eye}>{t("mode.read_only")}</StatusChip>
@@ -106,7 +106,7 @@ export function ModeSettingsCard() {
 
           <div className="stack-sm" data-testid="mode-auto-apply">
             <div className="row-between wrap">
-              <strong style={{ fontSize: 13 }}><Bot className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autoTitle")}</strong>
+              <strong><Bot className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autoTitle")}</strong>
               <Link href="/automatisering?tab=automatisch" className="link-more">{t("mode.section.autoLink")}</Link>
             </div>
             <p className="hint" style={{ margin: 0 }}>{isAuto ? t("mode.section.autoHintAutopilot") : t("mode.section.autoHint")}</p>
@@ -159,14 +159,14 @@ export function AutopilotExplainer({ cap, age, compact = false }: { cap?: number
   return (
     <div className={compact ? "stack-sm" : "grid"} style={compact ? undefined : { gap: 12 }} data-testid="autopilot-explainer">
       <div className={compact ? "stack-sm" : "span-6 stack-sm"}>
-        <strong style={{ fontSize: 13 }}><Check className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autopilotDoesTitle")}</strong>
-        <ul className="t-2" style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.5 }}>
+        <strong><Check className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autopilotDoesTitle")}</strong>
+        <ul className="t-2" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>
           {DOES.map((k) => <li key={k}>{t(k)}</li>)}
         </ul>
       </div>
       <div className={compact ? "stack-sm" : "span-6 stack-sm"}>
-        <strong style={{ fontSize: 13 }}><ShieldX className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autopilotNeverTitle")}</strong>
-        <ul className="t-2" style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.5 }}>
+        <strong><ShieldX className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autopilotNeverTitle")}</strong>
+        <ul className="t-2" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>
           {NEVER.map((k) => <li key={k}>{t(k)}</li>)}
         </ul>
         {cap !== undefined && age !== undefined ? <p className="hint" style={{ margin: 0 }}>{t("mode.section.autopilotLimits", { cap, age })}</p> : null}

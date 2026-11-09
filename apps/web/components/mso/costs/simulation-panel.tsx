@@ -78,8 +78,8 @@ export function SimulationPanel({ serviceId, periodDays, className = "span-5" }:
                 </div>
                 {s.examples?.length ? (
                   <details>
-                    <summary className="t-2" style={{ cursor: "pointer", fontSize: 12.5 }}>{t("costs.sim.examples")} ({num(s.examples.length)})</summary>
-                    <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12.5 }}>
+                    <summary className="t-2" style={{ cursor: "pointer" }}>{t("costs.sim.examples")} ({num(s.examples.length)})</summary>
+                    <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                       {s.examples.map((e, i) => <li key={i}><span className="mono">{e.title}</span>{e.also_from?.length ? ` · ${e.also_from.join(", ")}` : ""}</li>)}
                     </ul>
                   </details>

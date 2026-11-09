@@ -149,7 +149,7 @@ export function ConnectorForm({ connector, onSaved, onTested, canEdit = true, di
             value={secrets[f.name] ?? ""} onChange={(e) => { setSecrets((s) => ({ ...s, [f.name]: e.target.value })); setSaved(false); }} />
         </Field>
       ))}
-      <label className="row t-2" style={{ fontSize: 13 }}>
+      <label className="row t-2">
         <Switch checked={enabled} onChange={(v) => { setEnabled(v); setSaved(false); }} label={t("connector.enabled")} disabled={disabled} />{t("connector.enabled")}
       </label>
       {redundantLogin ? (
@@ -166,7 +166,7 @@ export function ConnectorForm({ connector, onSaved, onTested, canEdit = true, di
         <InlineState tone={result.ok ? "success" : "danger"} role="status">
           <strong>{result.ok ? t("connector.testOk") : t("connector.testFailed")}</strong>
           {result.message ? <div>{result.message}</div> : null}
-          <div className="t-2" style={{ fontSize: 12, marginTop: 4 }}>
+          <div className="t-2" style={{ marginTop: 4 }}>
             {result.version ? <>{t("connector.version")} <span className="mono">{result.version}</span> · </> : null}
             {result.latency_ms !== null && result.latency_ms !== undefined ? <>{t("connector.latency")} {num(result.latency_ms)} ms</> : null}
           </div>

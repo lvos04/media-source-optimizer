@@ -21,8 +21,8 @@ export default function LogsPage() {
 
 function DetailValue({ value }: { value: unknown }) {
   if (value === null || value === undefined || value === "") return <span className="t-3">—</span>;
-  if (typeof value === "string") return <p className="pre-wrap" style={{ margin: 0, fontSize: 13 }}>{value}</p>;
-  return <pre className="mono pre-wrap" tabIndex={0} style={{ margin: 0, fontSize: 11.5, maxHeight: 320, overflow: "auto" }}>{JSON.stringify(value, null, 2)}</pre>;
+  if (typeof value === "string") return <p className="pre-wrap" style={{ margin: 0 }}>{value}</p>;
+  return <pre className="mono pre-wrap" tabIndex={0} style={{ margin: 0, maxHeight: 320, overflow: "auto" }}>{JSON.stringify(value, null, 2)}</pre>;
 }
 
 function AuditView() {

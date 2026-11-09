@@ -45,7 +45,7 @@ export function PreferencesCard() {
     if (p.kind === "int" && typeof p.value === "number" && p.value < 0) return t("torrent.unlimited");
     if (p.kind === "patterns") {
       const lines = String(p.value ?? "").split("\n").map((x) => x.trim()).filter(Boolean);
-      return <span className="mono" style={{ fontSize: 12 }}>{lines.length ? lines.join("  ") : "—"}</span>;
+      return <span className="mono">{lines.length ? lines.join("  ") : "—"}</span>;
     }
     if (typeof p.value === "number") return num(p.value, 2);
     return <span className="mono">{String(p.value ?? "—")}</span>;
@@ -61,13 +61,13 @@ export function PreferencesCard() {
               <thead><tr><th>{t("torrent.prefs.setting")}</th><th>{t("torrent.prefs.value")}</th><th>{t("torrent.prefs.bounds")}</th></tr></thead>
               <tbody>{d.items.map((p) => (
                 <tr key={p.key}>
-                  <td className="cell-primary">{p.label}<div className="t-3 mono" style={{ fontSize: 11 }}>{p.key}</div></td>
+                  <td className="cell-primary">{p.label}<div className="t-3 mono">{p.key}</div></td>
                   <td data-label={t("torrent.prefs.value")}>
                     {show(p)}
                     {p.bounds === "buiten_grens" ? (
                       <div style={{ marginTop: 4 }}>
                         <StatusChip tone="warning" icon={TriangleAlert}>{t("torrent.speed.over")}</StatusChip>
-                        {p.target !== null ? <div className="t-3" style={{ fontSize: 11.5 }}>{t("torrent.prefs.target", { value: num(p.target) })}</div> : null}
+                        {p.target !== null ? <div className="t-3">{t("torrent.prefs.target", { value: num(p.target) })}</div> : null}
                       </div>
                     ) : null}
                   </td>
@@ -149,7 +149,7 @@ export function PolicyCards() {
                         onClick={() => void create(sug.key, { [sug.key]: sug.after }, sug.why)}>{t("torrent.makePreview")}</Button>
                     </span>
                   </InlineState>
-                )) : <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("torrent.queue.noSuggestion")}</p>}
+                )) : <p className="t-2" style={{ margin: 0 }}>{t("torrent.queue.noSuggestion")}</p>}
               </div>
             );
           }}
@@ -165,7 +165,7 @@ export function PolicyCards() {
                 <StatusChip tone="success">{t("torrent.private.noDelete")}</StatusChip>
                 <StatusChip tone={d.private.add_trackers_enabled ? "warning" : "success"}>{d.private.add_trackers_enabled ? t("torrent.private.autoAddOn") : t("torrent.private.autoAddOff")}</StatusChip>
               </div>
-              <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{d.private.note}</p>
+              <p className="t-2" style={{ margin: 0 }}>{d.private.note}</p>
             </div>
           )}
         </ResourceView>

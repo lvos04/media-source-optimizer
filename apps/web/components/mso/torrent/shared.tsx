@@ -78,7 +78,7 @@ export function FindingItem({ finding }: { finding: TorrentFinding }) {
       <div className="evidence-head">
         <DiagnosisChip finding={finding} />
         <span className="grow" />
-        <span className="t-3" style={{ fontSize: 12 }}>{t("torrent.confidence")}</span>
+        <span className="t-3">{t("torrent.confidence")}</span>
         <Confidence value={finding.confidence} tone={finding.severity === "critical" ? "danger" : finding.severity === "warning" ? "warning" : "success"} />
       </div>
       <dl className="evidence-body">
@@ -88,7 +88,7 @@ export function FindingItem({ finding }: { finding: TorrentFinding }) {
       {entries.length ? (
         <details className="raw">
           <summary>{t("torrent.evidence")}</summary>
-          <dl className="kv" style={{ fontSize: 12 }}>
+          <dl className="kv">
             {entries.map(([k, v]) => <div key={k} style={{ display: "contents" }}><dt className="mono">{k}</dt><dd className="mono" style={{ overflowWrap: "anywhere" }}>{evidenceValue(v)}</dd></div>)}
           </dl>
         </details>
@@ -99,7 +99,7 @@ export function FindingItem({ finding }: { finding: TorrentFinding }) {
 
 export function FindingList({ findings, empty }: { findings: TorrentFinding[]; empty?: string }) {
   const { t } = useI18n();
-  if (!findings.length) return <p className="t-2" style={{ margin: 0, fontSize: 13 }}><Check className="ico ico-sm" aria-hidden="true" /> {empty ?? t("torrent.noFindings")}</p>;
+  if (!findings.length) return <p className="t-2" style={{ margin: 0 }}><Check className="ico ico-sm" aria-hidden="true" /> {empty ?? t("torrent.noFindings")}</p>;
   return <div className="stack-sm">{findings.map((f) => <FindingItem key={`${f.code}-${f.title}`} finding={f} />)}</div>;
 }
 

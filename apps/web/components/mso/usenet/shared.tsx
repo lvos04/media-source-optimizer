@@ -67,19 +67,19 @@ export function fileToBase64(file: File): Promise<string> {
 /** SABnzbd's own status for one of its servers: chip + Dutch explanation + SABnzbd's message + "bron: SABnzbd". */
 export function SabStatusCell({ st, compact = false }: { st: SabServerStatus | null; compact?: boolean }) {
   const { t, relative } = useI18n();
-  if (!st) return <span className="t-3" style={{ fontSize: 12 }}>{t("usenet.prio.statusUnknown")}</span>;
+  if (!st) return <span className="t-3">{t("usenet.prio.statusUnknown")}</span>;
   const failing = STATUS_TONE[st.status in STATUS_TONE ? st.status : "error"] === "danger";
   return (
     <div className="stack-sm" style={{ gap: 2 }}>
       <span className="row wrap" style={{ gap: 6 }}>
         <ProviderStatusChip status={st.status} detail={st.message} />
-        <span className="t-3" style={{ fontSize: 11.5 }}>{t("usenet.prio.source")}</span>
+        <span className="t-3">{t("usenet.prio.source")}</span>
       </span>
       {!compact && (failing || st.status !== "ok") ? (
-        <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal" }}>{st.explanation}</span>
+        <span className="t-2" style={{ whiteSpace: "normal" }}>{st.explanation}</span>
       ) : null}
       {st.message ? (
-        <span className="t-3 mono" style={{ fontSize: 11.5, wordBreak: "break-word", whiteSpace: "normal" }}>
+        <span className="t-3 mono" style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
           {st.message}{st.message_at ? ` · ${relative(st.message_at)}` : ""}
         </span>
       ) : null}

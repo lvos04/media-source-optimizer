@@ -122,7 +122,7 @@ export function RulesEditor() {
   return (
     <Card className="span-12" title={t("torrent.rules.title")} icon={Scale} flush
       actions={<Button size="sm" variant="primary" icon={Plus} disabled={!isAdmin} title={why} onClick={() => setEditing({ id: null, draft: EMPTY })}>{t("torrent.rules.add")}</Button>}>
-      <p className="t-2" style={{ margin: "0 16px 12px", fontSize: 13 }}>{t("torrent.rules.explain")}</p>
+      <p className="t-2" style={{ margin: "0 16px 12px" }}>{t("torrent.rules.explain")}</p>
       <ResourceView resource={rules} endpoint="GET /api/v1/torrent/tracker-rules" compact>
         {(d) => {
           const ruled = new Set(d.items.map((r) => r.tracker_host).filter(Boolean));
@@ -140,7 +140,7 @@ export function RulesEditor() {
                       <tr key={r.id}>
                         <td className="cell-primary">
                           <div>{r.label || r.tracker_host || r.category}</div>
-                          <div className="t-3 mono" style={{ fontSize: 11.5 }}>{r.tracker_host ?? t("torrent.rules.anyTracker")} · {r.category ?? t("torrent.rules.anyCategory")}</div>
+                          <div className="t-3 mono">{r.tracker_host ?? t("torrent.rules.anyTracker")} · {r.category ?? t("torrent.rules.anyCategory")}</div>
                           {r.private ? <StatusChip tone="info">{t("torrent.private")}</StatusChip> : null}
                         </td>
                         <td data-label={t("torrent.rules.obligation")}>

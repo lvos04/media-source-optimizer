@@ -47,7 +47,7 @@ export function ServiceAnalysis({ serviceId, label, periodDays, className = "spa
                   <>
                     <dt>{t("costs.a.articles")}</dt>
                     <dd>
-                      <span className="mono" style={{ fontSize: 12 }}>{Object.entries(a.unique.articles).map(([k, v]) => `${k}: ${v === null ? "—" : String(v)}`).join(" · ")}</span>
+                      <span className="mono">{Object.entries(a.unique.articles).map(([k, v]) => `${k}: ${v === null ? "—" : String(v)}`).join(" · ")}</span>
                       {a.unique.articles_note ? <div className="hint" style={{ marginTop: 4 }}>{a.unique.articles_note}</div> : null}
                     </dd>
                   </>
@@ -69,7 +69,7 @@ export function ServiceAnalysis({ serviceId, label, periodDays, className = "spa
               <div>
                 <div className="label">{t("costs.a.failuresByReason")}</div>
                 {a.failures_by_reason.length === 0 ? <p className="hint" style={{ margin: 0 }}>{t("costs.a.noFailures")}</p> : (
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>{a.failures_by_reason.map((f) => <li key={f.reason}>{f.label}: <strong className="num">{num(f.count)}</strong></li>)}</ul>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>{a.failures_by_reason.map((f) => <li key={f.reason}>{f.label}: <strong className="num">{num(f.count)}</strong></li>)}</ul>
                 )}
               </div>
             </div>

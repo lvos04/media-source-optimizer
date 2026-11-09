@@ -28,8 +28,8 @@ function StatusCell({ e }: { e: FootprintEntry }) {
   return (
     <div className="stack-sm" style={{ gap: 4 }}>
       <StatusChip tone={STATUS_TONE[e.status]} title={e.detail ?? undefined}>{t(`calm.fp.status.${e.status}` as MessageKey)}</StatusChip>
-      {e.override ? <span className="t-3" style={{ fontSize: 11.5 }}>{t("calm.fp.overrideUntil", { date: date(e.override.until) })}</span> : null}
-      {e.status === "onbereikbaar" && e.detail ? <span className="t-3" style={{ fontSize: 11.5, overflowWrap: "anywhere" }}>{e.detail}</span> : null}
+      {e.override ? <span className="t-3">{t("calm.fp.overrideUntil", { date: date(e.override.until) })}</span> : null}
+      {e.status === "onbereikbaar" && e.detail ? <span className="t-3" style={{ overflowWrap: "anywhere" }}>{e.detail}</span> : null}
     </div>
   );
 }
@@ -55,11 +55,11 @@ function SystemCard({ s }: { s: FootprintSystem }) {
                 <td className="cell-primary"><span style={{ overflowWrap: "anywhere" }}>{e.label}</span><span className="change-ops-path">{e.path}</span></td>
                 <td data-label={t("calm.fp.col.original")}>{e.original_text}</td>
                 <td data-label={t("calm.fp.col.mso")}>{e.mso_text}</td>
-                <td data-label={t("calm.fp.col.now")}>{e.current_text} <span className="t-3" style={{ fontSize: 11.5 }}>· {relative(e.checked_at)}</span></td>
+                <td data-label={t("calm.fp.col.now")}>{e.current_text} <span className="t-3">· {relative(e.checked_at)}</span></td>
                 <td data-label={t("calm.fp.col.status")} className="cell-block"><StatusCell e={e} /></td>
                 <td data-label={t("calm.fp.col.change")}>
                   {e.change_id ? <Link href={`/automatisering?tab=wijzigingen&change=${e.change_id}`}>#{e.change_id}</Link> : "—"}
-                  <span className="t-3" style={{ display: "block", fontSize: 11.5 }}>{e.automatic ? t("calm.fp.byAutopilot") : t("calm.fp.byUser", { user: e.applied_by ?? "—" })}</span>
+                  <span className="t-3" style={{ display: "block" }}>{e.automatic ? t("calm.fp.byAutopilot") : t("calm.fp.byUser", { user: e.applied_by ?? "—" })}</span>
                 </td>
               </tr>
             ))}
@@ -118,7 +118,7 @@ function PlanLists({ plan }: { plan: RestorePlan }) {
       {plan.restore.length ? (
         <div>
           <div className="eyebrow">{t("calm.fp.restoreItems")}</div>
-          <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }} data-testid="restore-list">
+          <ul style={{ margin: "4px 0 0", paddingLeft: 18, lineHeight: 1.55 }} data-testid="restore-list">
             {plan.restore.map((r) => (
               <li key={`${r.target}:${r.path}`}>
                 <strong>{r.target_label}</strong> · {r.label}: {t("calm.fp.restoreItem", { now: r.current_text ?? "—", back: r.after_text })}
@@ -131,7 +131,7 @@ function PlanLists({ plan }: { plan: RestorePlan }) {
       {plan.skipped.length ? (
         <div>
           <div className="eyebrow">{t("calm.fp.skipItems")}</div>
-          <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }} data-testid="skip-list">
+          <ul style={{ margin: "4px 0 0", paddingLeft: 18, lineHeight: 1.55 }} data-testid="skip-list">
             {plan.skipped.map((s) => <li key={`${s.target}:${s.path}`}><strong>{s.target_label}</strong> · {s.label}: {s.reason}</li>)}
           </ul>
         </div>
@@ -139,7 +139,7 @@ function PlanLists({ plan }: { plan: RestorePlan }) {
       {plan.irreversible.length ? (
         <div>
           <div className="eyebrow">{t("calm.fp.irrevTitle")}</div>
-          <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }}>
+          <ul style={{ margin: "4px 0 0", paddingLeft: 18, lineHeight: 1.55 }}>
             {plan.irreversible.map((i) => <li key={i.key}>{i.count}× {i.label}</li>)}
           </ul>
         </div>
@@ -242,7 +242,7 @@ export function FootprintPage() {
                 <div className="row wrap" style={{ gap: 6 }}>
                   {FOOTPRINT_STATUSES.map((k) => <StatusChip key={k} tone={data.totals[k] ? STATUS_TONE[k] : "neutral"} icon={null}>{t(`calm.fp.count.${k}` as MessageKey, { count: num(data.totals[k]) })}</StatusChip>)}
                 </div>
-                <span className="t-3" style={{ fontSize: 12 }}>{data.last_run?.at ? t("calm.fp.lastRun", { age: relative(data.last_run.at) }) : t("calm.fp.neverRun")}</span>
+                <span className="t-3">{data.last_run?.at ? t("calm.fp.lastRun", { age: relative(data.last_run.at) }) : t("calm.fp.neverRun")}</span>
                 <InlineState tone="info" icon={Info}>{t("calm.fp.exitHint")}</InlineState>
               </div>
             )}

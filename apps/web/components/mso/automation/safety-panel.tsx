@@ -130,7 +130,7 @@ function UndoCard({ onDone, onOpenChange }: { onDone: () => void; onOpenChange: 
             {t("safety.undo.done", { ok: num(result.counts.teruggedraaid), skipped: num(result.counts.overgeslagen), failed: num(result.counts.mislukt) })}
           </InlineState>
           {result.results.length ? (
-            <ul className="t-2" style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12.5 }}>
+            <ul className="t-2" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
               {result.results.map((r) => (
                 <li key={r.id}>{r.title}: {t(`safety.undo.result.${r.result}` as MessageKey)}{r.detail ? ` — ${r.detail}` : ""}</li>
               ))}
@@ -150,7 +150,7 @@ function UndoCard({ onDone, onOpenChange }: { onDone: () => void; onOpenChange: 
                     <div className="list-main" style={{ minWidth: 0 }}>
                       <div className="list-title" style={{ whiteSpace: "normal" }}>{i.title}</div>
                       <div className="list-sub mono">#{i.id} · {i.target} · {relative(i.applied_at)}</div>
-                      <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12.5 }}>
+                      <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                         {i.ops.map((o, idx) => (
                           <li key={`${o.path}-${idx}`}>
                             {o.label ?? o.path}: {formatOpValue(o.now)} → {formatOpValue(o.back_to)}
@@ -167,8 +167,8 @@ function UndoCard({ onDone, onOpenChange }: { onDone: () => void; onOpenChange: 
             ) : <StateView kind="empty" compact title={t("safety.undo.empty")} body={t("safety.undo.emptyBody")} />}
             {d.not_undoable.length ? (
               <details style={{ padding: "8px 16px" }}>
-                <summary className="t-2" style={{ cursor: "pointer", fontSize: 12.5 }}>{t("safety.undo.notUndoable")} ({num(d.not_undoable.length)})</summary>
-                <ul className="t-2" style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12.5 }}>
+                <summary className="t-2" style={{ cursor: "pointer" }}>{t("safety.undo.notUndoable")} ({num(d.not_undoable.length)})</summary>
+                <ul className="t-2" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                   {d.not_undoable.map((i) => <li key={i.id}>{i.title} — {i.reason}</li>)}
                 </ul>
               </details>
@@ -213,7 +213,7 @@ function CooldownCard({ safety, onOpenChange }: { safety: Resource<SafetyStatus>
                   <div className="list-sub">
                     {c.target} · {t("safety.cooldown.failures", { count: num(c.failures) })} · <span title={dateTime(c.next_attempt_at)}>{t("safety.cooldown.next", { when: relative(c.next_attempt_at) })}</span>
                   </div>
-                  {c.last_error ? <p className="t-2 pre-wrap" style={{ margin: "6px 0 0", fontSize: 12.5 }}>{t("safety.cooldown.lastError")}: {c.last_error}</p> : null}
+                  {c.last_error ? <p className="t-2 pre-wrap" style={{ margin: "6px 0 0" }}>{t("safety.cooldown.lastError")}: {c.last_error}</p> : null}
                 </div>
                 <div className="list-aside" style={{ gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                   <StatusChip tone={c.parked ? "danger" : "warning"} icon={Hourglass}>{c.parked ? t("safety.cooldown.parked") : t("safety.cooldown.cooling")}</StatusChip>

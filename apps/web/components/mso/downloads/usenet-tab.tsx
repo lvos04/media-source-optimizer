@@ -65,11 +65,11 @@ function FactsLine({ facts }: { facts: StageFacts }) {
     : null;
   return (
     <>
-      <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal", overflowWrap: "anywhere" }} title={t("usenetdiag.facts.title")}>
+      <span className="t-2" style={{ whiteSpace: "normal", overflowWrap: "anywhere" }} title={t("usenetdiag.facts.title")}>
         {parts.join(" · ")}
       </span>
-      {hint ? <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal" }}>{hint}</span> : null}
-      {detail ? <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal", overflowWrap: "anywhere" }}>{detail}</span> : null}
+      {hint ? <span className="t-3" style={{ whiteSpace: "normal" }}>{hint}</span> : null}
+      {detail ? <span className="t-3" style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{detail}</span> : null}
     </>
   );
 }
@@ -86,11 +86,11 @@ function ReasonCell({ item }: { item: SabHistoryItem }) {
         <StatusChip tone={CERTAINTY_TONE[item.certainty ?? "onbekend"] ?? "neutral"} title={item.evidence ?? undefined}>
           {item.failure_label ?? item.failure_reason ?? "—"}
         </StatusChip>
-        {item.certainty ? <span className="t-3" style={{ fontSize: 12 }}>{t(`usenet.dl.certainty.${item.certainty}` as MessageKey)}</span> : null}
+        {item.certainty ? <span className="t-3">{t(`usenet.dl.certainty.${item.certainty}` as MessageKey)}</span> : null}
       </span>
       {factsLine}
       {cause ? (
-        <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal" }} title={item.evidence ?? undefined}>
+        <span className="t-2" style={{ whiteSpace: "normal" }} title={item.evidence ?? undefined}>
           {t("usenet.dl.likelyCause", {
             cause: `${cause.label.toLowerCase()} — ${t("usenet.dl.likelyCauseServers", {
               servers: cause.servers.map((s) => `${s.name}: ${(s.label || t(`usenet.status.${s.status}` as MessageKey)).toLowerCase()}`).join("; "),
@@ -98,10 +98,10 @@ function ReasonCell({ item }: { item: SabHistoryItem }) {
           })}
         </span>
       ) : item.evidence && !facts?.summary ? (
-        <span className="t-2" style={{ fontSize: 12, whiteSpace: "normal" }}>{item.evidence}</span>
+        <span className="t-2" style={{ whiteSpace: "normal" }}>{item.evidence}</span>
       ) : null}
       {item.failure_detail ? (
-        <span className="t-3 pre-wrap" style={{ fontSize: 11.5, wordBreak: "break-word" }}>{t("usenet.dl.sabMessage", { message: item.failure_detail })}</span>
+        <span className="t-3 pre-wrap" style={{ wordBreak: "break-word" }}>{t("usenet.dl.sabMessage", { message: item.failure_detail })}</span>
       ) : null}
     </div>
   );
@@ -112,7 +112,7 @@ function ReclassifyLast({ last }: { last: ReclassifyStatus["last"] | undefined }
   const { t, num, relative } = useI18n();
   if (!last) return null;
   return (
-    <div className="t-3" style={{ padding: "10px 16px 0", fontSize: 12 }}>
+    <div className="t-3" style={{ padding: "10px 16px 0" }}>
       {t("usenetdiag.reclassifyLast", { when: relative(last.at), changed: num(last.changed), checked: num(last.checked) })}
     </div>
   );
@@ -158,7 +158,7 @@ function CategoryCell({ category, media, source }: { category: string | null; me
   return (
     <>
       {category === "*" ? <span title={t("usenet.dl.defaultCatBody")}>{t("usenet.dl.defaultCategory")}</span> : category ?? "—"}
-      <div className="t-3" style={{ fontSize: 12 }}>
+      <div className="t-3">
         {media ? t(`usenet.cat.media.${media}` as MessageKey) : t("usenet.dl.unmapped")}
         {media && source !== "geen" ? ` · ${t(`usenet.dl.catSource.${source}` as MessageKey)}` : ""}
       </div>
@@ -218,7 +218,7 @@ export function UsenetDownloadsTab() {
                     </td>
                     <td data-label={t("usenet.dl.progress")} style={{ minWidth: 120 }}>
                       <Progress value={q.percentage} thin label={t("usenet.dl.progress")} />
-                      <span className="t-3" style={{ fontSize: 12 }}>{q.percentage === null ? "—" : `${num(q.percentage)}%`} · {q.size_mb === null ? "—" : bytes(q.size_mb * 1024 * 1024)}</span>
+                      <span className="t-3">{q.percentage === null ? "—" : `${num(q.percentage)}%`} · {q.size_mb === null ? "—" : bytes(q.size_mb * 1024 * 1024)}</span>
                     </td>
                     <td data-label={t("usenet.dl.timeleft")}>{q.timeleft ?? "—"}</td>
                   </tr>

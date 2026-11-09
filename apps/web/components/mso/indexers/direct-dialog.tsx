@@ -110,7 +110,7 @@ export function DirectIndexerDialog({ protocol, existing, initialKind, onClose, 
           <legend className="label">{t("idx.form.scopes")}</legend>
           <div className="row wrap" style={{ gap: 14 }}>
             {(["normal", "anime"] as Scope[]).map((s) => (
-              <label key={s} className="row" style={{ gap: 6, fontSize: 13 }}>
+              <label key={s} className="row" style={{ gap: 6 }}>
                 <input type="checkbox" className="check" checked={scopes.includes(s)} onChange={() => toggleScope(s)} />{t(`idx.scope.${s}`)}
               </label>
             ))}
@@ -122,13 +122,13 @@ export function DirectIndexerDialog({ protocol, existing, initialKind, onClose, 
           <Field label={t("idx.form.quota")} htmlFor="ix-quota"><input id="ix-quota" className="input" inputMode="numeric" style={{ width: 120 }} value={quota} onChange={(e) => setQuota(e.target.value)} /></Field>
           <Field label={t("idx.form.timeout")} htmlFor="ix-timeout"><input id="ix-timeout" className="input" inputMode="numeric" style={{ width: 90 }} value={timeout} onChange={(e) => setTimeoutS(e.target.value)} /></Field>
         </div>
-        <label className="row t-2" style={{ fontSize: 13 }}><Switch checked={priv} onChange={setPriv} label={t("idx.form.private")} />{t("idx.form.private")}</label>
-        <label className="row t-2" style={{ fontSize: 13 }}><Switch checked={enabled} onChange={setEnabled} label={t("idx.form.enabled")} />{t("idx.form.enabled")}</label>
+        <label className="row t-2"><Switch checked={priv} onChange={setPriv} label={t("idx.form.private")} />{t("idx.form.private")}</label>
+        <label className="row t-2"><Switch checked={enabled} onChange={setEnabled} label={t("idx.form.enabled")} />{t("idx.form.enabled")}</label>
         {result ? (
           <InlineState tone={result.ok ? "success" : "danger"} role="status">
             <strong>{result.ok ? t("connector.testOk") : t("connector.testFailed")}</strong>
             <div>{result.message}</div>
-            {result.latency_ms !== undefined && result.latency_ms !== null ? <div className="t-2" style={{ fontSize: 12 }}>{t("connector.latency")} {num(result.latency_ms)} ms</div> : null}
+            {result.latency_ms !== undefined && result.latency_ms !== null ? <div className="t-2">{t("connector.latency")} {num(result.latency_ms)} ms</div> : null}
           </InlineState>
         ) : null}
         {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}

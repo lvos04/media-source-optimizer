@@ -82,7 +82,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
             <dt>{t("automation.evaluators")}</dt>
             <dd>
               {s.evaluators.map((e) => EVALUATOR_LABEL[e] ?? e).join(" · ")}
-              {s.evaluator_fallback ? <div className="t-2" style={{ fontSize: 12.5 }}>{t("automation.evaluatorsFallback")}</div> : null}
+              {s.evaluator_fallback ? <div className="t-2">{t("automation.evaluatorsFallback")}</div> : null}
               {!s.evaluators.length && !s.evaluator_fallback ? <span className="t-2">{t("automation.evaluatorsNone")}</span> : null}
             </dd>
             {s.evaluation ? <>
@@ -113,7 +113,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
           <div className="list">
             {s.jobs.map((j) => (
               <div className="list-row" key={j.kind}>
-                <div className="list-main"><div className="list-title">{jobKindLabel(j.kind)} <span className="mono t-3" style={{ fontSize: 11.5 }}>{j.kind}</span></div><div className="list-sub">{j.last_update ? relative(j.last_update) : "—"}</div></div>
+                <div className="list-main"><div className="list-title">{jobKindLabel(j.kind)} <span className="mono t-3">{j.kind}</span></div><div className="list-sub">{j.last_update ? relative(j.last_update) : "—"}</div></div>
                 <div className="list-aside">
                   {j.pending ? <StatusChip tone="accent" pending>{t("automation.jobPending", { count: num(j.pending) })}</StatusChip> : null}
                   {j.failed_24h ? <StatusChip tone="danger">{t("automation.jobFailed", { count: num(j.failed_24h) })}</StatusChip> : <StatusChip tone="success">OK</StatusChip>}

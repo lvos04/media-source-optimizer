@@ -88,7 +88,7 @@ function CategoryTable({ data, onSaved }: { data: SabCategories; onSaved: () => 
         <tbody>{data.items.map(row)}</tbody>
       </table>
       <div className="card-body stack-sm">
-        <p className="t-2" style={{ margin: 0, fontSize: 12.5 }}>{t("usenet.cat.help")}</p>
+        <p className="t-2" style={{ margin: 0 }}>{t("usenet.cat.help")}</p>
         {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}
         <div>
           <Button variant="primary" icon={Save} onClick={() => void save()} pending={saving} disabled={!dirty || !can("admin")}
@@ -138,7 +138,7 @@ function StarDaysChart({ days, recentDays, recentStar, recentTotal }: { days: St
   const slot = 20;
   const h = 56;
   const summary = t("usenetcat.days.summary", { days: num(recentDays), star: num(recentStar), total: num(recentTotal) });
-  if (!days.some((d) => d.total)) return <p className="t-3" style={{ margin: 0, fontSize: 12.5 }}>{t("usenetcat.days.none", { days: num(days.length) })}</p>;
+  if (!days.some((d) => d.total)) return <p className="t-3" style={{ margin: 0 }}>{t("usenetcat.days.none", { days: num(days.length) })}</p>;
   const share = (d: StarDay) => (d.total ? pct((d.star / d.total) * 100, 0) : "—");
   return (
     <ChartFrame
@@ -194,16 +194,16 @@ function InstanceRows({ items }: { items: CategoryInstance[] }) {
           return (
             <tr key={inst.id}>
               <td data-label={t("usenetcat.inst.instance")}>
-                <strong>{inst.name}</strong> <span className="t-3" style={{ fontSize: 12 }}>{app}</span>
-                {inst.clients_reason ? <div className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>{t("usenetcat.inst.unreadable", { reason: reason(inst.clients_reason) })}</div> : null}
+                <strong>{inst.name}</strong> <span className="t-3">{app}</span>
+                {inst.clients_reason ? <div className="t-3" style={{ whiteSpace: "normal" }}>{t("usenetcat.inst.unreadable", { reason: reason(inst.clients_reason) })}</div> : null}
               </td>
               <td data-label={t("usenetcat.inst.sends")}>
                 {inst.no_sab_client ? <span className="t-3">{t("usenetcat.inst.noSab")}</span>
                   : inst.clients.map((cl, i) => (
                     <div key={`${cl.name ?? "x"}-${i}`}>
                       <span className="mono">{cl.category ?? "—"}</span>
-                      {cl.certainty === "waarschijnlijk" ? <span className="t-3" style={{ fontSize: 12 }}> · {t("usenetcat.inst.probable")}</span> : null}
-                      {cl.name ? <div className="t-3" style={{ fontSize: 12 }}>{cl.name}</div> : null}
+                      {cl.certainty === "waarschijnlijk" ? <span className="t-3"> · {t("usenetcat.inst.probable")}</span> : null}
+                      {cl.name ? <div className="t-3">{cl.name}</div> : null}
                     </div>
                   ))}
               </td>
@@ -220,15 +220,15 @@ function InstanceRows({ items }: { items: CategoryInstance[] }) {
                       const key = `usenetcat.health.${h.source}`;
                       const label = t(key as MessageKey);
                       return (
-                        <li key={`${h.source}-${i}`} style={{ fontSize: 12.5 }}>
+                        <li key={`${h.source}-${i}`}>
                           <StatusChip tone={h.type === "error" ? "danger" : "warning"}>{label === key ? h.source || "—" : label}</StatusChip>{" "}
                           <span className="t-2">{h.message}</span>
-                          <div className="t-3" style={{ fontSize: 11.5 }}>{t(inst.health_source === "live" ? "usenetcat.health.source" : "usenetcat.health.cached", { app })}</div>
+                          <div className="t-3">{t(inst.health_source === "live" ? "usenetcat.health.source" : "usenetcat.health.cached", { app })}</div>
                         </li>
                       );
                     })}
                   </ul>
-                ) : <span className="t-3" style={{ fontSize: 12.5 }}>{t("usenetcat.health.none")}</span>}
+                ) : <span className="t-3">{t("usenetcat.health.none")}</span>}
               </td>
             </tr>
           );
@@ -276,16 +276,16 @@ function ProposalBlock({ d, diag, onChanged }: { d: CategoryDiagnosis; diag: Res
         <span className="eyebrow">{t("usenetcat.a.fixTitle")}</span>
         <RiskChip risk="toestemming_nodig" />
       </div>
-      <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("usenetcat.a.fixBody")}</p>
+      <p className="t-2" style={{ margin: 0 }}>{t("usenetcat.a.fixBody")}</p>
       <InlineState tone="warning" icon={TriangleAlert}>{t("usenetcat.a.warning")}</InlineState>
-      <p className="t-3" style={{ margin: 0, fontSize: 12.5 }}>{t("usenetcat.a.alternative")}</p>
+      <p className="t-3" style={{ margin: 0 }}>{t("usenetcat.a.alternative")}</p>
       {d.proposal ? (
         <ResourceView resource={change} compact endpoint={`GET /api/v1/changes/${d.proposal.id}`}>
           {(ch) => <ChangePreview change={ch} card={false} onChanged={async () => { await change.reload(); await refreshAll(); }} />}
         </ResourceView>
       ) : names.length ? (
         <div className="stack-sm">
-          {declined.length ? <p className="t-3" style={{ margin: 0, fontSize: 12.5 }}>{t("usenetcat.a.declined", { cats: quoted(declined) })}</p> : null}
+          {declined.length ? <p className="t-3" style={{ margin: 0 }}>{t("usenetcat.a.declined", { cats: quoted(declined) })}</p> : null}
           <div>
             <Button variant="primary" icon={FolderPlus} onClick={() => void propose()} pending={pending}
               disabled={!can("admin") || !d.sab.available} title={!can("admin") ? t("usenet.adminOnly") : undefined}>
@@ -328,7 +328,7 @@ function Verdict({ d }: { d: CategoryDiagnosis }) {
     return (
       <div className="stack-sm">
         <InlineState tone="warning" role="status">{t("usenetcat.verdict.b", { count: num(d.no_category.length) })}</InlineState>
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
           {d.no_category.map((b, i) => (
             <li key={`${b.instance}-${i}`}>
               {t(b.fix_in === "mediaguard" ? "usenetcat.b.mediaguard" : "usenetcat.b.arr", {
@@ -387,18 +387,18 @@ export function CategoryDiagnosisSection({ onChanged }: { onChanged?: () => void
       <div className="row-between wrap">
         <span className="eyebrow">{t("usenetcat.title")}</span>
         <span className="row wrap" style={{ gap: 8 }}>
-          {diag.data ? <span className="t-3" style={{ fontSize: 12 }}>{t("usenetcat.checked", { when: relative(diag.data.checked_at) })}</span> : null}
+          {diag.data ? <span className="t-3">{t("usenetcat.checked", { when: relative(diag.data.checked_at) })}</span> : null}
           <Button size="sm" icon={RefreshCw} onClick={() => void refresh()} pending={busy}>{t("usenetcat.refresh")}</Button>
         </span>
       </div>
-      <p className="t-2" style={{ margin: 0, fontSize: 12.5 }}>{t("usenetcat.why")}</p>
+      <p className="t-2" style={{ margin: 0 }}>{t("usenetcat.why")}</p>
       <ResourceView resource={diag} compact endpoint={`GET /api/v1${DIAG}`}>
         {(d) => (
           <div className="stack">
             <Verdict d={d} />
             {d.verdict === "a" ? <ProposalBlock d={d} diag={diag} onChanged={() => onChanged?.()} /> : null}
             {d.last_applied && !d.proposal ? (
-              <p className="t-3 row wrap" style={{ margin: 0, fontSize: 12.5, gap: 8 }}>
+              <p className="t-3 row wrap" style={{ margin: 0, gap: 8 }}>
                 <span>
                   {d.last_applied.status === "rolled_back"
                     ? t("usenetcat.rolledBack", { when: dateTime(d.last_applied.rolled_back_at), cats: quoted(d.last_applied.categories) })
@@ -415,7 +415,7 @@ export function CategoryDiagnosisSection({ onChanged }: { onChanged?: () => void
             {d.mediaguard.available ? (
               <div className="stack-sm">
                 <span className="eyebrow">{t("usenetcat.inst.title")}</span>
-                {d.instances.length ? <InstanceRows items={d.instances} /> : <p className="t-3" style={{ margin: 0, fontSize: 12.5 }}>{t("usenetcat.inst.none")}</p>}
+                {d.instances.length ? <InstanceRows items={d.instances} /> : <p className="t-3" style={{ margin: 0 }}>{t("usenetcat.inst.none")}</p>}
               </div>
             ) : null}
           </div>

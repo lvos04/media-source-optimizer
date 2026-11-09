@@ -32,7 +32,7 @@ export function ServerAutopilotCell({ ap }: { ap: ServerAutopilot | null | undef
       <StatusChip tone={AP_TONE[ap.status]} pending={ap.status === "probing"} title={ap.last_result ?? undefined}>
         {t(`usenet.ap.st.${ap.status}` as MessageKey)}{ap.reason_label ? ` · ${ap.reason_label.toLowerCase()}` : ""}
       </StatusChip>
-      <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>
+      <span className="t-3" style={{ whiteSpace: "normal" }}>
         {[
           off && tested && ap.next_test_at ? t("usenetserver.nextTest", { when: relative(ap.next_test_at) }) : null,
           off && !tested && ap.next_probe_at ? t("usenet.ap.nextProbe", { when: relative(ap.next_probe_at) }) : null,
@@ -43,11 +43,11 @@ export function ServerAutopilotCell({ ap }: { ap: ServerAutopilot | null | undef
         ].filter(Boolean).join(" · ")}
       </span>
       {ap.last_test_at && ap.last_test_label ? (
-        <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>
+        <span className="t-3" style={{ whiteSpace: "normal" }}>
           {t("usenetserver.lastTest", { when: relative(ap.last_test_at), label: ap.last_test_label.toLowerCase() })}
         </span>
       ) : null}
-      {off && !tested ? <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>{t("usenetserver.noTest")}</span> : null}
+      {off && !tested ? <span className="t-3" style={{ whiteSpace: "normal" }}>{t("usenetserver.noTest")}</span> : null}
     </div>
   );
 }
@@ -109,7 +109,7 @@ function RetryDiagnosis({ retry, onChanged }: { retry: UsenetAutopilot["retry"] 
   return (
     <>
       {eff ? (
-        <span className="t-2" style={{ fontSize: 13 }}>
+        <span className="t-2">
           {eff.since_kind === "rules"
             ? eff.attempts
               ? t("usenetdiag.retry.efficacySince", { when: relative(eff.since), n: num(eff.attempts), pct: pct((eff.ratio ?? 0) * 100) })
@@ -131,7 +131,7 @@ function RetryDiagnosis({ retry, onChanged }: { retry: UsenetAutopilot["retry"] 
           </div>
         </InlineState>
       ) : null}
-      <span className="t-3" style={{ fontSize: 12 }}>
+      <span className="t-3">
         {gain && retry.coverage?.description
           ? t("usenetdiag.retry.lastGain", { what: retry.coverage.description, when: relative(gain.at) })
           : t("usenetdiag.retry.noGain")}{" "}
@@ -190,7 +190,7 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
                     {servers.map(([name, ap]) => (
                       <li key={name} className="list-row list-row--wrap">
                         <div className="list-main" style={{ minWidth: 0, flex: "1 1 220px" }}>
-                          <div className="list-title mono" style={{ fontSize: 13 }}>{name}</div>
+                          <div className="list-title mono">{name}</div>
                           <ServerAutopilotCell ap={ap} />
                         </div>
                         {ap.status === "disabled" || ap.status === "given_up" ? (
@@ -202,19 +202,19 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
                       </li>
                     ))}
                   </ul>
-                ) : <p className="t-3" style={{ margin: "4px 0 0", fontSize: 12.5 }}>{t("usenet.ap.noServers")}</p>}
+                ) : <p className="t-3" style={{ margin: "4px 0 0" }}>{t("usenet.ap.noServers")}</p>}
               </div>
               <div className="stack-sm">
                 <span className="eyebrow">{t("usenet.ap.retry")}</span>
                 {!d.retry.enabled ? <InlineState tone="neutral">{t("usenet.ap.retryOff")}</InlineState> : (
                   <>
-                    <span className="t-2" style={{ fontSize: 13 }}>
+                    <span className="t-2">
                       {t("usenet.ap.retryCounts", {
                         retried: num((c.retried ?? 0) + (c.verified ?? 0) + (c.failed ?? 0)), verified: num(c.verified ?? 0),
                         failed: num(c.failed ?? 0), proposed: num(c.proposed ?? 0),
                       })}
                     </span>
-                    <span className="t-3" style={{ fontSize: 12 }}>
+                    <span className="t-3">
                       {t("usenet.ap.retryQuota", { hour: num(q.hour_used), hourMax: num(q.hour_max), day: num(q.day_used), dayMax: num(q.day_max) })}
                       {d.retry.last_run?.at ? ` · ${t("usenet.ap.lastRun", { when: relative(d.retry.last_run.at) })}` : ""}
                     </span>
@@ -227,7 +227,7 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
                 {d.retry.open_change ? <OpenBundle id={d.retry.open_change.id} onChanged={() => void data.reload()} /> : null}
                 {d.retry.items.length ? (
                   <details>
-                    <summary className="t-2" style={{ cursor: "pointer", fontSize: 12.5 }}>{t("usenet.ap.recent")}</summary>
+                    <summary className="t-2" style={{ cursor: "pointer" }}>{t("usenet.ap.recent")}</summary>
                     <ul className="list" style={{ marginTop: 4 }}>
                       {d.retry.items.slice(0, 20).map((r) => (
                         <li key={r.id} className="list-row list-row--wrap">

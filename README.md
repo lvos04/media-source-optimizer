@@ -67,7 +67,9 @@ cd apps/web && npm ci && npm run dev
 
 ## Licenties
 
-Eigen code van dit project. De UI-basis (tokens, componenten, shell) is een expliciete, intern
+Eigen code van dit project. Het uiterlijk volgt de platform-ontwerptaal **Peil 1.1.0** (versie-gepinde kopie in
+[`design/ontwerptaal/`](design/ontwerptaal/HERKOMST.md); omzetting in
+[`docs/ontwerp/PEIL_MIGRATIE.md`](docs/ontwerp/PEIL_MIGRATIE.md)). De oorspronkelijke UI-basis was een intern
 geversioneerde afgeleide van MediaGuard Ultimate (zelfde eigenaar) — zie
-[apps/web/PROVENANCE.md](apps/web/PROVENANCE.md). Lettertypen Inter en JetBrains Mono: SIL Open Font
-License 1.1 (licentieteksten in `apps/web/app/fonts/`). Iconen: Lucide (ISC).
+[apps/web/PROVENANCE.md](apps/web/PROVENANCE.md). Lettertype: het systeemfont (geen meegeleverde lettertypen meer).
+Componenten: shadcn/ui (MIT) op Radix UI (MIT). Iconen: Lucide (ISC).

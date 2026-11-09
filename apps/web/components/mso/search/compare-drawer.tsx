@@ -66,15 +66,15 @@ export function CompareDrawer({ tokens, category, onClose }: { tokens: string[];
         </div>
         {category ? (
           <div className="row wrap" style={{ gap: 10, alignItems: "flex-end" }}>
-            <label className="stack-sm" style={{ fontSize: 12 }} htmlFor="cmp-minres">
+            <label className="stack-sm" htmlFor="cmp-minres">
               <span className="label">{t("zoeken.compareMinRes")}</span>
               <select id="cmp-minres" className="select input--sm" value={minRes} onChange={(e) => setMinRes(e.target.value ? Number(e.target.value) : "")}>
                 <option value="">—</option>
                 {[720, 1080, 2160].map((r) => <option key={r} value={r}>{r}p</option>)}
               </select>
             </label>
-            <label className="row" style={{ fontSize: 13, gap: 6 }}><input type="checkbox" className="check" checked={dv} onChange={(e) => setDv(e.target.checked)} />{t("zoeken.compareDv")}</label>
-            <label className="row" style={{ fontSize: 13, gap: 6 }}><input type="checkbox" className="check" checked={dual} onChange={(e) => setDual(e.target.checked)} />{t("zoeken.compareDual")}</label>
+            <label className="row" style={{ gap: 6 }}><input type="checkbox" className="check" checked={dv} onChange={(e) => setDv(e.target.checked)} />{t("zoeken.compareDv")}</label>
+            <label className="row" style={{ gap: 6 }}><input type="checkbox" className="check" checked={dual} onChange={(e) => setDual(e.target.checked)} />{t("zoeken.compareDual")}</label>
             <Button size="sm" pending={pending} onClick={() => void load(true)}>{t("zoeken.compareRun")}</Button>
           </div>
         ) : null}
@@ -116,7 +116,7 @@ export function CompareDrawer({ tokens, category, onClose }: { tokens: string[];
                       <tr key={f.key} style={differs ? { background: "color-mix(in srgb, var(--mg-accent) 7%, transparent)" } : undefined}>
                         <th scope="row">{f.label}{differs ? <span className="sr-only"> ({t("zoeken.compareDiffers")})</span> : null}</th>
                         {data.candidates.map((c) => (
-                          <td key={c.token} className={f.key === "source_label" ? undefined : "mono"} style={{ fontSize: 12 }}>
+                          <td key={c.token} className={f.key === "source_label" ? undefined : "mono"}>
                             {f.key === "size_bytes" && typeof c.fields[f.key] === "number" ? bytes(c.fields[f.key] as number)
                               : f.key === "false_positive_flags" && Array.isArray(c.fields[f.key])
                                 ? fmt(f.key, (c.fields[f.key] as string[]).map((x) => flagLabel(x, t)), num)

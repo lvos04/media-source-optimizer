@@ -75,7 +75,7 @@ function ConnectionsTab() {
   const { can } = useSession();
   return (
     <div className="stack">
-      <p className="t-2" style={{ fontSize: 13, maxWidth: 760, margin: 0 }}>{t("settings.connectionsSub")}</p>
+      <p className="t-2" style={{ maxWidth: 760, margin: 0 }}>{t("settings.connectionsSub")}</p>
       <ConnectorList canEdit={can("admin")} disabledReason={t("connector.adminOnly")} />
     </div>
   );
@@ -170,7 +170,7 @@ function SchemaSettings({ payload, category, query, onQuery, reload, countLabel 
       {dirtyKeys.length || Object.keys(errors).length || globalError ? (
         <div className="savebar" role="region" aria-label={tp("settings.saveBar", dirtyKeys.length)}>
           <Info className="ico" aria-hidden="true" style={{ color: "var(--mg-accent)" }} />
-          <span className="grow" style={{ fontSize: 13 }}>
+          <span className="grow">
             <strong>{tp("settings.saveBar", dirtyKeys.length)}</strong>
             {Object.keys(errors).length ? <> · <span className="t-danger">{t("settings.saveBarErrors", { count: Object.keys(errors).length })}</span></> : null}
             {globalError ? <> · <span className="t-danger" role="alert">{globalError}</span></> : null}

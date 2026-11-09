@@ -32,7 +32,7 @@ function MetricValue({ stats, unit }: { stats: Partial<MetricStats> | undefined;
   const { num, bytes, t } = useI18n();
   if (!stats || stats.median === null || stats.median === undefined) return <span className="t-3">{t("torrent.tuning.noData", { n: num(stats?.n ?? 0) })}</span>;
   const v = unit === "B/s" ? `${bytes(stats.median)}/s` : unit === "ratio" ? `${num(stats.median * 100, 1)}%` : num(stats.median, 1);
-  return <span>{v} <span className="t-3" style={{ fontSize: 11.5 }}>({t("torrent.tuning.samples", { n: num(stats.n ?? 0) })})</span></span>;
+  return <span>{v} <span className="t-3">({t("torrent.tuning.samples", { n: num(stats.n ?? 0) })})</span></span>;
 }
 
 const LEGACY_IMPACT_LABEL: Record<string, MessageKey> = {
@@ -51,7 +51,7 @@ function TuningImpact({ impact, unit }: { impact: unknown; unit: string | null }
   return (
     <div>
       <span className="eyebrow">{t("torrent.tuning.impact")}</span>
-      <dl className="kv" style={{ marginTop: 4, fontSize: 13 }}>
+      <dl className="kv" style={{ marginTop: 4 }}>
         {entries.map(([k, v]) => {
           let value: ReactNode;
           if (v === null || v === undefined || v === "") value = "—";
@@ -232,9 +232,9 @@ export function TuningCard() {
             <div className="row wrap" style={{ gap: 6 }}>
               <StatusChip tone={d.settings.autotune_enabled ? "success" : "neutral"}>{d.settings.autotune_enabled ? t("torrent.tuning.autoOn") : t("torrent.tuning.autoOff")}</StatusChip>
               <StatusChip tone={d.automation_allowed ? "success" : "warning"}>{d.automation_allowed ? t("torrent.tuning.automationAllowed") : t("torrent.tuning.automationBlocked")}</StatusChip>
-              <span className="t-3" style={{ fontSize: 12 }}>{t("torrent.tuning.params", { eval: num(d.settings.evaluation_hours), base: num(d.settings.baseline_hours), hyst: num(d.settings.hysteresis_pct) })}</span>
+              <span className="t-3">{t("torrent.tuning.params", { eval: num(d.settings.evaluation_hours), base: num(d.settings.baseline_hours), hyst: num(d.settings.hysteresis_pct) })}</span>
             </div>
-            <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("torrent.tuning.explain")}</p>
+            <p className="t-2" style={{ margin: 0 }}>{t("torrent.tuning.explain")}</p>
             {message ? <InlineState tone="info" role="status">{message}</InlineState> : null}
             {d.items.length ? d.items.slice(0, 10).map((r) => <RunRow key={r.id} run={r} onChanged={() => void runs.reload()} />)
               : <StateView kind="empty" compact title={t("torrent.tuning.none")} body={t("torrent.tuning.noneBody")} />}

@@ -140,10 +140,10 @@ html { scroll-padding-top: calc(var(--header-h) + 0.75rem); scroll-padding-botto
 .state-text { max-width: 65ch; font-size: 1rem; }
 .state-meta { font-size: 0.875rem; }
 .brand { display: flex; align-items: center; gap: 0.625rem; min-height: var(--touch); padding: 0 0.5rem; color: var(--foreground); text-decoration: none; }
-.brand-mark { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 0.5rem; background: var(--primary); color: var(--primary-foreground); font-size: 0.8125rem; font-weight: 800; letter-spacing: .02em; line-height: 1; }
+.brand-mark { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 0.5rem; background: var(--primary); color: var(--primary-foreground); font-size: 0.875rem; font-weight: 800; letter-spacing: .02em; line-height: 1; }
 .brand-name { font-weight: 700; font-size: 1rem; line-height: 1.25; }
 .brand-sub { color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.25; }
-.instance-logo { font-size: 0.8125rem; }
+.instance-logo { font-size: 0.875rem; }
 
 /* Formuliervelden (fase 2b, Peil §5/§6): 44 px, 16 px tekst (geen iOS-zoom), rand ≥ 3:1, veldfout rood met 2 px. */
 .input, .select, .textarea { min-height: var(--touch); height: auto; padding: 0.5rem 0.75rem; border: 2px solid var(--input); border-radius: var(--radius); background-color: var(--card); color: var(--foreground); font-size: 1rem; line-height: 1.5rem; }
@@ -182,3 +182,6 @@ html { scroll-padding-top: calc(var(--header-h) + 0.75rem); scroll-padding-botto
 
 /* Uitklapbare blokken (details/summary): 44 px raakvlak. */
 summary { min-height: var(--touch); padding-block: 0.625rem; cursor: pointer; }
+
+/* Geen kapitalen-labels (Peil §5): de oude eyebrow-koppen worden gewone kleine koppen. */
+.eyebrow { text-transform: none; letter-spacing: 0; font-size: 0.875rem; font-weight: 600; color: var(--foreground); }

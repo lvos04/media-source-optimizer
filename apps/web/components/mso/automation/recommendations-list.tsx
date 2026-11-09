@@ -73,7 +73,7 @@ export function RecommendationsList({ onOpenChange }: { onOpenChange: (changeId:
                     <RiskChip risk={r.risk} />
                     <StatusChip tone="neutral" icon={null}>{t(areaLabel(r.area))}</StatusChip>
                     {r.status !== "open" ? <StatusChip tone="neutral">{t(`automation.status.${r.status}` as MessageKey)}</StatusChip> : null}
-                    <span className="t-3" style={{ fontSize: 12 }}>{relative(r.updated_at)}</span>
+                    <span className="t-3">{relative(r.updated_at)}</span>
                   </div>
                   <div className="list-title" style={{ marginTop: 6, whiteSpace: "normal" }}>{r.title}</div>
                   <div className="list-sub" style={{ whiteSpace: "pre-wrap" }}>{r.explanation}</div>

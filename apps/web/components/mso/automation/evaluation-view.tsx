@@ -80,9 +80,9 @@ export function EvaluationSummary({ item }: { item: ChangeEvaluation }) {
       <div className="stack-sm">
         <div className="row wrap" style={{ gap: 8 }}>
           <StatusChip tone="neutral">n.v.t. (teruggedraaid)</StatusChip>
-          {item.rolled_back_at ? <span className="t-3" style={{ fontSize: 12 }}>teruggedraaid {relative(item.rolled_back_at)}</span> : null}
+          {item.rolled_back_at ? <span className="t-3">teruggedraaid {relative(item.rolled_back_at)}</span> : null}
         </div>
-        <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{ev?.message ?? "Deze wijziging is teruggedraaid voordat de meetperiode om was; er valt niets meer te meten."}</p>
+        <p className="t-2" style={{ margin: 0 }}>{ev?.message ?? "Deze wijziging is teruggedraaid voordat de meetperiode om was; er valt niets meer te meten."}</p>
       </div>
     );
   }
@@ -91,11 +91,11 @@ export function EvaluationSummary({ item }: { item: ChangeEvaluation }) {
     <div className="stack-sm">
       <div className="row wrap" style={{ gap: 8 }}>
         {outcomeChip(ev.result, interim)}
-        {ev.action ? <span className="t-2" style={{ fontSize: 12.5 }}>{ACTION[ev.action] ?? ev.action}</span> : null}
-        {interim && item.evaluate_at ? <span className="t-3" style={{ fontSize: 12 }}>eindoordeel {relative(item.evaluate_at)} ({dateTime(item.evaluate_at)})</span> : null}
-        {!interim && ev.at ? <span className="t-3" style={{ fontSize: 12 }}>gemeten {relative(ev.at)}</span> : null}
+        {ev.action ? <span className="t-2">{ACTION[ev.action] ?? ev.action}</span> : null}
+        {interim && item.evaluate_at ? <span className="t-3">eindoordeel {relative(item.evaluate_at)} ({dateTime(item.evaluate_at)})</span> : null}
+        {!interim && ev.at ? <span className="t-3">gemeten {relative(ev.at)}</span> : null}
       </div>
-      {ev.message ? <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{ev.message}</p> : null}
+      {ev.message ? <p className="t-2" style={{ margin: 0 }}>{ev.message}</p> : null}
       <MeasuresTable measures={ev.measures ?? []} />
       {item.applicable && item.status === "applied" && (item as ChangeEvaluation & { reversible?: boolean }).reversible === false ? (
         <p className="hint" style={{ margin: 0 }}>{t("safety.eval.notReversible")}</p>

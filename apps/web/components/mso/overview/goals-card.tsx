@@ -87,7 +87,7 @@ function TrialFooter({ trial }: { trial: GoalsTrial }) {
   const { t, date } = useI18n();
   const source = t(`goals.startSource.${trial.start_source}` as MessageKey);
   return (
-    <div className="row wrap t-3" style={{ gap: "4px 12px", padding: "0 16px 12px", fontSize: 12 }}>
+    <div className="row wrap t-3" style={{ gap: "4px 12px", padding: "0 16px 12px" }}>
       <span>{t(trial.not_started ? "goals.starts" : "goals.started", { date: date(localDay(trial.start_date)) })} ({source})</span>
       <span>{t(trial.ended ? "goals.ended" : "goals.ends", { date: date(localDay(trial.end_date)) })}</span>
       <span>{t("goals.timezone", { tz: trial.timezone })}</span>
@@ -135,9 +135,9 @@ function GoalTile({ goal, notStarted }: { goal: Goal; notStarted: boolean }) {
         <>
           <div className="row wrap" style={{ alignItems: "baseline", gap: "2px 10px" }}>
             <span className="kpi-value num">{value(goal, goal.now.value)}</span>
-            <span className="t-3" style={{ fontSize: 12 }}>{t(`goals.target.${goal.comparison}` as MessageKey, { value: target })}</span>
+            <span className="t-3">{t(`goals.target.${goal.comparison}` as MessageKey, { value: target })}</span>
           </div>
-          <div className="row wrap" style={{ gap: 6, fontSize: 12.5 }}>
+          <div className="row wrap" style={{ gap: 6 }}>
             <span className="t-2"><StartValue goal={goal} notStarted={notStarted} /></span>
             <Direction goal={goal} />
           </div>
@@ -147,8 +147,8 @@ function GoalTile({ goal, notStarted }: { goal: Goal; notStarted: boolean }) {
           {goal.key === "failing_servers" && goal.disabled_by_mso?.length ? <SwitchedOff goal={goal} /> : null}
         </>
       )}
-      <p className="t-3" style={{ margin: 0, fontSize: 11.5 }}>{t(DEF[goal.key])}</p>
-      {goal.key === "failing_servers" && goal.now.probing ? <span className="t-3" style={{ fontSize: 12 }}>{t("goals.servers.probing", { count: num(goal.now.probing) })}</span> : null}
+      <p className="t-3" style={{ margin: 0 }}>{t(DEF[goal.key])}</p>
+      {goal.key === "failing_servers" && goal.now.probing ? <span className="t-3">{t("goals.servers.probing", { count: num(goal.now.probing) })}</span> : null}
     </article>
   );
 }
@@ -159,7 +159,7 @@ function GoalDetails({ goal }: { goal: Goal }) {
     const n = goal.now;
     const min = num(goal.min_n ?? 20);
     return (
-      <dl className="kv" style={{ fontSize: 12 }}>
+      <dl className="kv">
         <dt>{t("goals.failure.net")}</dt>
         <dd>{n.n ? t("goals.failure.nShort", { failed: num(n.failed ?? 0), n: num(n.n) }) : "—"}
           {n.insufficient ? <span className="t-3"> · {t("goals.failure.tooFew", { min })}</span> : null}</dd>
@@ -172,7 +172,7 @@ function GoalDetails({ goal }: { goal: Goal }) {
   if (goal.key === "suspicious_torrents") {
     const n = goal.now;
     return (
-      <div className="row wrap" style={{ gap: 6, fontSize: 12 }}>
+      <div className="row wrap" style={{ gap: 6 }}>
         <span className="t-2">{n.new_7d ? t("goals.suspicious.new", { count: num(n.new_7d) }) : t("goals.suspicious.noneNew")}</span>
         {n.awaiting_approval ? <StatusChip tone="warning">{t("goals.suspicious.waiting", { count: num(n.awaiting_approval) })}</StatusChip> : null}
       </div>
@@ -184,11 +184,11 @@ function GoalDetails({ goal }: { goal: Goal }) {
 function Blocker({ goal }: { goal: Goal }) {
   const { t } = useI18n();
   if (goal.status === "met") {
-    return <div style={{ fontSize: 12.5 }}><span className="t-3">{t("goals.blocker")}: </span>{t("goals.blockerNone")}</div>;
+    return <div><span className="t-3">{t("goals.blocker")}: </span>{t("goals.blockerNone")}</div>;
   }
   if (!goal.blocker) return null;
   return (
-    <div style={{ fontSize: 12.5, lineHeight: 1.45 }} data-testid={`goal-${goal.key}-blocker`}>
+    <div style={{ lineHeight: 1.45 }} data-testid={`goal-${goal.key}-blocker`}>
       <span className="t-3">{t("goals.blocker")}: </span>{goal.blocker.text}{" "}
       <Link className="link-more" href={goal.blocker.link}>{t("goals.view")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>
     </div>
@@ -199,7 +199,7 @@ function SwitchedOff({ goal }: { goal: Goal }) {
   const { t, date } = useI18n();
   return (
     <InlineState tone="neutral" icon={PowerOff}>
-      <div style={{ fontSize: 12.5 }}>
+      <div>
         <strong>{goal.disabled_text}</strong>
         <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
           {(goal.disabled_by_mso ?? []).map((s) => (
@@ -221,7 +221,7 @@ function TrendLine({ goal }: { goal: Goal }) {
   const value = useValue();
   const pts = goal.trend;
   const known = pts.filter((p): p is GoalTrendPoint & { value: number } => p.value !== null);
-  if (known.length < 2) return <p className="t-3" style={{ margin: 0, fontSize: 12 }}>{t("goals.trendEmpty")}</p>;
+  if (known.length < 2) return <p className="t-3" style={{ margin: 0 }}>{t("goals.trendEmpty")}</p>;
   const W = 280, H = 56, P = 5;
   const max = Math.max(goal.target, ...known.map((p) => p.value), goal.unit === "ratio" ? 0.05 : 1);
   const x = (i: number) => P + (pts.length === 1 ? (W - 2 * P) / 2 : (i / (pts.length - 1)) * (W - 2 * P));

@@ -49,17 +49,17 @@ function CandidateRow({ c, canSend, sendReason, onSend, pending }: {
       <div className="evidence-head" style={{ flexWrap: "wrap" }}>
         {c.passed ? <StatusChip tone="success" icon={CircleCheck}>{t("rec.cand.passes")}</StatusChip> : <StatusChip tone="danger" icon={CircleX}>{t("rec.cand.rejected")}</StatusChip>}
         <span className="tag">{c.protocol === "usenet" ? "Usenet" : "Torrent"}</span>
-        <span className="mono" style={{ overflowWrap: "anywhere", fontSize: 12.5 }}>{c.title}</span>
+        <span className="mono" style={{ overflowWrap: "anywhere" }}>{c.title}</span>
         <span className="grow" />
         {c.score != null ? <span className="num" title={t("rec.cand.score")}>{num(c.score, 1)}</span> : null}
       </div>
-      <div className="row wrap" style={{ gap: 10, fontSize: 12, padding: "0 12px 8px" }}>
+      <div className="row wrap" style={{ gap: 10, padding: "0 12px 8px" }}>
         {c.size_bytes ? <span>{bytes(c.size_bytes)}</span> : null}
         {c.seeders != null ? <span>{t("rec.cand.seeders", { n: num(c.seeders) })}</span> : null}
         {c.source_id ? <span className="mono t-3">{c.source_id}</span> : null}
         {c.expired ? <StatusChip tone="warning">{t("rec.cand.expired")}</StatusChip> : null}
       </div>
-      {!c.passed && c.reasons.length ? <p className="t-danger" style={{ fontSize: 12, padding: "0 12px" }}>{c.reasons.join(" · ")}</p> : null}
+      {!c.passed && c.reasons.length ? <p className="t-danger" style={{ padding: "0 12px" }}>{c.reasons.join(" · ")}</p> : null}
       <div className="row wrap" style={{ gap: 8, padding: "0 12px 10px" }}>
         <Button size="sm" icon={SearchCheck} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t("rec.cand.hideEvidence") : t("rec.cand.showEvidence")}</Button>
         <Button size="sm" variant={c.passed ? "primary" : "secondary"} icon={Send} pending={pending} disabled={blocked} title={blocked ? reason : undefined} onClick={onSend}>{t("rec.cand.send")}</Button>
@@ -135,7 +135,7 @@ export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: str
               </div>
 
               <section>
-                <h3 className="card-title" style={{ fontSize: 13, marginBottom: 6 }}>{t("rec.item.requirements")}</h3>
+                <h3 className="card-title" style={{ marginBottom: 6 }}>{t("rec.item.requirements")}</h3>
                 <RequirementChips r={d.requirements} />
                 <p className="hint">{t("rec.item.reqSources", { list: d.requirements.sources.join(" + ") })}</p>
                 {!d.requirements.policy_verified ? <InlineState tone="warning">{t("rec.item.policyUnverified")}</InlineState> : null}
@@ -144,7 +144,7 @@ export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: str
 
               {tgt.origin === "mediaguard" ? (
                 <section>
-                  <h3 className="card-title" style={{ fontSize: 13, marginBottom: 6 }}><Stethoscope className="ico" aria-hidden="true" />{t("rec.item.diagnosis")}</h3>
+                  <h3 className="card-title" style={{ marginBottom: 6 }}><Stethoscope className="ico" aria-hidden="true" />{t("rec.item.diagnosis")}</h3>
                   {d.diagnosis ? (
                     <Timeline items={d.diagnosis.reasons.map((r) => ({
                       title: <span><strong>{r.label_nl}</strong> — {r.message_nl}</span>,
@@ -156,7 +156,7 @@ export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: str
               ) : null}
 
               <section className="stack" style={{ gap: 10 }}>
-                <h3 className="card-title" style={{ fontSize: 13 }}>{t("rec.item.actions")}</h3>
+                <h3 className="card-title">{t("rec.item.actions")}</h3>
                 <div className="row wrap" style={{ gap: 8 }}>
                   <Button variant="primary" icon={FileSearch} pending={pending === "cands"} disabled={!isOperator} title={isOperator ? undefined : t("mg.needOperator")} onClick={() => void findCandidates()}>{t("rec.item.findCandidates")}</Button>
                   <Button icon={SlidersHorizontal} aria-expanded={extraOpen} onClick={() => setExtraOpen(!extraOpen)}>{t("rec.item.extra")}</Button>
@@ -191,12 +191,12 @@ export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: str
               ) : null}
 
               <section>
-                <h3 className="card-title" style={{ fontSize: 13, marginBottom: 6 }}><Download className="ico" aria-hidden="true" />{t("rec.cand.title", { n: num(accepted.length) })}</h3>
+                <h3 className="card-title" style={{ marginBottom: 6 }}><Download className="ico" aria-hidden="true" />{t("rec.cand.title", { n: num(accepted.length) })}</h3>
                 {d.candidates.length === 0 ? <p className="hint">{t("rec.cand.none")}</p> : null}
                 {accepted.map((c) => <CandidateRow key={c.release_key} c={c} canSend={sendOk} sendReason={sendReason} pending={pending === "send:" + c.release_key} onSend={() => void send(c.release_key)} />)}
                 {rejected.length ? (
                   <details>
-                    <summary style={{ cursor: "pointer", fontSize: 13 }}>{t("rec.cand.rejectedList", { n: num(rejected.length) })}</summary>
+                    <summary style={{ cursor: "pointer" }}>{t("rec.cand.rejectedList", { n: num(rejected.length) })}</summary>
                     <div style={{ marginTop: 8 }}>
                       {rejected.map((c) => <CandidateRow key={c.release_key} c={c} canSend={false} pending={false} onSend={() => undefined} />)}
                     </div>
@@ -206,7 +206,7 @@ export function ItemPanel({ mediaRef, onChanged, bare = false }: { mediaRef: str
 
               {d.sends.length || d.search_requests.length ? (
                 <section>
-                  <h3 className="card-title" style={{ fontSize: 13, marginBottom: 6 }}>{t("rec.item.history")}</h3>
+                  <h3 className="card-title" style={{ marginBottom: 6 }}>{t("rec.item.history")}</h3>
                   <Timeline items={[
                     ...d.search_requests.map((r) => ({ title: t("rec.item.histRequest", { status: enumLabel(t, "rec.req.status", r.status) }), meta: `${relative(r.requested_at)} · ${r.actor}${r.error ? ` · ${r.error}` : ""}`, tone: (r.status === "sent" ? "success" : r.status === "failed" ? "danger" : "warning") as "success" | "danger" | "warning" })),
                     ...d.sends.map((s) => ({ title: t("rec.item.histSend", { client: s.client === "sabnzbd" ? "SABnzbd" : s.client === "qbittorrent" ? "qBittorrent" : s.client, status: enumLabel(t, "rec.send.status", s.status) }), meta: `${relative(s.created_at)} · ${s.title}${s.error ? ` · ${s.error}` : ""}`, tone: (s.status === "sent" || s.status === "download_ok" ? "success" : "danger") as "success" | "danger" })),

@@ -106,7 +106,7 @@ export function EndpointPanel({ className, prowlarrConfigured }: { className?: s
             {notReadyReason ? <InlineState tone="info">{notReadyReason}</InlineState> : null}
             {readiness && !readiness.newznab.ready ? (
               <div className="stack-sm" data-testid="endpoint-own-sources">
-                <span className="t-2" style={{ fontSize: 12.5 }}>{t("idx.endpoint.addOwnHelp")}</span>
+                <span className="t-2">{t("idx.endpoint.addOwnHelp")}</span>
                 <div className="row wrap" style={{ gap: 6 }}>
                   <Button size="sm" variant="primary" icon={Plus} disabled={!isAdmin} title={!isAdmin ? t("idx.adminOnly") : undefined}
                     onClick={() => setAdding("spotweb")}>{t("idx.endpoint.addSpotweb")}</Button>
@@ -162,12 +162,12 @@ export function EndpointPanel({ className, prowlarrConfigured }: { className?: s
             <ChangePreview change={change} card={false} onChanged={async (u) => { if (u) setChange(u); await endpoint.reload(); }} />
             {payloads && Object.keys(payloads).length ? (
               <details>
-                <summary className="t-2" style={{ fontSize: 12.5, cursor: "pointer" }}>{t("idx.registerTechnical")}</summary>
+                <summary className="t-2" style={{ cursor: "pointer" }}>{t("idx.registerTechnical")}</summary>
                 <p className="hint" style={{ margin: "6px 0" }}>{t("idx.registerTechnicalHelp")}</p>
                 {Object.entries(payloads).map(([k, p]) => (
                   <div key={k} className="stack-sm">
                     <span className="eyebrow">{k === "newznab" ? "Newznab" : "Torznab"}</span>
-                    <pre className="mono pre-wrap" style={{ margin: 0, fontSize: 11.5, maxHeight: 260, overflow: "auto" }}>{JSON.stringify(p, null, 2)}</pre>
+                    <pre className="mono pre-wrap" style={{ margin: 0, maxHeight: 260, overflow: "auto" }}>{JSON.stringify(p, null, 2)}</pre>
                   </div>
                 ))}
               </details>

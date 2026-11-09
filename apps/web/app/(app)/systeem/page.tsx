@@ -140,14 +140,14 @@ function BackupsCard() {
     <Card className="span-6" title={t("system.backups")} icon={DatabaseBackup} flush
       actions={<Button size="sm" variant="primary" disabled={!admin} title={!admin ? t("system.restoreAdminOnly") : undefined} pending={pending === "backup" || creating !== null} onClick={() => void create()} data-testid="backup-create">{t("system.backupNow")}</Button>}>
       <div className="card-body stack-sm" style={{ borderBottom: "1px solid var(--mg-border-soft)" }}>
-        <label className="row t-2" style={{ fontSize: 13 }}>
+        <label className="row t-2">
           <Switch checked={includeSecrets} onChange={setIncludeSecrets} label={t("system.backupIncludeSecrets")} disabled={!admin} />{t("system.backupIncludeSecrets")}
         </label>
         {includeSecrets ? <InlineState tone="warning">{t("system.backupIncludeSecretsHelp")}</InlineState> : <p className="hint" style={{ margin: 0 }}>{t("system.backupIncludeSecretsHelp")}</p>}
         <BackupSpaceNote />
         {creating ? (
           <div className="stack-sm" role="status" data-testid="backup-progress">
-            <span className="t-2" style={{ fontSize: 12.5 }}>{t("system.backupRunning", { id: String(creating.jobId) })}{creating.progress ? ` · ${pct(creating.progress <= 1 ? creating.progress * 100 : creating.progress)}` : ""}</span>
+            <span className="t-2">{t("system.backupRunning", { id: String(creating.jobId) })}{creating.progress ? ` · ${pct(creating.progress <= 1 ? creating.progress * 100 : creating.progress)}` : ""}</span>
             <Progress value={creating.progress ? (creating.progress <= 1 ? creating.progress * 100 : creating.progress) : null} indeterminate={!creating.progress} thin label={t("system.backupRunning", { id: String(creating.jobId) })} />
           </div>
         ) : null}
@@ -218,14 +218,14 @@ function JobsCard({ num }: { num: (v: number | null | undefined, d?: number) => 
             return (
               <div className="list-row" key={String(job.id)} style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
                 <div className="list-main" style={{ minWidth: 200 }}>
-                  <div className="list-title">{jobKindLabel(job.kind)} <span className="mono t-3" style={{ fontSize: 11.5 }}>{job.kind} · #{String(job.id)}</span></div>
+                  <div className="list-title">{jobKindLabel(job.kind)} <span className="mono t-3">{job.kind} · #{String(job.id)}</span></div>
                   <div className="list-sub" style={{ whiteSpace: "normal" }}>
                     {job.summary ? `${job.summary} · ` : ""}{t("jobs.attempts")} {num(job.attempts)}/{num(job.max_attempts)} · {t("jobs.created")} {dateTime(job.created_at)}{job.updated_at ? ` · ${t("jobs.updated")} ${relative(job.updated_at)}` : ""}
                   </div>
                   {job.status === "running" && job.progress !== null && job.progress !== undefined ? (
                     <div style={{ marginTop: 6 }}><Progress value={job.progress <= 1 ? job.progress * 100 : job.progress} thin label={t("jobs.progress")} /></div>
                   ) : null}
-                  {job.error ? <div className="t-danger pre-wrap" style={{ fontSize: 12, marginTop: 4 }}>{job.error}</div> : null}
+                  {job.error ? <div className="t-danger pre-wrap" style={{ marginTop: 4 }}>{job.error}</div> : null}
                 </div>
                 <StatusChip tone={jobTone(job.status)} icon={jobIcon(job.status)} pending={job.status === "running"}>{t(jobLabel(job.status))}</StatusChip>
                 <div className="row">

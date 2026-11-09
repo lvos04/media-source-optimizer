@@ -85,7 +85,7 @@ function ConfigForm({ status, providers, onSaved }: { status: HeaderIndexStatus;
         ))}
       </div>
       {!enabled ? (
-        <label className="row" style={{ alignItems: "flex-start", gap: 8, fontSize: 13 }}>
+        <label className="row" style={{ alignItems: "flex-start", gap: 8 }}>
           <input type="checkbox" checked={ack} disabled={!admin} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: 3 }} />
           <span>{t("usenet.hi.acknowledge")}</span>
         </label>
@@ -148,7 +148,7 @@ export function HeaderIndexCard({ providers }: { providers: UsenetProvider[] }) 
         {(s) => (
           <div className="stack">
             <InlineState tone="warning">{s.disclaimer}</InlineState>
-            <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t(s.config.enabled ? "usenet.hi.endpointOn" : "usenet.hi.endpointOff")}</p>
+            <p className="t-2" style={{ margin: 0 }}>{t(s.config.enabled ? "usenet.hi.endpointOn" : "usenet.hi.endpointOff")}</p>
             {s.config.enabled || s.usage.headers ? (
               <div className="grid" style={{ gap: 16 }}>
                 <div className="span-6 stack-sm">
@@ -157,7 +157,7 @@ export function HeaderIndexCard({ providers }: { providers: UsenetProvider[] }) 
                     <span className="t-2">{t("usenet.hi.usageValue", { used: bytes(s.usage.estimated_bytes), budget: bytes(s.usage.budget_bytes) })}</span>
                     <Progress value={(s.usage.ratio ?? 0) * 100} tone={s.usage.budget_reached ? "danger" : (s.usage.ratio ?? 0) > 0.8 ? "warning" : undefined} label={t("usenet.hi.usage")} />
                   </div>
-                  <span className="t-3" style={{ fontSize: 12 }}>{t("usenet.hi.physical", { size: bytes(s.usage.physical_bytes) })}</span>
+                  <span className="t-3">{t("usenet.hi.physical", { size: bytes(s.usage.physical_bytes) })}</span>
                   {s.usage.budget_reached ? <InlineState tone="danger" role="alert">{t("usenet.hi.budgetReached")}</InlineState> : null}
                 </div>
                 <div className="span-6">
@@ -206,7 +206,7 @@ export function HeaderIndexCard({ providers }: { providers: UsenetProvider[] }) 
                   ))}
                 </ul>
               </div>
-            ) : s.config.enabled ? <p className="t-3" style={{ margin: 0, fontSize: 12.5 }}>{t("usenet.hi.noRuns")}</p> : null}
+            ) : s.config.enabled ? <p className="t-3" style={{ margin: 0 }}>{t("usenet.hi.noRuns")}</p> : null}
           </div>
         )}
       </ResourceView>

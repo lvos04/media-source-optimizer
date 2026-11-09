@@ -216,7 +216,7 @@ function Summary({ mode }: { mode: OperatingMode }) {
       {rows.map((c) => (
         <div key={c.id} style={{ display: "contents" }}>
           <dt>{c.label}</dt>
-          <dd className="row wrap" style={{ gap: 6 }}><ConnectorStatusChip connector={c} />{c.url ? <span className="mono t-2" style={{ fontSize: 12 }}>{c.url}</span> : null}</dd>
+          <dd className="row wrap" style={{ gap: 6 }}><ConnectorStatusChip connector={c} />{c.url ? <span className="mono t-2">{c.url}</span> : null}</dd>
         </div>
       ))}
       {connectors.error ? <><dt>{t("setup.stepConnectors")}</dt><dd className="t-danger">{connectors.error.message}</dd></> : null}

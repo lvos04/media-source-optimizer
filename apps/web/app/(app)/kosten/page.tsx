@@ -25,8 +25,8 @@ function RatioCell({ m, currency, f }: { m: ServiceMetrics | null | undefined; c
     <div className="stack-sm" style={{ gap: 2 }}>
       <div>{m.per_gb_cents != null ? f.t("costs.perGbValue", { value: f.money(m.per_gb_cents / 100, currency) }) : <span className="t-3">{f.t("costs.perGbNone")}</span>}</div>
       <div>{m.per_success_cents != null ? f.t("costs.perSuccessValue", { value: f.money(m.per_success_cents / 100, currency) }) : null}</div>
-      <div className="t-3" style={{ fontSize: 12 }}>{f.t("costs.successesValue", { n: f.num(m.successful_downloads ?? 0), gb: f.num(m.successful_gb ?? 0, 1) })}</div>
-      {m.cost_reason ? <div className="t-3" style={{ fontSize: 12 }}>{m.cost_reason}</div> : null}
+      <div className="t-3">{f.t("costs.successesValue", { n: f.num(m.successful_downloads ?? 0), gb: f.num(m.successful_gb ?? 0, 1) })}</div>
+      {m.cost_reason ? <div className="t-3">{m.cost_reason}</div> : null}
     </div>
   );
 }
@@ -34,11 +34,11 @@ function RatioCell({ m, currency, f }: { m: ServiceMetrics | null | undefined; c
 function UniqueCell({ m, f }: { m: ServiceMetrics | null | undefined; f: Formatters }) {
   const u = m?.unique;
   if (!u) return <span className="t-3">—</span>;
-  if (!u.available) return <span className="t-3" style={{ fontSize: 12 }}>{u.reason}</span>;
+  if (!u.available) return <span className="t-3">{u.reason}</span>;
   return (
     <div title={u.note}>
       {f.t("costs.uniqueValue", { pct: f.pct((u.pct ?? 0) * 100, 1) })}
-      <div className="t-3" style={{ fontSize: 12 }}>{f.t("costs.uniqueSample", { n: f.num(u.unique_articles ?? 0), total: f.num(u.compared_articles ?? 0) })}{u.confidence ? ` · ${u.confidence}` : ""}</div>
+      <div className="t-3">{f.t("costs.uniqueSample", { n: f.num(u.unique_articles ?? 0), total: f.num(u.compared_articles ?? 0) })}{u.confidence ? ` · ${u.confidence}` : ""}</div>
     </div>
   );
 }
@@ -122,7 +122,7 @@ export default function CostsPage() {
 
       <div className="grid" style={{ marginTop: 16 }}>
         <Card className="span-12" title={t("costs.services")} icon={Coins} flush
-          actions={freeCount ? <label className="row" style={{ gap: 8, fontSize: 12.5 }}><Switch checked={showFree} label={t("costs.showFree")} onChange={setShowFree} /><span>{t("costs.showFree")} ({num(freeCount)})</span></label> : undefined}>
+          actions={freeCount ? <label className="row" style={{ gap: 8 }}><Switch checked={showFree} label={t("costs.showFree")} onChange={setShowFree} /><span>{t("costs.showFree")} ({num(freeCount)})</span></label> : undefined}>
           {freeCount && !showFree ? <p className="hint" style={{ margin: 0, padding: "10px 16px 0" }}>{t("costs.freeHidden", { count: num(freeCount) })}</p> : null}
           <ResourceView resource={services} endpoint="GET /api/v1/costs/services" isEmpty={(d) => shown(d.items).length === 0}
             empty={services.data?.items.length ? <StateView kind="empty" title={t("costs.noPaidServices")} body={t("costs.noPaidServicesBody")} /> : <StateView kind="empty" title={t("costs.noServices")} body={t("costs.noServicesBody")}
@@ -139,7 +139,7 @@ export default function CostsPage() {
                     <tr key={x.id} aria-selected={selected?.id === x.id}>
                       <td className="cell-primary">
                         <div>{x.label}</div>
-                        <div className="t-3" style={{ fontSize: 12 }}>{t(kindLabel(x.kind))}{x.origin === "import" ? ` · ${t("costs.importedChip")}` : ""}{!x.active ? <> · <StatusChip tone="neutral">{t("costs.inactive")}</StatusChip></> : null}</div>
+                        <div className="t-3">{t(kindLabel(x.kind))}{x.origin === "import" ? ` · ${t("costs.importedChip")}` : ""}{!x.active ? <> · <StatusChip tone="neutral">{t("costs.inactive")}</StatusChip></> : null}</div>
                       </td>
                       <td data-label={t("costs.col.amount")}>
                         {x.price_missing ? null : <div>{x.billing === "free" ? t("costs.billing.free") : `${money(x.amount_cents / 100, x.currency)} ${t(billingLabel(x.billing))}`}</div>}

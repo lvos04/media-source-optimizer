@@ -124,7 +124,7 @@ function Control({ def, id, value, saved, onChange, disabled, invalid }: {
               onChange(normalized === "" || Number.isNaN(n) ? normalized : n);
             }}
           />
-          {def.unit ? <span className="t-3" style={{ fontSize: 12 }}>{def.unit}</span> : null}
+          {def.unit ? <span className="t-3">{def.unit}</span> : null}
         </div>
       );
     case "list":

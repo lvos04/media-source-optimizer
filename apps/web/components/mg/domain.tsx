@@ -80,14 +80,14 @@ export function ConnectorCard({ connector, actions, children }: { connector: Con
         <div className="grow"><div className="instance-name">{connector.label}</div><div className="instance-id">{connector.id}</div></div>
         <ConnectorStatusChip connector={connector} />
       </div>
-      <dl className="kv" style={{ fontSize: 12 }}>
+      <dl className="kv">
         <dt>{t("connector.url")}</dt><dd className="mono" style={{ overflowWrap: "anywhere" }}>{connector.url || "—"}</dd>
         <dt>{t("connector.version")}</dt><dd className="mono">{connector.version ?? "—"}</dd>
         <dt>{t("connector.checked")}</dt><dd>{connector.last_checked_at ? relative(connector.last_checked_at) : "—"}</dd>
         {connector.secret_fields.map((f) => <div key={f.name} style={{ display: "contents" }}><dt>{f.label}</dt><dd>{f.status === "ingesteld" ? t("status.set") : t("status.empty")}</dd></div>)}
         {caps.length ? <><dt>{t("connector.capabilities")}</dt><dd className="row wrap" style={{ gap: 4 }}>{caps.map((c) => <span key={c} className="tag">{c}</span>)}</dd></> : null}
       </dl>
-      {connector.last_error ? <p className="t-danger" style={{ fontSize: 12 }}>{connector.last_error}</p> : null}
+      {connector.last_error ? <p className="t-danger">{connector.last_error}</p> : null}
       {children}
       {actions ? <div className="row wrap">{actions}</div> : null}
     </article>

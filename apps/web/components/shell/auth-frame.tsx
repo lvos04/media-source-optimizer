@@ -29,7 +29,7 @@ function Frame({ children, wide }: { children: ReactNode; wide?: boolean }) {
           <div className="auth-point"><span className="list-icon list-icon--success"><SearchX className="ico" aria-hidden="true" /></span><span><strong>{t("auth.point2Title")}</strong>{t("auth.point2Body")}</span></div>
           <div className="auth-point"><span className="list-icon list-icon--info"><CircleCheck className="ico" aria-hidden="true" /></span><span><strong>{t("auth.point3Title")}</strong>{t("auth.point3Body")}</span></div>
         </div>
-        <p className="t-3" style={{ fontSize: 12 }}>{t("auth.footer")}</p>
+        <p className="t-3">{t("auth.footer")}</p>
       </aside>
       <main className="auth-main" id="main">
         <div className="auth-card" style={wide ? { width: "min(640px, 100%)" } : undefined}>{children}</div>

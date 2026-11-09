@@ -78,7 +78,7 @@ export default function AutomationPage() {
           {RISKS.map((r) => (
             <div className="span-4 stack-sm" key={r}>
               <RiskChip risk={r} size="lg" />
-              <p className="t-2" style={{ margin: 0, fontSize: 12.5 }}><strong>{t(`risk.mso.${r}`)}.</strong> {s?.risk_explanation[r] ?? t(`risk.${r}Help`)}</p>
+              <p className="t-2" style={{ margin: 0 }}><strong>{t(`risk.mso.${r}`)}.</strong> {s?.risk_explanation[r] ?? t(`risk.${r}Help`)}</p>
             </div>
           ))}
         </div>

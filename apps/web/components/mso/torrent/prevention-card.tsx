@@ -59,25 +59,25 @@ export function PreventionCard() {
               {d.active ? <StatusChip tone="success" icon={CircleCheck}>{t("torrent.prevention.active")}</StatusChip>
                 : !d.supported ? <StatusChip tone="neutral" icon={CircleSlash}>{t("torrent.prevention.unsupported")}</StatusChip>
                   : <StatusChip tone="warning" icon={TriangleAlert}>{t("torrent.prevention.inactive")}</StatusChip>}
-              <span className="t-2" style={{ fontSize: 13 }}>{d.message}</span>
+              <span className="t-2">{d.message}</span>
             </div>
-            <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("torrent.prevention.body")}</p>
+            <p className="t-2" style={{ margin: 0 }}>{t("torrent.prevention.body")}</p>
             <dl className="dl">
               <dt>{t("torrent.prevention.recommended")}</dt>
-              <dd className="mono" style={{ fontSize: 12 }}>{d.recommended.join("  ")}</dd>
+              <dd className="mono">{d.recommended.join("  ")}</dd>
               {d.supported ? (
                 <>
                   <dt>{t("torrent.prevention.ownLabel")}</dt>
-                  <dd className="mono" style={{ fontSize: 12 }}>{d.user_patterns.length ? d.user_patterns.join("  ") : t("torrent.prevention.none")}</dd>
+                  <dd className="mono">{d.user_patterns.length ? d.user_patterns.join("  ") : t("torrent.prevention.none")}</dd>
                 </>
               ) : null}
             </dl>
             {d.supported && !d.active && d.missing.length ? (
-              <p className="t-3" style={{ margin: 0, fontSize: 12 }}>{t("torrent.prevention.missing", { list: d.missing.join(", ") })}</p>
+              <p className="t-3" style={{ margin: 0 }}>{t("torrent.prevention.missing", { list: d.missing.join(", ") })}</p>
             ) : null}
             {d.suppressed && !d.open_change ? <InlineState tone="info" role="status">{t("torrent.prevention.suppressed", { reason: d.suppressed })}</InlineState> : null}
             {d.last_change ? (
-              <p className="t-3" style={{ margin: 0, fontSize: 12 }}>{t("torrent.prevention.last", { title: d.last_change.title, status: d.last_change.status })}</p>
+              <p className="t-3" style={{ margin: 0 }}>{t("torrent.prevention.last", { title: d.last_change.title, status: d.last_change.status })}</p>
             ) : null}
             {d.supported && !d.active ? (
               <div className="row wrap">

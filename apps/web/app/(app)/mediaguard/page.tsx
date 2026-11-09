@@ -76,7 +76,7 @@ export default function MediaGuardPage() {
                     ? (d.search.automation_allowed ? <StatusChip tone="warning">{t("mg.autoOn")}</StatusChip> : <StatusChip tone="neutral">{t("mg.autoBlocked")}</StatusChip>)
                     : <StatusChip tone="neutral">{t("mg.autoOff")}</StatusChip>}</dd>
                 </dl>
-                {d.error ? <p className="t-danger" style={{ fontSize: 12 }}>{d.error}</p> : null}
+                {d.error ? <p className="t-danger">{d.error}</p> : null}
                 {d.warnings.map((w) => <InlineState key={w} tone="warning">{w}</InlineState>)}
               </div>
             )}
@@ -85,8 +85,8 @@ export default function MediaGuardPage() {
 
         <Card className="span-4" title={t("mg.auth.title")} icon={KeyRound}>
           <div className="stack">
-            <p style={{ fontSize: 13 }}>{t("mg.auth.advice")}</p>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+            <p>{t("mg.auth.advice")}</p>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
               <li>{t("mg.auth.apikeyAdvice")}</li>
               <li>{t("mg.auth.operator")}</li>
               <li>{t("mg.auth.viewer")}</li>
@@ -138,7 +138,7 @@ export default function MediaGuardPage() {
                     {ls.complete === false && ls.cycle_items != null ? <><dt>{t("mg.sync.cycle")}</dt><dd className="num">{num(ls.cycle_items)}{ls.total_open != null ? ` / ${num(ls.total_open)}` : ""}</dd></> : null}
                     <dt>{t("mg.sync.duration")}</dt><dd>{ls.duration_ms != null ? duration(ls.duration_ms / 1000) : "—"}</dd>
                   </dl>
-                  {ls.last_error ? <p className="t-danger" style={{ fontSize: 12 }}>{ls.last_error}</p> : null}
+                  {ls.last_error ? <p className="t-danger">{ls.last_error}</p> : null}
                   {ls.complete === false && ls.ok ? <p className="hint">{t("mg.sync.partialHint")}</p> : null}
                   <p className="hint">{t("mg.sync.hint")}</p>
                 </div>
@@ -156,14 +156,14 @@ export default function MediaGuardPage() {
         <Card className="span-12" title={t("mg.own.title")} icon={Scale}>
           <div className="grid" style={{ gap: 16 }}>
             <div className="span-6">
-              <h3 className="card-title" style={{ fontSize: 13 }}><CheckCheck className="ico t-success" aria-hidden="true" />{t("mg.own.does")}</h3>
-              <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 13 }}>
+              <h3 className="card-title"><CheckCheck className="ico t-success" aria-hidden="true" />{t("mg.own.does")}</h3>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                 <li>{t("mg.own.does1")}</li><li>{t("mg.own.does2")}</li><li>{t("mg.own.does3")}</li><li>{t("mg.own.does4")}</li>
               </ul>
             </div>
             <div className="span-6">
-              <h3 className="card-title" style={{ fontSize: 13 }}><Ban className="ico t-danger" aria-hidden="true" />{t("mg.own.never")}</h3>
-              <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 13 }}>
+              <h3 className="card-title"><Ban className="ico t-danger" aria-hidden="true" />{t("mg.own.never")}</h3>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                 <li>{t("mg.own.never1")}</li><li>{t("mg.own.never2")}</li><li>{t("mg.own.never3")}</li><li>{t("mg.own.never4")}</li><li>{t("mg.own.never5")}</li>
               </ul>
             </div>

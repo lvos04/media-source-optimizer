@@ -71,7 +71,7 @@ export function FallbackCard({ reloadKey }: { reloadKey?: number }) {
           sm.not_wanted ? t("rec.fb.summary.notWanted", { n: num(sm.not_wanted) }) : null,
         ].filter(Boolean);
         return parts.length ? (
-          <div className="row wrap t-2" style={{ padding: "10px 16px 0", fontSize: 12.5, gap: 8 }}>
+          <div className="row wrap t-2" style={{ padding: "10px 16px 0", gap: 8 }}>
             <span>{parts.join(" · ")}</span>
             {sm.not_wanted ? (
               <Button size="sm" variant="ghost" onClick={() => setShowSilent((v) => !v)}>
@@ -113,7 +113,7 @@ export function FallbackCard({ reloadKey }: { reloadKey?: number }) {
                           <Button size="sm" variant={r.status === "proposed" ? "primary" : "secondary"} icon={Eye} onClick={() => setOpen(r.change_id)}>
                             {t(r.status === "proposed" ? "rec.fb.review" : "rec.fb.view")}
                           </Button>
-                        ) : <span className="t-3" style={{ fontSize: 12 }}>{t("rec.fb.noProposal")}</span>}
+                        ) : <span className="t-3">{t("rec.fb.noProposal")}</span>}
                       </td>
                     </tr>
                   );

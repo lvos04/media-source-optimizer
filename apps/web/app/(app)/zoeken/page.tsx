@@ -148,7 +148,7 @@ export default function SearchPage() {
               </Field>
             </div>
             <details>
-              <summary className="t-2" style={{ fontSize: 13, cursor: "pointer" }}>{t("zoeken.ids")}</summary>
+              <summary className="t-2" style={{ cursor: "pointer" }}>{t("zoeken.ids")}</summary>
               <div className="row wrap" style={{ gap: 12, marginTop: 8 }}>
                 <Field label="IMDb" htmlFor="imdb"><input id="imdb" className="input mono" placeholder="tt1234567" style={{ width: 140 }} value={imdb} onChange={(e) => setImdb(e.target.value)} /></Field>
                 <Field label="TVDB" htmlFor="tvdb"><input id="tvdb" className="input mono" inputMode="numeric" style={{ width: 120 }} value={tvdb} onChange={(e) => setTvdb(e.target.value)} /></Field>
@@ -219,7 +219,7 @@ export default function SearchPage() {
                                   {it.freeleech ? <StatusChip tone="success" icon={null} outline>{t("zoeken.freeleech")}</StatusChip> : null}
                                 </div>
                                 <div style={{ marginTop: 4 }}><FlagChips flags={it.false_positive_flags} details={Array.isArray(it.extra?.release_gate) ? (it.extra.release_gate as string[]) : undefined} /></div>
-                                <div className="cell-sub mono" title={t("zoeken.col.identity")} style={{ fontSize: 11, wordBreak: "break-all" }}>{it.release_key}</div>
+                                <div className="cell-sub mono" title={t("zoeken.col.identity")} style={{ wordBreak: "break-all" }}>{it.release_key}</div>
                               </td>
                               <td data-label={t("zoeken.col.source")}>
                                 <div>{it.source_label}</div>
@@ -228,7 +228,7 @@ export default function SearchPage() {
                                   {it.also_from.length ? <> · {t("zoeken.alsoFrom", { sources: it.also_from.join(", ") })}</> : null}
                                 </div>
                               </td>
-                              <td data-label={t("zoeken.col.facts")} className="mono" style={{ fontSize: 12 }}>
+                              <td data-label={t("zoeken.col.facts")} className="mono">
                                 <div>{bytes(it.size_bytes)}</div>
                                 <div className="cell-sub">{it.publish_date ? relative(it.publish_date) : "—"}</div>
                                 {it.protocol === "torrent" ? <div className="cell-sub">{t("zoeken.seeders", { n: num(it.seeders ?? 0) })}</div>
@@ -255,7 +255,7 @@ export default function SearchPage() {
                       </tbody>
                     </table>
                     <div className="card-footer row-between">
-                      <span className="t-3" style={{ fontSize: 12 }}>{t("zoeken.page", { from: num(d.offset + 1), to: num(d.offset + d.items.length), total: num(d.total) })}</span>
+                      <span className="t-3">{t("zoeken.page", { from: num(d.offset + 1), to: num(d.offset + d.items.length), total: num(d.total) })}</span>
                       <span className="row" style={{ gap: 6 }}>
                         <Button size="sm" icon={ChevronLeft} disabled={d.offset === 0} onClick={() => page(-1)}>{t("zoeken.prev")}</Button>
                         <Button size="sm" icon={ChevronRight} disabled={d.offset + d.items.length >= d.total} onClick={() => page(1)}>{t("zoeken.next")}</Button>

@@ -48,9 +48,9 @@ function CrossSeedCard() {
               <div className="row wrap" style={{ gap: 6 }}>
                 <StatusChip tone={d.enabled ? "success" : "neutral"}>{d.enabled ? t("storage.cross.on") : t("storage.cross.off")}</StatusChip>
                 <StatusChip tone={d.search_available ? "success" : "neutral"}>{d.search_available ? t("storage.cross.searchOk") : t("storage.cross.noSearch")}</StatusChip>
-                <span className="t-3" style={{ fontSize: 12 }}>{t("storage.cross.allowed")}: {d.allowed_trackers.length ? d.allowed_trackers.join(", ") : t("storage.cross.allowedNone")}</span>
+                <span className="t-3">{t("storage.cross.allowed")}: {d.allowed_trackers.length ? d.allowed_trackers.join(", ") : t("storage.cross.allowedNone")}</span>
               </div>
-              <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("storage.cross.explain")}</p>
+              <p className="t-2" style={{ margin: 0 }}>{t("storage.cross.explain")}</p>
             </div>
             {d.items.length ? (
               <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
@@ -63,12 +63,12 @@ function CrossSeedCard() {
                     <tr key={c.id}>
                       <td className="cell-primary">
                         <div style={{ overflowWrap: "anywhere" }}>{c.title}</div>
-                        <div className="t-3" style={{ fontSize: 11.5 }}>{c.tracker_host ?? "—"} · {t("storage.cross.source")}: {c.source_name ?? c.source_hash.slice(0, 10)}</div>
+                        <div className="t-3">{c.tracker_host ?? "—"} · {t("storage.cross.source")}: {c.source_name ?? c.source_hash.slice(0, 10)}</div>
                       </td>
                       <td data-label={t("storage.cross.col.payload")}>{t("storage.cross.payload", { files: num(c.files), size: bytes(c.total_size) })}</td>
                       <td data-label={t("storage.cross.col.status")}>
                         <StatusChip tone={c.status === "added" ? "success" : c.status === "rejected" ? "neutral" : "info"}>{t(`storage.cross.status.${c.status}` as MessageKey)}</StatusChip>
-                        <div className="t-3" style={{ fontSize: 11.5 }}>{relative(c.created_at)}</div>
+                        <div className="t-3">{relative(c.created_at)}</div>
                       </td>
                       <td data-label={t("torrent.col.actions")}>
                         <div className="toolbar" style={{ justifyContent: "flex-end" }}>
@@ -145,7 +145,7 @@ export default function StoragePage() {
             {(d) => !d.disk ? <StateView kind="unavailable" compact title={t("storage.noDisk")} body={t("storage.noDiskBody")} /> : (
               <div className="stack">
                 <Progress value={usedForDownloads} label={t("storage.reserve.meter")} tone={d.disk.status === "kritiek" ? "danger" : d.disk.status === "waarschuwing" ? "warning" : "success"} />
-                <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("storage.reserve.explain", { remaining: bytes(d.disk.remaining_downloads), free: bytes(d.disk.free), pct: pct(usedForDownloads), reserve: bytes(d.disk.reserve) })}</p>
+                <p className="t-2" style={{ margin: 0 }}>{t("storage.reserve.explain", { remaining: bytes(d.disk.remaining_downloads), free: bytes(d.disk.free), pct: pct(usedForDownloads), reserve: bytes(d.disk.reserve) })}</p>
                 <StatusChip tone={d.disk.status === "kritiek" ? "danger" : d.disk.status === "waarschuwing" ? "warning" : "success"}>{t(`storage.disk.${d.disk.status}` as MessageKey)}</StatusChip>
                 {d.media ? (
                   <dl className="kv">
@@ -169,7 +169,7 @@ export default function StoragePage() {
                   <thead><tr><th>{t("storage.cat.category")}</th><th>{t("storage.cat.size")}</th><th>{t("storage.cat.torrents")}</th></tr></thead>
                   <tbody>{d.categories.map((c) => (
                     <tr key={c.category}>
-                      <td className="cell-primary">{c.category}{c.media_category ? <div className="t-3" style={{ fontSize: 11.5 }}>{c.media_category}</div> : null}</td>
+                      <td className="cell-primary">{c.category}{c.media_category ? <div className="t-3">{c.media_category}</div> : null}</td>
                       <td data-label={t("storage.cat.size")}>{bytes(c.bytes)}</td>
                       <td data-label={t("storage.cat.torrents")}>{t("storage.cat.counts", { total: num(c.torrents), seeding: num(c.seeding), dl: num(c.downloading), stopped: num(c.stopped ?? 0), priv: num(c.private) })}</td>
                     </tr>
@@ -193,7 +193,7 @@ export default function StoragePage() {
                       <tr key={o.hash}>
                         <td className="cell-primary">
                           <div style={{ overflowWrap: "anywhere" }}>{o.name}</div>
-                          <div className="row wrap" style={{ gap: 4, marginTop: 4 }}><PrivateChip value={o.private} /><StateChip state={o.state} /><span className="t-3 mono" style={{ fontSize: 11.5 }}>{o.tracker ?? "—"}</span></div>
+                          <div className="row wrap" style={{ gap: 4, marginTop: 4 }}><PrivateChip value={o.private} /><StateChip state={o.state} /><span className="t-3 mono">{o.tracker ?? "—"}</span></div>
                         </td>
                         <td data-label={t("storage.obl.ratio")} style={{ minWidth: 140 }}>
                           {num(o.ratio, 2)}{rule?.min_ratio !== null && rule?.min_ratio !== undefined ? ` / ${num(rule.min_ratio, 2)}` : ""}
@@ -207,7 +207,7 @@ export default function StoragePage() {
                           {o.status === "gehaald" ? <StatusChip tone="success">{t("storage.obl.met")}</StatusChip>
                             : o.status === "loopt" ? <StatusChip tone="warning">{t("storage.obl.running")}</StatusChip>
                               : <StatusChip tone="neutral">{t("storage.obl.noRule")}</StatusChip>}
-                          {o.warning ? <div className="t-warning" style={{ fontSize: 11.5, marginTop: 4 }}>{t("storage.obl.privateNoRule")}</div> : null}
+                          {o.warning ? <div className="t-warning" style={{ marginTop: 4 }}>{t("storage.obl.privateNoRule")}</div> : null}
                         </td>
                       </tr>
                     );
@@ -229,7 +229,7 @@ export default function StoragePage() {
                   {h.status !== "ok" ? <InlineState tone={h.status === "niet_read_only" ? "warning" : "info"}>{h.message}</InlineState> : (
                     <>
                       <InlineState tone={h.hardlinked_count ? "warning" : "success"} icon={ShieldCheck}>{h.message}</InlineState>
-                      <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("storage.hl.summary", { checked: num(h.files_checked ?? 0), linked: num(h.hardlinked_count ?? 0), unmapped: num(h.unmapped ?? 0) })}{d.hardlinks_scanned_at ? ` · ${relative(d.hardlinks_scanned_at)}` : ""}</p>
+                      <p className="t-2" style={{ margin: 0 }}>{t("storage.hl.summary", { checked: num(h.files_checked ?? 0), linked: num(h.hardlinked_count ?? 0), unmapped: num(h.unmapped ?? 0) })}{d.hardlinks_scanned_at ? ` · ${relative(d.hardlinks_scanned_at)}` : ""}</p>
                       {h.hardlinked?.length ? (
                         <ul className="list">
                           {h.hardlinked.slice(0, 50).map((x) => (
@@ -251,7 +251,7 @@ export default function StoragePage() {
         <CrossSeedCard />
 
         <Card className="span-12" title={t("storage.never.title")} icon={ShieldCheck}>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>{(r?.never ?? []).map((n) => <li key={n}>{n}</li>)}</ul>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>{(r?.never ?? []).map((n) => <li key={n}>{n}</li>)}</ul>
         </Card>
       </div>
     </>

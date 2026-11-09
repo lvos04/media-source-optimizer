@@ -125,7 +125,7 @@ export function BottleneckCard({ data }: { data: TorrentOverview }) {
           <span className="eyebrow">{t("torrent.bottleneck.client")}</span>
           <div style={{ marginTop: 6 }}><FindingList findings={other} /></div>
         </div>
-        {data.findings[0] ? <p className="t-3" style={{ margin: 0, fontSize: 12 }}>{t("torrent.bottleneck.top")}: <DiagnosisChip finding={data.findings[0]} /></p> : null}
+        {data.findings[0] ? <p className="t-3" style={{ margin: 0 }}>{t("torrent.bottleneck.top")}: <DiagnosisChip finding={data.findings[0]} /></p> : null}
       </div>
     </Card>
   );

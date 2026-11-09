@@ -67,12 +67,12 @@ export function PriceInline({ service, canEdit, onSaved }: { service: Service; c
       </div>
       {billing === "block" ? (
         <div className="row wrap" style={{ gap: 6 }}>
-          <label className="t-2" htmlFor={`${id}-size`} style={{ fontSize: 12 }}>{t("costs.editor.blockSize")}</label>
+          <label className="t-2" htmlFor={`${id}-size`}>{t("costs.editor.blockSize")}</label>
           <input id={`${id}-size`} className="input" inputMode="decimal" style={{ width: 96 }} value={blockSize} onChange={(e) => setBlockSize(e.target.value)} />
         </div>
       ) : null}
       <div className="row wrap" style={{ gap: 6 }}>
-        <label className="t-2" htmlFor={`${id}-renewal`} style={{ fontSize: 12 }}>{t("costs.editor.renewal")}</label>
+        <label className="t-2" htmlFor={`${id}-renewal`}>{t("costs.editor.renewal")}</label>
         <input id={`${id}-renewal`} className="input" type="date" style={{ width: "auto" }} value={renewal} onChange={(e) => setRenewal(e.target.value)} />
       </div>
       {error ? <InlineState tone="danger" role="alert">{error}</InlineState> : null}

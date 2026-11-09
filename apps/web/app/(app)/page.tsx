@@ -248,7 +248,7 @@ function SystemCard({ o }: { o: Overview }) {
       {o.health.issues.length ? (
         <div style={{ marginTop: 12 }}>
           <div className="label">{t("overview.issues")}</div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>{o.health.issues.map((i) => <li key={i}>{i}</li>)}</ul>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>{o.health.issues.map((i) => <li key={i}>{i}</li>)}</ul>
         </div>
       ) : null}
     </Card>

@@ -49,7 +49,7 @@ export function RequirementsEditor({ value, onChange, floor }: {
       </div>
       <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
         <legend className="label">{t("rec.req.hdr")}</legend>
-        <div className="row wrap" style={{ gap: 12, fontSize: 13 }}>
+        <div className="row wrap" style={{ gap: 12 }}>
           {HDR.map((h) => (
             <label key={h} className="row" style={{ gap: 6 }}>
               <input type="checkbox" checked={(value.require_hdr ?? []).includes(h)} disabled={(value.forbid_hdr ?? []).includes(h)} onChange={() => toggle("require_hdr", h)} />
@@ -76,7 +76,7 @@ export function RequirementsEditor({ value, onChange, floor }: {
           </Field>
         </div>
       </div>
-      <label className="row" style={{ gap: 6, fontSize: 13 }}>
+      <label className="row" style={{ gap: 6 }}>
         <input type="checkbox" checked={!!value.require_dual_audio} onChange={(e) => set({ require_dual_audio: e.target.checked })} />
         {t("rec.req.dual")}
       </label>
@@ -168,7 +168,7 @@ export function ManualWantedDialog({ disabled, disabledReason, onCreated }: { di
             <div className="span-6"><Field label={t("rec.manual.year")} htmlFor={`${id}-y`}><input id={`${id}-y`} className="input" inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value.replace(/\D/g, "").slice(0, 4))} /></Field></div>
             <div className="span-6"><Field label={t("rec.manual.imdb")} htmlFor={`${id}-i`}><input id={`${id}-i`} className="input mono" value={imdb} onChange={(e) => setImdb(e.target.value.trim())} placeholder="tt0000000" /></Field></div>
           </div>
-          <h3 className="card-title" style={{ fontSize: 13 }}>{t("rec.manual.requirements")}</h3>
+          <h3 className="card-title">{t("rec.manual.requirements")}</h3>
           <RequirementsEditor value={req} onChange={setReq} />
         </div>
       </Modal>

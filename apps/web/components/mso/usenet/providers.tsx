@@ -67,7 +67,7 @@ function CredentialPrompt({ p, onSaved }: { p: UsenetProvider; onSaved: () => vo
   return (
     <div className="stack-sm" style={{ border: "1px solid var(--mg-border-soft)", borderRadius: "var(--mg-r)", padding: 12 }}>
       <strong className="row" style={{ gap: 6 }}><KeyRound className="ico" aria-hidden="true" />{t("usenet.providers.credPrompt.title")}</strong>
-      <p className="t-2" style={{ margin: 0, fontSize: 12.5, whiteSpace: "normal" }}>{t("usenet.providers.credPrompt.body")}</p>
+      <p className="t-2" style={{ margin: 0, whiteSpace: "normal" }}>{t("usenet.providers.credPrompt.body")}</p>
       <div className="grid" style={{ gap: 8 }}>
         <div className="span-6">
           <Field label={t("usenet.form.username")} htmlFor={id("user")}>
@@ -130,7 +130,7 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
       actions={
         <span className="row" style={{ gap: 6 }}>
           <ProviderStatusChip status={p.health.status} detail={p.health.detail} />
-          <span className="t-3" style={{ fontSize: 11.5 }}>{t(p.health.stale ? "usenet.providers.source.msoStale" : `usenet.providers.source.${p.health.source}` as MessageKey)}</span>
+          <span className="t-3">{t(p.health.stale ? "usenet.providers.source.msoStale" : `usenet.providers.source.${p.health.source}` as MessageKey)}</span>
         </span>
       }
       footer={
@@ -174,7 +174,7 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
                 <StatusChip tone="neutral" title={mt.detail ?? undefined}>
                   {t("usenet.providers.msoTest.stale", { status: t(`usenet.status.${mt.status}` as MessageKey), when: dateTime(mt.checked_at) })}
                 </StatusChip>
-                <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal" }}>
+                <span className="t-3" style={{ whiteSpace: "normal" }}>
                   {t(mt.state === "stale" ? "usenet.providers.msoTest.staleHint" : "usenet.providers.msoTest.supersededHint")}
                 </span>
               </span>
@@ -219,7 +219,7 @@ function ProviderCard({ p, onEdit, onChanged }: { p: UsenetProvider; onEdit: () 
             ) : null}
           </div>
         ) : null}
-        {message ? <p className="t-2" style={{ margin: 0, fontSize: 12.5 }} role="status">{message}</p> : null}
+        {message ? <p className="t-2" style={{ margin: 0 }} role="status">{message}</p> : null}
       </div>
     </Card>
   );
@@ -299,7 +299,7 @@ function ProviderForm({ open, onClose, existing, onSaved }: {
       <div className="stack">
         {!existing && presets.data?.items.length ? (
           <div className="row wrap" role="group" aria-label={t("usenet.form.presets")}>
-            <span className="t-3" style={{ fontSize: 12.5 }}>{t("usenet.form.presets")}:</span>
+            <span className="t-3">{t("usenet.form.presets")}:</span>
             {presets.data.items.map((p) => (
               <Button key={p.slug} size="sm" variant="ghost" onClick={() => set({ slug: p.slug, label: p.label, kind: p.kind, host: p.host, port: p.port, ssl: p.ssl })}>
                 {p.label}

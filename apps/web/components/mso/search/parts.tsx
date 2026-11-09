@@ -127,7 +127,7 @@ function SourceRow({ s, child }: { s: SourceReport; child?: boolean }) {
   const { num } = useI18n();
   return (
     <div className="list-row" data-testid={`source-${s.source_id}`}
-      style={child ? { paddingLeft: 28, paddingTop: 6, paddingBottom: 6, fontSize: 12.5 } : undefined}>
+      style={child ? { paddingLeft: 28, paddingTop: 6, paddingBottom: 6 } : undefined}>
       <div className="list-main">
         <div className="list-title" style={child ? { fontWeight: 500 } : undefined}>{s.label}</div>
         <div className="list-sub">
@@ -138,7 +138,7 @@ function SourceRow({ s, child }: { s: SourceReport; child?: boolean }) {
       <div className="list-aside row wrap" style={{ gap: 6, justifyContent: "flex-end" }}>
         <SourceStatusChip status={s.status} />
         {s.status === "ok" ? <span className="tag">{num(s.count)}</span> : null}
-        {s.latency_ms !== null ? <span className="t-3 mono" style={{ fontSize: 12 }}>{num(s.latency_ms)} ms</span> : null}
+        {s.latency_ms !== null ? <span className="t-3 mono">{num(s.latency_ms)} ms</span> : null}
       </div>
     </div>
   );
@@ -192,7 +192,7 @@ export function SourceReportCard({ sources, trace, traceId, className }: { sourc
           ))}
         </div>
       )}
-      <div className="card-footer t-3" style={{ fontSize: 12 }}>
+      <div className="card-footer t-3">
         <span className="row wrap" style={{ gap: 6 }}>
           {t("zoeken.trace")}: <Trace steps={trace.map((n, i) => ({ label: n, active: i === trace.length - 1 }))} />
           <span className="mono">· {traceId}</span>

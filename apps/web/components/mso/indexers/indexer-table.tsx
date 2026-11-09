@@ -161,15 +161,15 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
                   <div className="cell-sub row wrap" style={{ gap: 4 }}>
                     <StatusChip tone="neutral" icon={null} outline>{t(originKey)}</StatusChip>
                     {s.private ? <StatusChip tone="warning" icon={null} outline>{t("idx.private")}</StatusChip> : null}
-                    <span className="mono" style={{ fontSize: 11 }}>{s.id}</span>
+                    <span className="mono">{s.id}</span>
                   </div>
                 </td>
                 <td data-label={t("idx.col.scope")}>
                   <span className="row wrap" style={{ gap: 4 }}>
-                    {s.library_relevant === false ? <span className="t-3" style={{ fontSize: 12 }}>—</span>
+                    {s.library_relevant === false ? <span className="t-3">—</span>
                       : s.scopes.map((sc) => <span key={sc} className="tag">{t(`idx.scope.${sc}`)}</span>)}
                     {scopeSrc && s.library_relevant !== false ? (
-                      <span className="t-3" style={{ fontSize: 11 }} title={t(scopeSrc.help)}>
+                      <span className="t-3" title={t(scopeSrc.help)}>
                         {t(scopeSrc.label)}<span className="sr-only"> — {t(scopeSrc.help)}</span>
                       </span>
                     ) : null}
@@ -179,10 +179,10 @@ export function IndexerTable({ items, protocol, reload }: { items: IndexerSource
                 <td data-label={t("idx.col.status")}><StatusCell s={s} /></td>
                 <td data-label={t("idx.col.reliability")}>
                   {s.reliability !== null ? <Reliability value={s.reliability} />
-                    : <span className="t-3" style={{ fontSize: 12 }}>{t("idx.notEnoughData")}</span>}
+                    : <span className="t-3">{t("idx.notEnoughData")}</span>}
                   {rel ? <div className="cell-sub">{t("idx.samples", { n: num(rel.samples), fp: num(rel.false_positives) })}</div> : null}
                 </td>
-                <td data-label={t("idx.col.latency")} className="mono" style={{ fontSize: 12 }}>
+                <td data-label={t("idx.col.latency")} className="mono">
                   {latency !== null ? `${num(latency)} ms` : "—"}
                   {latency !== null ? <div className="cell-sub" style={{ fontFamily: "inherit" }}>{t(msoLatency !== null ? "idx.latency.mso" : "idx.latency.prowlarr")}</div> : null}
                 </td>

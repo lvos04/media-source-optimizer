@@ -19,7 +19,7 @@ export function formatOpValue(value: unknown): ReactNode {
   if (typeof value === "boolean") return value ? "aan" : "uit";
   if (typeof value === "string" || typeof value === "number") return <span className="mono pre-wrap">{String(value)}</span>;
   if (Array.isArray(value) && value.every((v) => typeof v !== "object")) return <span className="mono pre-wrap">{value.join(", ")}</span>;
-  return <pre className="mono pre-wrap" style={{ margin: 0, fontSize: 11.5 }}>{JSON.stringify(value, null, 2)}</pre>;
+  return <pre className="mono pre-wrap" style={{ margin: 0 }}>{JSON.stringify(value, null, 2)}</pre>;
 }
 
 /** Dutch labels for impact keys the backend may send (unknown keys are shown humanised). */
@@ -95,8 +95,8 @@ function splitImpact(impact: unknown): { visible: unknown; technical: unknown } 
 
 function Impact({ impact }: { impact: unknown }) {
   if (impact === null || impact === undefined || impact === "") return null;
-  if (typeof impact === "string" || typeof impact === "number") return <p style={{ margin: 0, fontSize: 13 }}>{String(impact)}</p>;
-  if (Array.isArray(impact)) return <div style={{ fontSize: 13 }}><ImpactValue value={impact} /></div>;
+  if (typeof impact === "string" || typeof impact === "number") return <p style={{ margin: 0 }}>{String(impact)}</p>;
+  if (Array.isArray(impact)) return <div><ImpactValue value={impact} /></div>;
   if (typeof impact === "object") return <ImpactRows entries={Object.entries(impact as Record<string, unknown>)} depth={1} />;
   return null;
 }
@@ -212,9 +212,9 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
       <div className="row wrap" style={{ gap: 8 }}>
         <RiskChip risk={change.risk} />
         <StatusChip tone={status.tone} icon={status.icon}>{t(status.label)}</StatusChip>
-        <span className="t-2" style={{ fontSize: 12.5 }}>{t("change.target")}: <span className="mono">{change.target}</span></span>
+        <span className="t-2">{t("change.target")}: <span className="mono">{change.target}</span></span>
       </div>
-      {change.explanation ? <div><span className="eyebrow">{t("change.why")}</span><p style={{ margin: "4px 0 0", fontSize: 13 }}>{change.explanation}</p></div> : null}
+      {change.explanation ? <div><span className="eyebrow">{t("change.why")}</span><p style={{ margin: "4px 0 0" }}>{change.explanation}</p></div> : null}
       {change.ops.length ? (
         <div style={{ overflowX: "auto" }}>
           <DiffViewer
@@ -222,7 +222,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
             keyWidth={180}
             rows={change.ops.map((op, i) => ({
               key: `${op.path}-${i}`,
-              label: <>{op.label}<span className="change-ops-path">{op.path}</span>{(op as FlaggedOp).destructive || (op as FlaggedOp).irreversible || (op as FlaggedOp).one_way ? <span style={{ display: "block", marginTop: 4 }}><OpMarker op={op as FlaggedOp} /></span> : null}{opResult(op as FlaggedOp) ? <span className="t-3" style={{ display: "block", fontSize: 11.5 }}>{opResult(op as FlaggedOp)}</span> : null}</>,
+              label: <>{op.label}<span className="change-ops-path">{op.path}</span>{(op as FlaggedOp).destructive || (op as FlaggedOp).irreversible || (op as FlaggedOp).one_way ? <span style={{ display: "block", marginTop: 4 }}><OpMarker op={op as FlaggedOp} /></span> : null}{opResult(op as FlaggedOp) ? <span className="t-3" style={{ display: "block" }}>{opResult(op as FlaggedOp)}</span> : null}</>,
               before: formatOpValue(op.before),
               after: formatOpValue(op.after),
               change: JSON.stringify(op.before) === JSON.stringify(op.after) ? "same" : op.before === null || op.before === undefined ? "added" : op.after === null || op.after === undefined ? "removed" : "changed",
@@ -233,8 +233,8 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
       {visibleImpact !== null && visibleImpact !== undefined && visibleImpact !== "" ? <div><span className="eyebrow">{t("change.impact")}</span><div style={{ marginTop: 4 }}><Impact impact={visibleImpact} /></div></div> : null}
       {technical !== undefined && technical !== null ? (
         <details data-testid="change-technical">
-          <summary className="t-2" style={{ cursor: "pointer", fontSize: 12.5 }}>{t("change.technical")}</summary>
-          <div style={{ marginTop: 6, fontSize: 12.5 }}><Impact impact={technical} /></div>
+          <summary className="t-2" style={{ cursor: "pointer" }}>{t("change.technical")}</summary>
+          <div style={{ marginTop: 6 }}><Impact impact={technical} /></div>
         </details>
       ) : null}
       {dangerous.length && (change.status === "preview" || change.status === "approved") ? (

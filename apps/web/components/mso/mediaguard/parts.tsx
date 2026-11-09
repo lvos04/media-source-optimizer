@@ -28,7 +28,7 @@ export function QuotaMeter({ quota, instanceId, compact }: { quota: MgQuotaOverv
   return (
     <div className="stack" style={{ gap: 10 }}>
       <div>
-        <div className="row-between" style={{ fontSize: 12.5 }}>
+        <div className="row-between">
           <span>{t("mg.quota.mso")}</span>
           <span className="num">{t("mg.quota.used", { used: num(m.hour_used), max: num(m.hour_max) })} · {t("mg.quota.day", { used: num(m.day_used), max: num(m.day_max) })}</span>
         </div>
@@ -38,7 +38,7 @@ export function QuotaMeter({ quota, instanceId, compact }: { quota: MgQuotaOverv
         const usable = Math.max(0, q.remaining - quota.reserve);
         return (
           <div key={id}>
-            <div className="row-between" style={{ fontSize: 12.5 }}>
+            <div className="row-between">
               <span>{t("mg.quota.instance", { id })}</span>
               <span className="num">{t("mg.quota.remaining", { left: num(q.remaining), usable: num(usable) })}</span>
             </div>
@@ -100,10 +100,10 @@ export function CompatTable({ compat }: { compat: CompatMatrix }) {
         </table>
       </div>
       <div style={{ padding: "0 16px 16px" }}>
-        <h3 className="card-title" style={{ fontSize: 13, marginBottom: 8 }}>{t("mg.compat.neverUsed")}</h3>
+        <h3 className="card-title" style={{ marginBottom: 8 }}>{t("mg.compat.neverUsed")}</h3>
         <ul className="stack" style={{ gap: 6, margin: 0, paddingLeft: 0, listStyle: "none" }}>
           {compat.never_used.map((n) => (
-            <li key={n.path} className="row wrap" style={{ gap: 6, fontSize: 12.5 }}>
+            <li key={n.path} className="row wrap" style={{ gap: 6 }}>
               <StatusChip tone="neutral" icon={CircleSlash}>{n.method}</StatusChip>
               <span className="mono" style={{ overflowWrap: "anywhere" }}>{n.path}</span>
               <span className="t-3">— {n.why}</span>

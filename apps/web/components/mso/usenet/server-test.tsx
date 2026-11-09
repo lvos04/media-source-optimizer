@@ -49,12 +49,12 @@ export function TestServerButton({ server, name, onDone }: { server: string; nam
 /** Latest SABnzbd server test: chip + when; SABnzbd's answer as tooltip; flapping hint. */
 export function ServerTestLine({ test, flapping = false }: { test: ServerTest | null | undefined; flapping?: boolean }) {
   const { t, relative } = useI18n();
-  if (!test) return <span className="t-3" style={{ fontSize: 12 }}>{t("usenetserver.sabTestNone")}</span>;
+  if (!test) return <span className="t-3">{t("usenetserver.sabTestNone")}</span>;
   return (
     <span className="stack-sm" style={{ gap: 2 }}>
       <span className="row wrap" style={{ gap: 6 }}>
         <StatusChip tone={TEST_TONE[test.result] ?? "neutral"} title={test.message ?? undefined}>{test.label ?? test.result}</StatusChip>
-        <span className="t-3" style={{ fontSize: 11.5 }}>{t("usenetserver.sabTest")} · {relative(test.at)}</span>
+        <span className="t-3">{t("usenetserver.sabTest")} · {relative(test.at)}</span>
       </span>
       {flapping ? (
         <StatusChip tone="warning" icon={Repeat}>{t("usenetserver.flapping")}</StatusChip>
@@ -102,14 +102,14 @@ export function BlockMeter({ block }: { block: BlockInfo }) {
         <Progress value={pct} tone={block.low || pct > 90 ? "danger" : pct > 70 ? "warning" : undefined} label={t("usenetserver.block")} thin />
       ) : null}
       {block.remaining_bytes !== null ? (
-        <span className="t-3" style={{ fontSize: 12, whiteSpace: "normal" }}>
+        <span className="t-3" style={{ whiteSpace: "normal" }}>
           {block.legacy ? t("usenetserver.blockLegacyHint")
             : block.days_left !== null && block.run_out_date
               ? t("usenetserver.blockForecast", { days: num(Math.floor(block.days_left)), date: date(block.run_out_date) })
               : t("usenetserver.blockNoForecast")}
         </span>
       ) : null}
-      <span className="t-3" style={{ fontSize: 11.5, whiteSpace: "normal" }}>
+      <span className="t-3" style={{ whiteSpace: "normal" }}>
         {block.source === "sabnzbd" ? t("usenetserver.blockSourceSab")
           : block.baseline_at ? t("usenetserver.blockSourceMso", { date: date(block.baseline_at) }) : t("usenetserver.blockSourceLegacy")}
       </span>

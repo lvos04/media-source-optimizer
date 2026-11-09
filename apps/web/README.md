@@ -1,14 +1,18 @@
 # MSO web (`apps/web`)
 
-Next.js 16 (App Router) + React 19 + TypeScript + Tailwind 4. Dutch UI (nl-NL). The design system is
-an internally versioned copy of MediaGuard Ultimate's (see `PROVENANCE.md`) — MSO must look like the
-same product family, so **reuse the components below instead of writing new CSS**.
+Next.js 16 (App Router) + React 19 + TypeScript + Tailwind 4 + shadcn/ui (new-york, Radix) + lucide. Dutch UI
+(nl-NL). The look follows the platform design language **Peil 1.1.0** (`styles/peil/`, a pinned copy of
+`design/ontwerptaal/`; plan and decisions in `docs/ontwerp/PEIL_MIGRATIE.md` and `docs/adr/ADR-0006/0007`).
+**Reuse the components below and Peil utilities (`bg-card`, `text-muted-foreground`, `min-h-touch`, …) instead of
+writing new CSS**; never hex colours, never text below `text-sm` (14 px), every control ≥ 44 px.
 
 ```
 npm ci            # pinned versions, identical to MediaGuard
 npm run dev       # next dev, proxies /api/v1, /newznab, /torznab → MSO_CORE_URL (default http://localhost:8200)
 npm run typecheck # next typegen && tsc --noEmit
 npm run lint
+npm run check:peil # Peil copies unchanged (version + sha256)
+npm run test:unit  # vitest: pure helpers + server-rendered component markup
 npm run build     # standalone output; production entrypoint is `node server.mjs`
 MSO_E2E_BASE_URL=http://localhost:3000 npm run e2e   # Playwright against a running stack
 ```
@@ -17,12 +21,14 @@ MSO_E2E_BASE_URL=http://localhost:3000 npm run e2e   # Playwright against a runn
 
 ```
 app/
-  layout.tsx              root html, fonts (OFL, self-hosted), theme bootstrap (localStorage "mso.theme")
+  layout.tsx              root html, theme bootstrap (localStorage "mso.theme", default Systeem; system font)
   login/ setup/           public pages (AuthFrame)
   (app)/layout.tsx        AppShell: session guard, sidebar/topbar/bottom nav, ModeProvider, ToastProvider
   (app)/<route>/page.tsx  one folder per nav route (see components/shell/nav.ts)
 components/
-  mg/                     MediaGuard design system (primitives, states, toast, domain, setting-field)
+  ui/                     shadcn/ui components with the Peil codemod (Button, Badge/RisicoBadge variants)
+  mg/                     primitives (same API as before, now on components/ui + Radix), states, toast, domain, setting-field
+  mso/charts/             ChartFrame: keyboard read-out + "Toon als tabel" twin for every chart
   shell/                  app-shell, auth-frame, nav
   mso/                    MSO shared pieces: ConnectorForm/ConnectorList, RiskChip, ChangePreview, ModeGate, UnavailableState
 lib/
@@ -32,7 +38,9 @@ lib/
   session.tsx             useSession(): user, role, can("operator")
   mode.tsx                useMode(), useWriteGate()
   status.ts               status → tone/label helpers
-styles/mg.css             design tokens + classes (verbatim copy — don't edit); styles/mso.css for additions
+styles/peil/              pinned Peil copies (ontwerptaal.css + MediaGuard/MSO alias layer) — never edit by hand
+styles/mg.css, mso.css    legacy classes (cascade layer "legacy", below the utilities) — shrinking, do not add rules
+styles/peil-mso.css       MSO corrections on Peil (legacy layer): focus ring, reflow, container-query table cards
 ```
 
 ## Writing a page

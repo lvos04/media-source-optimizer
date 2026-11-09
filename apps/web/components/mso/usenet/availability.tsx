@@ -23,7 +23,7 @@ function AutoSampleStatus() {
   const b = budget.data;
   if (!b) return null;
   return (
-    <div className="stack-sm" style={{ fontSize: 12.5 }}>
+    <div className="stack-sm">
       <InlineState tone={b.enabled ? "success" : "neutral"}>
         {b.enabled ? t("usenet.avail.auto.on", { size: num(b.sample_size), when: b.last_auto_test_at ? relative(b.last_auto_test_at) : t("usenet.avail.auto.never") })
           : t("usenet.avail.auto.off")}
@@ -94,7 +94,7 @@ export function AvailabilityCard() {
                 <tr key={c.source_id}>
                   <td data-label={t("usenet.avail.provider")}>
                     <strong>{c.label}</strong>
-                    <div className="t-3" style={{ fontSize: 12 }}>
+                    <div className="t-3">
                       {t(`usenet.avail.method.${c.method}` as MessageKey)} · {t(c.kind === "sab_server" ? "usenet.avail.sabServer" : c.kind === "block" ? "usenet.providers.kind.block" : "usenet.providers.kind.unlimited")}
                     </div>
                   </td>
@@ -106,7 +106,7 @@ export function AvailabilityCard() {
                           title={c.availability.source === "passive" ? t("usenet.avail.source.passiveTitle") : undefined}>
                           {t(c.availability.source === "stat" ? "usenet.avail.source.stat" : "usenet.avail.source.passive")}
                         </StatusChip>
-                        <span className="t-3" style={{ fontSize: 12 }}>{t("usenet.avail.ofArticles", { n: num(c.availability.articles) })}</span>
+                        <span className="t-3">{t("usenet.avail.ofArticles", { n: num(c.availability.articles) })}</span>
                       </div>
                     ) : <span className="t-3">{t("usenet.avail.source.none")}</span>}
                   </td>
@@ -130,7 +130,7 @@ export function AvailabilityCard() {
         )}
       </ResourceView>
       {data.data?.notes.length ? (
-        <ul className="t-3" style={{ margin: 0, padding: "8px 16px 14px 32px", fontSize: 12.5 }}>
+        <ul className="t-3" style={{ margin: 0, padding: "8px 16px 14px 32px" }}>
           {data.data.notes.map((n) => <li key={n}>{n}</li>)}
         </ul>
       ) : null}
@@ -202,7 +202,7 @@ export function ArticleTestsCard() {
         </>
       }>
       <div className="stack">
-        <p className="t-2" style={{ margin: 0, fontSize: 13 }}>{t("usenet.tests.help")}</p>
+        <p className="t-2" style={{ margin: 0 }}>{t("usenet.tests.help")}</p>
         <ResourceView resource={nzbs} compact endpoint="GET /api/v1/usenet/nzbs" isEmpty={() => !testable.length}
           empty={<StateView kind="empty" compact title={t("usenet.tests.noNzbs")} body={t("usenet.tests.noNzbsBody")} />}>
           {() => (
@@ -224,7 +224,7 @@ export function ArticleTestsCard() {
         <div>
           <span className="eyebrow">{t("usenet.tests.recent")}</span>
           <ResourceView resource={tests} compact endpoint="GET /api/v1/usenet/article-tests" isEmpty={(d) => !d.items.length}
-            empty={<p className="t-3" style={{ margin: "4px 0 0", fontSize: 12.5 }}>{t("usenet.tests.none")}</p>}>
+            empty={<p className="t-3" style={{ margin: "4px 0 0" }}>{t("usenet.tests.none")}</p>}>
             {(d) => (
               <ul className="list" style={{ marginTop: 4 }}>
                 {d.items.slice(0, 10).map((x) => (

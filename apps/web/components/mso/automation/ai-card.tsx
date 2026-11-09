@@ -130,7 +130,7 @@ export function AiCard() {
               <StatusChip tone={advice.mode === "ai" ? "accent" : "info"} icon={null}>{advice.mode === "ai" ? `${t("ai.adviceAi")} · ${advice.model ?? ""}` : t("ai.adviceRules")}</StatusChip>
               <strong>{advice.title}</strong>
             </div>
-            <p style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 13 }}>{advice.text}</p>
+            <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{advice.text}</p>
             {advice.fallback_reason ? <p className="hint" style={{ margin: 0 }}>{t("ai.fallback", { reason: advice.fallback_reason })}</p> : null}
             <p className="hint" style={{ margin: 0 }}>{t("ai.adviceStored")}</p>
           </div>

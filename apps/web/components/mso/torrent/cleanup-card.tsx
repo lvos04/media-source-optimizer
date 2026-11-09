@@ -96,16 +96,16 @@ export function SuspiciousCleanup({ compact = false, onChanged }: { compact?: bo
                 <tbody>{d.items.slice(0, 50).map((x) => (
                   <tr key={x.hash}>
                     <td className="cell-primary">{x.name}</td>
-                    <td data-label={t("torrent.cleanup.col.files")} className="mono" style={{ fontSize: 12 }}>{x.files.length ? x.files.join(", ") : "—"}</td>
+                    <td data-label={t("torrent.cleanup.col.files")} className="mono">{x.files.length ? x.files.join(", ") : "—"}</td>
                     <td data-label={t("torrent.cleanup.col.tracker")}>{x.tracker_host ?? t("torrent.cleanup.unknown")}</td>
                     <td data-label={t("torrent.cleanup.col.category")}>{x.category ?? "—"}</td>
                     <td data-label={t("torrent.cleanup.col.size")}>{x.size !== null ? bytes(x.size) : "—"}</td>
                   </tr>
                 ))}</tbody>
               </table>
-              {d.items.length > 50 ? <p className="t-3" style={{ margin: "6px 0 0", fontSize: 12 }}>{t("torrent.cleanup.more", { count: num(d.items.length - 50) })}</p> : null}
+              {d.items.length > 50 ? <p className="t-3" style={{ margin: "6px 0 0" }}>{t("torrent.cleanup.more", { count: num(d.items.length - 50) })}</p> : null}
             </div>
-            <p className="t-2" style={{ margin: 0, fontSize: 13 }}><strong>{t("torrent.cleanup.irreversible")}</strong></p>
+            <p className="t-2" style={{ margin: 0 }}><strong>{t("torrent.cleanup.irreversible")}</strong></p>
             {actions(d)}
           </div>
         )}

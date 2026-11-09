@@ -1,5 +1,19 @@
 # Provenance — apps/web
 
+> **Sinds de Peil-omzetting (november 2026, docs/ontwerp/PEIL_MIGRATIE.md) kopieert MSO het uiterlijk niet meer uit
+> MediaGuard.** De bron van het uiterlijk is de platform-ontwerptaal **Peil 1.1.0**: een versie-gepinde kopie in
+> `design/ontwerptaal/` en, binnen de Docker-context, `apps/web/styles/peil/` (herkomstkop + sha256, controle
+> `npm run check:peil`). Na de overdracht wordt de bron `ai-server-manager/design/ontwerptaal/` (contract 1.2 §13).
+>
+> - `styles/mg.css` en `styles/mso.css` zijn vanaf fase 2 **eigendom van MSO** en geen ongewijzigde kopie meer: ze
+>   staan als cascadelaag `legacy` onder de Tailwind-utilities, regels van omgezette onderdelen (schil, knoppen,
+>   statuslabels, kaarten, dialogen, tabs, toestanden …) zijn eruit gehaald en alle lettermaten zijn ≥ 14 px. Wat er
+>   nog in staat, verdwijnt zodra de laatste inline styles naar utilities zijn omgezet (zie CHANGELOG, Unreleased).
+> - `components/ui/*` (shadcn/ui new-york met de Peil-codemod) en `styles/peil-mso.css` zijn nieuw in MSO.
+> - `app/fonts/*` (Inter, JetBrains Mono) en de fontsource-pakketten zijn verwijderd: Peil gebruikt het systeemfont.
+> - De tabel hieronder beschrijft de oorspronkelijke herkomst van de bestanden (MediaGuard `e92c2acc`); de
+>   kopregels "Derived from MediaGuard Ultimate" blijven als historische herkomst staan.
+
 Parts of this web app are an **explicit, internally versioned derivative** of the MediaGuard Ultimate
 web app (same owner, no separate licence file in that repository). MSO deliberately looks like the
 same product family, so the design system is copied rather than re-invented.
@@ -21,8 +35,7 @@ commit, apply it here, and bump the commit in this file and in the header commen
 | `styles/mg.css` | `styles/mg.css` | **Verbatim** (tokens identical); only a header comment. MSO additions live in `styles/mso.css` (new). `styles/legacy-av1.css` was *not* copied. |
 | `app/globals.css` | `app/globals.css` | Imports `mso.css` instead of `legacy-av1.css`. |
 | `app/layout.tsx` | `app/layout.tsx` | Title/description → Media Source Optimizer / MSO; theme key `mg.theme` → `mso.theme`. |
-| `app/fonts/InterVariable-latin.woff2`, `InterVariable-latin-ext.woff2`, `JetBrainsMonoVariable-latin.woff2` | `app/fonts/*` | Verbatim (binary). |
-| `app/fonts/OFL-Inter.txt`, `app/fonts/OFL-JetBrainsMono.txt` | `app/fonts/*` | Verbatim licence texts. |
+| ~~`app/fonts/*`~~ | `app/fonts/*` | Verwijderd in Peil fase 2d (systeemfont). |
 | `app/(app)/layout.tsx` | `app/(app)/layout.tsx` | Verbatim. |
 | `app/login/page.tsx` | `app/login/page.tsx` | `/setup/status` (`setup_required`/`admin_exists`) instead of `/auth/setup-status`; stores the CSRF token from the login response; `next` sanitised. |
 | `app/setup/page.tsx` | `app/setup/page.tsx` | Steps: beheerder → verbindingen (ConnectorForm) → bedrijfsmodus → samenvatting; endpoints `/setup/admin`, `/connectors`, `/setup/complete`. Language/theme step dropped. |

@@ -27,6 +27,7 @@ AREAS: dict[str, str] = {
 TARGET_AREA: dict[str, str] = {
     "sabnzbd": "usenet",
     "sabnzbd_retry": "usenet",
+    "sabnzbd_categories": "usenet",
     "nntp": "usenet",
     "qbittorrent": "torrent",
     "transmission": "torrent",

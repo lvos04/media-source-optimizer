@@ -59,7 +59,19 @@ SYSTEM_ACTORS = ("systeem", "automatisering")  # decisions by these are MSO's ow
 CACHE_S = 600
 DAYS = 14
 RECENT_DAYS = 7
-LOCAL_TZ = "Europe/Amsterdam"  # owner's local days (same zone the goals card uses)
+LOCAL_TZ = "Europe/Amsterdam"  # default for the owner's local days (``TZ`` wins, like the goals card)
+
+
+def _local_tz() -> str:
+    """The owner's zone for day buckets: the same helper the Overzicht cards use (``TZ``, else Europe/Amsterdam)."""
+    from mso.features.overview.autopilot import local_tz  # lazy: overview imports many features
+
+    try:
+        return local_tz()
+    except Exception:  # day buckets must never break the diagnosis
+        return LOCAL_TZ
+
+
 # MediaGuard provisioning/templates.py DEFAULT_CATEGORY: the category MediaGuard gives each media type
 MG_DEFAULT_CATEGORY = {"tv": "tv", "anime": "tv-anime", "movie": "movies", "anime_movie": "movies-anime"}
 # Sonarr/Radarr health checks that are about the download client, its category, import or remote paths
@@ -264,18 +276,19 @@ def star_series(days: int = DAYS) -> dict[str, Any]:
     """SABnzbd downloads per local day (finished, or first seen while still busy): total and in '*', and how many
     of those '*' downloads MSO sent itself."""
     db = get_db()
+    tz = _local_tz()
     rows = db.fetchall(
-        "SELECT (COALESCE(o.finished_at, o.observed_at) AT TIME ZONE %s)::date AS day, count(*) AS total, "
+        f"SELECT ({outcomes.outcome_at('o')} AT TIME ZONE %s)::date AS day, count(*) AS total, "
         "count(*) FILTER (WHERE o.client_category = '*') AS star, "
         "count(*) FILTER (WHERE o.client_category = '*' AND n.id IS NOT NULL) AS star_mso "
         "FROM download_outcomes o LEFT JOIN usenet_nzbs n ON n.nzo_id = o.client_ref "
-        "WHERE o.client = 'sabnzbd' AND COALESCE(o.finished_at, o.observed_at) >= "
+        f"WHERE o.client = 'sabnzbd' AND {outcomes.outcome_at('o')} >= "
         "(date_trunc('day', now() AT TIME ZONE %s) - make_interval(days => %s)) AT TIME ZONE %s "
         "GROUP BY 1 ORDER BY 1",
-        (LOCAL_TZ, LOCAL_TZ, days - 1, LOCAL_TZ),
+        (tz, tz, days - 1, tz),
     )
     by_day = {r["day"]: r for r in rows}
-    today = db.scalar("SELECT (now() AT TIME ZONE %s)::date", (LOCAL_TZ,))
+    today = db.scalar("SELECT (now() AT TIME ZONE %s)::date", (tz,))
     series = []
     for i in range(days - 1, -1, -1):
         d: date = today - timedelta(days=i)
@@ -291,7 +304,7 @@ def star_series(days: int = DAYS) -> dict[str, Any]:
     recent = series[-RECENT_DAYS:]
     return {
         "days": series,
-        "timezone": LOCAL_TZ,
+        "timezone": tz,
         "recent_days": RECENT_DAYS,
         "recent_total": sum(d["total"] for d in recent),
         "recent_star": sum(d["star"] for d in recent),

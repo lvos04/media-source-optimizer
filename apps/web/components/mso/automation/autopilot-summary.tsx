@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowRight, Bot, CalendarDays, CircleCheck, CircleX, Eye, Hand, History, Info, type LucideIcon, Power, RefreshCw, RotateCcw, Search, Server,
+  ArrowRight, Bot, CalendarDays, CircleCheck, CircleX, Eye, Hand, History, Info, type LucideIcon, Power, RefreshCw, RotateCcw, Search, Server, ShieldAlert,
   SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow, Wrench,
 } from "lucide-react";
 import Link from "next/link";
@@ -24,7 +24,7 @@ const ENDPOINT = "GET /api/v1/overview/autopilot";
 const WAIT_ENDPOINT = "GET /api/v1/overview/waiting";
 const ICON: Record<AutopilotCategoryKey, LucideIcon> = {
   applied: SlidersHorizontal, switched_off: Power, rolled_back: Undo2, servers: Server, retries: RotateCcw, remedies: Wrench, searches: Search,
-  prepared: Hand, evaluated: Sparkles, syncs: RefreshCw, failed: CircleX, other: Workflow,
+  prepared: Hand, guarded: ShieldAlert, evaluated: Sparkles, syncs: RefreshCw, failed: CircleX, other: Workflow,
 };
 const ACTIONS_SHOWN = 5;
 

@@ -306,7 +306,6 @@ export const messages = {
   // Autopilot: failing servers off/on, retry failed downloads
   "usenet.ap.title": "Autopilot: servers en mislukte downloads",
   "usenet.ap.sub": "kapotte servers uit en weer aan, mislukte downloads opnieuw proberen",
-  "usenet.ap.on": "Autopilot aan: MSO zet servers met een accountprobleem zelf uit (na {hours} uur; 'account verlopen' meteen, nooit de laatste server), probeert ze na {probe} uur weer en laat SABnzbd mislukte downloads opnieuw proberen. Alles wordt gecontroleerd en vastgelegd; terugdraaien kan via Wijzigingen.",
   "usenet.ap.off": "Autopilot staat uit. MSO maakt voorstellen; in Autopilot gebeurt dit automatisch (Systeem → bedrijfsmodus).",
   "usenet.ap.servers": "Servers die MSO automatisch beheert",
   "usenet.ap.noServers": "MSO heeft (nog) geen server automatisch uit- of aangezet.",

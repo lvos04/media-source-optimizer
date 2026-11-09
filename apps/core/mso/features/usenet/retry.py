@@ -191,10 +191,10 @@ def candidates(client: SabClient, servers: list[dict[str, Any]] | None = None) -
     days = int(sr.get("usenet.retry_max_age_days"))
     rows = get_db().fetchall(
         "SELECT o.* FROM download_outcomes o WHERE o.client='sabnzbd' AND o.status='failed' "
-        "AND COALESCE(o.finished_at, o.observed_at) > now() - make_interval(days => %s) "
+        f"AND {outcomes.outcome_at('o')} > now() - make_interval(days => %s) "
         "AND NOT EXISTS (SELECT 1 FROM usenet_retries r WHERE (r.nzo_id=o.client_ref OR r.new_nzo_id=o.client_ref) "
         "AND (r.status IN ('retried','verified','failed') OR r.retried_at IS NOT NULL)) "
-        "ORDER BY COALESCE(o.finished_at, o.observed_at) DESC LIMIT 1000",
+        f"ORDER BY {outcomes.outcome_at('o')} DESC LIMIT 1000",
         (days,),
     )
     retryable = [dict(o) for o in rows if basis(dict(o))]

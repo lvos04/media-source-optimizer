@@ -46,6 +46,7 @@ CATEGORIES: dict[str, tuple[str, str, str]] = {
     "remedies": ("Vastgelopen torrents hersteld (opnieuw aankondigen of controleren)", "/torrentclient", "info"),
     "searches": ("Zoekopdrachten en vervangers verstuurd", "/ontbrekend", "info"),
     "prepared": ("Voor jou klaargezet (wacht op goedkeuring)", "/automatisering?tab=wijzigingen", "warning"),
+    "guarded": ("Zelf afgeremd om je te beschermen", "/automatisering?tab=veiligheid", "warning"),
     "evaluated": ("Wijzigingen gecontroleerd", "/automatisering?tab=controle", "neutral"),
     "syncs": ("Synchronisaties, imports en back-ups", "/systeem#automatische-taken", "neutral"),
     "failed": ("Mislukt (niets veranderd)", "/logs", "danger"),
@@ -62,6 +63,12 @@ SYNC_JOB_PREFIXES = ("costs.import_services", "prowlarr.sync", "usenet.sab_inges
 SKIP_ACTIONS = {"automation.applied", "automation.run_requested", "automation.toggle", "settings.updated",
                 "system.mode", "system.paused", "system.resumed", "change.approved", "change.discarded",
                 "change.rolled_back"}
+# 1.6.0: MSO stopped or held back something on its own to protect the owner (brake, cooldown, refused fake release)
+GUARD_ACTIONS = {"autopilot.self_paused", "usenet.retry_paused", "automation.parked", "recovery.send_refused",
+                 "change.interrupted"}
+# 1.6.0: follow-ups that are not actions on the owner's systems
+QUIET_ACTIONS = {"autopilot.resumed", "usenet.retry_resumed", "automation.unparked", "backup.skipped",
+                 "backup.space", "change.rollback_skipped"}
 _SYNC_RE = re.compile(r"(^|[._])(sync|synced|ingest|import|imported|scan|stats|health|reliability|analyze)"
                       r"($|[._])|^backup\.created$|services_imported")
 _SEARCH_RE = re.compile(r"search_requested|fallback_sent|fallback_send|recovery\.sent|search\.sent|add_url|add_nzb|"
@@ -77,6 +84,12 @@ def classify(row: dict[str, Any], change: dict[str, Any] | None = None) -> str |
         return None
     if action.startswith("footprint."):
         return None  # an observation (the owner changed something back) or a person's restore, not an action
+    if action in GUARD_ACTIONS:
+        return "guarded"
+    if action in QUIET_ACTIONS or action.startswith(("connector.", "backup.pre_upgrade", "system.retention")):
+        return None  # shown elsewhere (connector card, Systeem, "Wacht op jou") or bookkeeping
+    if action == "usenet.reclassified":
+        return "evaluated"
     if action.startswith("usenet.server_"):  # probe failed / recovered / kept last / retried server
         return "servers"
     if action == "sabnzbd.retry":

@@ -168,7 +168,7 @@ export function localizeAuditSummary(summary: string | null | undefined): string
 }
 
 // ------------------------------------------------------------------ autopilot  GET /overview/autopilot?days=1|7
-export type AutopilotCategoryKey = "applied" | "switched_off" | "rolled_back" | "servers" | "retries" | "remedies" | "searches" | "prepared" | "evaluated" | "syncs" | "failed" | "other";
+export type AutopilotCategoryKey = "applied" | "switched_off" | "rolled_back" | "servers" | "retries" | "remedies" | "searches" | "prepared" | "guarded" | "evaluated" | "syncs" | "failed" | "other";
 export interface AutopilotItem {
   id: number; ts: string; category: AutopilotCategoryKey; action: string; summary: string; target: string | null;
   change_id: number | null; actor: string; link: string;

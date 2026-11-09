@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+import ipaddress
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
@@ -32,6 +35,9 @@ class SettingDef:
 
 
 REGISTRY: dict[str, SettingDef] = {}
+# Extra validation for string settings with a format (key → function(def, value) → normalised value, raises 422).
+# Kept outside SettingDef so the /settings definitions response keeps exactly the same shape.
+VALIDATORS: dict[str, Callable[[SettingDef, str], str]] = {}
 
 
 def define(key: str, label: str, type: str, default: Any, **kw: Any) -> SettingDef:
@@ -66,7 +72,8 @@ def _coerce(d: SettingDef, value: Any) -> Any:
             return v
         else:
             v = str(value)
-            return v
+            check = VALIDATORS.get(d.key)
+            return check(d, v) if check else v
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, detail=f"{d.label}: ongeldige waarde") from exc
     if d.min is not None and v < d.min:
@@ -122,7 +129,61 @@ def definitions() -> list[dict[str, Any]]:
     return [asdict(d) for d in REGISTRY.values()]
 
 
+# ------------------------------------------------------------------ Hub address (Peil O-11, ADR-0006 punt 1)
+HUB_URL_ERROR = "Hub-adres: gebruik http(s)://<NAS-adres>:<poort>, zonder pad"
+
+
+def _blocked_host(host: str) -> bool:
+    """Loopback, link-local and unspecified addresses (contract 1.2 §3.2, HUB_URL rules); 'localhost' too."""
+    h = host.strip("[]").lower().rstrip(".")
+    if h == "localhost" or h.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_link_local or ip.is_unspecified
+
+
+def validate_hub_url(d: SettingDef, value: str) -> str:
+    """Empty = no link. Otherwise http(s)://<host>[:<port>] without path, query, fragment or credentials; never
+    loopback, link-local or 0.0.0.0/::. Returns the normalised form (lower-case scheme and host, no trailing slash)."""
+    v = value.strip()
+    if not v:
+        return ""
+    try:
+        parts = urlsplit(v)
+        port = parts.port  # raises ValueError for an invalid port
+    except ValueError as exc:
+        raise HTTPException(422, detail=HUB_URL_ERROR) from exc
+    host = parts.hostname or ""
+    if (
+        parts.scheme.lower() not in {"http", "https"}
+        or not host
+        or parts.username is not None
+        or parts.password is not None
+        or parts.path not in {"", "/"}
+        or parts.query
+        or parts.fragment
+        or "\\" in v
+        or any(c.isspace() for c in v)
+        or _blocked_host(host)
+    ):
+        raise HTTPException(422, detail=HUB_URL_ERROR)
+    shown_host = f"[{host}]" if ":" in host else host
+    return f"{parts.scheme.lower()}://{shown_host}" + (f":{port}" if port is not None else "")
+
+
 # ------------------------------------------------------------------ foundation settings
+define(
+    "systeem.hub_url",
+    "Hub-adres",
+    "string",
+    "",
+    category="systeem",
+    help="Vorm: http(s)://<NAS-adres>:<poort>. Geen localhost. Leeg = geen link 'Terug naar de Hub'.",
+)
+VALIDATORS["systeem.hub_url"] = validate_hub_url
 define(
     "ui.theme",
     "Standaardthema",

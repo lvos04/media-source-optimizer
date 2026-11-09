@@ -1,0 +1,230 @@
+{
+ "overzicht-licht-390": {
+  "tabstops": 39,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "downloads-licht-390": {
+  "tabstops": 38,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "instellingen-licht-390": {
+  "tabstops": 39,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "ontbrekend-licht-390": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [
+   "div \"Tabel (horizontaal scrollbaar)\""
+  ],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "overzicht-licht-1440": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "downloads-licht-1440": {
+  "tabstops": 39,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "instellingen-licht-1440": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "ontbrekend-licht-1440": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "overzicht-donker-390": {
+  "tabstops": 39,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "downloads-donker-390": {
+  "tabstops": 38,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "instellingen-donker-390": {
+  "tabstops": 39,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "ontbrekend-donker-390": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [
+   "div \"Tabel (horizontaal scrollbaar)\""
+  ],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "overzicht-donker-1440": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "downloads-donker-1440": {
+  "tabstops": 39,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "instellingen-donker-1440": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ },
+ "ontbrekend-donker-1440": {
+  "tabstops": 40,
+  "eerste": {
+   "tag": "a",
+   "naam": "Naar inhoud",
+   "outline": "solid 3px",
+   "schaduw": true,
+   "bedekt": false
+  },
+  "bedekt_door_vaste_balk": [],
+  "focusstijlen": [
+   "solid 3px + box-shadow"
+  ]
+ }
+}

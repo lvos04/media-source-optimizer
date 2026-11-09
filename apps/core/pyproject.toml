@@ -3,7 +3,7 @@ name = "mso-core"
 version = "1.6.0"
 description = "Media Source Optimizer — core API + worker"
 requires-python = ">=3.12"
-license = { text = "Proprietary (own project); third-party licenses see THIRD_PARTY.md" }
+license = { text = "GPL-3.0 (see LICENSE in the repository root)" }
 dependencies = [
   "fastapi==0.162.0",
   "starlette==1.10.0",

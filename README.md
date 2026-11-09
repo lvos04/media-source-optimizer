@@ -67,6 +67,8 @@ cd apps/web && npm ci && npm run dev
 
 ## Licenties
 
+Licentie: **GPL-3.0** (zie [`LICENSE`](LICENSE); besluit van de eigenaar, 2026-11-09).
+
 Eigen code van dit project. Het uiterlijk volgt de platform-ontwerptaal **Peil 1.1.0** (versie-gepinde kopie in
 [`design/ontwerptaal/`](design/ontwerptaal/HERKOMST.md); omzetting in
 [`docs/ontwerp/PEIL_MIGRATIE.md`](docs/ontwerp/PEIL_MIGRATIE.md)). De oorspronkelijke UI-basis was een intern

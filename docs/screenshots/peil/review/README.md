@@ -18,5 +18,9 @@ toelichting staat in [`docs/ontwerp/PEIL_REVIEW.md`](../../../ontwerp/PEIL_REVIE
 | `toestanden/` | Toestanden en dialogen op 390/1440 × licht/donker. Nagebootst (door een API-antwoord in de browser te onderscheppen): eerste start, laden, fout, niet ingesteld, offline, gepauzeerd, verouderd, Beheermodus voor de pauze- en de terugzetdialoog, en `hub-link` (het adres is een gereserveerde `.test`-naam). In `metingen.json` staat bij zo'n afdruk `nagebootst: true`. |
 | `forced-colors/` | Vier schermen × 390/1440 in geëmuleerde forced colors. |
 
+**Let op bij `toestanden/grafiek-*-tabel-*`:** in deze afdrukken staat de vaste kopbalk midden in het beeld. Om de
+tabellen te openen scrollt het script de pagina eerst, en Playwright legt een sticky kopbalk vast op de
+scrollpositie van dat moment. Dat komt dus door de manier van afdrukken en is geen fout in de app.
+
 **Niet gedaan:** een echte telefoon, een echte schermlezer en een echt Windows-contrastthema. MSO heeft geen
 Android-app en geen en-US-teksten.

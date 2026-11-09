@@ -1,7 +1,7 @@
 "use client";
 
 import { FolderPlus, RefreshCw, RotateCcw, Save, Tags, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { Button, Card, InlineState, LinkButton, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
@@ -134,6 +134,7 @@ function quoted(names: string[]) {
  */
 function StarDaysChart({ days, recentDays, recentStar, recentTotal }: { days: StarDay[]; recentDays: number; recentStar: number; recentTotal: number }) {
   const { t, num, date, pct } = useI18n();
+  const hatchId = `arcering-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
   const max = Math.max(1, ...days.map((d) => d.total));
   const slot = 20;
   const h = 56;
@@ -150,7 +151,7 @@ function StarDaysChart({ days, recentDays, recentStar, recentTotal }: { days: St
         <span className="flex flex-wrap gap-x-3 gap-y-1">
           <span>{summary}</span>
           <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block size-3 rounded-sm bg-chart-1" />{t("usenetcat.days.legendStar")}</span>
-          <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block size-3 rounded-sm border border-border bg-chart-other" />{t("usenetcat.days.legendOther")}</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block size-3 rounded-sm border border-border bg-chart-other arcering-gat" />{t("usenetcat.days.legendOther")}</span>
         </span>
       }
       table={{
@@ -161,19 +162,33 @@ function StarDaysChart({ days, recentDays, recentStar, recentTotal }: { days: St
       }}
     >
       {(active) => (
-        <svg viewBox={`0 0 ${days.length * slot} ${h}`} width="100%" height={h} preserveAspectRatio="none" aria-hidden="true" className="block">
-          {days.map((d, i) => {
-            const sh = (d.star / max) * (h - 4);
-            const oh = ((d.total - d.star) / max) * (h - 4);
-            return (
-              <g key={d.day}>
-                {i === active ? <rect x={i * slot} y={0} width={slot} height={h} className="fill-accent" /> : null}
-                <rect x={i * slot + 3} y={h - sh} width={slot - 6} height={sh} rx={2} className="fill-chart-1" />
-                {oh > 0 ? <rect x={i * slot + 3} y={h - sh - oh - (sh > 0 ? 2 : 0)} width={slot - 6} height={oh} rx={2} className="fill-chart-other" /> : null}
-              </g>
-            );
-          })}
-        </svg>
+        <>
+          {/* Review stap 5 (Peil §10): basislijn als haarlijn, "Overig" grijs mét arcering, eerste en laatste dag als as-label. */}
+          <svg viewBox={`0 0 ${days.length * slot} ${h}`} width="100%" height={h} preserveAspectRatio="none" aria-hidden="true" className="block">
+            <defs>
+              <pattern id={hatchId} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(135)">
+                <rect width="1.5" height="5" className="fill-chart-gap" />
+              </pattern>
+            </defs>
+            {days.map((d, i) => {
+              const sh = (d.star / max) * (h - 5);
+              const oh = ((d.total - d.star) / max) * (h - 5);
+              const oy = h - 1 - sh - oh - (sh > 0 ? 2 : 0);
+              return (
+                <g key={d.day}>
+                  {i === active ? <rect x={i * slot} y={0} width={slot} height={h} className="fill-accent" /> : null}
+                  <rect x={i * slot + 3} y={h - 1 - sh} width={slot - 6} height={sh} rx={2} className="fill-chart-1" />
+                  {oh > 0 ? <rect x={i * slot + 3} y={oy} width={slot - 6} height={oh} rx={2} className="fill-chart-other" /> : null}
+                  {oh > 0 ? <rect x={i * slot + 3} y={oy} width={slot - 6} height={oh} rx={2} fill={`url(#${hatchId})`} /> : null}
+                </g>
+              );
+            })}
+            <line x1={0} x2={days.length * slot} y1={h - 0.5} y2={h - 0.5} className="stroke-chart-axis" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          </svg>
+          <div className="flex justify-between text-sm text-chart-label cijfers" aria-hidden="true">
+            <span>{date(days[0].day)}</span><span>{date(days[days.length - 1].day)}</span>
+          </div>
+        </>
       )}
     </ChartFrame>
   );
@@ -357,8 +372,8 @@ function Verdict({ d }: { d: CategoryDiagnosis }) {
   if (d.verdict === "ok") return <InlineState tone="success" role="status">{t("usenetcat.verdict.ok", { days })}</InlineState>;
   if (d.verdict === "geen_ster") return <InlineState tone="success" role="status">{t("usenetcat.verdict.noStar", { days, reason: mgReason })}</InlineState>;
   if (!d.sab.configured) return <InlineState tone="neutral" role="status">{t("usenetcat.verdict.noSab")}</InlineState>;
-  if (!d.sab.available) return <InlineState tone="warning" role="status">{t("usenetcat.verdict.unknownSab", { error: d.sab.error ?? "—" })}</InlineState>;
-  return <InlineState tone="warning" role="status">{t("usenetcat.verdict.unknownMg", { reason: mgReason })}</InlineState>;
+  if (!d.sab.available) return <InlineState tone="unknown" role="status">{t("usenetcat.verdict.unknownSab", { error: d.sab.error ?? "—" })}</InlineState>;
+  return <InlineState tone="unknown" role="status">{t("usenetcat.verdict.unknownMg", { reason: mgReason })}</InlineState>;
 }
 
 /** The diagnosis: verdict + fix location, the one proposal for case (a), MSO's own sends, '*' per day and per

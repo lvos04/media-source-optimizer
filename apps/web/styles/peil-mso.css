@@ -207,3 +207,14 @@ summary { min-height: var(--touch); padding-block: 0.625rem; cursor: pointer; }
 /* Tabelkoppen mogen omlopen: met een breder systeemfont (bv. DejaVu Sans op Linux) liep de kostentabel op 1440 px
    54 px over (gemeten in CI). Nooit horizontale overloop door een kolomkop. */
 .table th { white-space: normal; }
+
+/* Forced colors (Windows-hoogcontrast; ONTWERPTAAL §12 A-18). Achtergronden vallen weg, dus een selectie die alleen
+   een vlak of een gekleurde onderstreping heeft, is niet meer te zien (review stap 5, geëmuleerd in Chromium).
+   De gekozen periode, het actieve tabblad en het huidige navigatie-item krijgen een rand in de systeemkleur Highlight. */
+@media (forced-colors: active) {
+  .segmented [aria-pressed="false"] { border-color: transparent; }
+  .segmented [aria-pressed="true"] { border-color: Highlight; }
+  .tab[aria-selected="true"]::after, .tab[aria-current="page"]::after { forced-color-adjust: none; background: Highlight; }
+  .nav-item[aria-current="page"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .bottomnav [aria-current="page"] { border-top: 3px solid Highlight; }
+}

@@ -33,3 +33,12 @@ Onbekende NAS-gegevens (D01–D18) worden nooit met voorbeeldwaarden ingevuld; z
 - `05_TESTS/GEBRUIKERSWENSEN_TRACEERBAARHEID.md`
 - `05_TESTS/INTEGRALE_E2E_TESTMATRIX.md`
 - `06_TEMPLATES/PROMPTS_PER_APP/PROMPT_B05_MSO_DELTA.md`
+
+## Eigen werkstukken van deze repo (fase P0)
+
+- `INVENTARIS.md` — inventaris van MSO 1.6.0 (modules, 211 API-routes met bestand:regel, migraties, auth, events,
+  back-up/rollback, monitoring, veiligheidsinvarianten, CI, images, releasestatus, baselinetestrun).
+- `DELTA_MATRIX.md` — B05-eisen, I04/I17/I18, A13/A14/A19 en contract 1.1: bestaand / onvolledig / ontbrekend, met
+  bewijs en de geprioriteerde bouwlijst voor P3.
+- `EVIDENCE.json` — Excel-status en validatie voor B05-001 … B05-010 (contract §11).
+- Besluiten: `docs/adr/ADR-0001` … `ADR-0003`; OpenAPI-momentopname: `docs/openapi/media-source-optimizer.openapi.json`.

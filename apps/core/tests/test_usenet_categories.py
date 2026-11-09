@@ -321,7 +321,7 @@ def test_proposal_preview_approval_apply_verify_and_guarded_rollback(
     assert_only_allowed_writes(mock)
 
 
-def test_rollback_refuses_category_changed_outside_mso(app: Any, serve: Any, admin: Any, operator: Any) -> None:
+def test_rollback_skips_category_changed_outside_mso(app: Any, serve: Any, admin: Any, operator: Any) -> None:
     from mso import state
 
     sab = _sab(serve, admin, categories=NO_ANIME)
@@ -333,8 +333,15 @@ def test_rollback_refuses_category_changed_outside_mso(app: Any, serve: Any, adm
     assert operator.post(f"/api/v1/changes/{ch['id']}/apply").status_code == 200
     sab.category("tv-anime")["dir"] = "/elders/anime"  # the user changed it in SABnzbd
     r = admin.post(f"/api/v1/changes/{ch['id']}/rollback", json={})
-    assert r.status_code == 502 and "buiten MSO gewijzigd" in r.json()["detail"]
-    assert sab.category("tv-anime") is not None
+    # 1.6.0 change safety (generic): a path changed outside MSO is skipped ("overgeslagen"), never overwritten or
+    # removed; the untouched category is rolled back as usual
+    assert r.status_code == 200, r.text
+    by_path = {o["path"]: o for o in r.json()["ops"]}
+    assert by_path["categories/tv-anime"]["result"] == "overgeslagen"
+    assert by_path["categories/tv-anime"]["skip_reason"] == "buiten MSO gewijzigd"
+    assert by_path["categories/movies-anime"]["result"] == "teruggedraaid"
+    assert sab.category("tv-anime") is not None and sab.category("tv-anime")["dir"] == "/elders/anime"
+    assert sab.category("movies-anime") is None
 
 
 def test_apply_detects_drift_and_failed_writes(app: Any, serve: Any, admin: Any, operator: Any) -> None:

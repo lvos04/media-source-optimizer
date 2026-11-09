@@ -38,7 +38,7 @@ mediamount (`MSO_MEDIA_DIR`) alleen voor hardlink-/vrije-ruimte-diagnose.
 | `apps/core/mso/features/torrent` | **Torrent-engine**: diagnose, beleid/guardrails, tuning met evaluatie+rollback, cross-seed, opslag |
 | `apps/core/mso/features/mediaguard`, `recovery` | MediaGuard-koppeling (read-only + officiële zoekroute) en herstel (baseline, kandidaten, blacklist) |
 | `apps/core/mso/features/costs`, `overview`, `automation`, `ai` | orchestrator-laag: kosten/simulatie, dashboard (`overview/goals` doelenkaart, `overview/autopilot` Wacht op jou + Wat MSO deed), automatisering (`autopilot` afkoeling/noodrem, `footprint` + `overrides` voetafdruk en eigen keuze), opt-in AI-adviseur |
-| `apps/web/` | Next.js-UI, 15 schermen + login + setup |
+| `apps/web/` | Next.js-UI, 15 schermen (plus de subpagina Voetafdruk) + login + setup |
 | `apps/mocks/msomocks/` | testdubbels (Prowlarr, SABnzbd, qBittorrent, MediaGuard, Newznab/Torznab, Spotweb, NNTP) — nooit in productie |
 | `deploy/truenas/` | `compose.yaml` (Install via YAML) + build-override |
 | `tests/stack/` | containerstack + mocks + smoke/e2e |
@@ -57,9 +57,10 @@ Risicoklassen: `advies` (alleen tonen), `automatisch_veilig` (mag door automatis
 gebied is ingeschakeld), `toestemming_nodig` (eerst goedkeuring door een beheerder). Bij toepassen: eerst
 afwijkingsdetectie (is de huidige waarde nog wat de preview zag?), dan per operatie schrijven + teruglezen;
 een fout herstelt automatisch wat al geschreven was. Rollback schrijft de geobserveerde `before` terug.
-Appliers bestaan voor `sabnzbd` (serverprioriteit/enable/optional), `sabnzbd_categories` (een ontbrekende categorie
-aanmaken, sinds 1.6.0), `qbittorrent` (voorkeuren, limieten, recheck/reannounce, cross-seed toevoegen) en `prowlarr`
-(alleen MSO zelf als indexer registreren).
+Appliers bestaan voor `sabnzbd` (serverprioriteit/enable/optional), `sabnzbd_retry` (een mislukte download opnieuw
+laten proberen; niet terug te draaien), `sabnzbd_categories` (een ontbrekende categorie aanmaken, sinds 1.6.0),
+`qbittorrent` (voorkeuren, limieten, recheck/reannounce, cross-seed toevoegen), `download_send` (een vervanger
+versturen; niet terug te draaien) en `prowlarr` (alleen MSO zelf als indexer registreren).
 
 Sinds 1.6.0 (`mso/changes.py`):
 - **Atomair**: per wijziging een PostgreSQL-advisory-lock voor het hele toepassen/terugdraaien plus

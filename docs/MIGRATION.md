@@ -19,8 +19,8 @@ Sonarr/Radarr, Prowlarr, SABnzbd of qBittorrent.
   het bestand later is gewijzigd, levert een waarschuwing in het log op (checksum wijkt af) in plaats van
   stilletjes te divergeren.
 - Een PostgreSQL advisory lock zorgt dat `migrate`, `api` en `worker` nooit tegelijk migreren.
-- **Schemaversie** = hoogste toegepaste migratienummer. Zichtbaar in Systeem → Info (`schema_version`) en in
-  de uitvoer van `mso migrate`.
+- **Schemaversie** = hoogste toegepaste migratienummer. Zichtbaar in Systeem (in het menu: Back-up & updates) →
+  kaart MSO-core → Schemaversie, en in de uitvoer van `mso migrate`.
 
 ## Wanneer draaien migraties?
 
@@ -97,7 +97,8 @@ worden op volgorde toegepast. Tenzij de CHANGELOG van een versie anders vermeldt
 - Servers die 1.5.0 had opgegeven (`given_up`), worden weer met SABnzbd's servertest getest.
 - De rem op opnieuw proberen telt alleen pogingen van ná de upgrade.
 - De doelenkaart verschijnt. Ging Autopilot al in 1.5.0 aan, dan begint de proefperiode op die dag en leidt MSO de
-  startwaarde af uit de geschiedenis.
+  startwaarde af uit de geschiedenis. Wil je 1.6.0 vanaf de upgradedag beoordelen, vul die datum dan in bij
+  Instellingen → Automatisering → Start proefperiode (doelenkaart).
 - Had je bij een blokprovider al een blokgrootte ingevuld, sla die dan één keer opnieuw op (bij een deels gebruikt blok:
   het restant). Tot dan toont MSO het verbruik zonder voorspelling of herinnering.
 - In "Wacht op jou" kunnen nieuwe items verschijnen, bijvoorbeeld "SABnzbd kan downloads niet uitpakken", een
@@ -141,15 +142,18 @@ tussendoor niet met het 1.6.0-image: bij elke start past 1.6.0 zijn migraties ge
 Losse containers (YAML):
 
 ```sh
+API=$(sudo docker ps --format '{{.Names}}' | grep -E 'media-source-optimizer.*api' | head -1)
+WORKER=$(sudo docker ps --format '{{.Names}}' | grep -E 'media-source-optimizer.*worker' | head -1)
 sudo docker stop "$WORKER"
 sudo docker exec "$API" mso migrate --down 501
 ```
 
 Zet daarna in **Edit** de tags `MSO_CORE_IMAGE` en `MSO_WEB_IMAGE` terug op `1.5.0` en **Save**.
 
-Controleer in Systeem → Info dat de schemaversie 501 is. `--down 501` draait 0607 tot en met 0600 terug; wat
-daarbij verloren gaat, staat in de tabel hierboven. Wil je precies de stand van vóór de upgrade terug, herstel dan
-daarna in 1.5.0 de back-up "pre-upgrade" (Systeem → Back-ups); alles wat sinds de upgrade gebeurde, gaat dan verloren.
+Controleer in Systeem (Back-up & updates) → MSO-core dat de schemaversie 501 is. `--down 501` draait 0607 tot en met
+0600 terug; wat daarbij verloren gaat, staat in de tabel hierboven. Wil je precies de stand van vóór de upgrade terug,
+herstel dan daarna in 1.5.0 de back-up "pre-upgrade" (Systeem → Back-ups); alles wat sinds de upgrade gebeurde, gaat dan
+verloren.
 
 **B. ZFS-snapshot** (betrouwbaarst, ook na een mislukte migratie): stop de app, zet de APPDATA-dataset terug naar de
 snapshot van vóór de upgrade, zet de tag op `1.5.0` en start de app.

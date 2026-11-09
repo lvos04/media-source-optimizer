@@ -120,8 +120,9 @@ Systeem → Back-ups):
 - **Bewaard:** de nieuwste 3. Herstellen kan gewoon in de app (zie *Herstel*, punt 5) of, voor terug naar de vorige
   versie, zoals in [MIGRATION.md](MIGRATION.md) → *Terug naar 1.5.0*.
 
-Controle na een update: `sudo docker logs "$API" 2>&1 | grep -i "vóór upgrade"` (alles-in-één: de log van de enige
-container) en Systeem → Back-ups toont een nieuwe "Vóór upgrade".
+Controle na een update: `sudo docker logs "$(c migrate)" 2>&1 | grep -i "vóór upgrade"` (losse containers: de
+`migrate`-container maakt de back-up; alles-in-één: de log van de enige container) en Systeem → Back-ups toont een
+nieuwe "Vóór upgrade".
 
 ## Taken (jobs) en herstel na uitval
 
@@ -295,7 +296,7 @@ sudo docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsa
 | Prowlarr-downloadlinks naar `http://api:8200/…` | Zet `MSO_PUBLIC_URL` of instelling `newznab.public_url` (TRUENAS_INSTALL.md). |
 | Opgeslagen geheimen onleesbaar na verhuizing | `APPDATA/secrets/vault.key` niet meegekopieerd; kopieer de sleutel of voer de geheimen opnieuw in. |
 | Log: `back-up vóór upgrade overgeslagen: Te weinig vrije schijfruimte …` | Ruimte vrijmaken in de dataset van APPDATA; de migratie is gewoon doorgegaan. Maak daarna zelf een back-up. |
-| "Wacht op jou": *Te weinig vrije schijfruimte voor een veilige back-up* | Er is niets weggeschreven. Ruimte vrijmaken of `backup.keep` verlagen; het item verdwijnt bij de volgende geslaagde back-up. |
+| "Wacht op jou": *Back-up overgeslagen: te weinig vrije schijfruimte* | Er is niets weggeschreven. Ruimte vrijmaken of `backup.keep` verlagen; het item verdwijnt bij de volgende geslaagde back-up. |
 | Herstel geweigerd: *komt van een nieuwere MSO-versie* | De back-up is gemaakt met een nieuwere versie. Herstel hem met die versie (of nieuwer). |
 | Rode banner *Autopilot heeft zichzelf gepauzeerd* | Noodrem (zie hierboven). Bekijk Automatisering → Controle en Wijzigingen en klik **Hervatten**. |
 | Wijziging blijft op *Bezig met toepassen* | Normaal hooguit een paar minuten. Staat MSO op Alleen-lezen, dan wacht de reconciler op beheermodus (item in "Wacht op jou"). |

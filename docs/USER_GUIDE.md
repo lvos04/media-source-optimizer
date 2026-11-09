@@ -72,17 +72,18 @@ De **startwaarde** is de stand in het eerste uur van de proefperiode (faalratio:
 doet — een server uitzetten, een opruiming na jouw goedkeuring — verandert de startwaarde dus niet; zo zie je eerlijk
 hoeveel er sindsdien veranderd is. Tijdens dat eerste uur staat er "voorlopig"; daarna ligt de startwaarde vast.
 
-De proefperiode duurt 28 dagen en begint standaard op de dag dat je Autopilot voor het eerst aanzette (anders op de
-installatiedag). Een andere startdatum stel je in onder **Instellingen → Automatisering → Start proefperiode
-(doelenkaart)** (JJJJ-MM-DD; leeg = automatisch). Dagen zijn lokale dagen (tijdzone van de container, standaard
-Europe/Amsterdam).
+De proefperiode duurt 28 dagen en begint standaard op de dag dat je Autopilot voor het eerst aanzette, ook als dat nog
+in 1.5.0 was (anders op de installatiedag). Een andere startdatum, bijvoorbeeld de dag van de upgrade naar 1.6.0, stel
+je in onder **Instellingen → Automatisering → Start proefperiode (doelenkaart)** (JJJJ-MM-DD; leeg = automatisch).
+Dagen zijn lokale dagen (tijdzone van de container, standaard Europe/Amsterdam).
 
 ### 3.2 Wacht op jou
 
-Direct onder de doelenkaart staat wat jouw beslissing vraagt. Elke regel is één beslissing: het opruimvoorstel voor
-nep-downloads staat er één keer, met het aantal en hoeveel er sinds gisteren bij kwamen. Wacht er niets, dan zie je
-één regel "Niets wacht op jou ✓". Wacht er wel iets, dan zie je dat ook op andere pagina's: in de topbalk (op de
-telefoon als icoon met een getal), als badge bij Automatisering en als "(1)" in de titel van het browsertabblad.
+Direct onder de doelenkaart staat wat jouw beslissing vraagt. Elke beslissing staat er één keer: het opruimvoorstel
+voor nep-downloads is één regel, met het aantal en hoeveel er sinds gisteren bij kwamen; gelijksoortige meldingen
+staan samen op één regel met hun aantal. Wacht er niets, dan zie je één regel "Niets wacht op jou ✓". Wacht er wel
+iets, dan zie je het aantal beslissingen ook op andere pagina's: in de topbalk (op de telefoon als icoon met een
+getal), als badge bij Automatisering en als "(1)" in de titel van het browsertabblad.
 Meldingen "ter info" (bijvoorbeeld dat je zelf iets hebt teruggezet) vragen geen actie en tellen niet mee. De kaarten
 Aanbevelingen en Wijzigingen verderop tonen alleen wat hier niet al staat.
 
@@ -246,16 +247,17 @@ in "Wacht op jou". Een server telt pas als "werkt weer" als SABnzbd hem echt geb
   kijkt dagelijks opnieuw.
 - Biedt je SABnzbd de test niet aan, dan werkt MSO zoals in 1.5.0 (een proef-aanzet met oplopende wachttijd).
 
-De interval stel je in onder Instellingen → Usenet ("Uitgeschakelde server testen elke", standaard 6 uur).
+Het interval stel je in onder Instellingen → Usenet ("Uitgeschakelde server testen elke", standaard 6 uur).
 
 ### 6.4 Vervaldatum en blok
 
 Vul in SABnzbd (Config → Servers) bij een server de vervaldatum en/of het quotum in. MSO herinnert je dan 14, 7 en 1 dag
-vóór het verlopen, toont bij de provider wat er van het blok over is en wanneer het bij het huidige verbruik op is, en
-vult een lege verlengdatum onder Kosten in (een datum die je zelf invulde blijft staan). Zonder quotum in SABnzbd telt
-het blokverbruik vanaf het moment dat je de blokgrootte bij de provider invult. Had je de blokgrootte al vóór 1.6.0
-ingevuld, sla hem dan één keer opnieuw op (bij een deels gebruikt blok: het restant); tot dan toont MSO het verbruik
-zonder voorspelling of herinnering.
+vóór het verlopen, toont bij de provider wat er van het blok over is en wanneer het bij het huidige verbruik op is (met
+een herinnering als 90 % van het blok verbruikt is of het over hooguit 7 dagen op is), en vult een lege verlengdatum
+onder Kosten in (een datum die je zelf invulde blijft staan). Zonder quotum in SABnzbd telt het blokverbruik vanaf het
+moment dat je de blokgrootte bij de provider invult. Had je de blokgrootte al vóór 1.6.0 ingevuld, sla hem dan één keer
+opnieuw op (bij een deels gebruikt blok: het restant); tot dan toont MSO het verbruik zonder voorspelling of
+herinnering.
 
 ### 6.5 Waarom staan downloads in '*'?
 
@@ -344,9 +346,9 @@ Zonder AI krijg je dezelfde uitleg van de ingebouwde regels.
 
 ## 11. Back-up, herstel en onderhoud
 
-**Back-up & updates**: maak een back-up (standaard zonder geheimen), of herstel er een (typ de
-bestandsnaam ter bevestiging). Vóór elk herstel maakt MSO automatisch een vangnet-back-up. Een beschadigde
-back-up wordt geweigerd en de database blijft dan ongewijzigd.
+**Back-up & updates** (in deze handleiding ook "Systeem"): maak een back-up (standaard zonder geheimen), of herstel
+er een (typ de bestandsnaam ter bevestiging). Vóór elk herstel maakt MSO automatisch een vangnet-back-up. Een
+beschadigde back-up wordt geweigerd en de database blijft dan ongewijzigd.
 
 **Wat zit erin.** Een back-up bevat alles wat MSO niet zelf opnieuw kan ophalen. Caches (zoekresultaten, MediaGuard,
 header-index, torrent-metingen van de laatste uren) gaan niet mee; na terugzetten haalt MSO ze zelf op. Vóór elke
@@ -362,11 +364,11 @@ back-up van een nieuwere versie weigert MSO. Modus, pauze en noodrem blijven bij
 ("Vóór upgrade"; de nieuwste drie blijven bewaard). Een ZFS-snapshot blijft verstandig, maar is niet meer nodig om
 terug te kunnen. Terug naar een vorige versie: zie `docs/MIGRATION.md`.
 
-**Onderhoud (Systeem → Onderhoud).** MSO houdt zichzelf klein: elke nacht verdwijnen afgeronde achtergrondtaken
-ouder dan 14 dagen (van elke soort blijven de laatste 50 staan), mislukte taken ouder dan 60 dagen, losse metingen
-ouder dan 30 dagen (die worden eerst per uur samengevat en dan 400 dagen bewaard), het automatiseringslogboek na 180
-dagen en inlogpogingen na 90 dagen. Het auditlogboek blijft altijd. Kijkt een evaluatie van een automatische wijziging
-verder terug dan 30 dagen, dan bewaart MSO de losse metingen vanzelf langer. Je kunt de termijnen aanpassen onder
+**Onderhoud (Back-up & updates → Onderhoud).** MSO houdt zichzelf klein: elke nacht verdwijnen afgeronde
+achtergrondtaken ouder dan 14 dagen (van elke soort blijven de laatste 50 staan), mislukte taken ouder dan 60 dagen,
+losse metingen ouder dan 30 dagen (die worden eerst per uur samengevat en dan 400 dagen bewaard), het
+automatiseringslogboek na 180 dagen en inlogpogingen na 90 dagen. Het auditlogboek blijft altijd. Kijkt een evaluatie
+van een automatische wijziging verder terug dan 30 dagen, dan bewaart MSO de losse metingen vanzelf langer. Je kunt de termijnen aanpassen onder
 Instellingen → Systeem; een beheerder kan het opruimen met "Nu opruimen" meteen starten.
 
 **Koppelingen bewaken.** De achtergrondtaken merken zelf wanneer SABnzbd, qBittorrent of Prowlarr niet reageert of
@@ -395,12 +397,12 @@ Een paar regels in detail:
 Nep-releases kopiëren echte titels en groepsnamen ("Criminal Minds S19E06 1080p WEB h264-GRACE.exe"); groepen
 blokkeren helpt daarom niet. MSO kijkt naar de inhoud: een echte aflevering of film bevat nooit een programma. Telkens
 als MSO zelf iets verstuurt — vanuit Zoeken, vanuit Ontbrekend & herstel, via een voorstel of automatisch door
-Autopilot — haalt het eerst het .torrent- of NZB-bestand op en controleert het de bestanden. Bij een programma, een
-vermomde extensie (.mkv.exe) of een beveiligd archief met wachtwoordhint stuurt MSO niets door; je ziet "Beleid weigert
-deze release: …" en de release komt op de blacklist (Ontbrekend & herstel → "Blacklist mislukte releases"; alleen een
-beheerder kan hem weghalen). Bij een magnetlink is de bestandenlijst pas na het starten bekend; MSO controleert dan de
-titel en de naam in de link. Kan MSO het torrentbestand niet lezen, dan verstuurt het niets ("de bestanden zijn niet te
-controleren").
+Autopilot — haalt het eerst het .torrent- of NZB-bestand op en controleert het de bestanden. Bij een programma of een
+vermomde extensie (.mkv.exe), en bij een torrent ook bij een beveiligd archief met wachtwoordhint, stuurt MSO niets
+door; je ziet "Beleid weigert deze release: …". Blijkt het uit de bestandenlijst zelf, dan komt de release ook op de
+blacklist (Ontbrekend & herstel → "Blacklist mislukte releases"; alleen een beheerder kan hem weghalen). Bij een
+magnetlink is de bestandenlijst pas na het starten bekend; MSO controleert dan de titel en de naam in de link. Kan MSO
+het torrentbestand niet lezen, dan verstuurt het niets ("de bestanden zijn niet te controleren").
 
 In Zoeken krijgen resultaten met een programma in de naam de rode badge "Nep-release (uitvoerbaar bestand)"; ze staan
 onderaan en de knop Verstuur is uitgeschakeld. Bij vervangers in Ontbrekend & herstel zie je onder "Toon bewijs" de rij
@@ -429,12 +431,13 @@ Onderaan staat wat niet terug te zetten is, zoals verwijderde nep-torrents en op
 waarde nog die van MSO is, dan schrijven, dan teruglezen). Je ziet eerst de lijst en bevestigt dan. Overgeslagen, met
 uitleg: wat je zelf veranderde, wat niet bereikbaar is, wat er niet meer is, een oorspronkelijke waarde buiten de
 veiligheidsgrenzen van MSO (bijv. "onbeperkt"), en SABnzbd-categorieën (die verwijdert alleen een beheerder met de hand,
-§6.5). Van de uitsluitlijst in qBittorrent haalt MSO alleen zijn eigen patronen weg. Wat je zo terugzet, past Autopilot
-daarna niet meteen opnieuw toe.
+§6.5). Van de uitsluitlijst in qBittorrent haalt MSO alleen zijn eigen patronen weg. Wat je zo terugzet, past MSO
+daarna 30 dagen niet opnieuw automatisch toe (§4.5).
 
 **MSO verwijderen**
 1. Ga naar Automatisering → Voetafdruk en kies **Alles terugzetten**. Je ziet eerst precies wat er teruggezet wordt
    en wat blijft staan. Wil je MSO's wijzigingen houden, dan sla je deze stap over.
 2. Zet MSO op **Alleen-lezen** (Instellingen → Systeem), zodat het niets meer verandert.
-3. Verwijder daarna de app (zie TRUENAS_INSTALL.md → Verwijderen). Heb je MSO's indexer in Prowlarr geregistreerd,
+3. Verwijder daarna de app in TrueNAS: Apps → media-source-optimizer → Delete (zie TRUENAS_INSTALL.md → Verwijderen;
+   de dataset met je gegevens blijft staan tot je die zelf verwijdert). Heb je MSO's indexer in Prowlarr geregistreerd,
    dan haalt "Alles terugzetten" die ook weg; als operator vraagt dat eerst goedkeuring door een beheerder.

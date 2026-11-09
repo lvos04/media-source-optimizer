@@ -70,10 +70,10 @@ en onderhoud zonder omkijken.
   betrouwbaarheid van indexers. Bestaande gegevens worden bij de upgrade aangevuld.
 
 ### Rust in de app
-- **Eén inbox "Wacht op jou"**: één beslissing is één regel. De losse "Verdachte torrent verwijderen"-meldingen vallen
+- **Eén inbox "Wacht op jou"**: elke beslissing staat er één keer. De losse "Verdachte torrent verwijderen"-meldingen vallen
   weg zodra ze in het opruimvoorstel zitten; dat staat er één keer ("41 nep-downloads opruimen (+3 nieuw sinds
-  gisteren)"). Het getal is overal gelijk: op Overzicht (nu bovenaan, of één regel "Niets wacht op jou ✓"), in de
-  topbalk (ook op de telefoon), als badge bij Automatisering en in de tabtitel. De kaarten Aanbevelingen en Wijzigingen
+  gisteren)"). Het getal is overal gelijk: op Overzicht (direct onder de doelenkaart, of één regel "Niets wacht op
+  jou ✓"), in de topbalk (ook op de telefoon), als badge bij Automatisering en in de tabtitel. De kaarten Aanbevelingen en Wijzigingen
   tonen alleen nog wat daar niet al staat.
 - **"Wat MSO deed" zonder ruis**: synchronisaties en controles tellen niet meer als actie (in Alleen-lezen staat er dus
   gewoon 0) en staan samen op één statusregel. Per wijziging zie je wat MSO deed, waarom, en wat het effect was
@@ -103,9 +103,10 @@ en onderhoud zonder omkijken.
 - **Nep-releases tegenhouden bij MSO's eigen verzendingen**: voordat MSO iets naar qBittorrent of SABnzbd stuurt (vanuit
   Zoeken, Ontbrekend & herstel, een voorstel of automatisch) controleert het de echte inhoud: de bestandenlijst van het
   .torrent-bestand, de naam in een magnetlink of de bestandsnamen in de NZB. Zit er een programma, script of vermomde
-  extensie (.mkv.exe) in, dan weigert MSO ("Beleid weigert deze release: …") en komt de release op de blacklist. Zoeken
-  toont zulke resultaten met een rode badge "Nep-release (uitvoerbaar bestand)", onderaan en zonder Verstuur-knop; MSO's
-  eigen Newznab/Torznab-feed laat ze weg. Vervangers met een onwaarschijnlijk kleine grootte (≥ 720p-aflevering onder
+  extensie (.mkv.exe) in, dan weigert MSO ("Beleid weigert deze release: …"); bewijst de bestandenlijst zelf dat het nep
+  is, dan komt de release ook op de blacklist. Zoeken toont zulke resultaten met een rode badge "Nep-release
+  (uitvoerbaar bestand)", onderaan en met een uitgeschakelde Verstuur-knop; MSO's eigen Newznab/Torznab-feed laat ze
+  weg. Vervangers met een onwaarschijnlijk kleine grootte (≥ 720p-aflevering onder
   50 MB, ≥ 720p-film onder 200 MB) worden afgewezen.
 - Kleiner: een weer ingeschakelde SABnzbd-server wordt beoordeeld op zijn eigen status, niet op de faalratio van alle
   downloads; MSO herkent SABnzbd's 0/1-waarden als aan/uit; geen "Terugdraaien aanbevolen" meer voor wijzigingen die

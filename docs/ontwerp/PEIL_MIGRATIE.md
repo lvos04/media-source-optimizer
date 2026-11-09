@@ -618,3 +618,10 @@ Gemeten na de omzetting (teststack, HEAD van stap 3): e2e 109/109 (strikt), vite
 Peil-e2e controleert per hoofdscherm op 320/768/1024 overloop, axe (Peil-set), één h1, 44 px in `main`, geen
 pauze-icoon bij Onbekend en geen groen buiten gezondheid; de afdrukken en metingen staan in `docs/screenshots/peil/na/`.
 
+
+**Stap 5 (onafhankelijke review, 9 november 2026):** de echte app is opnieuw gemeten tegen Peil. Er was een tweede
+meetscript, met axe op alle impacts, contrast in de DOM, een matrix van 320 tot 1440 px, tabs, Beheermodus,
+toestanden en een Tab-doorloop. De gevonden afwijkingen zijn gerepareerd: overloop op 320 px, ellips op inhoud,
+amber voor niet-gezondheid, iconen per betekenis, ErnstLabel, een eigen vorm voor Verouderd, oude statuswoorden, de
+offlinepagina zonder h1, een scrollende grafiektabel, de grafiek "Downloads in '*'" en forced colors. Zie
+`docs/ontwerp/PEIL_REVIEW.md` en ADR-0008.

@@ -4,6 +4,25 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 
 ## [Unreleased]
 
+### Uiterlijk: onafhankelijke Peil-review van de web-UI en reparaties (stap 5)
+Alleen uiterlijk, teksten en toegankelijkheid; functies, routes, API, foutformaat, datamodel, poorten en installatie
+gelijk, OpenAPI byte-gelijk. Review, metingen en schermafdrukken: `docs/ontwerp/PEIL_REVIEW.md` en
+`docs/screenshots/peil/review/`; besluiten: ADR-0008.
+- **Reflow en leesbaarheid:** geen horizontale overloop meer op 320 px (Torrentclient, Instellingen-tabs) en geen
+  te brede torrenttabel op 1440 px; lijsttitels en uitleg nooit meer afgekapt met een ellips; ondernavigatie zonder
+  "Downlo-ads"/"Ontbre-kend" (items op tekstbreedte, alleen afbreken op lettergrepen); statuspillen die omlopen
+  worden niet meer door de ronde rand afgesneden; vinkjes 20 px; tekst in statuskleur in de -ink-variant.
+- **Statussemantiek (Peil §4/§7):** amber alleen voor gemeten gezondheid; onbekend = stippel + circle-help,
+  verouderd = stippel + arcering + clock-alert (nieuwe toon), voorwaarde/rol = neutraal met slot; "Privé" info met
+  slot; circle-check alleen voor Gezond, Storing altijd octagon-x; ernst van afstemmingsbevindingen als ErnstLabel
+  (Hoog/Middel/Info); statusstippen worden statusiconen; "OK", "Let op" en "Verstoord" verdwijnen uit beeld;
+  "Deels onbekend" ook bij het maandtotaal op Kosten; gemiddelde betrouwbaarheid zonder metingen = Onbekend met reden.
+- **Toegankelijkheid:** h1 en main op de offlinepagina; een grafiektabel die scrolt is met het toetsenbord te
+  scrollen; selectie blijft zichtbaar in forced colors; skelet kondigt "Gegevens ophalen…" aan (niet "Laden…");
+  geen decoratief verloop meer achter de tekst van de inlogpagina (beide tekstniveaus ≥ 7:1).
+- **Grafiek "Downloads in '*' per dag":** basislijn, eerste/laatste dag als as-label, "Overig" gearceerd.
+- **Tests:** vitest 45 → 55; e2e 109/109, nu met axe = 0 op alle impacts (was alleen serious/critical).
+
 ### Uiterlijk: web-UI omgezet naar de platform-ontwerptaal Peil 1.1.0 (stap 3)
 Alleen het uiterlijk en de twee toegestane toevoegingen; functies, routes, API-aanroepen, foutformaat, datamodel,
 poorten en installatie zijn gelijk gebleven. OpenAPI-export byte-gelijk (sha256 `bb551ee1…0471b`). Plan:

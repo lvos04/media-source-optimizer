@@ -1,6 +1,7 @@
 // Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/components/shell/app-shell.tsx — internally versioned copy, see PROVENANCE.md
 // (MSO: sidebar health from /system/health, topbar mode chip, "Automatisering pauzeren" instead of
-// the emergency stop, theme stored in localStorage `mso.theme`, no notifications/storage pill/SSE.)
+// the emergency stop, theme stored in localStorage `mso.theme`, no notifications/storage pill/SSE;
+// 1.6.0: "Wacht op jou" counter in the topbar, badge on Automatisering, "(N) " tab title — see ./waiting.tsx.)
 "use client";
 
 import {
@@ -16,6 +17,7 @@ import { ToastProvider, useToast } from "@/components/mg/toast";
 import { AutopilotHoldBanner } from "@/components/mso/automation/hold-banner";
 import { BrandMark } from "@/components/shell/auth-frame";
 import { ALL_NAV_ITEMS, BOTTOM_NAV_KEYS, isActive, NAV } from "@/components/shell/nav";
+import { WaitingNavBadge, WaitingPill, WaitingProvider } from "@/components/shell/waiting";
 import { errorMessage } from "@/lib/api/client";
 import type { SystemHealth, SystemInfo } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -101,7 +103,7 @@ function ShellGate({ children }: { children: ReactNode }) {
   return (
     <ModeProvider>
       <ToastProvider>
-        <ShellFrame>{children}</ShellFrame>
+        <WaitingProvider><ShellFrame>{children}</ShellFrame></WaitingProvider>
       </ToastProvider>
     </ModeProvider>
   );
@@ -168,6 +170,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
               <Link key={item.key} href={item.href} className="nav-item" aria-current={active ? "page" : undefined} onClick={onNavigate}>
                 <item.icon className="ico" aria-hidden="true" />
                 <span className="nav-label">{t(item.label)}</span>
+                {item.key === "automation" ? <WaitingNavBadge /> : null}
               </Link>
             );
           })}
@@ -255,6 +258,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
       <GlobalSearch />
       <div className="topbar-spacer" />
       <div className="topbar-cluster">
+        <WaitingPill />
         <ModeChip />
         <ThemeToggle />
         <PauseButton />

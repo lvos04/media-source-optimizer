@@ -1,10 +1,10 @@
 "use client";
 
-import { Play } from "lucide-react";
+import { Footprints, Play } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
-import { Button, Card, PageHeader, Tabs } from "@/components/mg/primitives";
+import { Button, Card, LinkButton, PageHeader, Tabs } from "@/components/mg/primitives";
 import { AiCard } from "@/components/mso/automation/ai-card";
 import { WeeklyDigest } from "@/components/mso/automation/autopilot-summary";
 import { ChangesPanel } from "@/components/mso/automation/changes-panel";
@@ -68,8 +68,8 @@ export default function AutomationPage() {
     <>
       <Suspense fallback={null}><TabFromUrl onTab={setTab} /></Suspense>
       <PageHeader title={t("nav.automation")} sub={t("automation.sub")}
-        actions={<Button icon={Play} disabled={!runAllowed} title={runReason} pending={pending === "run"}
-          onClick={async () => { await run("run", "post", "/automation/run", undefined, t("automation.runQueued")); void status.reload(); }}>{t("automation.runNow")}</Button>} />
+        actions={<><LinkButton href="/automatisering/voetafdruk" icon={Footprints}>{t("calm.fp.link")}</LinkButton><Button icon={Play} disabled={!runAllowed} title={runReason} pending={pending === "run"}
+          onClick={async () => { await run("run", "post", "/automation/run", undefined, t("automation.runQueued")); void status.reload(); }}>{t("automation.runNow")}</Button></>} />
 
       <Card title={t("automation.riskTitle")}>
         <div className="grid" style={{ gap: 12 }}>

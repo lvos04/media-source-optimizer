@@ -20,6 +20,7 @@ import { messages as usenetdiag } from "./nl/usenetdiag";
 import { messages as usenetserver } from "./nl/usenetserver";
 import { messages as usenetcat } from "./nl/usenetcat";
 import { messages as zoeken } from "./nl/zoeken";
+import { messages as calm } from "./nl/calm";
 
 export const nl = {
   ...recovery,
@@ -39,5 +40,6 @@ export const nl = {
   ...safety,
   ...maintenance,
   ...goals,
+  ...calm,
 };
 export type MessageKey = keyof typeof nl;

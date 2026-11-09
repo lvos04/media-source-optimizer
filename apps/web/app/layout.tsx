@@ -25,18 +25,23 @@ export const metadata: Metadata = {
   icons: { icon: "/favicon.svg" },
 };
 
+// Peil: themeColor follows the resolved colour scheme (background token of ontwerptaal.css, light/dark).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0C111B",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#EEF1F5" },
+    { media: "(prefers-color-scheme: dark)", color: "#0A0D12" },
+  ],
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="nl" data-theme="dark" suppressHydrationWarning>
+    <html lang="nl" suppressHydrationWarning>
       <head>
-        {/* apply the per-browser theme before first paint (no flash); default dark */}
-        <script dangerouslySetInnerHTML={{ __html: "try{var c=localStorage.getItem('mso.theme');if(c){var d=c==='dark'||(c==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';document.documentElement.dataset.themeChoice=c}}catch(e){}" }} />
+        {/* Apply the per-browser theme before first paint (no flash). Default "system" (Peil O-02): the script ALWAYS
+            sets the resolved data-theme="dark|light" — without the attribute Peil is light. Key mso.theme unchanged. */}
+        <script dangerouslySetInnerHTML={{ __html: "(function(){var r=document.documentElement,c='system';try{c=localStorage.getItem('mso.theme')||'system'}catch(e){}if(c!=='dark'&&c!=='light')c='system';var d=c==='dark'||(c==='system'&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'dark':'light';r.dataset.themeChoice=c})()" }} />
       </head>
       <body className={`${inter.variable} ${mono.variable}`}>{children}</body>
     </html>

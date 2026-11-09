@@ -1,0 +1,571 @@
+/* HERKOMST — Peil 1.1.0 · bron: design/ontwerptaal/ontwerptaal.css (zelf een kopie van ontwerptaal Peil, definitief/ontwerptaal.css; wordt ai-server-manager/design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): b384b3d074c7c892d8e5a8320b1bdcd3d8612d98b3a05daa9a9e6d12560d020e
+   Versie-gepinde kopie (O-14) binnen de Docker-context apps/web. Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256 (controle: npm run check:peil). */
+/* ==================================================================================================================
+   Peil 1.1.0 — ontwerptaal TrueNAS Home Platform V2
+   Tailwind CSS 4 + shadcn/ui (new-york, CSS-variabelen) + lucide-react.
+   GEGENEREERD door bouw/genereer.mjs uit bouw/tokens.mjs (bron: tokens.json). Niet met de hand wijzigen.
+   Herkomst: ai-server-manager (bron van waarheid). Kopie in een andere repo: zet de herkomstkop + sha256 erboven.
+
+   Gebruik (Next 16 / Vite + @tailwindcss/vite):
+       @import "tailwindcss";
+       @import "./ontwerptaal.css";
+   Donker: klasse .dark óf [data-theme="dark"] op <html>. Het themascript zet ALTIJD het opgeloste thema, ook bij
+   "Systeem" (luistert naar matchMedia). Standaard: Systeem.
+   Contrast en paletvalidatie: contrast.json. Betekenisregels: ONTWERPTAAL.md §4.
+   ================================================================================================================== */
+
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* ── Licht (standaard) ─────────────────────────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  /* oppervlak */
+  --background: #EEF1F5;
+  --card: #FFFFFF;
+  --popover: #FFFFFF;
+  --muted: #E4E8EE;
+  --secondary: #E4E8EE;
+  --accent: #DCE3EC;
+  --sidebar: #FFFFFF;
+  /* tekst */
+  --foreground: #0B0F14;
+  --muted-foreground: #353E4A;
+  --disabled-foreground: #5C6675;
+  /* rand */
+  --border: #AEB8C5;
+  --border-strong: #5B6575;
+  --input: #5B6575;
+  /* interactie */
+  --primary: #123DA3;
+  --primary-hover: #0C2F80;
+  --primary-foreground: #FFFFFF;
+  --link: #123DA3;
+  --ring: #123DA3;
+  --ring-halo: #FFFFFF;
+  --destructive: #A8111A;
+  --destructive-hover: #8A0D15;
+  --destructive-foreground: #FFFFFF;
+  /* status */
+  --healthy: #0F6B33;
+  --healthy-bg: #DFF2E5;
+  --healthy-ink: #0A4A22;
+  --degraded: #8F4B00;
+  --degraded-bg: #FCEFD6;
+  --degraded-ink: #5E3300;
+  --down: #B3141B;
+  --down-bg: #FBE4E4;
+  --down-ink: #78090F;
+  --unknown: #566070;
+  --unknown-bg: #E9EDF2;
+  --unknown-ink: #2A313B;
+  --info: #17469A;
+  --info-bg: #E3ECFA;
+  --info-ink: #0B3780;
+  /* versheid */
+  --stale: #566070;
+  --stale-bg: #F1F3F6;
+  --stale-hatch: #D0D6DF;
+  --stale-ink: #535D6C;
+  /* risico */
+  --approval: #4F2BA6;
+  --approval-bg: #EFEAFB;
+  --approval-ink: #3B1F80;
+  --risk-0: #5B6575;
+  --risk-0-bg: #F1F3F6;
+  --risk-0-ink: #2A313B;
+  --risk-0-solid: #D5DBE3;
+  --risk-0-on-solid: #0B0F14;
+  --risk-1: #3B4452;
+  --risk-1-bg: #E4E8EE;
+  --risk-1-ink: #0B0F14;
+  --risk-1-solid: #3B4452;
+  --risk-1-on-solid: #FFFFFF;
+  --risk-2: #4F2BA6;
+  --risk-2-bg: #EFEAFB;
+  --risk-2-ink: #3B1F80;
+  --risk-2-solid: #4F2BA6;
+  --risk-2-on-solid: #FFFFFF;
+  --risk-3: #A8111A;
+  --risk-3-bg: #FBE4E4;
+  --risk-3-ink: #78090F;
+  --risk-3-solid: #A8111A;
+  --risk-3-on-solid: #FFFFFF;
+  /* as */
+  --gate: #2A313B;
+  --gate-bg: #F1F3F6;
+  --gate-ink: #0B0F14;
+  --validation: #5B6575;
+  --validation-bg: #EEF1F5;
+  --validation-ink: #2A313B;
+  --diff-old-bg: #E4E8EE;
+  --diff-old-ink: #353E4A;
+  --diff-new-bg: #E3ECFA;
+  --diff-new-ink: #0B3780;
+  /* grafiek */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #00a672;
+  --chart-4: #c78600;
+  --chart-5: #db7099;
+  --chart-other: #7D8593;
+  --chart-grid: #E3E6EB;
+  --chart-axis: #9AA3AF;
+  --chart-label: #353E4A;
+  --chart-limit: #0B0F14;
+  --chart-gap: #C9D0D9;
+  --chart-meter-track: #CDE2FB;
+  --chart-seq-100: #cde2fb;
+  --chart-seq-200: #9ec5f4;
+  --chart-seq-300: #6da7ec;
+  --chart-seq-400: #3987e5;
+  --chart-seq-500: #256abf;
+  --chart-seq-600: #184f95;
+  --chart-seq-700: #0d366b;
+  --chart-div-neg-3: #1c5cab;
+  --chart-div-neg-2: #3987e5;
+  --chart-div-neg-1: #86b6ef;
+  --chart-div-mid: #E4E8EE;
+  --chart-div-pos-1: #f49775;
+  --chart-div-pos-2: #da5821;
+  --chart-div-pos-3: #9f3600;
+  /* domein */
+  --domain-heat: #eb6834;
+  --domain-heat-bg: #FDEBDD;
+  --domain-heat-ink: #6E2405;
+  --domain-heat-soft: #F4A57E;
+  --domain-cool: #2a78d6;
+  --domain-cool-bg: #E0EEFB;
+  --domain-cool-ink: #0B3B73;
+  --domain-cool-soft: #9ec5f4;
+  --domain-boiler: #00a672;
+  --domain-boiler-bg: #E4E8EE;
+  --domain-boiler-ink: #0B0F14;
+  --domain-light-on: #c78600;
+  --domain-light-on-bg: #FDF6CF;
+  --domain-light-on-ink: #5C4300;
+  --domain-lane-gpu: #2a78d6;
+  --domain-lane-cpu: #eb6834;
+  --domain-integrity: #0B0F14;
+  /* shadcn-afgeleiden en aliassen */
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --paused: var(--info);
+  --paused-bg: var(--info-bg);
+  --paused-ink: var(--info-ink);
+  /* maten */
+  --radius: 0.5rem;
+  --touch: 2.75rem;
+  --header-h: 4rem;
+  --bottomnav-h: 4rem;
+  --sidebar-w: 16rem;
+  --content-max: 76rem;
+  --prose-max: 65ch;
+  --focus-width: 3px;
+  --focus-offset: 2px;
+  --z-sticky: 20;
+  --z-nav: 30;
+  --z-overlay: 40;
+  --z-toast: 50;
+  --duration-fast: 150ms;
+  --duration-medium: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --shadow-color: 215 25% 10%;
+}
+
+/* ── Donker (eigen stappen, geen automatische omkering) ────────────────────────────────────────────────────────── */
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+  /* oppervlak */
+  --background: #0A0D12;
+  --card: #141920;
+  --popover: #1A2029;
+  --muted: #1E252E;
+  --secondary: #232B35;
+  --accent: #26303B;
+  --sidebar: #10141A;
+  /* tekst */
+  --foreground: #F2F5F8;
+  --muted-foreground: #C2CAD5;
+  --disabled-foreground: #8D97A5;
+  /* rand */
+  --border: #3A4451;
+  --border-strong: #8E99A8;
+  --input: #8E99A8;
+  /* interactie */
+  --primary: #8DB6FF;
+  --primary-hover: #B0CCFF;
+  --primary-foreground: #06101F;
+  --link: #9DC0FF;
+  --ring: #8DB6FF;
+  --ring-halo: #0A0D12;
+  --destructive: #FF9B9B;
+  --destructive-hover: #FFB8B8;
+  --destructive-foreground: #1F0405;
+  /* status */
+  --healthy: #6FD394;
+  --healthy-bg: #0F2B1B;
+  --healthy-ink: #A6EBBF;
+  --degraded: #F7C26A;
+  --degraded-bg: #33230A;
+  --degraded-ink: #FBD596;
+  --down: #FF9B9B;
+  --down-bg: #3A1215;
+  --down-ink: #FFC2C2;
+  --unknown: #A3ADBB;
+  --unknown-bg: #222932;
+  --unknown-ink: #DCE2EA;
+  --info: #8DB6FF;
+  --info-bg: #132440;
+  --info-ink: #C4DAFF;
+  /* versheid */
+  --stale: #A3ADBB;
+  --stale-bg: #1A2028;
+  --stale-hatch: #2E3743;
+  --stale-ink: #9EA8B6;
+  /* risico */
+  --approval: #C4B0FF;
+  --approval-bg: #241B3D;
+  --approval-ink: #D9CCFF;
+  --risk-0: #8E99A8;
+  --risk-0-bg: #1A2028;
+  --risk-0-ink: #DCE2EA;
+  --risk-0-solid: #2E3743;
+  --risk-0-on-solid: #F2F5F8;
+  --risk-1: #C2CAD5;
+  --risk-1-bg: #222932;
+  --risk-1-ink: #F2F5F8;
+  --risk-1-solid: #C2CAD5;
+  --risk-1-on-solid: #0A0D12;
+  --risk-2: #C4B0FF;
+  --risk-2-bg: #241B3D;
+  --risk-2-ink: #D9CCFF;
+  --risk-2-solid: #C4B0FF;
+  --risk-2-on-solid: #170A38;
+  --risk-3: #FF9B9B;
+  --risk-3-bg: #3A1215;
+  --risk-3-ink: #FFC2C2;
+  --risk-3-solid: #FF9B9B;
+  --risk-3-on-solid: #1F0405;
+  /* as */
+  --gate: #DCE2EA;
+  --gate-bg: #1A2028;
+  --gate-ink: #F2F5F8;
+  --validation: #8E99A8;
+  --validation-bg: #1E252E;
+  --validation-ink: #DCE2EA;
+  --diff-old-bg: #1E252E;
+  --diff-old-ink: #C2CAD5;
+  --diff-new-bg: #132440;
+  --diff-new-ink: #C4DAFF;
+  /* grafiek */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-other: #7A8391;
+  --chart-grid: #262E38;
+  --chart-axis: #4A5462;
+  --chart-label: #C2CAD5;
+  --chart-limit: #F2F5F8;
+  --chart-gap: #333C48;
+  --chart-meter-track: #0D366B;
+  --chart-seq-100: #0d366b;
+  --chart-seq-200: #104281;
+  --chart-seq-300: #184f95;
+  --chart-seq-400: #256abf;
+  --chart-seq-500: #3987e5;
+  --chart-seq-600: #6da7ec;
+  --chart-seq-700: #9ec5f4;
+  --chart-div-neg-3: #9ec5f4;
+  --chart-div-neg-2: #3987e5;
+  --chart-div-neg-1: #184f95;
+  --chart-div-mid: #2A313B;
+  --chart-div-pos-1: #8a2e00;
+  --chart-div-pos-2: #da5821;
+  --chart-div-pos-3: #ffa98a;
+  /* domein */
+  --domain-heat: #d95926;
+  --domain-heat-bg: #3A1F10;
+  --domain-heat-ink: #FFD3B5;
+  --domain-heat-soft: #9C3D14;
+  --domain-cool: #3987e5;
+  --domain-cool-bg: #0F2740;
+  --domain-cool-ink: #C2DDFA;
+  --domain-cool-soft: #184f95;
+  --domain-boiler: #199e70;
+  --domain-boiler-bg: #1E252E;
+  --domain-boiler-ink: #F2F5F8;
+  --domain-light-on: #c98500;
+  --domain-light-on-bg: #3A2E0E;
+  --domain-light-on-ink: #F7DC94;
+  --domain-lane-gpu: #3987e5;
+  --domain-lane-cpu: #d95926;
+  --domain-integrity: #F2F5F8;
+  --shadow-color: 0 0% 0%;
+}
+
+/* ── Tailwind-thema ────────────────────────────────────────────────────────────────────────────────────────────── */
+/* Alleen tokenkleuren compileren: de Tailwind-standaardkleuren (red-500, green-600, …) bestaan niet. */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-popover: var(--popover);
+  --color-muted: var(--muted);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-sidebar: var(--sidebar);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-link: var(--link);
+  --color-ring: var(--ring);
+  --color-ring-halo: var(--ring-halo);
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-healthy: var(--healthy);
+  --color-healthy-bg: var(--healthy-bg);
+  --color-healthy-ink: var(--healthy-ink);
+  --color-degraded: var(--degraded);
+  --color-degraded-bg: var(--degraded-bg);
+  --color-degraded-ink: var(--degraded-ink);
+  --color-down: var(--down);
+  --color-down-bg: var(--down-bg);
+  --color-down-ink: var(--down-ink);
+  --color-unknown: var(--unknown);
+  --color-unknown-bg: var(--unknown-bg);
+  --color-unknown-ink: var(--unknown-ink);
+  --color-stale: var(--stale);
+  --color-stale-bg: var(--stale-bg);
+  --color-stale-hatch: var(--stale-hatch);
+  --color-stale-ink: var(--stale-ink);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-info-ink: var(--info-ink);
+  --color-approval: var(--approval);
+  --color-approval-bg: var(--approval-bg);
+  --color-approval-ink: var(--approval-ink);
+  --color-risk-0: var(--risk-0);
+  --color-risk-0-bg: var(--risk-0-bg);
+  --color-risk-0-ink: var(--risk-0-ink);
+  --color-risk-0-solid: var(--risk-0-solid);
+  --color-risk-0-on-solid: var(--risk-0-on-solid);
+  --color-risk-1: var(--risk-1);
+  --color-risk-1-bg: var(--risk-1-bg);
+  --color-risk-1-ink: var(--risk-1-ink);
+  --color-risk-1-solid: var(--risk-1-solid);
+  --color-risk-1-on-solid: var(--risk-1-on-solid);
+  --color-risk-2: var(--risk-2);
+  --color-risk-2-bg: var(--risk-2-bg);
+  --color-risk-2-ink: var(--risk-2-ink);
+  --color-risk-2-solid: var(--risk-2-solid);
+  --color-risk-2-on-solid: var(--risk-2-on-solid);
+  --color-risk-3: var(--risk-3);
+  --color-risk-3-bg: var(--risk-3-bg);
+  --color-risk-3-ink: var(--risk-3-ink);
+  --color-risk-3-solid: var(--risk-3-solid);
+  --color-risk-3-on-solid: var(--risk-3-on-solid);
+  --color-gate: var(--gate);
+  --color-gate-bg: var(--gate-bg);
+  --color-gate-ink: var(--gate-ink);
+  --color-validation: var(--validation);
+  --color-validation-bg: var(--validation-bg);
+  --color-validation-ink: var(--validation-ink);
+  --color-diff-old-bg: var(--diff-old-bg);
+  --color-diff-old-ink: var(--diff-old-ink);
+  --color-diff-new-bg: var(--diff-new-bg);
+  --color-diff-new-ink: var(--diff-new-ink);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-other: var(--chart-other);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-axis: var(--chart-axis);
+  --color-chart-label: var(--chart-label);
+  --color-chart-limit: var(--chart-limit);
+  --color-chart-gap: var(--chart-gap);
+  --color-chart-meter-track: var(--chart-meter-track);
+  --color-chart-seq-100: var(--chart-seq-100);
+  --color-chart-seq-200: var(--chart-seq-200);
+  --color-chart-seq-300: var(--chart-seq-300);
+  --color-chart-seq-400: var(--chart-seq-400);
+  --color-chart-seq-500: var(--chart-seq-500);
+  --color-chart-seq-600: var(--chart-seq-600);
+  --color-chart-seq-700: var(--chart-seq-700);
+  --color-chart-div-neg-3: var(--chart-div-neg-3);
+  --color-chart-div-neg-2: var(--chart-div-neg-2);
+  --color-chart-div-neg-1: var(--chart-div-neg-1);
+  --color-chart-div-mid: var(--chart-div-mid);
+  --color-chart-div-pos-1: var(--chart-div-pos-1);
+  --color-chart-div-pos-2: var(--chart-div-pos-2);
+  --color-chart-div-pos-3: var(--chart-div-pos-3);
+  --color-domain-heat: var(--domain-heat);
+  --color-domain-heat-bg: var(--domain-heat-bg);
+  --color-domain-heat-ink: var(--domain-heat-ink);
+  --color-domain-heat-soft: var(--domain-heat-soft);
+  --color-domain-cool: var(--domain-cool);
+  --color-domain-cool-bg: var(--domain-cool-bg);
+  --color-domain-cool-ink: var(--domain-cool-ink);
+  --color-domain-cool-soft: var(--domain-cool-soft);
+  --color-domain-boiler: var(--domain-boiler);
+  --color-domain-boiler-bg: var(--domain-boiler-bg);
+  --color-domain-boiler-ink: var(--domain-boiler-ink);
+  --color-domain-light-on: var(--domain-light-on);
+  --color-domain-light-on-bg: var(--domain-light-on-bg);
+  --color-domain-light-on-ink: var(--domain-light-on-ink);
+  --color-domain-lane-gpu: var(--domain-lane-gpu);
+  --color-domain-lane-cpu: var(--domain-lane-cpu);
+  --color-domain-integrity: var(--domain-integrity);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-paused: var(--paused);
+  --color-paused-bg: var(--paused-bg);
+  --color-paused-ink: var(--paused-ink);
+
+  --radius-sm: calc(var(--radius) - 4px);  /* 4 px: risicotag, code, kbd */
+  --radius-md: calc(var(--radius) - 2px);  /* 6 px */
+  --radius-lg: var(--radius);              /* 8 px: kaart, knop, veld */
+  --radius-xl: calc(var(--radius) + 4px);  /* 12 px: dialoog, sheet */
+}
+
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  /* Typeschaal: Tailwind-standaard (text-sm 14 · base 16 · lg 18 · xl 20 · 2xl 24 · 3xl 30 · 5xl 48).
+     text-xs (12 px) is verboden voor inhoud (lintregel); kleinste tekst is text-sm. */
+
+  --spacing-touch: 2.75rem;        /* 44 px: h-touch, min-h-touch, size-touch */
+  --spacing-header: 4rem;
+  --spacing-bottomnav: 4rem;
+  --spacing-sidebar: 16rem;
+  --spacing-content: 76rem;
+  /* Regellengte: gebruik max-w-prose (Tailwind-standaard 65ch). Geen --spacing-prose: die botste met max-w-prose. */
+
+  /* z-lagen als Tailwind-utilities: z-sticky, z-nav, z-overlay, z-toast (review 1.1.0: --z-* alleen in :root gaf geen utility). */
+  --z-index-sticky: 20;
+  --z-index-nav: 30;
+  --z-index-overlay: 40;
+  --z-index-toast: 50;
+
+  --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.10);
+  --shadow-md: 0 4px 12px hsl(var(--shadow-color) / 0.14), 0 1px 3px hsl(var(--shadow-color) / 0.10);
+  --shadow-lg: 0 12px 32px hsl(var(--shadow-color) / 0.20), 0 2px 6px hsl(var(--shadow-color) / 0.12);
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  /* Breekpunten: Tailwind-standaard. Navigatiewissel op lg = 1024 px. */
+}
+
+/* ── Basislaag ─────────────────────────────────────────────────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Focus mag nooit achter de sticky kopbalk of ondernavigatie verdwijnen (WCAG 2.4.11). */
+    scroll-padding-top: calc(var(--header-h) + 0.75rem);
+    scroll-padding-bottom: calc(var(--bottomnav-h) + var(--actiebalk-h, 0px) + env(safe-area-inset-bottom, 0px) + 0.75rem);
+  }
+  /* Pagina met een vaste actiebalk boven de ondernavigatie (wizard, preview op mobiel). */
+  html:has([data-actiebalk]) { --actiebalk-h: 4.5rem; }
+  @media (width >= 64rem) { html { scroll-padding-bottom: 0.75rem; } }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+  *, ::before, ::after { border-color: var(--border); }
+  h1, h2, h3, h4 { font-weight: 700; text-wrap: balance; }
+  p, li, dd { text-wrap: pretty; }
+  a { color: var(--link); text-decoration-line: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:hover { text-decoration-thickness: 2px; }
+  code, kbd, samp, pre { font-family: var(--font-mono); font-size: max(0.9375em, 0.875rem); }
+  /* Paden, digests, ID's: breken waar nodig, nooit horizontale overloop of afkappen (reflow 320 px). */
+  :where(code, kbd, samp, .font-mono) { overflow-wrap: anywhere; }
+  input, select, textarea { font-size: max(1rem, 16px); }
+  ::placeholder { color: var(--muted-foreground); opacity: 1; }
+  ::selection { background: var(--primary); color: var(--primary-foreground); }
+  :focus-visible {
+    outline: var(--focus-width) solid var(--ring);
+    outline-offset: var(--focus-offset);
+    box-shadow: 0 0 0 var(--focus-offset) var(--ring-halo);
+  }
+  /* Preflight haalt nummering weg; geordende lijsten met betekenis (runbook, stappen) houden nummers. */
+  ol[data-genummerd] { list-style: decimal; padding-left: 1.5rem; }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  /* Windows-hoogcontrast: alleen de randkleur forceren, de randSTIJL (stippel = onbekend) blijft. */
+  @media (forced-colors: active) {
+    [data-status], [data-risico], [data-as] { border-color: CanvasText !important; }
+    :focus-visible { outline-color: Highlight; }
+  }
+}
+
+/* ── Platform-utilities ────────────────────────────────────────────────────────────────────────────────────────── */
+/* Verouderd waardevak: 135°-arcering, toon-op-toon. */
+@utility arcering {
+  background-color: var(--stale-bg);
+  background-image: repeating-linear-gradient(135deg, var(--stale-hatch) 0 2px, transparent 2px 9px);
+}
+/* Gat / geen meting in een grafiek of balk. */
+@utility arcering-gat {
+  background-image: repeating-linear-gradient(135deg, var(--chart-gap) 0 1.5px, transparent 1.5px 7px);
+}
+/* Geschat (T-03): 45°, gespiegeld t.o.v. verouderd. */
+@utility arcering-geschat {
+  background-image: repeating-linear-gradient(45deg, currentColor 0 1.5px, transparent 1.5px 6px);
+}
+/* Expliciete focusring voor componenten die outline-none meekregen (shadcn-codemod: zie components.json-advies). */
+@utility focus-ring {
+  &:focus-visible {
+    outline: var(--focus-width) solid var(--ring);
+    outline-offset: var(--focus-offset);
+    box-shadow: 0 0 0 var(--focus-offset) var(--ring-halo);
+  }
+}
+@utility cijfers { font-variant-numeric: tabular-nums; }
+@utility min-touch { min-height: var(--touch); min-width: var(--touch); }

@@ -55,9 +55,9 @@ function setUserTheme(choice: ThemeChoice) {
   applyTheme(choice);
 }
 function useThemeChoice(): ThemeChoice {
-  const [choice, setChoice] = useState<ThemeChoice>("dark");
+  const [choice, setChoice] = useState<ThemeChoice>("system");
   useEffect(() => {
-    const read = () => setChoice((document.documentElement.dataset.themeChoice as ThemeChoice | undefined) ?? (document.documentElement.dataset.theme === "light" ? "light" : "dark"));
+    const read = () => setChoice((document.documentElement.dataset.themeChoice as ThemeChoice | undefined) ?? "system");
     read();
     window.addEventListener("mso:theme", read);
     return () => window.removeEventListener("mso:theme", read);
@@ -119,7 +119,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
   useEffect(() => {
     let local: ThemeChoice | null = null;
     try { local = window.localStorage.getItem(THEME_KEY) as ThemeChoice | null; } catch { /* ignore */ }
-    applyTheme(local ?? "dark");
+    applyTheme(local === "dark" || local === "light" ? local : "system");
   }, []);
 
   const shell = useMemo<ShellData>(() => ({

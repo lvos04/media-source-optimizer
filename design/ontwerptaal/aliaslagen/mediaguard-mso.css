@@ -1,5 +1,5 @@
 /* HERKOMST — Peil 1.1.0 · bron: ontwerptaal Peil, definitief/aliaslagen/mediaguard-mso.css (design-agent, 2026-11-09; wordt ai-server-manager/design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): b120cf9a41357dc3cc4981db24c08ae6f557a33faa4f62512ba8f45a27124a4c
-   Versie-gepinde kopie (O-14). Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256. Nog NIET in de app geïmporteerd (zie docs/ontwerp/PEIL_MIGRATIE.md). */
+   Versie-gepinde kopie (O-14). Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256. Sinds fase 1a in de app geïmporteerd via de byte-gelijke kopie apps/web/styles/peil/ (Docker-context; controle: npm run check:peil). */
 /* Peil 1.1.0 — aliaslaag voor MediaGuard (apps/web/styles/mg.css) en MSO (apps/web/styles/mg.css + mso.css) (migratiefase 1: alleen uiterlijk; routes, functies, teksten en testids blijven).
    GEGENEREERD door ai-server-manager/design/ontwerptaal/bouw/aliaslagen.mjs. Kopie in de app met deze kop + sha256 (O-14); niet met de hand wijzigen.
    Volgorde in globals.css: @import "tailwindcss"; @import "./ontwerptaal.css"; @import "./mg.css"; @import "./peil-alias.css";

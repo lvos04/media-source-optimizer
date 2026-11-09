@@ -1,9 +1,11 @@
 /* Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/app/globals.css — internally versioned copy, see PROVENANCE.md */
+/* Peil 1.1.0, fase 1a (docs/ontwerp/PEIL_MIGRATIE.md §8): volgorde is bindend.
+   1. Tailwind 4 · 2. Peil-tokens en basislaag · 3. de bestaande MediaGuard-stijl (mg.css) + MSO-toevoegingen ·
+   4. de gedeelde, gegenereerde aliaslaag (zet alle --mg-* op Peil) · 5. MSO-eigen correcties (peil-mso.css).
+   Terugdraaien van fase 1a = de regels 2, 4 en 5 weghalen. */
 @import "tailwindcss";
+@import "../styles/peil/ontwerptaal.css";
 @import "../styles/mg.css";
 @import "../styles/mso.css";
-
-:root {
-  --mg-font: var(--font-inter), "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --mg-mono: var(--font-mono), "JetBrains Mono Variable", ui-monospace, monospace;
-}
+@import "../styles/peil/mediaguard-mso.css";
+@import "../styles/peil-mso.css";

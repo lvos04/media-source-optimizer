@@ -5,8 +5,11 @@ ontwerpreview 1.0.0 → 1.1.0). De bron van waarheid wordt na de overdracht
 `ai-server-manager/docs/platform-v2/ONTWERPTAAL.md` + `ai-server-manager/design/ontwerptaal/` (contract 1.2 §13). Tot die
 commit bestaat staat de bron in de map `definitief/` van de ontwerptaal (buiten de repos).
 
-**Status in MSO:** alleen referentie. Niets hiervan wordt nu door de app geïmporteerd; de omzetting staat in
-[`docs/ontwerp/PEIL_MIGRATIE.md`](../../docs/ontwerp/PEIL_MIGRATIE.md).
+**Status in MSO:** sinds fase 1a (stap 3) gebruikt de web-UI `ontwerptaal.css` en `aliaslagen/mediaguard-mso.css`.
+Omdat de Docker-context van het web-image `apps/web` is, staat daar een tweede, byte-gelijke kopie:
+`apps/web/styles/peil/ontwerptaal.css` en `apps/web/styles/peil/mediaguard-mso.css` (eigen herkomstkop van 2 regels,
+zelfde sha256). `npm run check:peil` (ook in CI, job `web`) controleert dat die kopieën hun sha256 halen en gelijk zijn
+aan deze map. De omzetting staat in [`docs/ontwerp/PEIL_MIGRATIE.md`](../../docs/ontwerp/PEIL_MIGRATIE.md).
 
 | Bestand | Gebruik in MSO | sha256 van het bronbestand |
 |---|---|---|

@@ -1,5 +1,5 @@
 /* HERKOMST — Peil 1.1.0 · bron: ontwerptaal Peil, definitief/ontwerptaal.css (design-agent, 2026-11-09; wordt ai-server-manager/design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): b384b3d074c7c892d8e5a8320b1bdcd3d8612d98b3a05daa9a9e6d12560d020e
-   Versie-gepinde kopie (O-14). Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256. Nog NIET in de app geïmporteerd (zie docs/ontwerp/PEIL_MIGRATIE.md). */
+   Versie-gepinde kopie (O-14). Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256. Sinds fase 1a in de app geïmporteerd via de byte-gelijke kopie apps/web/styles/peil/ (Docker-context; controle: npm run check:peil). */
 /* ==================================================================================================================
    Peil 1.1.0 — ontwerptaal TrueNAS Home Platform V2
    Tailwind CSS 4 + shadcn/ui (new-york, CSS-variabelen) + lucide-react.

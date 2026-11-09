@@ -1,0 +1,158 @@
+/* ==========================================================================
+   Media Source Optimizer — MSO-eigen correcties op Peil 1.1.0 (fase 1a)
+   Staat in globals.css NA mg.css, mso.css en de gedeelde aliaslaag styles/peil/mediaguard-mso.css.
+   Alleen uiterlijk: geen klassen, testids of rollen veranderen. Ontwerp: docs/ontwerp/PEIL_MIGRATIE.md §6.1 (a–j),
+   besluit: docs/adr/ADR-0006-peil-omzetting-interpretaties.md punt 6.
+   Waarom een eigen laag: Peils focusring en scroll-padding staan in @layer base en verliezen van de ongelaagde
+   mg.css; inline styles (style={{…}}) winnen van elke selector. De gedeelde aliaslaag is gegenereerd en blijft
+   ongewijzigd.
+   ========================================================================== */
+
+/* (a) Peil-focusring: tweekleurig, 3 px, nooit alleen kleur. mg.css zet outline 2 px in één kleur en haalt bij
+       invoervelden de outline weg (box-shadow 3 px) — die regels winnen van Peils @layer base. */
+:focus-visible,
+.input:focus-visible, .select:focus-visible, .textarea:focus-visible, .topbar-search input:focus-visible {
+  outline: var(--focus-width) solid var(--ring);
+  outline-offset: var(--focus-offset);
+  box-shadow: 0 0 0 var(--focus-offset) var(--ring-halo);
+}
+.input:focus, .select:focus, .textarea:focus { border-color: var(--ring); }
+.topbar-search:focus-within { border-color: var(--ring); box-shadow: none; }
+
+/* (b) Focus nooit achter de vaste kopbalk of ondernavigatie (WCAG 2.4.11). MSO wisselt op 860 px van schil. */
+html { scroll-padding-top: calc(var(--mg-topbar-h) + 0.75rem); scroll-padding-bottom: 0.75rem; }
+@media (max-width: 860px) {
+  html { scroll-padding-bottom: calc(var(--mg-bottomnav-h) + env(safe-area-inset-bottom, 0px) + 0.75rem); }
+}
+
+/* (c) Reflow op 320–390 px: chips, labels, segmenten en tabs lopen om in plaats van uit te steken. */
+.chip, .tag { white-space: normal; height: auto; min-height: 1.5rem; padding-block: 0.125rem; max-width: 100%; overflow-wrap: anywhere; line-height: 1.25; }
+.qribbon { flex-wrap: wrap; height: auto; max-width: 100%; white-space: normal; }
+.segmented { flex-wrap: wrap; overflow-x: visible; }
+.segmented button, .segmented a { height: auto; min-height: 1.75rem; white-space: normal; text-align: left; }
+.hstepper { flex-wrap: wrap; overflow-x: visible; }
+.hstep { white-space: normal; }
+.trace-step { white-space: normal; overflow-wrap: anywhere; }
+.btn { white-space: normal; height: auto; min-height: 2.125rem; padding-block: 0.25rem; text-align: center; }
+.btn--sm { min-height: 1.75rem; }
+.estop, .top-pill { white-space: normal; height: auto; min-height: 2rem; }
+@media (max-width: 47.99rem) {
+  .tabs { flex-wrap: wrap; overflow: visible; }
+  .tab { white-space: normal; height: auto; min-height: 2.75rem; }
+  /* lange lijsttitels lopen om: geen ellips op inhoud (Peil §12) */
+  .list-title, .list-sub, .media-title, .media-sub, .job-file { white-space: normal; overflow-wrap: anywhere; }
+  .list-row { flex-wrap: wrap; }
+  .list-aside { flex-wrap: wrap; max-width: 100%; }
+  .setting { grid-template-columns: minmax(0, 1fr); }
+  .impact { grid-template-columns: minmax(0, 1fr); }
+  .diff { grid-template-columns: minmax(0, 1fr) !important; }
+  .diff > .diff-head:not(:first-child) { display: none; }
+  .kpi-grid { grid-template-columns: minmax(0, 1fr); }
+  .page-actions { margin-left: 0; }
+  .card-header { padding-inline: 12px; }
+  .card-body { padding-inline: 12px; }
+}
+
+/* Gestapelde tabellen op de telefoon (mg.css .table--stack): cellen lopen om en negeren een inline min-breedte. */
+@media (max-width: 860px) {
+  .table--stack td { min-width: 0 !important; max-width: 100% !important; }
+  .table--stack td[data-label] { flex-wrap: wrap; column-gap: 12px; row-gap: 2px; }
+  .table--stack td[data-label] > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+}
+
+/* (d) Sleutel/waarde-lijsten onder elkaar onder 640 px (Bedrijfsmodus werd letter voor letter gezet). */
+@media (max-width: 39.99rem) {
+  .kv, .evidence-body { grid-template-columns: minmax(0, 1fr) !important; row-gap: 2px; }
+  .kv dd, .evidence-body dd { margin-bottom: 6px; }
+}
+
+/* (e) Zekerheid/betrouwbaarheid is inkt, nooit groen/amber/rood — ook niet via een inline background (T-24). */
+.confidence .bar > span { background: var(--foreground) !important; }
+
+/* (f) Een getal staat nooit in statuskleur; de status komt als badge ernaast. */
+.kpi--success .kpi-value, .kpi--warning .kpi-value, .kpi--danger .kpi-value { color: var(--foreground); }
+
+/* (g) Uitgeschakeld = gestippelde rand, gedempte kleur, geen opacity op tekst (Peil §4.1 regel 10). */
+.btn:disabled, .btn[aria-disabled="true"], .estop:disabled, .switch:disabled, .segmented button:disabled {
+  opacity: 1; border-style: dashed; border-color: var(--border-strong); background: var(--muted); color: var(--disabled-foreground);
+}
+.btn--primary:disabled, .btn--danger-solid:disabled { background: var(--muted); color: var(--disabled-foreground); }
+.step--blocked { opacity: 1; color: var(--disabled-foreground); }
+.step--blocked .step-no { border-style: dashed; }
+
+/* (h) Verouderd herkenbaar: stippelrand + arcering + woord (de markering zelf staat al in ResourceView). */
+.stale-mark {
+  color: var(--stale-ink); font-size: 0.875rem; border: 2px dashed var(--stale); border-radius: 999px;
+  padding: 0.125rem 0.5rem; background-color: var(--stale-bg);
+  background-image: repeating-linear-gradient(135deg, var(--stale-hatch) 0 2px, transparent 2px 6px);
+}
+
+/* (i) Pauze = Gepauzeerd (info), niet amber: ook de banner (de aliaslaag dekt alleen de knop). */
+.banner--warning[data-testid="pause-banner"] { background: var(--paused-bg); border-color: var(--paused); color: var(--paused-ink); }
+.banner--warning[data-testid="pause-banner"] .ico { color: var(--paused-ink); }
+
+/* Statusvormen (ONTWERPTAAL §4.3): Gezond = pil zonder vlak; Beperkt/Storing = vlak + 2 px rand; Onbekend = stippel. */
+.chip { border: 2px solid transparent; background: var(--muted); color: var(--foreground); }
+.chip--success { background: transparent; border-color: transparent; color: var(--healthy-ink); }
+.chip--success .ico { color: var(--healthy); }
+.chip--warning { background: var(--degraded-bg); border-color: var(--degraded); color: var(--degraded-ink); }
+.chip--danger { background: var(--down-bg); border-color: var(--down); color: var(--down-ink); }
+.chip--info { background: var(--info-bg); border-color: transparent; color: var(--info-ink); }
+.chip--accent { background: var(--muted); color: var(--foreground); }
+.chip--unknown { background: var(--unknown-bg); border: 2px dashed var(--unknown); color: var(--unknown-ink); }
+.chip--paused { background: var(--paused-bg); border-color: var(--paused); color: var(--paused-ink); }
+.chip--linked { background: transparent; border: 2px solid var(--border-strong); color: var(--foreground); }
+.chip--outline { border: 1px solid var(--border-strong); }
+:root[data-theme="dark"] .chip--success { color: var(--healthy-ink); }
+
+/* Risico (T-04): hoekige tag met codeblok en treden-glyph, nooit groen/amber. */
+.risk { display: inline-flex; align-items: stretch; max-width: 100%; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; font-size: 0.875rem; font-weight: 600; line-height: 1.25; vertical-align: middle; }
+.risk-code { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.125rem 0.375rem; font-family: var(--font-mono); }
+.risk-word { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; overflow-wrap: anywhere; }
+.risk-steps { display: inline-flex; align-items: flex-end; gap: 1px; height: 0.75rem; }
+.risk-steps > i { display: block; width: 3px; background: currentColor; }
+.risk-steps > i:nth-child(1) { height: 25%; } .risk-steps > i:nth-child(2) { height: 50%; }
+.risk-steps > i:nth-child(3) { height: 75%; } .risk-steps > i:nth-child(4) { height: 100%; }
+.risk--0 .risk-code { background: var(--risk-0-solid); color: var(--risk-0-on-solid); } .risk--0 .risk-word { background: var(--risk-0-bg); color: var(--risk-0-ink); }
+.risk--1 .risk-code { background: var(--risk-1-solid); color: var(--risk-1-on-solid); } .risk--1 .risk-word { background: var(--risk-1-bg); color: var(--risk-1-ink); }
+.risk--2 { border-color: var(--risk-2); }
+.risk--2 .risk-code { background: var(--risk-2-solid); color: var(--risk-2-on-solid); } .risk--2 .risk-word { background: var(--risk-2-bg); color: var(--risk-2-ink); }
+.risk--3 { border-color: var(--risk-3); }
+.risk--3 .risk-code { background: var(--risk-3-solid); color: var(--risk-3-on-solid); } .risk--3 .risk-word { background: var(--risk-3-bg); color: var(--risk-3-ink); }
+
+/* Toestanden: offline en niet beschikbaar zijn Onbekend (grijs + stippel), niet amber. */
+.state--offline .state-icon, .state--unavailable .state-icon { background: var(--unknown-bg); color: var(--unknown-ink); border: 2px dashed var(--unknown); }
+.state--error .state-icon { background: var(--down-bg); color: var(--down-ink); }
+.inline-state--success { border-color: var(--border); background: var(--card); }
+.inline-state--success .ico { color: var(--healthy); }
+
+/* Gezondheidsstippen in de zijbalk: alleen gemeten gezond is groen; tellers en lijstpictogrammen neutraal. */
+.dot { box-shadow: none; }
+.nav-count, .nav-count--danger, .nav-count--warning { background: var(--foreground); color: var(--background); }
+.list-icon--success { background: var(--muted); color: var(--healthy); }
+.tl-dot--success { background: var(--muted); color: var(--foreground); }
+.tl-dot--accent { background: var(--muted); color: var(--foreground); }
+.instance--degraded { border-color: var(--degraded); }
+.instance--offline { border-color: var(--down); }
+.card--warning { border-color: var(--degraded); }
+.card--danger { border-color: var(--down); }
+
+/* Modus "Beheermodus" is geen waarschuwing; Autopilot is geen status (neutrale pil). */
+.top-pill--warning { border-color: var(--border-strong); }
+.top-pill--warning .ico { color: var(--foreground); }
+
+/* Connectorlogo's zijn merkuitzonderingen: neutrale tegel met inkt (geen reekskleur als tekst, Peil §4.1 regel 11). */
+.instance-logo--prowlarr, .instance-logo--sabnzbd, .instance-logo--qbittorrent, .instance-logo--mediaguard, .instance-logo--generic,
+:root[data-theme="light"] .instance-logo--prowlarr, :root[data-theme="light"] .instance-logo--sabnzbd,
+:root[data-theme="light"] .instance-logo--qbittorrent, :root[data-theme="light"] .instance-logo--mediaguard {
+  background: var(--muted); color: var(--foreground); border: 1px solid var(--border);
+}
+.brand-mark { background: var(--primary); color: var(--primary-foreground); box-shadow: none; }
+
+/* Voortgang: neutraal (100 % is niet groen); meters boven een drempel krijgen icoon + tekst in de component. */
+.progress > span, .progress--success > span { background: var(--chart-1); }
+.progress { background: var(--chart-meter-track); }
+.legend-swatch { border: 1px solid var(--border); }
+
+/* Gezonde invoervelden: rand ≥ 3:1. */
+.input, .select, .textarea { border-color: var(--input); background: var(--card); }

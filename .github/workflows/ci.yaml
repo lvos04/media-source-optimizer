@@ -4,7 +4,8 @@
 # web      typecheck + lint + production build of the Next.js UI
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
 # stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
-# e2e      fresh stack + Playwright (desktop + mobile) → screenshots/traces as artifacts
+# e2e      fresh stack, prepared (admin, connectors → mocks, backup, wizard completed) + ALL Playwright tests
+#          (desktop + mobile) with credentials; a skipped test fails the job → screenshots/traces as artifacts
 #
 # Action versions are pinned by release tag.
 name: ci
@@ -179,7 +180,7 @@ jobs:
       - name: Install Playwright
         working-directory: apps/web
         run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
-      - name: Stack + Playwright
+      - name: Stack + Playwright (strict — all tests must run, none skipped)
         env:
           MSO_STACK_PYTHON: python
           MSO_POSTGRES_IMAGE: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab

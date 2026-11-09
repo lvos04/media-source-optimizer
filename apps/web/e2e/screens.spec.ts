@@ -5,8 +5,12 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Full-app browser test against a running stack with mocks (tests/stack/run.sh with MSO_STACK_KEEP=1):
+ * Full-app browser test against a running stack with mocks. `make e2e` (repo root) starts a fresh stack, prepares it
+ * (MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 tests/stack/run.sh: admin stackadmin, connectors against the mocks,
+ * one backup, first-run wizard completed) and runs every spec strictly (MSO_E2E_STRICT=1: a skip fails the run).
+ * Against a stack prepared that way and kept running:
  *   MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin MSO_E2E_PASSWORD=… npx playwright test e2e/screens.spec.ts
+ * (A stack from plain tests/stack/run.sh with MSO_STACK_KEEP=1 is NOT enough: its wizard is not completed.)
  *
  * Per screen × theme (dark/light) × viewport (project 1440 / 390):
  *  - renders real backend data (no error state, h1 present)

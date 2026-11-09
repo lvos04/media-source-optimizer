@@ -4,7 +4,8 @@
 #   make test     lint + core unit/contract/integration tests (needs PostgreSQL 16, see docs/dev/AGENT_BRIEF.md)
 #   make images   build media-source-optimizer-{core,web}:local and mso-mocks:local
 #   make stack    build + run the container stack with mocks + smoke/e2e (tests/stack/results/)
-#   make e2e      fresh stack + Playwright browser tests against it (web on http://127.0.0.1:48081)
+#   make e2e      fresh stack, prepared (admin, connectors → mocks, backup, wizard completed), then ALL Playwright
+#                 browser tests with credentials (web on http://127.0.0.1:48081); a skipped test fails the run
 #   make down     remove the test stack (project msostack) and its data
 #
 # Behind a TLS-inspecting proxy: MSO_BUILD_CA=/pad/naar/ca.crt make images
@@ -25,10 +26,20 @@ images:
 stack:
 	tests/stack/run.sh
 
+# Lower bound for the number of Playwright tests (desktop + mobile); fewer found = failure, not a silent pass.
+E2E_MIN_TESTS ?= 78
+
+# The admin password is random per run and only passed through the environment (never echoed or stored).
 e2e:
-	MSO_STACK_UP_ONLY=1 tests/stack/run.sh
-	cd apps/web && MSO_E2E_BASE_URL=http://127.0.0.1:48081 npx playwright test; rc=$$?; \
-	  cd ../.. && $(MAKE) down; exit $$rc
+	set -uo pipefail; \
+	export MSO_STACK_ADMIN_PW="E2e-$$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"; \
+	MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 tests/stack/run.sh; rc=$$?; \
+	if [[ $$rc -eq 0 ]]; then \
+	  ( cd apps/web && MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin \
+	    MSO_E2E_PASSWORD="$$MSO_STACK_ADMIN_PW" MSO_E2E_STRICT=1 MSO_E2E_MIN_TESTS=$(E2E_MIN_TESTS) \
+	    npx playwright test ); rc=$$?; \
+	else echo "!! stack-voorbereiding voor e2e mislukt (rc $$rc) — Playwright niet gestart" >&2; fi; \
+	$(MAKE) down; exit $$rc
 
 down:
 	-docker compose -p msostack down -v --remove-orphans

@@ -4,7 +4,9 @@ import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * E2E against a RUNNING MSO stack (no mocks). Start core + web yourself, then:
+ * E2E against a RUNNING MSO stack. The full, strict run (fresh stack with mocks, prepared, every test must run):
+ *   make e2e          (repo root; see tests/stack/run.sh MSO_STACK_E2E_PREPARE and e2e/strict-reporter.ts)
+ * Against a stack you started yourself:
  *   MSO_E2E_BASE_URL=http://localhost:3000 npm run e2e
  * Default base URL: http://localhost:3000. Chromium comes from the preinstalled browsers in
  * /opt/pw-browsers when present (PLAYWRIGHT_BROWSERS_PATH), otherwise from Playwright's cache.
@@ -18,7 +20,8 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 45_000,
-  reporter: [["list"]],
+  // strict-reporter: with MSO_E2E_STRICT=1 (make e2e, CI) every skipped test fails the run
+  reporter: [["list"], ["./e2e/strict-reporter.ts"]],
   outputDir: "./e2e/.results",
   use: { baseURL, trace: "retain-on-failure", locale: "nl-NL" },
   projects: [

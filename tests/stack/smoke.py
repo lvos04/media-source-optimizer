@@ -18,6 +18,15 @@ Environment (set by run.sh):
   MSO_STACK_API       direct API URL (127.0.0.1:38200, test override only)
   MSO_STACK_WEB       web URL or empty when the web image is not part of the run
   MSO_STACK_SECRETS   JSON {mock_name: {field: value}} — credentials the mocks were started with
+  MSO_STACK_RESULTS   directory for the report (default tests/stack/results)
+  MSO_STACK_ADMIN_PW  password of the first administrator ``stackadmin`` (default: random per run)
+
+Modes:
+  (none)          all checks below, report in results/smoke-report.{json,md}
+  --wait-only     only wait until every container is healthy
+  --e2e-prepare   wait until healthy, then prepare a fresh stack for the Playwright suite (``make e2e``): first
+                  administrator, every connector against its mock, one backup and the first-run wizard completed
+                  (POST /api/v1/setup/complete). Report in results/e2e-prepare.json; exit 1 unless every step is ok.
 """
 
 from __future__ import annotations
@@ -43,7 +52,7 @@ from typing import Any
 import httpx
 
 HERE = Path(__file__).resolve().parent
-RESULTS = HERE / "results"
+RESULTS = Path(os.environ.get("MSO_STACK_RESULTS") or HERE / "results")
 COMPOSE = shlex.split(os.environ.get("MSO_STACK_COMPOSE", "docker compose -p msostack"))
 BASE = os.environ.get("MSO_STACK_BASE", "http://127.0.0.1:38200").rstrip("/")
 API = os.environ.get("MSO_STACK_API", "http://127.0.0.1:38200").rstrip("/")
@@ -865,6 +874,17 @@ def c_error_logs(c: Check) -> None:
     )
 
 
+@check("e2e: eerste-startwizard afgerond (POST /api/v1/setup/complete, modus ongewijzigd)")
+def c_setup_complete(c: Check) -> None:
+    s: Session = S["admin"]
+    st = expect(s.post("/api/v1/setup/complete"), 200).json()  # no mode: the default (read_only) stays
+    if not st["completed"] or st["setup_required"] or not st["admin_exists"]:
+        raise AssertionError(f"setup-status na afronden: {st}")
+    mode = expect(s.get("/api/v1/system/mode"), 200).json()
+    c.data = {"setup_status": {k: st[k] for k in ("setup_required", "admin_exists", "completed")}, "mode": mode}
+    c.detail = f"setup_required=False, admin_exists=True; modus {mode.get('mode')}"
+
+
 # ---------------------------------------------------------------- report
 def write_report(started: str) -> int:
     RESULTS.mkdir(parents=True, exist_ok=True)
@@ -927,10 +947,34 @@ def write_report(started: str) -> int:
     return 1 if summary["failed"] else 0
 
 
+def e2e_prepare() -> int:
+    """Fresh stack → state the Playwright suite needs; every step must be ok (a skip is a failure here)."""
+    started = datetime.now(UTC).isoformat()
+    for fn in (c_health, c_web, c_setup, c_connectors, c_backup, c_setup_complete):
+        fn()
+        if CHECKS[-1].status != "ok":
+            break
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    ok = len(CHECKS) == 6 and all(c.status == "ok" for c in CHECKS)
+    report = {
+        "started": started,
+        "finished": datetime.now(UTC).isoformat(),
+        "base_url": BASE,
+        "admin": ADMIN,
+        "ok": ok,
+        "checks": [asdict(c) for c in CHECKS],
+    }
+    (RESULTS / "e2e-prepare.json").write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
+    print(f"e2e-voorbereiding: {'gereed voor Playwright' if ok else 'MISLUKT'} ({RESULTS / 'e2e-prepare.json'})")
+    return 0 if ok else 1
+
+
 def main() -> int:
-    if "--wait-only" in sys.argv:  # used by `make e2e`: just wait until the stack is healthy
+    if "--wait-only" in sys.argv:  # just wait until the stack is healthy
         print(wait_healthy(300))
         return 0
+    if "--e2e-prepare" in sys.argv:  # used by `make e2e`
+        return e2e_prepare()
     started = datetime.now(UTC).isoformat()
     order = [
         c_health,

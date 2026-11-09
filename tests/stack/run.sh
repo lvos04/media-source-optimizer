@@ -6,11 +6,15 @@
 #   MSO_STACK_NO_BUILD=1 …             reuse existing :stack images
 #   MSO_STACK_NO_WEB=1 …               run without the web container (API direct)
 #   MSO_STACK_UP_ONLY=1 …              only start a fresh stack and wait until healthy (implies KEEP; for Playwright)
+#   MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 …   as UP_ONLY, then prepare it for the full Playwright suite
+#                                      (smoke.py --e2e-prepare: admin stackadmin with MSO_STACK_ADMIN_PW, connectors
+#                                      against the mocks, one backup, first-run wizard completed) — used by `make e2e`
 #   MSO_FEATURES=a,b …                 limit feature discovery (only to work around a broken in-progress module)
 #   MSO_BUILD_CA=/pad/ca.crt …         CA bundle for a TLS-inspecting proxy (BuildKit secret, not stored)
 #
 # Compose project: msostack. Data: tests/stack/.data (wiped before and after the run).
 # Results: tests/stack/results/{smoke-report.json,smoke-report.md,compose-ps.txt,logs/*.log}
+#          UP_ONLY: tests/stack/results/e2e-stack/{e2e-prepare.json,compose-ps.txt,logs/*.log}
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -65,7 +69,7 @@ rm -rf "$RESULTS"; mkdir -p "$RESULTS/logs"
 MOCKS=$(MSO_STACK_MOCKS_OUT="$RESULTS/compose.mocks.yaml" "$PY" "$HERE/gen_mocks.py")
 echo "mocks: $MOCKS"
 COMPOSE="docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml -f $RESULTS/compose.mocks.yaml"
-export MSO_STACK_COMPOSE="$COMPOSE"
+export MSO_STACK_COMPOSE="$COMPOSE" MSO_STACK_RESULTS="$RESULTS"
 
 SERVICES="init postgres migrate api worker"
 [[ -z "${MSO_STACK_NO_WEB:-}" ]] && SERVICES="$SERVICES web"
@@ -102,7 +106,11 @@ $COMPOSE up -d $SERVICES
 echo "compose up: $((SECONDS - start)) s"
 if [[ -n "${MSO_STACK_UP_ONLY:-}" ]]; then
   MSO_STACK_KEEP=1
-  "$PY" "$HERE/smoke.py" --wait-only
+  if [[ -n "${MSO_STACK_E2E_PREPARE:-}" ]]; then
+    "$PY" "$HERE/smoke.py" --e2e-prepare
+  else
+    "$PY" "$HERE/smoke.py" --wait-only
+  fi
   exit 0
 fi
 "$PY" "$HERE/smoke.py"

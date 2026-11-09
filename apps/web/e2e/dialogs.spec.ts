@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Regression tests from the real-hardware report (2026-11-04), against a running stack:
+ * Regression tests from the real-hardware report (2026-11-04), against a running stack prepared by `make e2e`
+ * (tests/stack/run.sh with MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1: admin, connectors, one backup, wizard completed):
  *   MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin MSO_E2E_PASSWORD=… npx playwright test e2e/dialogs.spec.ts
  *  - P5: typing in a DangerDialog's typed confirmation keeps focus in the field (no jump to "Annuleren")
  *  - K: a dialog opened from the topbar is fully visible, also on a low viewport

@@ -47,7 +47,7 @@ function Details({ hash }: { hash: string }) {
                       <div className="list-title mono">{x.host ?? "—"}</div>
                       <div className="list-sub">{x.msg || "—"} · {t("torrent.seedsPeers", { seeds: num(x.seeds ?? 0), peers: num(x.peers ?? 0) })}</div>
                     </div>
-                    <StatusChip tone={x.status === "working" ? "success" : x.status === "updating" || x.status === "not_contacted" ? "neutral" : "danger"}>
+                    <StatusChip tone={x.status === "working" ? "healthy" : x.status === "updating" || x.status === "not_contacted" ? "neutral" : "danger"}>
                       {t(x.status === "working" ? "torrent.tracker.working" : x.status === "updating" || x.status === "not_contacted" ? "torrent.tracker.pending" : "torrent.tracker.failing")}
                     </StatusChip>
                   </li>

@@ -24,7 +24,7 @@ import { useResource } from "@/lib/api/hooks";
 import { useI18n } from "@/lib/i18n";
 import { ModeProvider, useMode } from "@/lib/mode";
 import { SessionProvider, useSession } from "@/lib/session";
-import { healthLabel, healthTone } from "@/lib/status";
+import { BARE_STATUS_WORDS, healthLabel, healthTone, isHealthProblem } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------- shell data (health/info)
@@ -183,21 +183,25 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useI18n();
   const { health, healthError, info } = useShell();
-  const tone = healthError ? "danger" : health ? healthTone(health.status) : "neutral";
-  const dot = tone === "success" || tone === "warning" || tone === "danger" ? tone : "neutral";
+  // Peil total status (T-01a): worst component; a failed fetch is "Onbekend — MSO-core reageert niet", never "Storing"
+  // without a measurement.
+  const tone = healthError ? "unknown" : health ? healthTone(health.status) : "unknown";
+  const dot = tone === "healthy" || tone === "warning" || tone === "danger" ? tone : "unknown";
   const label = healthError ? t("health.offline") : !health ? t("health.unknown")
-    : health.status === "healthy" ? t("health.healthy") : health.status === "degraded" ? t("health.degraded") : t("health.offline");
-  const problems = (health?.components ?? []).filter((c) => healthTone(c.status) !== "success");
+    : health.status === "healthy" ? t("health.healthy") : health.status === "degraded" ? t("health.degraded")
+      : health.status === "offline" ? t("health.down") : t("health.unknown");
+  const problems = (health?.components ?? []).filter((c) => isHealthProblem(c.status));
+  const reason = (p: { status: string; message?: string | null }) => (p.message && !BARE_STATUS_WORDS.has(p.message.trim().toLowerCase()) && p.message !== p.status ? p.message : t(healthLabel(p.status)));
   return (
     <>
       <Brand />
       <NavList onNavigate={onNavigate} />
       <div className="sidebar-footer" data-testid="sidebar-health">
-        <Link href="/systeem" className="health-line" title={problems.map((p) => `${p.label ?? p.name}: ${p.message && p.message !== p.status ? p.message : t(healthLabel(p.status))}`).join("\n") || undefined}>
+        <Link href="/systeem" className="health-line" title={problems.map((p) => `${p.label ?? p.name}: ${reason(p)}`).join("\n") || undefined}>
           <Dot tone={dot} /><strong>{label}</strong>
         </Link>
         {problems.slice(0, 3).map((p) => (
-          <div key={p.name} className="health-line"><Dot tone={healthTone(p.status) === "danger" ? "danger" : "warning"} /><span title={p.message ?? undefined}>{p.label ?? p.name.replace(/^connector:/, "")} — {p.message && p.message !== p.status ? p.message : t(healthLabel(p.status))}</span></div>
+          <div key={p.name} className="health-line"><Dot tone={healthTone(p.status) === "danger" ? "danger" : healthTone(p.status) === "warning" ? "warning" : "unknown"} /><span title={p.message ?? undefined}>{p.label ?? p.name.replace(/^connector:/, "")} — {reason(p)}</span></div>
         ))}
         {problems.length > 3 ? <div className="health-line"><span>{t("health.issues", { count: problems.length })}</span></div> : null}
         <div className="version-line"><span>{info ? t("health.version", { version: info.version }) : "—"}</span><span>{t("app.short")}</span></div>
@@ -277,9 +281,9 @@ function ModeChip() {
     : mode === "manage" ? t("mode.chipTitleManage") : mode === "read_only" ? t("mode.chipTitleReadOnly") : t("mode.unknownReason");
   const auto = mode === "autopilot";
   return (
-    <Link className={cn("top-pill mode-pill", mode === "manage" && "top-pill--warning")} href="/instellingen?tab=systeem#modus" title={`${title} ${t("mode.chipChange")}`} aria-label={`${label} — ${t("mode.chipChange")}`} data-testid="mode-chip" data-mode={mode ?? "unknown"}
-      style={auto ? { borderColor: "var(--mg-accent)", background: "var(--mg-accent-tint)" } : undefined}>
-      {auto ? <Bot className="ico ico-sm" aria-hidden="true" style={{ color: "var(--mg-accent)" }} />
+    // Peil §6.2: the mode is a neutral label (eye / shield-check / bot); "Modus onbekend" uses the unknown shape.
+    <Link className={cn("top-pill mode-pill", mode === null && "top-pill--unknown")} href="/instellingen?tab=systeem#modus" title={`${title} ${t("mode.chipChange")}`} aria-label={`${label} — ${t("mode.chipChange")}`} data-testid="mode-chip" data-mode={mode ?? "unknown"}>
+      {auto ? <Bot className="ico ico-sm" aria-hidden="true" />
         : mode === "manage" ? <ShieldCheck className="ico ico-sm" aria-hidden="true" /> : <Eye className="ico ico-sm" aria-hidden="true" />}
       <strong>{label}</strong>
     </Link>
@@ -401,7 +405,8 @@ function ProfileMenu() {
   const initials = (user?.username ?? "?").slice(0, 2).toUpperCase();
   return (
     <div style={{ position: "relative" }}>
-      <button type="button" className="avatar" aria-label={t("topbar.profile")} aria-expanded={open} onClick={() => setOpen((v) => !v)} style={{ cursor: "pointer" }}>{initials}</button>
+      {/* WCAG 2.5.3: the visible initials are part of the accessible name (no differing aria-label) */}
+      <button type="button" className="avatar" aria-expanded={open} onClick={() => setOpen((v) => !v)} style={{ cursor: "pointer" }}>{initials}<span className="sr-only"> {t("topbar.profileSr")}</span></button>
       {open ? (
         <div className="popover" style={{ right: 0, top: 42, width: 260 }} role="dialog" aria-label={t("topbar.profile")}>
           <div style={{ padding: 14 }} className="stack-sm">

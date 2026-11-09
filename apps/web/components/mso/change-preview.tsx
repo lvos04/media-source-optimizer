@@ -211,7 +211,7 @@ export function ChangePreview({ change, onChanged, actions = true, card = true }
     <div className="stack">
       <div className="row wrap" style={{ gap: 8 }}>
         <RiskChip risk={change.risk} />
-        <StatusChip tone={status.tone}>{t(status.label)}</StatusChip>
+        <StatusChip tone={status.tone} icon={status.icon}>{t(status.label)}</StatusChip>
         <span className="t-2" style={{ fontSize: 12.5 }}>{t("change.target")}: <span className="mono">{change.target}</span></span>
       </div>
       {change.explanation ? <div><span className="eyebrow">{t("change.why")}</span><p style={{ margin: "4px 0 0", fontSize: 13 }}>{change.explanation}</p></div> : null}

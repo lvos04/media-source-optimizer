@@ -1,6 +1,6 @@
 "use client";
 
-import { Timer } from "lucide-react";
+import { Check, Clock, Hourglass, LoaderCircle, OctagonX, Timer, type LucideIcon } from "lucide-react";
 
 import { Card, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ResourceView, StateView } from "@/components/mg/states";
@@ -8,12 +8,13 @@ import { useResource } from "@/lib/api/hooks";
 import type { ScheduleItem, ScheduleList } from "@/lib/api/insights";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
-const STATUS: Record<ScheduleItem["status"], { tone: Tone; key: MessageKey }> = {
-  ok: { tone: "success", key: "system.sched.ok" },
-  mislukt: { tone: "danger", key: "system.sched.failed" },
-  bezig: { tone: "accent", key: "system.sched.running" },
-  nog_niet: { tone: "neutral", key: "system.sched.notYet" },
-  uit: { tone: "neutral", key: "system.sched.off" },
+// Peil: a finished run is neutral "Afgerond"; a task that does not run waits for a condition (hourglass, never pause).
+const STATUS: Record<ScheduleItem["status"], { tone: Tone; key: MessageKey; icon: LucideIcon }> = {
+  ok: { tone: "success", key: "system.sched.ok", icon: Check },
+  mislukt: { tone: "danger", key: "system.sched.failed", icon: OctagonX },
+  bezig: { tone: "accent", key: "system.sched.running", icon: LoaderCircle },
+  nog_niet: { tone: "neutral", key: "system.sched.notYet", icon: Clock },
+  uit: { tone: "neutral", key: "system.sched.off", icon: Hourglass },
 };
 
 /** Systeem → "Automatische taken": every periodic job (GET /automation/schedules) with last/next run and status. */
@@ -46,7 +47,7 @@ export function SchedulesCard() {
                     </td>
                     <td data-label={t("system.sched.next")}>{i.next_run_at ? <span title={dateTime(i.next_run_at)}>{relative(i.next_run_at)}</span> : <span className="t-3">{i.reason ?? "—"}</span>}</td>
                     <td data-label={t("system.sched.status")}>
-                      <StatusChip tone={st.tone} pending={i.status === "bezig"}>{t(st.key)}</StatusChip>
+                      <StatusChip tone={st.tone} icon={st.icon} pending={i.status === "bezig"}>{t(st.key)}</StatusChip>
                       {i.failed_24h ? <div className="cell-sub">{t("system.sched.failed24h", { count: num(i.failed_24h) })}</div> : null}
                     </td>
                   </tr>

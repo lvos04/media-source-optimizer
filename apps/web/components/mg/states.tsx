@@ -2,10 +2,10 @@
 // (MSO: ErrorState renders the "connector not configured" unavailable state for code=connector_not_configured.)
 "use client";
 
-import { Ban, CircleX, Inbox, PlugZap, SearchX, Settings2, WifiOff, type LucideIcon } from "lucide-react";
+import { Ban, CircleSlash, Inbox, Link2Off, OctagonX, SearchX, Settings2, WifiOff, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Button, LinkButton, Skeleton } from "@/components/mg/primitives";
+import { Button, CopyField, LinkButton, Skeleton } from "@/components/mg/primitives";
 import type { ApiError } from "@/lib/api/client";
 import type { Resource } from "@/lib/api/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -13,17 +13,18 @@ import { cn } from "@/lib/utils";
 
 export type StateKind = "loading" | "empty" | "error" | "offline" | "unavailable" | "forbidden" | "not_found";
 
+// Peil icon mapping (ONTWERPTAAL §7): Storing/fout octagon-x · niet beschikbaar circle-slash · offline wifi-off.
 const ICONS: Record<Exclude<StateKind, "loading">, LucideIcon> = {
   empty: Inbox,
-  error: CircleX,
+  error: OctagonX,
   offline: WifiOff,
-  unavailable: PlugZap,
+  unavailable: CircleSlash,
   forbidden: Ban,
   not_found: SearchX,
 };
 
-export function StateView({ kind, title, body, action, meta, compact }: {
-  kind: StateKind; title?: ReactNode; body?: ReactNode; action?: ReactNode; meta?: ReactNode; compact?: boolean;
+export function StateView({ kind, title, body, action, meta, compact, icon }: {
+  kind: StateKind; title?: ReactNode; body?: ReactNode; action?: ReactNode; meta?: ReactNode; compact?: boolean; icon?: LucideIcon;
 }) {
   const { t } = useI18n();
   if (kind === "loading") {
@@ -34,7 +35,7 @@ export function StateView({ kind, title, body, action, meta, compact }: {
       </div>
     );
   }
-  const Icon = ICONS[kind];
+  const Icon = icon ?? ICONS[kind];
   const defaults: Record<Exclude<StateKind, "loading">, [string, string]> = {
     empty: [t("state.emptyTitle"), ""],
     error: [t("state.errorTitle"), t("state.errorBody")],
@@ -64,7 +65,7 @@ export function ErrorState({ error, onRetry, endpoint, compact }: { error: ApiEr
   const { t } = useI18n();
   if (isConnectorUnconfigured(error)) {
     return (
-      <StateView kind="unavailable" compact={compact} title={t("state.connectorTitleGeneric")} body={error.message || t("state.connectorBodyGeneric")}
+      <StateView kind="unavailable" icon={Link2Off} compact={compact} title={t("state.connectorTitleGeneric")} body={error.message || t("state.connectorBodyGeneric")}
         action={<LinkButton href="/instellingen?tab=verbindingen" size="sm" variant="primary" icon={Settings2}>{t("state.connectorAction")}</LinkButton>} />
     );
   }
@@ -72,15 +73,21 @@ export function ErrorState({ error, onRetry, endpoint, compact }: { error: ApiEr
     : error.kind === "offline" ? "offline"
       : error.kind === "forbidden" ? "forbidden"
         : error.kind === "not_found" ? "not_found" : "error";
+  // Peil Foutpaneel (C-14): what failed + why + what you can do, the code, and a copyable trace-ID.
   const meta = kind === "unavailable"
-    ? t("state.unavailableEndpoint", { endpoint: endpoint ?? `/api/v1${error.path}` })
-    : error.correlationId ? t("state.correlation", { id: error.correlationId }) : kind === "error" ? `HTTP ${error.status} · ${error.message}` : undefined;
+    ? <>{t("state.unavailableCode")} · {t("state.unavailableEndpoint", { endpoint: endpoint ?? `/api/v1${error.path}` })}</>
+    : kind === "error" ? (
+      <span className="stack-sm" style={{ alignItems: "center" }}>
+        <span>{t("state.errorCode", { status: String(error.status), code: error.code ?? "error" })}</span>
+        {error.correlationId ? <CopyField label={t("state.traceId")} value={error.correlationId} /> : null}
+      </span>
+    ) : error.correlationId ? <CopyField label={t("state.traceId")} value={error.correlationId} /> : undefined;
   return (
     <StateView
       kind={kind}
       compact={compact}
       meta={meta}
-      body={kind === "forbidden" && error.message ? error.message : undefined}
+      body={kind === "forbidden" && error.message ? error.message : kind === "error" ? <>{error.message && error.message !== `HTTP ${error.status}` ? <>{error.message} </> : null}{t("state.errorBody")}</> : undefined}
       action={onRetry && kind !== "forbidden" ? <Button size="sm" onClick={onRetry}>{t("action.retry")}</Button> : undefined}
     />
   );
@@ -98,14 +105,16 @@ export function ResourceView<T>({ resource, children, endpoint, compact, empty, 
   if (resource.loading) return <StateView kind="loading" compact={compact} />;
   if (resource.error && resource.data === null) return <ErrorState error={resource.error} onRetry={() => void resource.reload()} endpoint={endpoint} compact={compact} />;
   if (resource.data === null) return <StateView kind="loading" compact={compact} />;
-  if (isEmpty?.(resource.data)) return <>{empty ?? <StateView kind="empty" compact={compact} />}</>;
+  // Peil: verouderd is always visible — also when the last known list was empty ("Wachtrij is leeg" may be outdated).
+  const staleMark = resource.stale ? (
+    <div style={{ padding: "0 16px 8px" }}>
+      <span className="stale-mark" role="status">{t("state.stale", { age: relative(resource.fetchedAt) })}</span>
+    </div>
+  ) : null;
+  if (isEmpty?.(resource.data)) return <>{staleMark}{empty ?? <StateView kind="empty" compact={compact} />}</>;
   return (
     <>
-      {resource.stale ? (
-        <div className="stale-mark" role="status" style={{ padding: "0 16px 8px" }}>
-          {t("state.stale", { age: relative(resource.fetchedAt) })}
-        </div>
-      ) : null}
+      {staleMark}
       {children(resource.data)}
     </>
   );

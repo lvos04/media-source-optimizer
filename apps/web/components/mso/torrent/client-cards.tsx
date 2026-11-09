@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Gauge, KeyRound, Network, Plug, ShieldAlert } from "lucide-react";
+import { Activity, Check, Gauge, KeyRound, Network, Plug, ShieldAlert, X } from "lucide-react";
 
 import { Card, InlineState, StatusChip } from "@/components/mg/primitives";
 import { DiagnosisChip, FindingList, useRate } from "@/components/mso/torrent/shared";
@@ -34,7 +34,7 @@ export function ClientCard({ data }: { data: TorrentOverview }) {
             <dt>{t("torrent.client.version")}</dt><dd className="mono">{c.version ?? "—"}</dd>
             <dt>{t("torrent.client.webapi")}</dt><dd className="mono">{c.webapi ?? "—"}</dd>
             <dt>{t("torrent.client.auth")}</dt>
-            <dd><StatusChip tone={c.auth_method === "api_key" ? "success" : "info"} icon={KeyRound}>{t(c.auth_method === "api_key" ? "torrent.client.authKey" : "torrent.client.authSession")}</StatusChip></dd>
+            <dd><StatusChip tone="neutral" icon={KeyRound}>{t(c.auth_method === "api_key" ? "torrent.client.authKey" : "torrent.client.authSession")}</StatusChip></dd>
             {typeof caps.api_key_status === "string" && caps.api_key_status !== "niet_ingesteld" ? (
               <><dt>{t("torrent.client.keyStatus")}</dt><dd>{String(caps.api_key_status)}</dd></>
             ) : null}
@@ -45,7 +45,7 @@ export function ClientCard({ data }: { data: TorrentOverview }) {
             <span className="eyebrow">{t("torrent.client.capabilities")}</span>
             <div className="row wrap" style={{ gap: 6, marginTop: 6 }}>
               {Object.entries(CAP_LABEL).map(([k, label]) => (
-                <StatusChip key={k} tone={caps[k] ? "success" : "neutral"} title={k}>{t(label)}{caps[k] ? "" : ` — ${t("torrent.client.notSupported")}`}</StatusChip>
+                <StatusChip key={k} tone={caps[k] ? "success" : "neutral"} icon={caps[k] ? Check : X} title={k}>{t(label)}{caps[k] ? "" : ` — ${t("torrent.client.notSupported")}`}</StatusChip>
               ))}
             </div>
           </div>
@@ -66,7 +66,7 @@ export function ConnectivityCard({ data }: { data: TorrentOverview }) {
           <dl className="kv">
             <dt>{t("torrent.conn.status")}</dt>
             <dd>{c.connection_status === "connected"
-              ? <StatusChip tone="success">{t("torrent.conn.connected")}</StatusChip>
+              ? <StatusChip tone="linked">{t("torrent.conn.connected")}</StatusChip>
               : c.connection_status === "firewalled" ? <StatusChip tone="warning">{t("torrent.conn.firewalled")}</StatusChip>
                 : <StatusChip tone="danger">{t("torrent.conn.disconnected")}</StatusChip>}</dd>
             <dt>{t("torrent.conn.port")}</dt><dd className="mono">{c.listen_port ?? "—"}{c.upnp ? " · UPnP" : ""}{c.random_port ? ` · ${t("torrent.conn.randomPort")}` : ""}</dd>

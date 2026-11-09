@@ -12,7 +12,7 @@ import type { BlockInfo, ExpiryInfo, ServerTest, ServerTestResponse, ServerTestR
 import { useI18n } from "@/lib/i18n";
 
 const TEST_TONE: Record<ServerTestResult, Tone> = {
-  ok: "success", auth_failed: "danger", account_expired: "danger", access_denied: "danger", block_exhausted: "danger",
+  ok: "healthy", auth_failed: "danger", account_expired: "danger", access_denied: "danger", block_exhausted: "danger",
   rate_limited: "warning", unreachable: "danger", tls_error: "danger", unknown: "neutral", unsupported: "neutral",
   locked: "warning",
 };

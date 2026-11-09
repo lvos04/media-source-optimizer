@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertOctagon, CircleCheck, Info, Lock, TriangleAlert, Unlock } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Clock, Info, Lock, OctagonX, TriangleAlert, Unlock, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Confidence } from "@/components/mg/domain";
@@ -11,13 +11,19 @@ import type { Severity, TorrentFinding } from "@/lib/api/torrent";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
 export const SEVERITY_TONE: Record<Severity, Tone> = { critical: "danger", warning: "warning", info: "info" };
-const SEVERITY_ICON = { critical: AlertOctagon, warning: TriangleAlert, info: Info } as const;
+const SEVERITY_ICON = { critical: OctagonX, warning: TriangleAlert, info: Info } as const;
 
+// Peil (PEIL_MIGRATIE §6.2): downloading/seeding are activities, not health → neutral with a direction arrow;
+// only "stalled" (Beperkt) and "missing files/error" (Storing) carry a status colour.
+const STATE_ICON: Record<string, LucideIcon> = {
+  downloading: ArrowDown, forcedDL: ArrowDown, metaDL: ArrowDown, forcedMetaDL: ArrowDown,
+  uploading: ArrowUp, forcedUP: ArrowUp, stalledUP: ArrowUp, queuedDL: Clock, queuedUP: Clock,
+};
 const STATE_GROUP: Record<string, { tone: Tone; key: MessageKey }> = {
-  downloading: { tone: "accent", key: "torrent.state.downloading" },
-  forcedDL: { tone: "accent", key: "torrent.state.downloading" },
-  metaDL: { tone: "accent", key: "torrent.state.metaDL" },
-  forcedMetaDL: { tone: "accent", key: "torrent.state.metaDL" },
+  downloading: { tone: "neutral", key: "torrent.state.downloading" },
+  forcedDL: { tone: "neutral", key: "torrent.state.downloading" },
+  metaDL: { tone: "neutral", key: "torrent.state.metaDL" },
+  forcedMetaDL: { tone: "neutral", key: "torrent.state.metaDL" },
   stalledDL: { tone: "warning", key: "torrent.state.stalledDL" },
   queuedDL: { tone: "neutral", key: "torrent.state.queuedDL" },
   pausedDL: { tone: "neutral", key: "torrent.state.pausedDL" },
@@ -27,9 +33,9 @@ const STATE_GROUP: Record<string, { tone: Tone; key: MessageKey }> = {
   checkingResumeData: { tone: "info", key: "torrent.state.checking" },
   allocating: { tone: "info", key: "torrent.state.allocating" },
   moving: { tone: "info", key: "torrent.state.moving" },
-  uploading: { tone: "success", key: "torrent.state.seeding" },
-  forcedUP: { tone: "success", key: "torrent.state.seeding" },
-  stalledUP: { tone: "success", key: "torrent.state.stalledUP" },
+  uploading: { tone: "neutral", key: "torrent.state.seeding" },
+  forcedUP: { tone: "neutral", key: "torrent.state.seeding" },
+  stalledUP: { tone: "neutral", key: "torrent.state.stalledUP" },
   queuedUP: { tone: "neutral", key: "torrent.state.queuedUP" },
   pausedUP: { tone: "neutral", key: "torrent.state.pausedUP" },
   stoppedUP: { tone: "neutral", key: "torrent.state.pausedUP" },
@@ -39,13 +45,13 @@ const STATE_GROUP: Record<string, { tone: Tone; key: MessageKey }> = {
 
 export function StateChip({ state }: { state: string | null }) {
   const { t } = useI18n();
-  const s = STATE_GROUP[state ?? ""] ?? { tone: "neutral" as Tone, key: "torrent.state.unknown" as MessageKey };
-  return <StatusChip tone={s.tone} title={state ?? undefined}>{t(s.key)}</StatusChip>;
+  const s = STATE_GROUP[state ?? ""] ?? { tone: "unknown" as Tone, key: "torrent.state.unknown" as MessageKey };
+  return <StatusChip tone={s.tone} icon={STATE_ICON[state ?? ""]} title={state ?? undefined}>{t(s.key)}</StatusChip>;
 }
 
 export function PrivateChip({ value }: { value: boolean | null }) {
   const { t } = useI18n();
-  if (value === null) return <StatusChip tone="neutral" icon={Info}>{t("torrent.privateUnknown")}</StatusChip>;
+  if (value === null) return <StatusChip tone="unknown">{t("torrent.privateUnknown")}</StatusChip>;
   return value
     ? <StatusChip tone="info" icon={Lock}>{t("torrent.private")}</StatusChip>
     : <StatusChip tone="neutral" icon={Unlock}>{t("torrent.public")}</StatusChip>;
@@ -53,7 +59,7 @@ export function PrivateChip({ value }: { value: boolean | null }) {
 
 export function DiagnosisChip({ finding }: { finding: TorrentFinding | null }) {
   const { t } = useI18n();
-  if (!finding) return <StatusChip tone="success" icon={CircleCheck}>{t("torrent.diag.ok")}</StatusChip>;
+  if (!finding) return <StatusChip tone="success" icon={Check}>{t("torrent.diag.ok")}</StatusChip>;
   return <StatusChip tone={SEVERITY_TONE[finding.severity]} icon={SEVERITY_ICON[finding.severity]} title={finding.explanation}>{finding.title}</StatusChip>;
 }
 
@@ -93,7 +99,7 @@ export function FindingItem({ finding }: { finding: TorrentFinding }) {
 
 export function FindingList({ findings, empty }: { findings: TorrentFinding[]; empty?: string }) {
   const { t } = useI18n();
-  if (!findings.length) return <p className="t-2" style={{ margin: 0, fontSize: 13 }}><CircleCheck className="ico ico-sm t-success" aria-hidden="true" /> {empty ?? t("torrent.noFindings")}</p>;
+  if (!findings.length) return <p className="t-2" style={{ margin: 0, fontSize: 13 }}><Check className="ico ico-sm" aria-hidden="true" /> {empty ?? t("torrent.noFindings")}</p>;
   return <div className="stack-sm">{findings.map((f) => <FindingItem key={`${f.code}-${f.title}`} finding={f} />)}</div>;
 }
 

@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  ArrowDownRight, ArrowRight, ArrowUpRight, CircleCheck, CircleHelp, CircleX, Equal, type LucideIcon, Percent, PowerOff, Server,
-  ShieldAlert, Target, TriangleAlert,
+  ArrowRight, CircleCheck, CircleHelp, CircleSlash, Equal, type LucideIcon, OctagonX, Percent, PowerOff, Server,
+  ShieldAlert, Target, TrendingDown, TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -21,8 +21,10 @@ const TITLE: Record<GoalKey, MessageKey> = {
 const DEF: Record<GoalKey, MessageKey> = {
   failure_ratio: "goals.failure.def", suspicious_torrents: "goals.suspicious.def", failing_servers: "goals.servers.def",
 };
-const STATUS_TONE: Record<GoalStatus, Tone> = { met: "success", not_met: "danger", insufficient: "neutral", unavailable: "warning" };
-const STATUS_ICON: Record<GoalStatus, LucideIcon> = { met: CircleCheck, not_met: CircleX, insufficient: CircleHelp, unavailable: TriangleAlert };
+// Peil: Gehaald = gemeten en goed (healthy) · Niet gehaald = down · Te weinig data = Onbekend + reden ·
+// Niet beschikbaar = circle-slash in the unknown shape (nothing is degraded, so never amber).
+const STATUS_TONE: Record<GoalStatus, Tone> = { met: "healthy", not_met: "danger", insufficient: "unknown", unavailable: "unknown" };
+const STATUS_ICON: Record<GoalStatus, LucideIcon> = { met: CircleCheck, not_met: OctagonX, insufficient: CircleHelp, unavailable: CircleSlash };
 const KPI_TONE: Partial<Record<GoalStatus, string>> = { met: "kpi--success", not_met: "kpi--danger" };
 
 /** "2026-10-13" (a local day from the API) → Date at local noon, so no time zone shifts the day. */
@@ -52,7 +54,7 @@ export function GoalsCard() {
       sub={data ? <TrialSub trial={data.trial} /> : undefined}
       actions={data ? (
         <>
-          <StatusChip tone={data.met === data.total ? "success" : "neutral"} icon={data.met === data.total ? CircleCheck : Target}>
+          <StatusChip tone="neutral" icon={Target}>
             {t("goals.metCount", { met: num(data.met), total: num(data.total) })}
           </StatusChip>
           {can("admin") ? <Link className="link-more" href="/instellingen?tab=automatisering">{t("goals.changeStart")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link> : null}
@@ -96,9 +98,9 @@ function TrialFooter({ trial }: { trial: GoalsTrial }) {
 function Direction({ goal }: { goal: Goal }) {
   const { t } = useI18n();
   if (!goal.direction) return null;
-  const icon = goal.direction === "better" ? ArrowDownRight : goal.direction === "worse" ? ArrowUpRight : Equal;
-  const tone: Tone = goal.direction === "better" ? "success" : goal.direction === "worse" ? "danger" : "neutral";
-  return <StatusChip tone={tone} icon={icon}>{t(`goals.direction.${goal.direction}` as MessageKey)}</StatusChip>;
+  // a direction is not health: neutral label with a trend icon (Peil §6.2)
+  const icon = goal.direction === "better" ? TrendingUp : goal.direction === "worse" ? TrendingDown : Equal;
+  return <StatusChip tone="neutral" icon={icon}>{t(`goals.direction.${goal.direction}` as MessageKey)}</StatusChip>;
 }
 
 function StartValue({ goal, notStarted }: { goal: Goal; notStarted: boolean }) {

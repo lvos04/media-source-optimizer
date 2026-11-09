@@ -3,7 +3,7 @@
 // segments; media-library specific components (Poster, SeasonHeatmap, QualityRibbon, JobLaneCard) dropped.)
 "use client";
 
-import { ArrowRight, Check, CircleCheck, CircleHelp, CircleX, Info, type LucideIcon } from "lucide-react";
+import { ArrowRight, Check, Info, OctagonX, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
@@ -14,21 +14,29 @@ import { healthLabel, healthTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 // ------------------------------------------------------------------ KPI
-export function KpiCard({ label, icon: Icon, value, unit, meta, href, drill, tone, spark, unavailable }: {
+/**
+ * KPI tile (Peil StatKaart in fase 1): the value is always ink; `loading` shows a skeleton (never a phase word);
+ * `unavailable` is Onbekend with a reason ("ophalen mislukt" / backend reason), never "— Nog niet beschikbaar".
+ */
+export function KpiCard({ label, icon: Icon, value, unit, meta, href, drill, tone, spark, unavailable, loading, reason }: {
   label: string; icon: LucideIcon; value: ReactNode; unit?: string; meta?: ReactNode; href?: string; drill?: string;
-  tone?: "success" | "warning" | "danger"; spark?: number[]; unavailable?: boolean;
+  tone?: "success" | "warning" | "danger"; spark?: number[]; unavailable?: boolean; loading?: boolean; reason?: ReactNode;
 }) {
   const { t } = useI18n();
   const body = (
     <>
       <span className="kpi-label"><Icon className="ico" aria-hidden="true" />{label}</span>
-      <span className="kpi-value num">{unavailable ? "—" : value}{unit && !unavailable ? <small>{unit}</small> : null}</span>
-      <span className="kpi-meta">{unavailable ? t("state.unavailableTitle") : meta}</span>
+      {loading ? (
+        <span className="kpi-value" role="status"><span className="sr-only">{t("state.loading")}</span><span className="skeleton skeleton-line" aria-hidden="true" style={{ display: "block", width: "60%", height: 28 }} /></span>
+      ) : (
+        <span className="kpi-value num">{unavailable ? <StatusChip tone="unknown" size="lg">{t("status.unknown")}</StatusChip> : value}{unit && !unavailable ? <small>{unit}</small> : null}</span>
+      )}
+      <span className="kpi-meta">{loading ? null : unavailable ? (reason ?? t("state.unknownFetch")) : meta}</span>
       {spark && spark.length > 1 && !unavailable ? <Sparkline values={spark} /> : null}
       {href && drill ? <span className="kpi-drill">{drill} <ArrowRight className="ico ico-sm" aria-hidden="true" /></span> : null}
     </>
   );
-  const cls = cn("kpi", tone && !unavailable && `kpi--${tone}`);
+  const cls = cn("kpi", tone && !unavailable && !loading && `kpi--${tone}`);
   return href ? <Link href={href} className={cls}>{body}</Link> : <div className={cls}>{body}</div>;
 }
 
@@ -42,10 +50,9 @@ export function Sparkline({ values }: { values: number[] }) {
 // ------------------------------------------------------------------ Connector (was: Instance)
 export function ConnectorStatusChip({ connector }: { connector: Pick<Connector, "status" | "enabled"> & { url?: string | null } }) {
   const { t } = useI18n();
-  if (connector.url === "" || connector.url === null) return <StatusChip tone="neutral" icon={CircleHelp}>{t("status.notConfigured")}</StatusChip>;
+  if (connector.url === "" || connector.url === null) return <StatusChip tone="unlinked">{t("status.notConfigured")}</StatusChip>;
   if (!connector.enabled) return <StatusChip tone="neutral">{t("status.disabled")}</StatusChip>;
-  const tone = healthTone(connector.status);
-  return <StatusChip tone={tone} icon={tone === "neutral" ? CircleHelp : undefined}>{t(healthLabel(connector.status))}</StatusChip>;
+  return <StatusChip tone={healthTone(connector.status)}>{t(healthLabel(connector.status))}</StatusChip>;
 }
 
 const KNOWN_LOGOS = ["prowlarr", "sabnzbd", "qbittorrent", "mediaguard"];
@@ -196,10 +203,11 @@ export function Stepper({ steps }: { steps: Array<{ label: string; status: "done
 }
 
 export function Timeline({ items }: { items: Array<{ title: ReactNode; meta?: ReactNode; tone?: "success" | "danger" | "warning" | "accent" | "neutral"; icon?: LucideIcon }> }) {
+  // Peil: an event that went as asked is neutral (check); only failures carry the down colour.
   return (
     <div className="timeline">
       {items.map((item, i) => {
-        const Icon = item.icon ?? (item.tone === "success" ? CircleCheck : item.tone === "danger" ? CircleX : Info);
+        const Icon = item.icon ?? (item.tone === "success" ? Check : item.tone === "danger" ? OctagonX : Info);
         return (
           <div className="tl-item" key={i}>
             <span className={cn("tl-dot", item.tone && item.tone !== "neutral" && `tl-dot--${item.tone}`)}><Icon className="ico" aria-hidden="true" /></span>
@@ -245,7 +253,7 @@ export function DangerDialog({ open, onClose, onConfirm, title, description, imp
           </Field>
         </div>
       ) : null}
-      {error ? <div className="field-error" role="alert" style={{ marginTop: 12 }}><CircleX className="ico ico-sm" aria-hidden="true" />{error}</div> : null}
+      {error ? <div className="field-error" role="alert" style={{ marginTop: 12 }}><OctagonX className="ico ico-sm" aria-hidden="true" />{error}</div> : null}
     </Modal>
   );
 }

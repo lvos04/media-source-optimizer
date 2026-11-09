@@ -39,7 +39,7 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
           {(d) => (
             <div className="list">
               {d.items.map((c) => {
-                const st = CHANGE_STATUS[c.status] ?? { tone: "neutral" as const, label: "change.status.preview" as const };
+                const st = CHANGE_STATUS[c.status] ?? { tone: "neutral" as const, label: "change.status.preview" as const, icon: undefined };
                 return (
                   <button type="button" key={String(c.id)} className="list-row list-row--hover" aria-pressed={selected === Number(c.id)}
                     style={{ width: "100%", textAlign: "left", background: selected === Number(c.id) ? "var(--mg-raised)" : "none", border: 0, font: "inherit", color: "inherit", cursor: "pointer" }}
@@ -48,7 +48,7 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
                       <div className="list-title">{c.title}</div>
                       <div className="list-sub mono">#{String(c.id)} · {c.target} · {relative(c.created_at)}</div>
                     </div>
-                    <div className="list-aside"><RiskChip risk={c.risk} /><StatusChip tone={st.tone}>{(c.status as string) === "discarded" ? t("automation.changeDiscarded") : t(st.label)}</StatusChip></div>
+                    <div className="list-aside"><RiskChip risk={c.risk} /><StatusChip tone={st.tone} icon={st.icon}>{(c.status as string) === "discarded" ? t("automation.changeDiscarded") : t(st.label)}</StatusChip></div>
                   </button>
                 );
               })}

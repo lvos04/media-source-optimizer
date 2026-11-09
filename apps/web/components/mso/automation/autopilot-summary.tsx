@@ -34,7 +34,7 @@ function ModeLine({ s }: { s: CalmAutopilotSummary }) {
   const m = mode ?? s.mode;
   const p = mode === null ? s.paused : paused;
   if (m === "autopilot" && !p) return <StatusChip tone="accent" icon={Bot}>{t("autopilot.modeOn")}</StatusChip>;
-  if (m === "autopilot") return <StatusChip tone="warning">{t("autopilot.modePaused")}</StatusChip>;
+  if (m === "autopilot") return <StatusChip tone="paused">{t("autopilot.modePaused")}</StatusChip>;
   if (m === "manage") return <StatusChip tone="neutral">{p ? t("autopilot.modeManagePaused") : t("autopilot.modeManage")}</StatusChip>;
   return <StatusChip tone="neutral" icon={Eye}>{t("autopilot.modeReadOnly")}</StatusChip>;
 }
@@ -256,7 +256,7 @@ export function WaitingCard({ className = "span-12" }: { className?: string }) {
   }
   return (
     <Card className={className} id="wacht-op-jou" title={t("autopilot.waitTitle")} sub={t("autopilot.waitSub")} icon={Hand} flush
-      actions={w?.decisions ? <StatusChip tone="warning">{t("calm.waitDecisions", { count: num(w.decisions) })}</StatusChip> : undefined}>
+      actions={w?.decisions ? <StatusChip tone="neutral" icon={Hand}>{t("calm.waitDecisions", { count: num(w.decisions) })}</StatusChip> : undefined}>
       <ResourceView resource={res} endpoint={WAIT_ENDPOINT} compact>
         {(data) => <><WaitingRows w={data} /><InfoRows w={data} /></>}
       </ResourceView>
@@ -278,7 +278,7 @@ export function WeeklyDigest() {
                 <ModeLine s={s} />
                 <span className="t-2" style={{ fontSize: 12.5 }}>{t("calm.actionsTotalWeek", { count: num(s.actions_total) })}</span>
                 <SyncLine syncs={s.syncs} />
-                {s.waiting.decisions ? <Link href="/#wacht-op-jou"><StatusChip tone="warning" icon={Hand}>{t("autopilot.waitingChip", { count: num(s.waiting.decisions) })}</StatusChip></Link> : null}
+                {s.waiting.decisions ? <Link href="/#wacht-op-jou"><StatusChip tone="neutral" icon={Hand}>{t("autopilot.waitingChip", { count: num(s.waiting.decisions) })}</StatusChip></Link> : null}
               </div>
               {s.actions_total === 0
                 ? <StateView kind="empty" compact title={t("autopilot.nothingWeek")} body={s.mode === "read_only" ? t("autopilot.nothingReadOnly") : t("autopilot.nothingBody")} />

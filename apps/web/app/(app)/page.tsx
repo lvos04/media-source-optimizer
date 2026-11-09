@@ -2,7 +2,7 @@
 "use client";
 
 import {
-  Activity, ArrowRight, CircleX, Coins, DatabaseBackup, GitPullRequestArrow, HeartPulse, History, Lightbulb, MapPin, Plug, ShieldCheck,
+  Activity, ArrowRight, Coins, DatabaseBackup, GitPullRequestArrow, HeartPulse, History, Lightbulb, MapPin, OctagonX, Plug, ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -21,12 +21,14 @@ import { healthLabel, healthTone } from "@/lib/status";
 
 const RISKS: Risk[] = ["toestemming_nodig", "automatisch_veilig", "advies"];
 const LOC_LABEL: Record<string, MessageKey> = { source: "overview.loc.source", provider: "overview.loc.provider", client: "overview.loc.client" };
-const MG_TONE: Record<string, Tone> = { connected: "success", degraded: "warning", standalone: "neutral" };
+// "connected" is a link state, not health (Peil §4.3): neutral "Gekoppeld" pill.
+const MG_TONE: Record<string, Tone> = { connected: "linked", degraded: "warning", standalone: "neutral" };
 
 export default function OverviewPage() {
-  const { t, date, num, pct, money } = useI18n();
+  const { t, date, num, pct, money, relative } = useI18n();
   const ov = useResource<Overview>("/overview", undefined, 30_000);
   const o = ov.data;
+  const loading = ov.loading || (!o && !ov.error);
   const health = o?.health;
   const healthTxt = health ? t(healthLabel(health.status)) : "—";
   const cost = o?.costs;
@@ -50,23 +52,31 @@ export default function OverviewPage() {
         <ResourceView resource={ov} endpoint="GET /api/v1/overview">{() => null}</ResourceView>
       ) : (
         <>
+          {/* Peil: verouderd is visible (dashed + hatched mark, status Onbekend) — the last known numbers stay */}
+          {ov.stale && o ? <div className="stale-mark" role="status" style={{ marginBottom: 12 }}>{t("state.stale", { age: relative(ov.fetchedAt) })}</div> : null}
           <section className="kpi-grid" aria-label={t("overview.kpis")}>
-            <KpiCard label={t("overview.kpi.health")} icon={HeartPulse} unavailable={!o || health?.status === "unknown"}
-              value={healthTxt}
-              tone={health?.status === "healthy" ? "success" : health?.status === "offline" ? "danger" : health?.status === "degraded" ? "warning" : undefined}
+            <KpiCard label={t("overview.kpi.health")} icon={HeartPulse} loading={loading} unavailable={!loading && (!o || health?.status === "unknown" || ov.stale)}
+              reason={ov.stale ? t("state.staleShort") : undefined}
+              value={health ? <StatusChip tone={healthTone(health.status)} size="lg">{healthTxt}</StatusChip> : healthTxt}
               meta={health ? (health.issues.length ? t("overview.kpi.healthMeta", { count: num(health.issues.length) }) : t("overview.kpi.healthOk")) : null}
               href="/systeem" drill={t("overview.drill.system")} />
-            <KpiCard label={t("overview.kpi.active")} icon={Activity} unavailable={!o?.downloads.available}
+            <KpiCard label={t("overview.kpi.active")} icon={Activity} loading={loading} unavailable={!loading && !o?.downloads.available}
+              reason={o?.downloads.reason ?? undefined}
               value={num(o?.downloads.total_active ?? 0)}
               meta={o?.downloads.available ? t("overview.kpi.activeMeta", { usenet: num(o.downloads.active.usenet), torrent: num(o.downloads.active.torrent) }) : o?.downloads.reason}
               href="/downloads" drill={t("overview.drill.downloads")} />
-            <KpiCard label={t("overview.kpi.failed")} icon={CircleX} unavailable={!o?.failures.available}
-              tone={o?.failures.last_7d ? "danger" : undefined} value={num(o?.failures.last_7d ?? 0)}
+            <KpiCard label={t("overview.kpi.failed")} icon={OctagonX} loading={loading} unavailable={!loading && !o?.failures.available}
+              reason={o?.failures.reason ?? undefined}
+              value={num(o?.failures.last_7d ?? 0)}
               meta={o?.failures.available ? t("overview.kpi.failedMeta", { day: num(o.failures.last_24h), rate: o.failures.failure_rate_7d == null ? "—" : pct(o.failures.failure_rate_7d * 100, 1) }) : o?.failures.reason}
               href="/downloads" drill={t("overview.drill.downloads")} />
-            <KpiCard label={t("overview.kpi.costs")} icon={Coins} unavailable={!cost?.available}
+            {/* B05-008: never an amount that looks complete when services have no price ("Deels onbekend") */}
+            <KpiCard label={t("overview.kpi.costs")} icon={Coins} loading={loading} unavailable={!loading && !cost?.available}
+              reason={cost?.reason ?? undefined}
               value={cost?.available ? money((cost.monthly_cents ?? 0) / 100, cost.currency) : "—"}
-              meta={cost?.available ? (cost.unknown?.length ? t("overview.kpi.costsUnknown", { count: num(cost.unknown.length) }) : t("overview.kpi.costsMeta", { count: num(cost.services ?? 0) })) : cost?.reason}
+              meta={cost?.available ? (cost.unknown?.length
+                ? <><StatusChip tone="unknown">{t("overview.kpi.costsPartlyUnknown")}</StatusChip> {t("overview.kpi.costsUnknown", { count: num(cost.unknown.length) })}</>
+                : t("overview.kpi.costsMeta", { count: num(cost.services ?? 0) })) : cost?.reason}
               href="/kosten" drill={t("overview.drill.costs")} />
           </section>
 
@@ -109,7 +119,7 @@ function FailureLocations({ o }: { o: Overview }) {
               .map(([r, n]) => `${f.by_reason.find((x) => x.reason === r)?.label ?? r} (${num(n)})`).join(" · ");
             return (
               <div className="list-row list-row--wrap" key={`${l.kind}:${l.id}`}>
-                <span className="list-icon list-icon--danger"><CircleX className="ico" aria-hidden="true" /></span>
+                <span className="list-icon list-icon--danger"><OctagonX className="ico" aria-hidden="true" /></span>
                 <div className="list-main"><div className="list-title">{l.label}</div><div className="list-sub" style={{ whiteSpace: "normal" }}>{top}</div></div>
                 <div className="list-aside"><StatusChip tone="neutral" icon={null}>{t(LOC_LABEL[l.kind])}</StatusChip><strong className="num">{num(l.count)}</strong></div>
               </div>
@@ -152,7 +162,7 @@ function Connectors({ o }: { o: Overview }) {
                 </div>
                 <div className="list-aside">
                   {c.configured ? <StatusChip tone={healthTone(c.status)} title={c.message ?? undefined}>{chip}</StatusChip>
-                    : <StatusChip tone="neutral">{t("status.notConfigured")}</StatusChip>}
+                    : <StatusChip tone="unlinked">{t("status.notConfigured")}</StatusChip>}
                   {down ? <Link className="link-more" href="/instellingen?tab=verbindingen">{t("maintenance.conn.fix")}</Link> : null}
                 </div>
               </div>
@@ -225,12 +235,13 @@ function SystemCard({ o }: { o: Overview }) {
           ) : null}</dd>
         <dt>{t("overview.backup")}</dt>
         <dd>{o.backup.available ? (
-          <StatusChip tone={o.backup.stale ? "warning" : "success"} icon={DatabaseBackup}>{duration(o.backup.age_s)}{o.backup.stale ? ` · ${t("overview.backupOld")}` : ""}</StatusChip>
+          o.backup.stale ? <StatusChip tone="warning" icon={DatabaseBackup}>{duration(o.backup.age_s)} · {t("overview.backupOld")}</StatusChip>
+            : <span className="row" style={{ gap: 6, display: "inline-flex" }}><DatabaseBackup className="ico" aria-hidden="true" />{duration(o.backup.age_s)}</span>
         ) : <StatusChip tone="warning">{t("overview.backupNone")}</StatusChip>}</dd>
         <dt>{t("overview.worker")}</dt>
-        <dd><StatusChip tone={w.healthy ? "success" : "warning"}>{w.healthy ? t("overview.workerOk") : w.seen ? t("overview.workerStale") : t("overview.workerNever")}</StatusChip></dd>
+        <dd><StatusChip tone={w.healthy ? "healthy" : w.seen ? "warning" : "unknown"}>{w.healthy ? t("overview.workerOk") : w.seen ? t("overview.workerStale") : t("overview.workerNever")}</StatusChip></dd>
         <dt>{t("overview.jobsFailing")}</dt>
-        <dd>{failing ? <Link href="/systeem"><StatusChip tone="danger">{num(failing)}</StatusChip></Link> : <StatusChip tone="success">0</StatusChip>}</dd>
+        <dd>{failing ? <Link href="/systeem"><StatusChip tone="danger">{num(failing)}</StatusChip></Link> : <span className="num">{num(0)}</span>}</dd>
         <dt>{t("overview.queue")}</dt>
         <dd>{t("overview.queueValue", { queued: num(o.jobs.queued), running: num(o.jobs.running) })}</dd>
       </dl>
@@ -249,7 +260,7 @@ function FailureReasons({ o }: { o: Overview }) {
   const f = o.failures;
   if (!f.available || f.by_reason.length === 0) return null;
   return (
-    <Card className="span-12" title={t("overview.failureReasons")} icon={CircleX} flush>
+    <Card className="span-12" title={t("overview.failureReasons")} icon={OctagonX} flush>
       <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
         <table className="table table--compact table--stack">
           <thead><tr><th>{t("overview.reason")}</th><th className="num">{t("overview.last24h")}</th><th className="num">{t("overview.last7d")}</th></tr></thead>

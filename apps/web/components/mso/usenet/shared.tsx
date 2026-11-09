@@ -1,14 +1,15 @@
 "use client";
 
-import { Ban, CircleHelp, Gauge, KeyRound, PlugZap, PowerOff, ShieldAlert, Timer, Unplug, UserRoundPen } from "lucide-react";
+import { Ban, CircleHelp, Gauge, KeyRound, PowerOff, ShieldAlert, Timer, Unplug, UserRoundPen } from "lucide-react";
 
 import { StatusChip, type Tone } from "@/components/mg/primitives";
 import type { ConfidenceLevel, ProviderStatus, SabServerStatus } from "@/lib/api/usenet";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
+// provider checks are real measurements: "ok" is measured health (Gezond)
 const STATUS_TONE: Record<ProviderStatus, Tone> = {
-  ok: "success", auth_failed: "danger", account_expired: "danger", rate_limited: "warning", block_exhausted: "danger",
-  unreachable: "danger", tls_error: "danger", timeout: "warning", error: "warning", unknown: "neutral",
+  ok: "healthy", auth_failed: "danger", account_expired: "danger", rate_limited: "warning", block_exhausted: "danger",
+  unreachable: "danger", tls_error: "danger", timeout: "warning", error: "warning", unknown: "unknown",
   missing_credentials: "warning", access_denied: "danger", sab_blocked: "warning", disabled: "neutral",
   budget_exhausted: "warning",
 };
@@ -29,12 +30,19 @@ export function ProviderStatusChip({ status, detail }: { status: ProviderStatus;
   );
 }
 
-const CONF_TONE: Record<ConfidenceLevel, Tone> = { high: "success", medium: "info", low: "warning", none: "neutral" };
+// Peil ZekerheidLabel (T-24): certainty is ink with 1–3 dots, never a health colour; no data = Onbekend.
+const CONF_DOTS: Record<ConfidenceLevel, number> = { high: 3, medium: 2, low: 1, none: 0 };
 
 export function ConfidenceChip({ level }: { level: ConfidenceLevel }) {
   const { t } = useI18n();
-  const l = (level in CONF_TONE ? level : "none") as ConfidenceLevel;
-  return <StatusChip tone={CONF_TONE[l]} icon={l === "none" ? PlugZap : undefined}>{t(`usenet.conf.${l}` as MessageKey)}</StatusChip>;
+  const l = (level in CONF_DOTS ? level : "none") as ConfidenceLevel;
+  if (l === "none") return <StatusChip tone="unknown">{t(`usenet.conf.${l}` as MessageKey)}</StatusChip>;
+  return (
+    <span className="chip zekerheid" data-as="zekerheid">
+      <span className="zekerheid-dots" aria-hidden="true">{[1, 2, 3].map((i) => <i key={i} data-on={i <= CONF_DOTS[l] || undefined} />)}</span>
+      {t(`usenet.conf.${l}` as MessageKey)}
+    </span>
+  );
 }
 
 /** Ratio 0..1 → "97,5%" (i18n pct expects a percentage value). */

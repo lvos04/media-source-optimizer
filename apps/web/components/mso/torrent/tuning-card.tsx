@@ -162,7 +162,7 @@ function RunRow({ run, onChanged }: { run: TuningRun; onChanged: () => void }) {
         <span className="grow" />
         {run.change_risk ? <RiskChip risk={run.change_risk} /> : null}
         {!open && run.change_status && CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS] ? (
-          <StatusChip tone={CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS].tone}>
+          <StatusChip tone={CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS].tone} icon={CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS].icon}>
             {t("torrent.tuning.changeStatus", { status: t(CHANGE_STATUS[run.change_status as keyof typeof CHANGE_STATUS].label) })}
           </StatusChip>
         ) : null}

@@ -2,7 +2,7 @@
 export const messages = {
   // ---------------------------------------------------------------- MediaGuard-koppeling
   "mg.sub": "Optionele, alleen-lezen koppeling via de gedocumenteerde MediaGuard-API. MediaGuard blijft eigenaar van bibliotheek, kwaliteit en import.",
-  "mg.mode.connected": "Verbonden",
+  "mg.mode.connected": "Gekoppeld",
   "mg.mode.degraded": "Beperkt",
   "mg.mode.standalone": "Zelfstandig",
   "mg.mode.unknown": "Onbekend",
@@ -59,7 +59,7 @@ export const messages = {
   "mg.sync.title": "Synchronisatie",
   "mg.sync.never": "Nog niet gesynchroniseerd",
   "mg.sync.neverBody": "Start een synchronisatie of wacht op de volgende geplande ronde.",
-  "mg.sync.ok": "Geslaagd",
+  "mg.sync.ok": "Afgerond",
   "mg.sync.failed": "Mislukt",
   "mg.sync.partial": "Deelronde: gaat verder bij pagina {page}",
   "mg.sync.partialHint": "De wachtlijst is groter dan het maximum aantal pagina's per ronde. MSO leest de rest in de volgende rondes (elke 5 minuten) en ververst zo de hele lijst zonder MediaGuard te overbelasten.",

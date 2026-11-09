@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Check, Eye, PauseCircle, ShieldCheck, ShieldX } from "lucide-react";
+import { Bot, Check, Eye, Lock, ShieldCheck, ShieldX } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -82,9 +82,9 @@ export function ModeSettingsCard() {
               : mode === "read_only" ? <StatusChip tone="info" icon={Eye}>{t("mode.read_only")}</StatusChip>
                 : <StatusChip tone="neutral" pending={loading}>{loading ? t("mode.loadingReason") : t("mode.unknown")}</StatusChip>}
             {mode !== null ? (
-              paused ? <StatusChip tone="warning" icon={PauseCircle}>{t("mode.section.pausedChip")}</StatusChip>
+              paused ? <StatusChip tone="paused">{t("mode.section.pausedChip")}</StatusChip>
                 : mode === "manage" || mode === "autopilot" ? <StatusChip tone="success">{t("mode.section.runningChip")}</StatusChip>
-                  : <StatusChip tone="neutral">{t("mode.section.blockedChip")}</StatusChip>
+                  : <StatusChip tone="neutral" icon={Lock}>{t("mode.section.blockedChip")}</StatusChip>
             ) : null}
           </div>
           <span title={disabledReason} style={{ alignSelf: "flex-start" }}>
@@ -159,13 +159,13 @@ export function AutopilotExplainer({ cap, age, compact = false }: { cap?: number
   return (
     <div className={compact ? "stack-sm" : "grid"} style={compact ? undefined : { gap: 12 }} data-testid="autopilot-explainer">
       <div className={compact ? "stack-sm" : "span-6 stack-sm"}>
-        <strong style={{ fontSize: 13 }}><Check className="ico ico-sm" aria-hidden="true" style={{ color: "var(--mg-success)" }} /> {t("mode.section.autopilotDoesTitle")}</strong>
+        <strong style={{ fontSize: 13 }}><Check className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autopilotDoesTitle")}</strong>
         <ul className="t-2" style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.5 }}>
           {DOES.map((k) => <li key={k}>{t(k)}</li>)}
         </ul>
       </div>
       <div className={compact ? "stack-sm" : "span-6 stack-sm"}>
-        <strong style={{ fontSize: 13 }}><ShieldX className="ico ico-sm" aria-hidden="true" style={{ color: "var(--mg-danger)" }} /> {t("mode.section.autopilotNeverTitle")}</strong>
+        <strong style={{ fontSize: 13 }}><ShieldX className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autopilotNeverTitle")}</strong>
         <ul className="t-2" style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.5 }}>
           {NEVER.map((k) => <li key={k}>{t(k)}</li>)}
         </ul>

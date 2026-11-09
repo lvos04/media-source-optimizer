@@ -30,7 +30,7 @@ export function confidenceText(it: SearchItem, t: Formatters["t"]): string {
 export const MEDIA_CATEGORIES: MediaCategory[] = ["tv", "tv-anime", "movies", "movies-anime"];
 
 export const SOURCE_STATUS: Record<SourceStatus, { tone: Tone; icon?: LucideIcon; label: MessageKey }> = {
-  ok: { tone: "success", label: "zoeken.status.ok" },
+  ok: { tone: "healthy", label: "zoeken.status.ok" },
   empty: { tone: "neutral", icon: Search, label: "zoeken.status.empty" },
   timeout: { tone: "warning", icon: Clock, label: "zoeken.status.timeout" },
   error: { tone: "danger", label: "zoeken.status.error" },
@@ -67,7 +67,8 @@ export function ReleaseRibbon({ p }: { p: ParsedTitle }) {
   if (langs) parts.push([langs, "q-lang"]);
   if (!parts.length) return null;
   const label = parts.map((x) => x[0]).join(", ");
-  return <span className="qribbon" aria-label={label} title={label}>{parts.map(([text, cls]) => <span key={text} className={cls} aria-hidden="true">{text}</span>)}</span>;
+  // WCAG 4.1.2: no aria-label on a span (axe aria-prohibited-attr); the full label is sr-only text instead
+  return <span className="qribbon" title={label}><span className="sr-only">{label}</span>{parts.map(([text, cls]) => <span key={text} className={cls} aria-hidden="true">{text}</span>)}</span>;
 }
 
 /** Fake release: a program (or a double extension like .mkv.exe) in the name. MSO never sends it. */

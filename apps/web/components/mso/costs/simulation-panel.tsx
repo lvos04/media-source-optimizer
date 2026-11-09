@@ -8,7 +8,8 @@ import { useResource } from "@/lib/api/hooks";
 import type { ConfidenceLabel, Simulation } from "@/lib/api/insights";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
-export const CONF_TONE: Record<ConfidenceLabel, Tone> = { onbekend: "neutral", laag: "warning", middel: "info", hoog: "success" };
+// certainty is not health (Peil T-24): neutral labels; "onbekend" uses the unknown shape
+export const CONF_TONE: Record<ConfidenceLabel, Tone> = { onbekend: "unknown", laag: "neutral", middel: "neutral", hoog: "neutral" };
 export function ConfidenceChip({ value }: { value: ConfidenceLabel | null | undefined }) {
   const { t } = useI18n();
   const v = value ?? "onbekend";

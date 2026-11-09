@@ -14,7 +14,7 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
 const DIRECT_STATUS: Record<string, { tone: Tone; label: MessageKey }> = {
-  healthy: { tone: "success", label: "idx.status.healthy" },
+  healthy: { tone: "healthy", label: "idx.status.healthy" },
   degraded: { tone: "warning", label: "idx.status.degraded" },
   offline: { tone: "danger", label: "idx.status.offline" },
   auth_failed: { tone: "danger", label: "idx.status.auth_failed" },
@@ -88,7 +88,7 @@ const SCOPE_SOURCE: Record<string, { label: MessageKey; help: MessageKey }> = {
 /** Reliability is stored as 0..1; shown as a percentage with a bar (colour always with the number). */
 function Reliability({ value }: { value: number }) {
   const { pct } = useI18n();
-  const color = value < 0.6 ? "var(--mg-danger)" : value < 0.85 ? "var(--mg-warning)" : "var(--mg-success)";
+  const color = "var(--foreground)"; // reliability is ink, never a status colour (Peil T-24); the number carries the value
   return <span className="confidence">{pct(value * 100)}<span className="bar"><span style={{ width: `${Math.round(value * 100)}%`, background: color }} /></span></span>;
 }
 

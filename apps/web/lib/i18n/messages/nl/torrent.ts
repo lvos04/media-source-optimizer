@@ -157,7 +157,7 @@ export const messages = {
 
   "torrent.conn.title": "Verbinding, poort & VPN",
   "torrent.conn.status": "Status",
-  "torrent.conn.connected": "Verbonden",
+  "torrent.conn.connected": "Gekoppeld",
   "torrent.conn.firewalled": "Poort dicht (firewalled)",
   "torrent.conn.disconnected": "Geen verbinding",
   "torrent.conn.port": "Luisterpoort",

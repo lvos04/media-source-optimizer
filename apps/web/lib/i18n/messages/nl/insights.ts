@@ -15,6 +15,7 @@ export const messages = {
   "overview.kpi.costs": "Kosten per maand",
   "overview.kpi.costsMeta": "{count} dienst(en) · ingevoerde bedragen",
   "overview.kpi.costsUnknown": "{count} dienst(en) zonder maandbedrag",
+  "overview.kpi.costsPartlyUnknown": "Deels onbekend",
   "overview.drill.system": "Systeem",
   "overview.drill.downloads": "Downloads",
   "overview.drill.costs": "Kosten",

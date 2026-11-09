@@ -65,11 +65,11 @@ export const messages = {
   "system.sched.last": "Laatst",
   "system.sched.next": "Volgende",
   "system.sched.status": "Status",
-  "system.sched.ok": "Gelukt",
+  "system.sched.ok": "Afgerond",
   "system.sched.failed": "Mislukt",
   "system.sched.running": "Bezig",
   "system.sched.notYet": "Nog niet gedraaid",
-  "system.sched.off": "Staat stil",
+  "system.sched.off": "Wacht op voorwaarde",
   "system.sched.failed24h": "{count}× mislukt in 24 uur",
   "system.sched.hint": "Je hoeft hier niets voor aan te klikken: de achtergrondwerker start elke taak zelf zodra hij aan de beurt is. Een taak die stilstaat wacht op een koppeling of staat uit in de instellingen. Sommige taken controleren elke ronde of hun eigen interval (instelling) al verstreken is.",
 };

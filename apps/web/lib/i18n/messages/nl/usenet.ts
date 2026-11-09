@@ -124,7 +124,7 @@ export const messages = {
   "usenet.avail.credsHintBody": "Met inloggegevens controleert MSO zelf of jouw aangevraagde artikelen bij {providers} aanwezig zijn. Tot dan toont MSO SABnzbd's eigen tellers (passief). Niet verplicht.",
   "usenet.conf.high": "Hoog vertrouwen",
   "usenet.conf.medium": "Middelmatig vertrouwen",
-  "usenet.conf.low": "Laag vertrouwen",
+  "usenet.conf.low": "Onzeker",
   "usenet.conf.none": "Geen gegevens",
 
   // article tests
@@ -265,7 +265,7 @@ export const messages = {
   "usenet.dl.finished": "Klaar",
   "usenet.dl.speed": "{speed}/s",
   "usenet.dl.paused": "Gepauzeerd",
-  "usenet.dl.success": "Gelukt",
+  "usenet.dl.success": "Voltooid",
   "usenet.dl.failed": "Mislukt",
   "usenet.dl.active": "Bezig",
   "usenet.dl.certainty.zeker": "zeker",

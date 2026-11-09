@@ -6,7 +6,7 @@ import { Progress, StatusChip, type Tone } from "@/components/mg/primitives";
 import type { CompatMatrix, MgMode, MgQuotaOverview } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
 
-const MODE_TONE: Record<MgMode, Tone> = { connected: "success", degraded: "warning", standalone: "neutral" };
+const MODE_TONE: Record<MgMode, Tone> = { connected: "linked", degraded: "warning", standalone: "neutral" };
 const MODE_ICON = { connected: Link2, degraded: Unplug, standalone: Link2Off };
 const MODE_KEY = { connected: "mg.mode.connected", degraded: "mg.mode.degraded", standalone: "mg.mode.standalone" } as const;
 

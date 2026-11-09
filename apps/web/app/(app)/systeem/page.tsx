@@ -17,7 +17,7 @@ import { useResource } from "@/lib/api/hooks";
 import { waitForJob } from "@/lib/api/jobs";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
-import { healthLabel, healthTone, jobKindLabel, jobLabel, jobTone } from "@/lib/status";
+import { healthLabel, healthTone, jobIcon, jobKindLabel, jobLabel, jobTone } from "@/lib/status";
 
 const JOB_FILTERS = ["", "queued", "running", "done", "failed", "cancelled"] as const;
 type JobFilter = (typeof JOB_FILTERS)[number];
@@ -227,7 +227,7 @@ function JobsCard({ num }: { num: (v: number | null | undefined, d?: number) => 
                   ) : null}
                   {job.error ? <div className="t-danger pre-wrap" style={{ fontSize: 12, marginTop: 4 }}>{job.error}</div> : null}
                 </div>
-                <StatusChip tone={jobTone(job.status)} pending={job.status === "running"}>{t(jobLabel(job.status))}</StatusChip>
+                <StatusChip tone={jobTone(job.status)} icon={jobIcon(job.status)} pending={job.status === "running"}>{t(jobLabel(job.status))}</StatusChip>
                 <div className="row">
                   {cancellable ? <Button size="sm" icon={Ban} disabled={!operator} title={!operator ? t("jobs.operatorOnly") : undefined} pending={pending === `cancel-${job.id}`} onClick={() => void act(job, "cancel")}>{t("action.cancelJob")}</Button> : null}
                   {retryable ? <Button size="sm" icon={RotateCcw} disabled={!operator} title={!operator ? t("jobs.operatorOnly") : undefined} pending={pending === `retry-${job.id}`} onClick={() => void act(job, "retry")}>{t("action.retryJob")}</Button> : null}

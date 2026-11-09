@@ -1,4 +1,4 @@
-# Testresultaten — Media Source Optimizer 1.0.0
+# Testresultaten — Media Source Optimizer (1.0.0 t/m 1.6.0)
 
 Datum: 2 november 2026. Alles hieronder is **echt uitgevoerd** in een Linux-sandbox (4 vCPU, 15 GB RAM,
 Docker 29.9, PostgreSQL 16.15) tegen mock-diensten die de publieke API's van Prowlarr, SABnzbd, qBittorrent,
@@ -17,6 +17,42 @@ Zie [docs/HARDWARE_ACCEPTANCE.md](docs/HARDWARE_ACCEPTANCE.md).
 | Web typecheck + eslint + `next build` | 0 fouten (build via web-image) | image `media-source-optimizer-web` |
 | Containerstack (gebouwde images + 7 mocks) smoke/e2e | **19 / 19 geslaagd** | `docs/test-evidence/stack-smoke-report.md` |
 | Playwright (15 schermen × donker/licht × 1440/390 + toetsenbord, alleen-lezen, login) | **68 / 68 geslaagd** | `docs/test-evidence/playwright.log`, `docs/screenshots/` (60 png) |
+
+## 0e. Aanvulling 1.6.0 — echte oorzaak, eerlijke doelen, veiligheid en onderhoud (9 nov 2026)
+
+Gebouwd als acht werkpakketten (zie `docs/dev/PLAN-1.6.0.md` en `docs/dev/v160/*.md`). Elk pakket is apart
+gebouwd, door een onafhankelijke reviewer gecontroleerd en verbeterd. Na het samenvoegen volgde een tweede review op
+de samenwerking tussen de pakketten: 33 bevindingen (1 blokkerend, 8 belangrijk, 24 klein). De blokkerende: een
+1.5.0-back-up (of de back-up vóór de upgrade) terugzetten in 1.6.0 liet MSO niet meer starten. Die is opgelost en
+getest, net als alle belangrijke en de zinvolle kleine bevindingen. Twee kleine bewust niet (gemotiveerd in de
+reviewnotities): terugdraaien van MSO's eigen Prowlarr-registratie blijft zoals in 1.5.0, en alleen autoheal houdt
+rekening met een vergrendelde SABnzbd-configuratie.
+
+Resultaten op de gebouwde 1.6.0-images (eindrun na alle reviews):
+
+| Suite | Resultaat | Bewijs |
+|---|---|---|
+| Backend (pytest, echte PostgreSQL 16, mocks over echte HTTP) | **789 / 789 geslaagd**, 0 overgeslagen (562 s) | `docs/test-evidence/pytest-junit.xml` |
+| Lint (ruff) · web typecheck + eslint · `next build` (20 routes) | 0 meldingen / 0 fouten | — |
+| Containerstack smoke/e2e (schema v607) | **19 / 19 geslaagd** | `docs/test-evidence/stack-smoke-report.md` |
+| Playwright: 16 schermen (nieuw: Voetafdruk) × donker/licht × 1440/390, axe, overflow, toetsenbord, dialogen, alleen-lezen | **78 / 78 geslaagd**, 0 overgeslagen | `docs/test-evidence/playwright.log`, `docs/screenshots/` (64 png) |
+| Alles-in-één image, incl. nieuw scenario 10: upgrade vanaf het 1.5.0-schema (eerst een `pre-upgrade`-back-up, dan migraties 0600–0607) | **10 / 10 geslaagd** | `docs/test-evidence/allinone-report.md` |
+
+Eerlijk over de dialoogtests: in 1.5.0 werden de terugzet- en pauzeerdialoogtest stilletjes overgeslagen. Ze keken
+direct na het laden of de knop er was, vóórdat de back-uplijst en de modus binnen waren. De pauzeertest zocht
+bovendien de verkeerde rol (`dialog` i.p.v. `alertdialog`). Beide tests wachten nu tot de pagina geladen is en draaien
+echt; de dialogen zelf werkten goed.
+
+Nagekeken in broncode in plaats van tegen de echte dienst:
+- SABnzbd 5.1.3: het veld `articles_success` in `server_stats` bevat het aantal **mislukte** artikelen
+  (`api.py` → `BPSMeter.amounts` → `article_stats_failed`). MSO rekent nu `gelukt = geprobeerd − mislukt`; Eweka's
+  "0,4 % gevonden" wordt ±99,6 %. `config&name=test_server` met gemaskeerd wachtwoord plus servernaam, het
+  verwerkingslogboek (`stage_log`) en het categoriegedrag ('*' voor een onbekende categorie) volgen dezelfde broncode.
+- MediaGuard 0.3.7 (zelfde versie als bij de eigenaar): de leesroutes `instances`, `download-clients`, `health` en
+  `provisioning/config`. MSO gebruikt ze optioneel en gaat netjes om met 403/404.
+
+Niet tegen de echte diensten of op echte TrueNAS-hardware geverifieerd: alles hierboven. De controlelijst voor de
+echte installatie staat in `docs/HARDWARE_ACCEPTANCE.md` §10.
 
 ## 0d. Aanvulling 1.5.0 — Autopilot (5 nov 2026)
 

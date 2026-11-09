@@ -154,7 +154,7 @@ Een update is dus altijd een bewuste tagwijziging.
 1. Lees `CHANGELOG.md` van de nieuwe versie (migraties, vereiste stappen).
 2. Maak een back-up in MSO (**Systeem → Back-ups → Nu maken**) én een ZFS-snapshot:
    `sudo zfs snapshot -r tank/apps/media-source-optimizer@voor-update-$(date +%Y%m%d)`.
-3. Noteer de schemaversie (Systeem → Info, `schema_version`).
+3. Noteer de schemaversie (Back-up & updates → kaart MSO-core → Schemaversie).
 4. **Apps → media-source-optimizer → Edit**, vervang `1.0.0` door de nieuwe versie bij `MSO_CORE_IMAGE` en
    `MSO_WEB_IMAGE`, **Save**. `init` en `migrate` draaien opnieuw; `api` start pas na een geslaagde migratie.
 5. Controleer dat `migrate` met `Exited (0)` stopte en Systeem de nieuwe versie toont.

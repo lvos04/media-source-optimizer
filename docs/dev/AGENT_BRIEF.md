@@ -30,6 +30,9 @@ AV1 reference (read-only): `/home/user/lvos04/av1`.
   A local PostgreSQL 16 test server runs on 127.0.0.1:55432 (user `mso`, trust auth); each pytest session
   creates its own database, tables are truncated between tests. If it is down, start it with:
   `su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/msotest-pg/data -o '-p 55432 -k /tmp -c listen_addresses=127.0.0.1' -l /var/lib/msotest-pg/log start"`.
+- Backup/restore tests call `pg_dump`/`pg_restore`. With several PostgreSQL clients installed side by side (e.g.
+  16 and 18 behind pg_wrapper) set `MSO_PG_BIN=/usr/lib/postgresql/16/bin`, as `.github/workflows/ci.yaml` and
+  `release.yaml` do; otherwise dump and check can run with different versions ("unsupported version (1.16)").
 - Run only your feature modules while others are mid-edit: `MSO_FEATURES=prowlarr,search pytest …`
   (comma list of module-name prefixes under `mso.connectors.*` / `mso.features.*`).
 - Fixtures (`tests/conftest.py`): `app`, `db`, `client` (anonymous), `admin`/`operator`/`viewer` (logged in,

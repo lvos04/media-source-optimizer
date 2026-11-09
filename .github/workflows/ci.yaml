@@ -1,6 +1,7 @@
 # Media Source Optimizer — CI
 #
-# python   ruff + pytest (unit/contract/integration incl. mocks over real HTTP) against a PostgreSQL 16 service
+# python   ruff + pytest (unit/contract/integration incl. mocks over real HTTP) against a PostgreSQL 16 service,
+#          with pg_dump/pg_restore 16 via MSO_PG_BIN (as release.yaml)
 # web      typecheck + lint + production build of the Next.js UI
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
 # stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
@@ -56,6 +57,13 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: apps/core/pyproject.toml
+      - name: Install PostgreSQL 16 client (pg_dump/pg_restore for backup tests, as release.yaml)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -q && sudo apt-get install -yq postgresql-client-16
+          echo "MSO_PG_BIN=/usr/lib/postgresql/16/bin" >> "$GITHUB_ENV"
       - name: Install core + test extras
         run: pip install -e "apps/core[test]"
       - name: Ruff

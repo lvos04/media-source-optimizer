@@ -126,7 +126,7 @@ def _use(sab: Any, server: str, nbytes: int = 50_000_000) -> None:
     from datetime import date
 
     day = date.today().isoformat()
-    st = sab.stats.setdefault(server, {"daily": {}, "articles_tried": {}, "articles_success": {}})
+    st = sab.stats.setdefault(server, {"daily": {}, "articles_tried": {}, "articles_failed": {}})
     st["daily"][day] = st["daily"].get(day, 0) + nbytes
     st["articles_tried"][day] = st["articles_tried"].get(day, 0) + 70
 

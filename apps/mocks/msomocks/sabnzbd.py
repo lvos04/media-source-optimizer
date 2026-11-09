@@ -394,7 +394,7 @@ class SabState:
                 "daily": dict(s["daily"]),
                 "articles_tried": dict(s["articles_tried"]),
                 # the real SABnzbd puts article_stats_failed in this field (api.py _api_server_stats)
-                "articles_success": dict(s["articles_failed"]),
+                "articles_success": dict(s.get("articles_failed") or {}),
             }
             for k in ("total", "month", "week"):
                 out[k] += total

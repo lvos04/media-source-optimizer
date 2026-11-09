@@ -5,7 +5,7 @@
 # die voer je in de setup-wizard van de app in. Pas alleen het pad en eventueel de poort aan.
 services:
   media-source-optimizer:
-    image: ghcr.io/lvos04/media-source-optimizer:1.5.0
+    image: ghcr.io/lvos04/media-source-optimizer:1.6.0
     restart: unless-stopped
     ports:
       - "38081:38081"            # http://<truenas>:38081

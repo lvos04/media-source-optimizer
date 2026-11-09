@@ -50,7 +50,7 @@ test("pauzeer-dialoog is volledig zichtbaar, ook bij een lage viewport", async (
   const ready = await expect(button).toBeEnabled({ timeout: 15_000 }).then(() => true, () => false);
   test.skip(!ready, "pauzeknop niet beschikbaar voor deze gebruiker");
   await button.click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog"); // a confirmation: role alertdialog (not dialog)
   await expect(dialog).toBeVisible();
   const box = await dialog.boundingBox();
   expect(box, "dialog has a box").not.toBeNull();

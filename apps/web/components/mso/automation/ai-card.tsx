@@ -114,7 +114,7 @@ export function AiCard() {
             {u.refused_or_failed ? <><dt /><dd className="t-3">{t("ai.refused", { count: num(u.refused_or_failed) })}</dd></> : null}
             <dt>Tokens</dt><dd className="num">{num(u.input_tokens)} in · {num(u.output_tokens)} uit</dd>
             <dt>{t("ai.price")}</dt>
-            <dd>{s.price ? t("ai.priceValue", { input: num(s.price.input_cents_per_mtok), output: num(s.price.output_cents_per_mtok) }) : <StatusChip tone="warning">{t("ai.priceNone")}</StatusChip>}</dd>
+            <dd>{s.price ? t("ai.priceValue", { input: num(s.price.input_cents_per_mtok), output: num(s.price.output_cents_per_mtok) }) : <StatusChip tone="unknown">{t("ai.priceNone")}</StatusChip>}</dd>
           </dl>
           <div className="toolbar">
             <Button icon={PlugZap} disabled={!isAdmin || !s.active} title={!isAdmin ? adminReason : s.reason ?? undefined} pending={pending === "test"} onClick={() => void test()}>{t("ai.test")}</Button>

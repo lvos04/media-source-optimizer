@@ -56,7 +56,7 @@ export function SettingField({ def, value, draft, error, onDraft, disabled }: {
         <div className="setting-name">
           <label htmlFor={inputId}>{def.label}</label>
           <RiskChip risk={def.risk} />
-          {def.restart ? <StatusChip tone="warning" icon={RefreshCw}>{t("settingField.restart")}</StatusChip> : null}
+          {def.restart ? <StatusChip tone="info" icon={RefreshCw}>{t("settingField.restart")}</StatusChip> : null}
           {locked ? <StatusChip tone="neutral" icon={Lock}>{t("settingField.locked")}</StatusChip> : null}
         </div>
         <div className="setting-key">{def.key}</div>

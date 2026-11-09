@@ -73,7 +73,7 @@ export default function MediaGuardPage() {
                   <dt>{t("mg.checked")}</dt><dd>{d.checked_at ? relative(d.checked_at) : "—"}</dd>
                   <dt>{t("mg.searchRoute")}</dt><dd>{d.search.available ? <StatusChip tone="success">{t("mg.available")}</StatusChip> : <span>{d.search.reason ?? t("mg.unavailable")}</span>}</dd>
                   <dt>{t("mg.autoSearch")}</dt><dd>{d.search.auto_enabled
-                    ? (d.search.automation_allowed ? <StatusChip tone="warning">{t("mg.autoOn")}</StatusChip> : <StatusChip tone="neutral">{t("mg.autoBlocked")}</StatusChip>)
+                    ? (d.search.automation_allowed ? <StatusChip tone="success">{t("mg.autoOn")}</StatusChip> : <StatusChip tone="neutral">{t("mg.autoBlocked")}</StatusChip>)
                     : <StatusChip tone="neutral">{t("mg.autoOff")}</StatusChip>}</dd>
                 </dl>
                 {d.error ? <p className="t-danger">{d.error}</p> : null}

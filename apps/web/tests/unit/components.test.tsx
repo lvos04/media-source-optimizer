@@ -96,3 +96,14 @@ describe("Dot — status nooit alleen kleur", () => {
     expect(html(<Dot tone="success" />)).not.toContain("healthy");
   });
 });
+
+describe("StatusChip stale (Verouderd)", () => {
+  it("stippel + arcering + clock-alert, nooit amber", () => {
+    const out = html(<StatusChip tone="stale">Verouderd</StatusChip>);
+    expect(out).toContain('data-status="stale"');
+    expect(out).toContain("border-dashed");
+    expect(out).toContain("arcering");
+    expect(out).toContain("lucide-clock-alert");
+    expect(out).not.toContain("degraded");
+  });
+});

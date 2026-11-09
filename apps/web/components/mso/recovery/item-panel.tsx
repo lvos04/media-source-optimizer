@@ -57,7 +57,7 @@ function CandidateRow({ c, canSend, sendReason, onSend, pending }: {
         {c.size_bytes ? <span>{bytes(c.size_bytes)}</span> : null}
         {c.seeders != null ? <span>{t("rec.cand.seeders", { n: num(c.seeders) })}</span> : null}
         {c.source_id ? <span className="mono t-3">{c.source_id}</span> : null}
-        {c.expired ? <StatusChip tone="warning">{t("rec.cand.expired")}</StatusChip> : null}
+        {c.expired ? <StatusChip tone="neutral">{t("rec.cand.expired")}</StatusChip> : null}
       </div>
       {!c.passed && c.reasons.length ? <p className="t-danger" style={{ padding: "0 12px" }}>{c.reasons.join(" · ")}</p> : null}
       <div className="row wrap" style={{ gap: 8, padding: "0 12px 10px" }}>

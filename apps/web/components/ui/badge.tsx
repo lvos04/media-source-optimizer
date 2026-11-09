@@ -19,6 +19,7 @@ export const badgeVariants = cva(
         neutral: "border-transparent bg-muted text-foreground",
         unknown: "chip--unknown border-dashed border-unknown bg-unknown-bg text-unknown-ink",
         unlinked: "chip--unknown border-dashed border-unknown bg-unknown-bg text-unknown-ink",
+        stale: "chip--stale arcering border-dashed border-stale text-stale-ink",
         paused: "chip--paused border-paused bg-paused-bg text-paused-ink",
         linked: "chip--linked border-border-strong bg-transparent text-foreground",
         approval: "chip--approval border-approval bg-approval-bg text-approval-ink",

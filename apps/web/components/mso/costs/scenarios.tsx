@@ -29,7 +29,7 @@ export function Scenarios({ periodDays }: { periodDays: number }) {
                       <div className="t-3">{s.services.join(" + ") || "—"}</div>
                       {s.notes.map((n) => <div key={n} className="hint" style={{ marginTop: 4, whiteSpace: "normal" }}>{n}</div>)}
                     </td>
-                    <td data-label={t("costs.scen.monthly")}>{money(s.monthly_cents / 100)}{!s.monthly_complete ? <> <StatusChip tone="warning">{t("costs.scen.incomplete")}</StatusChip></> : null}</td>
+                    <td data-label={t("costs.scen.monthly")}>{money(s.monthly_cents / 100)}{!s.monthly_complete ? <> <StatusChip tone="unknown">{t("costs.scen.incomplete")}</StatusChip></> : null}</td>
                     <td data-label={t("costs.scen.backbones")}>
                       <div>{t("costs.scen.backbonesValue", { known: num(s.distinct_known_backbones), unknown: num(s.unknown_backbones) })}</div>
                       <div className="t-3">{s.backbones.map((b) => `${b.label}: ${b.backbone ?? t("costs.backboneUnknown")}`).join(" · ")}</div>

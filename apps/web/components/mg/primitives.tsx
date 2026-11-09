@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
  *   paused   → Gepauzeerd  (circle-pause, info tokens)              linked / unlinked → Gekoppeld / Niet gekoppeld
  *   approval → goedkeuring (violet, clipboard-check)                success / neutral / accent / info → neutral labels
  */
-export type Tone = "healthy" | "success" | "warning" | "danger" | "info" | "accent" | "neutral" | "unknown" | "paused" | "linked" | "unlinked" | "approval";
+export type Tone = "healthy" | "success" | "warning" | "danger" | "info" | "accent" | "neutral" | "unknown" | "stale" | "paused" | "linked" | "unlinked" | "approval";
 
 export const TONE_ICON: Record<Tone, LucideIcon | null> = {
   healthy: CircleCheck,
@@ -39,6 +39,7 @@ export const TONE_ICON: Record<Tone, LucideIcon | null> = {
   accent: LoaderCircle,
   neutral: null, // never the pause icon for "unknown/off/quiet" (Peil §7)
   unknown: CircleHelp,
+  stale: ClockAlert,
   paused: CirclePause,
   linked: Link2,
   unlinked: Link2Off,
@@ -46,7 +47,7 @@ export const TONE_ICON: Record<Tone, LucideIcon | null> = {
 };
 
 /** Health axis for forced-colors and tests (`[data-status]`); other axes carry no data-status. */
-const TONE_STATUS: Partial<Record<Tone, string>> = { healthy: "healthy", warning: "degraded", danger: "down", unknown: "unknown", unlinked: "unknown", paused: "paused" };
+const TONE_STATUS: Partial<Record<Tone, string>> = { healthy: "healthy", warning: "degraded", danger: "down", unknown: "unknown", stale: "stale", unlinked: "unknown", paused: "paused" };
 
 /** StatusBadge / Label (C-03): status = shape + icon + word (never colour alone). */
 export function StatusChip({ tone, children, icon, pending = false, size, outline = false, title }: {

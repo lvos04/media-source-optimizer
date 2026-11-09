@@ -205,7 +205,7 @@ export default function StoragePage() {
                         </td>
                         <td data-label={t("storage.obl.status")}>
                           {o.status === "gehaald" ? <StatusChip tone="success">{t("storage.obl.met")}</StatusChip>
-                            : o.status === "loopt" ? <StatusChip tone="warning">{t("storage.obl.running")}</StatusChip>
+                            : o.status === "loopt" ? <StatusChip tone="neutral">{t("storage.obl.running")}</StatusChip>
                               : <StatusChip tone="neutral">{t("storage.obl.noRule")}</StatusChip>}
                           {o.warning ? <div className="t-warning" style={{ marginTop: 4 }}>{t("storage.obl.privateNoRule")}</div> : null}
                         </td>

@@ -78,7 +78,7 @@ export function ModeSettingsCard() {
           <div className="row wrap" style={{ gap: 8 }}>
             <span className="t-2">{t("mode.section.current")}:</span>
             {mode === "autopilot" ? <StatusChip tone="accent" icon={Bot}>{t("mode.autopilot")}</StatusChip>
-              : mode === "manage" ? <StatusChip tone="warning" icon={ShieldCheck}>{t("mode.manage")}</StatusChip>
+              : mode === "manage" ? <StatusChip tone="neutral" icon={ShieldCheck}>{t("mode.manage")}</StatusChip>
               : mode === "read_only" ? <StatusChip tone="info" icon={Eye}>{t("mode.read_only")}</StatusChip>
                 : <StatusChip tone="neutral" pending={loading}>{loading ? t("mode.loadingReason") : t("mode.unknown")}</StatusChip>}
             {mode !== null ? (

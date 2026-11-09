@@ -123,7 +123,7 @@ function RetryDiagnosis({ retry, onChanged }: { retry: UsenetAutopilot["retry"] 
       {brake?.paused ? (
         <InlineState tone="warning" role="status">
           <div className="stack-sm">
-            <span><StatusChip tone="warning">{t("usenetdiag.retry.paused")}</StatusChip> {brake.reason}</span>
+            <span><StatusChip tone="paused">{t("usenetdiag.retry.paused")}</StatusChip> {brake.reason}</span>
             <span>
               <Button size="sm" icon={Play} onClick={() => void resume()} pending={busy} disabled={!gate.allowed}
                 title={gate.reason ?? t("usenetdiag.retry.resumeTitle")}>{t("usenetdiag.retry.resume")}</Button>

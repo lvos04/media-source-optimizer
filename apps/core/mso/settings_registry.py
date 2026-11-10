@@ -5,10 +5,10 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
@@ -129,49 +129,113 @@ def definitions() -> list[dict[str, Any]]:
     return [asdict(d) for d in REGISTRY.values()]
 
 
-# ------------------------------------------------------------------ Hub address (Peil O-11, ADR-0006 punt 1)
+# ------------------------------------------------------------------ Hub address (Peil O-11, ADR-0006 punt 1, ADR-0009)
+# Contract 1.3 §2.3 regel 5 + §3.2 (adresregels): only http(s)://<host>[:<port>] without path, query, fragment or
+# credentials; IPv4 only as a.b.c.d (four decimal parts 0-255 without a leading zero) — shortened, decimal, octal or hex
+# forms (127.1, 2130706433, 0x7f000001, 010.0.0.1, 0) are invalid, because a browser or resolver turns them into another
+# address; IPv6 only between []; one trailing dot of a name does not count (localhost. = localhost); never loopback,
+# link-local or 0.0.0.0/::. MSO never connects to this address (it is only the href of "Terug naar de Hub"), so the
+# per-connection DNS check of §3.2 has nothing to check here. apps/web/lib/hub.ts applies exactly the same rules
+# (shared vectors: tests/vectoren/hub_url.json).
 HUB_URL_ERROR = "Hub-adres: gebruik http(s)://<NAS-adres>:<poort>, zonder pad"
+HUB_URL_IP_ERROR = (
+    "Hub-adres: schrijf een IP-adres als vier getallen van 0 tot 255 met punten ertussen, zonder voorloopnullen"
+)
+HUB_URL_BLOCKED_ERROR = (
+    "Hub-adres: geen localhost, loopback-, link-local- of 0.0.0.0-adres; gebruik het LAN-adres van de NAS"
+)
+# a label that a resolver/browser reads as a number: decimal digits or 0x + hex (WHATWG "ends in a number")
+_NUMERIC_LABEL = re.compile(r"(?:0x[0-9a-f]*|[0-9]+)")
+_NAME_LABEL = re.compile(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?")
+_AUTHORITY = re.compile(r"(?P<host>\[[^\]]*\]|[^:\[\]]*)(?::(?P<port>[0-9]*))?")
 
 
-def _blocked_host(host: str) -> bool:
-    """Loopback, link-local and unspecified addresses (contract 1.2 §3.2, HUB_URL rules); 'localhost' too."""
-    h = host.strip("[]").lower().rstrip(".")
-    if h == "localhost" or h.endswith(".localhost"):
-        return True
-    try:
-        ip = ipaddress.ip_address(h)
-    except ValueError:
-        return False
-    return ip.is_loopback or ip.is_link_local or ip.is_unspecified
+def _blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return _blocked_ip(ip.ipv4_mapped)
+    if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.IPv4Network("0.0.0.0/8"):
+        return True  # 0.0.0.0 and "this network": never a destination
+    return ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast or (
+        isinstance(ip, ipaddress.IPv4Address) and ip == ipaddress.IPv4Address("255.255.255.255")
+    )
+
+
+def _ipv6_text(ip: ipaddress.IPv6Address) -> str:
+    """Serialisation as a browser writes it (WHATWG URL): lower-case hex groups, the first longest run of two or more
+    zero groups as '::', an IPv4-mapped address in hex (::ffff:a00:1) — so core and UI normalise identically."""
+    groups = [int.from_bytes(ip.packed[i : i + 2], "big") for i in range(0, 16, 2)]
+    start, length, i = -1, 1, 0
+    while i < 8:
+        j = i
+        while j < 8 and groups[j] == 0:
+            j += 1
+        if j - i > length:
+            start, length = i, j - i
+        i = max(j, i + 1)
+    parts = [format(g, "x") for g in groups]
+    if start < 0:
+        return ":".join(parts)
+    return ":".join(parts[:start]) + "::" + ":".join(parts[start + length :])
+
+
+def _hub_host(raw_host: str) -> str:
+    """Validated, normalised host (lower case; IPv6 compressed between []) or HTTPException 422."""
+    h = raw_host.lower()
+    if h.startswith("["):
+        inner = h[1:-1]
+        if "%" in inner:  # zone id: link-local only, never a Hub address
+            raise HTTPException(422, detail=HUB_URL_BLOCKED_ERROR)
+        try:
+            ip6 = ipaddress.IPv6Address(inner)
+        except ValueError as exc:
+            raise HTTPException(422, detail=HUB_URL_ERROR) from exc
+        if _blocked_ip(ip6):
+            raise HTTPException(422, detail=HUB_URL_BLOCKED_ERROR)
+        return f"[{_ipv6_text(ip6)}]"
+    name = h[:-1] if h.endswith(".") else h  # one trailing dot does not count
+    labels = name.split(".")
+    if not name or len(name) > 253:
+        raise HTTPException(422, detail=HUB_URL_ERROR)
+    if _NUMERIC_LABEL.fullmatch(labels[-1]) or all(_NUMERIC_LABEL.fullmatch(lb) for lb in labels):
+        try:
+            ip4 = ipaddress.IPv4Address(name)  # Python 3.9.5+: no leading zeros, exactly four parts
+        except ValueError as exc:
+            raise HTTPException(422, detail=HUB_URL_IP_ERROR) from exc
+        if str(ip4) != name:
+            raise HTTPException(422, detail=HUB_URL_IP_ERROR)
+        if _blocked_ip(ip4):
+            raise HTTPException(422, detail=HUB_URL_BLOCKED_ERROR)
+        return name
+    if not all(_NAME_LABEL.fullmatch(lb) for lb in labels):
+        raise HTTPException(422, detail=HUB_URL_ERROR)
+    if name == "localhost" or name.endswith(".localhost"):
+        raise HTTPException(422, detail=HUB_URL_BLOCKED_ERROR)
+    return name
 
 
 def validate_hub_url(d: SettingDef, value: str) -> str:
-    """Empty = no link. Otherwise http(s)://<host>[:<port>] without path, query, fragment or credentials; never
-    loopback, link-local or 0.0.0.0/::. Returns the normalised form (lower-case scheme and host, no trailing slash)."""
+    """Empty = no link. Otherwise the normalised form ``scheme://host[:port]`` (lower-case scheme and host, IPv6
+    compressed, no trailing slash or dot); anything else → 422 with a Dutch explanation (contract 1.3 §3.2)."""
     v = value.strip()
     if not v:
         return ""
-    try:
-        parts = urlsplit(v)
-        port = parts.port  # raises ValueError for an invalid port
-    except ValueError as exc:
-        raise HTTPException(422, detail=HUB_URL_ERROR) from exc
-    host = parts.hostname or ""
-    if (
-        parts.scheme.lower() not in {"http", "https"}
-        or not host
-        or parts.username is not None
-        or parts.password is not None
-        or parts.path not in {"", "/"}
-        or parts.query
-        or parts.fragment
-        or "\\" in v
-        or any(c.isspace() for c in v)
-        or _blocked_host(host)
-    ):
+    if any(c.isspace() for c in v) or "\\" in v or "?" in v or "#" in v or len(v) > 300:
         raise HTTPException(422, detail=HUB_URL_ERROR)
-    shown_host = f"[{host}]" if ":" in host else host
-    return f"{parts.scheme.lower()}://{shown_host}" + (f":{port}" if port is not None else "")
+    scheme, sep, rest = v.partition("://")
+    if not sep or scheme.lower() not in {"http", "https"}:
+        raise HTTPException(422, detail=HUB_URL_ERROR)
+    authority, slash, path = rest.partition("/")
+    if (slash and path) or "@" in authority:
+        raise HTTPException(422, detail=HUB_URL_ERROR)
+    m = _AUTHORITY.fullmatch(authority)
+    if not m or not m.group("host"):
+        raise HTTPException(422, detail=HUB_URL_ERROR)
+    host = _hub_host(m.group("host"))
+    port_txt = m.group("port")
+    port = int(port_txt) if port_txt else None
+    if port is not None and not 1 <= port <= 65535:
+        raise HTTPException(422, detail=HUB_URL_ERROR)
+    return f"{scheme.lower()}://{host}" + (f":{port}" if port is not None else "")
 
 
 # ------------------------------------------------------------------ foundation settings

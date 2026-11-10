@@ -1,5 +1,5 @@
 /* Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/app/globals.css — internally versioned copy, see PROVENANCE.md */
-/* Peil 1.1.0 (docs/ontwerp/PEIL_MIGRATIE.md §8). Volgorde is bindend.
+/* Peil 1.1.1 (docs/ontwerp/PEIL_MIGRATIE.md §8; kopieën gepind in design/ontwerptaal/HERKOMST.json). Volgorde is bindend.
    Fase 2: de bestaande MediaGuard-stijl staat in de cascadelaag "legacy" (tussen Tailwinds base en utilities), zodat
    Tailwind-utilities en de shadcn/ui-componenten in components/ui altijd winnen van mg.css. Fase 1a is daarbinnen
    ongewijzigd: Peil-tokens → mg.css + mso.css → gedeelde aliaslaag → MSO-correcties (peil-mso.css). */

@@ -1,9 +1,10 @@
 # Provenance — apps/web
 
 > **Sinds de Peil-omzetting (november 2026, docs/ontwerp/PEIL_MIGRATIE.md) kopieert MSO het uiterlijk niet meer uit
-> MediaGuard.** De bron van het uiterlijk is de platform-ontwerptaal **Peil 1.1.0**: een versie-gepinde kopie in
-> `design/ontwerptaal/` en, binnen de Docker-context, `apps/web/styles/peil/` (herkomstkop + sha256, controle
-> `npm run check:peil`). Na de overdracht wordt de bron `ai-server-manager/design/ontwerptaal/` (contract 1.2 §13).
+> MediaGuard.** De bron van het uiterlijk is de platform-ontwerptaal **Peil 1.1.1**: een versie-gepinde kopie in
+> `design/ontwerptaal/` en, binnen de Docker-context, `apps/web/styles/peil/` (herkomstkop met versie, bron-commit en
+> sha256; pin in `design/ontwerptaal/HERKOMST.json`; controle `npm run check:peil` en `scripts/bronkopie.py`). De bron
+> is `lvos04/ai-server-manager` (`design/ontwerptaal/`, contract 1.3 §13; ONTWERPTAAL §14).
 >
 > - `styles/mg.css` en `styles/mso.css` zijn vanaf fase 2 **eigendom van MSO** en geen ongewijzigde kopie meer: ze
 >   staan als cascadelaag `legacy` onder de Tailwind-utilities, regels van omgezette onderdelen (schil, knoppen,

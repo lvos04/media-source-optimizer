@@ -284,8 +284,11 @@ function BottomNav({ onMore, moreOpen }: { onMore: () => void; moreOpen: boolean
   // Review stap 5: vijf gelijke kolommen van 64 px braken op 320 px midden in een woord ("Downlo-ads"). Nu krijgt elk
   // item zijn eigen tekstbreedte (flex-auto, min-width = min-content: de langste lettergreep, en ≥ 44 px) en breekt een label alleen op een
   // zacht afbreekstreepje (Nederlandse lettergrepen). Vanaf 360 px past alles op één regel.
+  // Peil 1.1.1 (E16, COMPONENTEN C-01): actief = balk van 3 px in --primary bovenaan + inkt + aria-current, zonder extra
+  // gewicht (dus niet alleen kleur, WCAG 1.4.1). De balk is een ::before, zodat de focusring (box-shadow) blijft staan;
+  // in forced colors onderstreept de Peil-basislaag het actieve item.
   const item = cn("focus-ring relative flex min-h-bottomnav min-w-min flex-auto flex-col items-center justify-center gap-0.5 border-0 bg-transparent px-0.5 text-center text-sm leading-tight font-medium text-muted-foreground no-underline [hyphens:manual]",
-    "aria-[current=page]:text-primary [&_svg]:size-6");
+    "aria-[current=page]:text-foreground aria-[current=page]:before:absolute aria-[current=page]:before:inset-x-0 aria-[current=page]:before:top-0 aria-[current=page]:before:h-[3px] aria-[current=page]:before:bg-primary [&_svg]:size-6");
   return (
     <nav className="bottomnav fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label={t("nav.mobile")}>
       {items.map((it) => (

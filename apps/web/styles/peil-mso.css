@@ -1,5 +1,6 @@
 /* ==========================================================================
-   Media Source Optimizer — MSO-eigen correcties op Peil 1.1.0 (fase 1a)
+   Media Source Optimizer — MSO-eigen correcties op Peil 1.1.1 (fase 1a; sinds 1.1.1 zet de gedeelde aliaslaag zelf de
+   focusring en de algemene scroll-padding terug, E14 — hier staan alleen nog de MSO-eigen aanvullingen)
    Staat in globals.css NA mg.css, mso.css en de gedeelde aliaslaag styles/peil/mediaguard-mso.css.
    Alleen uiterlijk: geen klassen, testids of rollen veranderen. Ontwerp: docs/ontwerp/PEIL_MIGRATIE.md §6.1 (a–j),
    besluit: docs/adr/ADR-0006-peil-omzetting-interpretaties.md punt 6.
@@ -8,18 +9,15 @@
    ongewijzigd.
    ========================================================================== */
 
-/* (a) Peil-focusring: tweekleurig, 3 px, nooit alleen kleur. mg.css zet outline 2 px in één kleur en haalt bij
-       invoervelden de outline weg (box-shadow 3 px) — die regels winnen van Peils @layer base. */
-:focus-visible,
-.input:focus-visible, .select:focus-visible, .textarea:focus-visible {
-  outline: var(--focus-width) solid var(--ring);
-  outline-offset: var(--focus-offset);
-  box-shadow: 0 0 0 var(--focus-offset) var(--ring-halo);
-}
+/* (a) Peil-focusring: tweekleurig, 3 px, nooit alleen kleur. Sinds Peil 1.1.1 zet de gedeelde aliaslaag
+       (styles/peil/mediaguard-mso.css, E14) de ring terug — ook op .input/.select/.textarea en op :focus-within van
+       datum- en tijdvelden; de eigen kopie van die regel is daarom weg. MSO houdt alleen de randkleur bij focus. */
 .input:focus, .select:focus, .textarea:focus { border-color: var(--ring); }
 
 /* (b) Focus nooit achter de vaste kopbalk of ondernavigatie (WCAG 2.4.11). Schil vanaf fase 2a: zijbalk ≥ 1024 px (lg);
-       daaronder ondernavigatie; < 640 px heeft de kopbalk twee rijen (zoekveld eronder). */
+       daaronder ondernavigatie; < 640 px heeft de kopbalk twee rijen (zoekveld eronder). De aliaslaag 1.1.1 zet de
+       algemene regel; deze MSO-regels staan erna en houden de tweede kopbalkrij (< 640 px) mee. MSO heeft geen
+       actiebalk (--actiebalk-h) en geen kindschil (data-schil="kind"). */
 html { scroll-padding-top: calc(var(--header-h) + 0.75rem); scroll-padding-bottom: 0.75rem; }
 @media (max-width: 63.99rem) {
   html { scroll-padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + 0.75rem); }

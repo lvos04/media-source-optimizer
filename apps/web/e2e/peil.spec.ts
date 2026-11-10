@@ -9,7 +9,8 @@ import { expect, test, type Page } from "@playwright/test";
  *  - axe on the shell's dialogs and sheets (Meer, pauze-dialoog, profielmenu) in light and dark
  *  - status shapes: an unknown status never carries the pause icon; only a health badge is green
  *  - keyboard: every tab stop has the Peil ring (≥ 3 px) and is never hidden behind the top bar or bottom navigation
- *  - charts: table twin + keyboard read-out; "Terug naar de Hub" only for a valid systeem.hub_url
+ *  - charts: table twin + keyboard read-out; "Terug naar de Hub" only for a valid systeem.hub_url (contract 1.3 §3.2)
+ *  - bottom navigation (Peil 1.1.1, E16) at 320/390: active = 3 px bar + ink, no extra weight, every label fits
  *  - costs (B05-008): services without a price ⇒ "Deels onbekend" (unknown shape) on Kosten and Overzicht, no savings promise
  */
 const USER = process.env.MSO_E2E_USER ?? "";
@@ -150,6 +151,48 @@ for (const width of [390, 1440]) {
   });
 }
 
+for (const width of [320, 390]) {
+  test(`peil ondernavigatie (1.1.1, E16): actief = balk 3 px + inkt, zonder extra gewicht · ${width}`, async ({ page }) => {
+    test.skip(!USER, "MSO_E2E_USER niet gezet");
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, "/");
+    const nav = page.getByRole("navigation", { name: /mobiel/i });
+    await expect(nav).toBeVisible();
+    const m = await nav.evaluate((el) => {
+      const probe = document.createElement("span");
+      probe.style.background = "var(--primary)";
+      document.body.append(probe);
+      const primary = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      const items = [...el.querySelectorAll<HTMLElement>("a, button")];
+      return items.map((it) => {
+        const cs = getComputedStyle(it);
+        const before = getComputedStyle(it, "::before");
+        const label = it.querySelector("span");
+        return {
+          name: (it.textContent ?? "").replace(/\u00ad/g, "").trim(),
+          current: it.getAttribute("aria-current") === "page",
+          weight: cs.fontWeight, color: cs.color,
+          barHeight: before.content !== "none" ? parseFloat(before.height) : 0,
+          barColor: before.backgroundColor, primary,
+          labelFits: label ? label.scrollWidth <= label.clientWidth + 1 : true,
+          inView: it.getBoundingClientRect().right <= innerWidth + 0.5,
+        };
+      });
+    });
+    const active = m.filter((x) => x.current);
+    expect(active, "precies één actief item (Overzicht)").toHaveLength(1);
+    expect(active[0].barHeight, "balk van 3 px boven het actieve item").toBe(3);
+    expect(active[0].barColor, "balk in --primary").toBe(active[0].primary);
+    for (const other of m.filter((x) => !x.current)) {
+      expect(other.weight, `geen extra gewicht: ${active[0].name} ↔ ${other.name}`).toBe(active[0].weight);
+      expect(other.barHeight, `geen balk bij ${other.name}`).toBe(0);
+      expect(other.color, "actief verschilt ook in inkt").not.toBe(active[0].color);
+    }
+    expect(m.filter((x) => !x.labelFits || !x.inView).map((x) => x.name), "elk label past en elk item staat in beeld").toEqual([]);
+  });
+}
+
 test("peil grafiek: tabelweergave en toetsenbord bij 'Downloads in * per dag'", async ({ page }) => {
   test.skip(!USER, "MSO_E2E_USER niet gezet");
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -230,7 +273,9 @@ test("peil Terug naar de Hub: alleen bij een geldig systeem.hub_url", async ({ p
     await expect(page.getByTestId("sidebar-health")).toBeVisible();
     await expect(page.getByTestId("hub-link"), "leeg ⇒ geen link").toHaveCount(0);
 
-    for (const bad of ["javascript:alert(1)", "http://nas.lan:30080/pad", "http://127.0.0.1:30080"]) {
+    // contract 1.3 §3.2: ook verkorte, decimale, octale en hex-vormen van een IPv4-adres zijn ongeldig (C1.3-MSO-02)
+    for (const bad of ["javascript:alert(1)", "http://nas.lan:30080/pad", "http://127.0.0.1:30080", "http://2130706433",
+      "http://010.0.0.1:30080", "http://[::ffff:127.0.0.1]"]) {
       expect((await put(bad)).status(), `422 voor ${bad}`).toBe(422);
     }
     await page.reload();

@@ -1,8 +1,8 @@
 # MSO web (`apps/web`)
 
 Next.js 16 (App Router) + React 19 + TypeScript + Tailwind 4 + shadcn/ui (new-york, Radix) + lucide. Dutch UI
-(nl-NL). The look follows the platform design language **Peil 1.1.0** (`styles/peil/`, a pinned copy of
-`design/ontwerptaal/`; plan and decisions in `docs/ontwerp/PEIL_MIGRATIE.md` and `docs/adr/ADR-0006/0007`).
+(nl-NL). The look follows the platform design language **Peil 1.1.1** (`styles/peil/`, a pinned copy of
+`design/ontwerptaal/`, pinned to version + source commit in `design/ontwerptaal/HERKOMST.json`; plan and decisions in `docs/ontwerp/PEIL_MIGRATIE.md` and `docs/adr/ADR-0006/0007`).
 **Reuse the components below and Peil utilities (`bg-card`, `text-muted-foreground`, `min-h-touch`, …) instead of
 writing new CSS**; never hex colours, never text below `text-sm` (14 px), every control ≥ 44 px.
 

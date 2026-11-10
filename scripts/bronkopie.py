@@ -11,7 +11,8 @@ Twee soorten kopieën, elk met één pinbestand (de enige plek waar versie, bron
     De ontwerptaal Peil (ONTWERPTAAL §14, pin- en driftregel E08). CSS- en md-kopieën hebben een **herkomstkop van
     precies 2 regels** met versie, bron-commit, bronpad en de sha256 van het bronbestand; alles daaronder is byte-gelijk
     aan de bron. JSON-bestanden kunnen geen kop dragen en zijn byte-gelijk. Tegen de bron: dezelfde versie met andere
-    inhoud = **drift (fout)**; een nieuwere versie = waarschuwing (bewust bijwerken, niet stil meenemen).
+    inhoud = **drift (fout)** voor CSS en JSON (de kopieën van §14); voor de md-documenten een waarschuwing; een
+    nieuwere versie = waarschuwing (bewust bijwerken, niet stil meenemen).
 
 Opdrachten::
 
@@ -299,8 +300,12 @@ def vergelijk(
                 continue
             reden = "ontbreekt" if data is None else "heeft andere inhoud"
             melding = f"{b.kopie}: {b.bron} {reden} op {kop_ref} bij dezelfde versie {pin.versie}"
-            if pin.soort == "peil":
+            if pin.soort == "peil" and b.kop != "md":
                 uit.fouten.append(melding + " — drift (ONTWERPTAAL §14, E08)")
+            elif pin.soort == "peil":
+                # de regels/handoff als document: geen kopie in de zin van §14 (die noemt CSS, aliaslagen en het
+                # sjabloon); een tekstwijziging zonder nieuwe versie is daar geen reden voor een rode CI
+                uit.waarschuwingen.append(melding + " — document gewijzigd zonder nieuwe Peil-versie; bijwerken")
             else:
                 uit.waarschuwingen.append(melding + " — nieuwe kopie overnemen is een stap van de orkestratie")
     return uit

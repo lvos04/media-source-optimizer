@@ -191,6 +191,27 @@ def test_zelfde_peilversie_met_andere_inhoud_in_de_bron_is_drift(opzet: Opzet) -
     assert not any("CONTRACT.md" in f for f in uit.fouten)
 
 
+def test_gewijzigd_peildocument_zonder_nieuwe_versie_is_een_waarschuwing(opzet: Opzet) -> None:
+    """Een md-document (regels/handoff/ADR) is geen kopie in de zin van ONTWERPTAAL §14: waarschuwing, geen drift."""
+    repo, bron, commit, pinnen = opzet
+    (bron / "docs" / "REGELS.md").write_text("# Regels\n", encoding="utf-8")
+    _git(bron, "add", "-A")
+    _git(bron, "commit", "-q", "-m", "regels")
+    nieuw = _git(bron, "rev-parse", "HEAD")
+    data = json.loads((repo / "pin/peil.json").read_text(encoding="utf-8"))
+    data["bestanden"].append({"kopie": "kopie/peil/REGELS.md", "bron": "docs/REGELS.md", "kop": "md",
+                              "sha256": "0" * 64, "toelichting": "kopie (test)"})
+    (repo / "pin/peil.json").write_text(json.dumps(data), encoding="utf-8")
+    _bijwerken(repo, pinnen, "peil", bk.git_lezer(bron), nieuw)
+    assert bk.controleer(repo, pinnen).fouten == []
+    assert (repo / "kopie/peil/REGELS.md").read_text(encoding="utf-8").startswith("<!-- HERKOMST — Peil 1.1.1 · ")
+    (bron / "docs" / "REGELS.md").write_text("# Regels\n\nAangevuld.\n", encoding="utf-8")
+    _git(bron, "commit", "-q", "-am", "aangevuld")
+    uit = bk.vergelijk(bk.git_lezer(bron), repo, pinnen)
+    assert uit.fouten == [] and any("REGELS.md" in w and "document" in w for w in uit.waarschuwingen), uit
+    assert commit != nieuw
+
+
 def test_nieuwere_bronversie_is_alleen_een_waarschuwing(opzet: tuple[Path, Path, str, tuple[str, str]]) -> None:
     repo, bron, _, pinnen = opzet
     _commit(bron, CSS_V2, CONTRACT_V2)

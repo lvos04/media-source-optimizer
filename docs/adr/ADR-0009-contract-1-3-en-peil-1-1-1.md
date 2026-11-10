@@ -33,8 +33,12 @@ validatie van één instelling, CSS/markup van de ondernavigatie, tests en CI. O
    "in orde"). *Alternatief:* de sha256 alleen als constante in een test (zoals home-control-hub) — blijft daarnaast
    bestaan in `test_contract_kopie.py`, maar vergelijkt niet met de bron. *Alternatief:* vergelijken met de werkboom
    van de naastliggende bron — verworpen: dan faalt de test lokaal bij elke wijziging van een andere bouwer.
-2. **Driftregel per soort.** Peil volgt ONTWERPTAAL §14 (E08) letterlijk: afwijking van de gepinde inhoud = fout,
-   **dezelfde versie met andere inhoud in de bron = fout**, nieuwere versie = waarschuwing. Voor het contract zegt 1.3
+2. **Driftregel per soort.** Peil volgt ONTWERPTAAL §14 (E08) voor de kopieën die §14 noemt (CSS, aliaslaag, tokens):
+   afwijking van de gepinde inhoud = fout, **dezelfde versie met andere inhoud in de bron = fout**, nieuwere versie =
+   waarschuwing. De meegekopieerde documenten (`ONTWERPTAAL.md`, `COMPONENTEN.md`, de ADR) zijn geen kopie in de zin
+   van §14 en kunnen in de bron een tekstaanvulling krijgen zonder nieuwe Peil-versie; daar geeft andere inhoud bij
+   dezelfde versie een waarschuwing (bijwerken), geen rode CI. Een afwijking van de eigen gepinde kopie blijft ook voor
+   die documenten een fout. Voor het contract zegt 1.3
    (kop) alleen "sha256 van beide tegen de bron (vaste bron-commit)" en "een nieuwe kopie overnemen is een stap van de
    orkestratie". Gekozen (veiligste lezing zonder dat andermans commit deze CI rood maakt): afwijking van de pin of een
    pin die niet klopt met de gepinde commit = **fout**; andere inhoud of een nieuwere versie op de bronbranch =

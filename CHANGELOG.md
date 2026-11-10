@@ -28,6 +28,10 @@ Besluiten: ADR-0009.
   een beschadigde sleutel blijft geweigerd en wordt nooit overschreven (`tests/test_vault_key.py`).
 - **Docs:** `DELTA_MATRIX.md` §12 (stand tegenover 1.3; P3-06 wordt een machine-sleutel, geen enrollment), README's,
   `PEIL_MIGRATIE.md`, `EVIDENCE.json` (C1.3-MSO-01…06, C1.3-ALG-05, B05-009 bijgewerkt).
+- **Review (QA):** het Hub-adres weigert nu elk niet-ASCII-teken vóór het omzetten naar kleine letters. Eerder werd het
+  Kelvin-teken (U+212A) door `lower()`/`toLowerCase()` stil een ASCII-"k", zodat `http://nas.\u212alan` werd opgeslagen
+  als `http://nas.klan`; ADR-0009 punt 3 zegt "geen niet-ASCII". Twee nieuwe vectoren in `tests/vectoren/hub_url.json`
+  (zonder de reparatie falen ze in core en UI).
 
 ### Voorbereiding op publiek maken: licentie en opschoning
 Alleen documentatie, metadata en hulpscripts; productcode, API, datamodel, migraties, poorten en installatie

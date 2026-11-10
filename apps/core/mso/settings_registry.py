@@ -219,7 +219,9 @@ def validate_hub_url(d: SettingDef, value: str) -> str:
     v = value.strip()
     if not v:
         return ""
-    if any(c.isspace() for c in v) or "\\" in v or "?" in v or "#" in v or len(v) > 300:
+    # ASCII only, checked BEFORE lower-casing: str.lower() turns e.g. the Kelvin sign (U+212A) into an ASCII "k", so a
+    # non-ASCII host would otherwise slip through as another name (ADR-0009 punt 3: no non-ASCII host names)
+    if not v.isascii() or any(c.isspace() for c in v) or "\\" in v or "?" in v or "#" in v or len(v) > 300:
         raise HTTPException(422, detail=HUB_URL_ERROR)
     scheme, sep, rest = v.partition("://")
     if not sep or scheme.lower() not in {"http", "https"}:

@@ -73,7 +73,8 @@ function hubHost(rawHost: string): string | null {
 export function hubUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const raw = value.trim();
-  if (!raw || raw.length > 300 || /[\s\\?#@]/.test(raw)) return null;
+  // ASCII only, checked before lower-casing (toLowerCase turns the Kelvin sign U+212A into an ASCII "k"), as in the core
+  if (!raw || raw.length > 300 || /[^\x00-\x7f]/.test(raw) || /[\s\\?#@]/.test(raw)) return null;
   const sep = raw.indexOf("://");
   if (sep < 0) return null;
   const scheme = raw.slice(0, sep).toLowerCase();

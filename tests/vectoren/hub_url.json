@@ -74,6 +74,8 @@
     "http://-nas.lan",
     "http://nas<x>.lan",
     "http://n%41s.lan",
-    "http://nås.lan"
+    "http://nås.lan",
+    "http://nas.\u212alan",
+    "http://\u212a.lan:30080"
   ]
 }

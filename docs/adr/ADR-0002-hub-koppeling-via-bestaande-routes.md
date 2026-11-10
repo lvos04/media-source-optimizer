@@ -2,6 +2,11 @@
 
 Status: **Voorgesteld (fase P0; uitvoering P3)** · Datum: 2026-11-09 · Excel: B05-009, I04-04-08 · EX16, EX19, EX20
 
+> **Deels vervangen (2026-11-10):** het besluit "Auth (P3-06)" hieronder (Hub-JWT tegen de Hub-JWKS uit enrollment)
+> **vervalt** door contract 1.2/1.3 §2.3 regel 2 ("geen enrollment in v1" voor bestaande apps). P3-06 wordt een
+> machine-sleutel met scopes, aangemaakt in de MSO-UI en ingevoerd in de Hub-UI: zie ADR-0009 punt 6 en
+> `docs/platform-v2/DELTA_MATRIX.md` §12 (1.2-punt MS1, C1.3-MSO-04). De rest van dit ADR blijft gelden.
+
 ## Context
 
 Contract 1.1 §6 zegt: bestaande apps krijgen in de Hub een adapter die hun **bestaande** routes gebruikt; nieuwe routes

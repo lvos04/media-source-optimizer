@@ -27,6 +27,8 @@ is. Steeds is de veiligste interpretatie gekozen, zonder bestaande integriteit, 
    hem niet. *Besluit:* MSO maakt hem in P3-06 bij de eerste start aan als hij ontbreekt (`/appdata/secrets/`, 0600,
    eigenaar 568, nooit overschrijven) en gebruikt hem alleen voor de Hub-koppeling. Lokale accounts en de bestaande kluis
    blijven ongewijzigd.
+   *Bijgewerkt 2026-11-10 (ADR-0009 punt 6, 1.2-punt MS1):* zonder enrollment (contract §2.3 regel 2) is deze
+   identiteit in P3-06 **niet** nodig; ze komt pas als MSO ooit ondertekende verzoeken verifieert of pusht.
 
 4. **Vervaltermijn op goedkeuringen (07_API "approval record", EX19).** MSO-goedkeuringen vervallen nu nooit; drift bij
    de bron wordt wel geweigerd. *Besluit:* goedkeuringen die via de Hub binnenkomen (connectorlaag, P3-08) krijgen een

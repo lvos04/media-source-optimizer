@@ -249,7 +249,7 @@ volgens de Excel-verdeling); hieronder staat alleen wat MSO ervoor levert.
 | §4 | Hub-JWT voor gebruikerscontext; service-tokens; 401 `unauthorized` | **Ontbrekend** | alleen lokale sessies (`auth.py:92-126`); 401-code bestaat (`app.py:136-140`) | P3-06. Lokale accounts blijven (scrypt, geen gedwongen migratie naar argon2id — ADR-0003) |
 | §5 | Foutformaat `{code,message,details,trace_id}` | **Afwijkend** | `{detail,code,correlation_id}` (`app.py:87-90`) | Alleen in `/connector/v1/*` contractformaat; bestaande UI-routes ongewijzigd (ADR-0002) |
 | §5 | `/healthz` + `/readyz` zonder auth | **Onvolledig** | `/healthz` (`app.py:156-161`). Let op (QA Peil-ronde, gemeten op de alles-in-één-image én op de gepubliceerde 1.6.0): `/readyz` en elke andere onbekende URL krijgen van de web-UI de NL-404-pagina met **HTTP 200** (catch-all `[...missing]`), dus een monitor die nu `/readyz` peilt, ziet ten onrechte "klaar" | `/readyz` (DB + worker-hartslag + vrije ruimte; geen geheimen) in P3-07, inclusief doorsturen van `/readyz` naar de core in de web-proxy en een echte 404-status voor onbekende URL's; tot dan mag niets `/readyz` van MSO als gezondheidsbron gebruiken |
-| §5 | OpenAPI-export + CI-drift | **Onvolledig** | export P0 (`docs/openapi/media-source-optimizer.openapi.json`) | P3-14 driftcheck in `ci.yaml` |
+| §5 | OpenAPI-export + CI-drift | **Onvolledig** | export P0 (`docs/openapi/media-source-optimizer.openapi.json`); sinds de review van 2026-11-10 bewaakt door `apps/core/tests/test_openapi_export.py` (CI-job python) | P3-14 (rest) |
 | §5 | Idempotency-Key, ETag, cursor | **Ontbrekend** | — | alleen connectorlaag (P3-07/08) |
 | §6 | Connectorcontract | **Ontbrekend** | — | §6 hieronder, P3-07 |
 | §7 | Event-envelope, outbox | **Ontbrekend** | auditlog als bron aanwezig | polling via `/connector/v1/events` (P3-07); push/outbox later |
@@ -537,3 +537,16 @@ verifieert of pusht. Dit is alleen vastgelegd; gebouwd wordt het in P3 (EVIDENCE
 
 **HARDE EIS (§2.3 regel 7):** deze ronde raakt geen connector, MediaGuard-route, job, migratie of databaseschema;
 kijkgeschiedenis en MediaGuard-voortgang blijven onaangeroerd (OpenAPI byte-gelijk, sha256 `bb551ee1…0471b`).
+
+**Onafhankelijke review (QA, 2026-11-10):** nagelopen tegen de code en opnieuw gedraaid. Gerepareerd:
+- C1.3-MSO-02: een niet-ASCII-teken werd vóór de controle naar kleine letters gezet; het Kelvin-teken (U+212A) werd zo
+  een ASCII-"k" en het adres werd stil opgeslagen. Nu weigeren core en UI elk niet-ASCII-teken vooraf (twee nieuwe
+  gedeelde vectoren).
+- 1.2-punt MS4 (documentdeel) en de vaste keuze "installatie alleen als standaard Custom App, zonder YAML en zonder
+  terminal": README en `docs/TRUENAS_CUSTOM_APP.md` noemden *Install via YAML* nog als alternatief en gaven een
+  terugdraaiprocedure met `sudo docker exec`. Nu is het formulier de enige manier (tag met digest), terugdraaien gaat
+  via snapshot + vorige tag, en de compose-/YAML-documenten zijn gemarkeerd als "alleen ontwikkeling/CI/E2E". Het
+  herschrijven van `HARDWARE_ACCEPTANCE.md` (P3-05) en een terugdraaiknop (P3-13) blijven open.
+- §5 "OpenAPI-export + CI-drift": de driftcontrole bestaat nu als test (`apps/core/tests/test_openapi_export.py`, draait
+  in de CI-job python); de rest van P3-14 blijft open.
+- ADR-0002 en ADR-0004 verwijzen nu naar ADR-0009 punt 6 (geen enrollment in v1).

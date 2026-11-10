@@ -43,7 +43,7 @@ Onbekende NAS-gegevens (D01–D18) worden nooit met voorbeeldwaarden ingevuld; z
 - `EVIDENCE.json` — Excel-status en validatie voor B05-001 … B05-010 en de contractpunten `C1.3-…` van deze repo
   (contract 1.3 §11; bewaakt door `apps/core/tests/test_evidence_contract.py`).
 - Besluiten: `docs/adr/ADR-0001` … `ADR-0009` (contract 1.3 en Peil 1.1.1: ADR-0009); OpenAPI-momentopname:
-  `docs/openapi/media-source-optimizer.openapi.json`.
+  `docs/openapi/media-source-optimizer.openapi.json` (bewaakt door `apps/core/tests/test_openapi_export.py`).
 
 ## Platformcontract (byte-gelijke kopie, niet lokaal aanpassen)
 

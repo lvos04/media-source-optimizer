@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import secrets as pysecrets
+import time
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -16,19 +17,40 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from mso.config import get_settings
 from mso.db import Database
 
+#: how long a process waits for a key file that another process has just created but not yet completely written
+KEY_WAIT_S = 5.0
 
-def _load_key(path: Path) -> bytes:
-    if path.exists():
+
+def _read_key(path: Path, wait_s: float) -> bytes:
+    deadline = time.monotonic() + wait_s
+    while True:
         data = path.read_bytes()
-        if len(data) != 32:
+        if len(data) == 32:
+            return data
+        if time.monotonic() >= deadline:
             raise RuntimeError(f"vault-sleutel {path} heeft een ongeldige lengte")
-        return data
+        time.sleep(0.05)
+
+
+def _load_key(path: Path, wait_s: float = KEY_WAIT_S) -> bytes:
+    """Read the vault key, or create it once (0600, never overwritten).
+
+    api and worker start at the same moment on a fresh /appdata (compose: both after 'migrate'; all-in-one: the
+    supervisor). Exactly one process wins the O_EXCL create; the other reads the winner's key instead of crashing
+    (FileExistsError) and waits briefly while the winner is still writing (found in the stack smoke test, ADR-0009)."""
+    if path.exists():
+        return _read_key(path, wait_s)
     path.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(path.parent, 0o700)
     key = AESGCM.generate_key(bit_length=256)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:  # another process created it between exists() and open()
+        return _read_key(path, wait_s)
     with os.fdopen(fd, "wb") as fh:
         fh.write(key)
+        fh.flush()
+        os.fsync(fh.fileno())
     return key
 
 

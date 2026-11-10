@@ -3,11 +3,11 @@
   "id": "B05-001",
   "status": "Bezig",
   "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "code-HEAD 018b119 (= tag v1.6.0); pytest 789/789 + ruff schoon in deze sessie (INVENTARIS.md §15); INVENTARIS.md §1 (VERSION 1.6.0, tags v1.0.0–v1.6.0, GHCR :1.6.0 sha256:9bcdec69…3da publiek, core/web privé); DELTA_MATRIX.md §1 B05-001 en §8; ADR-0001; tests/test_foundation.py::test_migrations_down_and_up; tests/stack/allinone_test.py scenario 10; tweede lezing: DELTA_MATRIX.md §11 (W1, W2, P1): .github/workflows/ci.yaml:12-20 (heeft al workflow_dispatch) maar gh api toont 9 release-runs en 0 ci-runs; apps/web/app/(app)/systeem/page.tsx:28-66 toont al versie, schema en migraties; testfoutreparatie CI (ADR-0005, commits 3517a21…21f635e): eerste groene ci.yaml-run op GitHub, run 42638103428 (workflow_dispatch, HEAD 21f635e): python 789/789 met MSO_PG_BIN (pg-client 16), web, images 3/3, stack 19/19 + unit-test logcontrole 12/12, e2e strikt 78/78 geslaagd en 0 overgeslagen (make e2e met smoke.py --e2e-prepare en apps/web/e2e/strict-reporter.ts); lokaal dezelfde jobs: pytest 789/789, stack op ext4 2× 19/19 (4–5 PostgreSQL-herstartweigeringen binnen het herstartvenster getolereerd), make e2e 78/78; Peil-omzetting web-UI (stap 3, HEAD d7ac49c): lokaal ruff schoon, pytest 817/817 (789 + 28 voor systeem.hub_url; 1637 s, MSO_PG_BIN=16), web-job (check:peil, typecheck, lint, vitest 45/45, build), stack 19/19 en e2e strikt 109/109 tegen web- en core-image uit HEAD; OpenAPI-export byte-gelijk (sha256 bb551ee1…0471b). GitHub ci.yaml: run 42656201586 (HEAD 17b5c8a) alle 7 jobs geslaagd (e2e 78/78); run 42665630288 (HEAD 5d6422f) python, web, images 3/3 en stack geslaagd, e2e 105/109 (font-afhankelijke overloop, hersteld in d7ac49c); run 42669641898 (HEAD d7ac49c) python, web, images 3/3 en e2e 109/109 geslaagd, maar GitHub maakte de stack-job niet aan; runs 42671542802 en 42673129631 (zelfde HEAD): GitHub maakte de jobs web/images niet aan (alleen python geslaagd, e2e/stack overgeslagen); Peil-review (stap 5, alleen web-UI en tests; core, API, installatie ongewijzigd, OpenAPI byte-gelijk): lokaal check:peil, typecheck, lint, vitest 55/55, web-image gebouwd en e2e strikt 109/109 (nu met axe = 0 op alle impacts) tegen de teststack; GitHub ci.yaml-run 42682097953 (HEAD c5ff0a8) en run 42687980409 (HEAD dbe0ab4) elk volledig geslaagd: alle 7 jobs (python, web, images 3/3, stack, e2e); QA Peil-omzetting (onafhankelijke review, commits 42f762e, c479514, 48b66d3; alleen tests en docs, core/API/installatie ongewijzigd): lokaal ruff schoon, pytest 817/817 (0 overgeslagen, 1167 s) + de 2 nieuwe hub_url-tests, web-job (check:peil, typecheck, lint, vitest 55/55, build 20 routes), images core/web/mocks en alles-in-één gebouwd, stack 19/19, e2e strikt 112/112 (0 overgeslagen), alles-in-één-test tests/stack/allinone_test.py 10/10 (zonder sudo: alleen chown en de postmaster.pid-controle via een wegwerpcontainer), OpenAPI-export byte-gelijk (sha256 bb551ee1…0471b, ongewijzigd sinds b581fbb); GitHub ci.yaml-run 42696634848 (HEAD 48b66d3) volledig geslaagd: alle 7 jobs, python 819/819 (0 overgeslagen), stack 19/19, e2e strikt 112/112",
+  "bewijs": "code-HEAD 018b119 (= tag v1.6.0); pytest 789/789 + ruff schoon in deze sessie (INVENTARIS.md §15); INVENTARIS.md §1 (VERSION 1.6.0, tags v1.0.0–v1.6.0, GHCR :1.6.0 sha256:9bcdec69…3da publiek, core/web privé); DELTA_MATRIX.md §1 B05-001 en §8; ADR-0001; tests/test_foundation.py::test_migrations_down_and_up; tests/stack/allinone_test.py scenario 10; tweede lezing: DELTA_MATRIX.md §11 (W1, W2, P1): .github/workflows/ci.yaml:12-20 (heeft al workflow_dispatch) maar gh api toont 9 release-runs en 0 ci-runs; apps/web/app/(app)/systeem/page.tsx:28-66 toont al versie, schema en migraties; testfoutreparatie CI (ADR-0005, commits 3517a21…21f635e): eerste groene ci.yaml-run op GitHub, run 42638103428 (workflow_dispatch, HEAD 21f635e): python 789/789 met MSO_PG_BIN (pg-client 16), web, images 3/3, stack 19/19 + unit-test logcontrole 12/12, e2e strikt 78/78 geslaagd en 0 overgeslagen (make e2e met smoke.py --e2e-prepare en apps/web/e2e/strict-reporter.ts); lokaal dezelfde jobs: pytest 789/789, stack op ext4 2× 19/19 (4–5 PostgreSQL-herstartweigeringen binnen het herstartvenster getolereerd), make e2e 78/78; Peil-omzetting web-UI (stap 3, HEAD d7ac49c): lokaal ruff schoon, pytest 817/817 (789 + 28 voor systeem.hub_url; 1637 s, MSO_PG_BIN=16), web-job (check:peil, typecheck, lint, vitest 45/45, build), stack 19/19 en e2e strikt 109/109 tegen web- en core-image uit HEAD; OpenAPI-export byte-gelijk (sha256 bb551ee1…0471b). GitHub ci.yaml: run 42656201586 (HEAD 17b5c8a) alle 7 jobs geslaagd (e2e 78/78); run 42665630288 (HEAD 5d6422f) python, web, images 3/3 en stack geslaagd, e2e 105/109 (font-afhankelijke overloop, hersteld in d7ac49c); run 42669641898 (HEAD d7ac49c) python, web, images 3/3 en e2e 109/109 geslaagd, maar GitHub maakte de stack-job niet aan; runs 42671542802 en 42673129631 (zelfde HEAD): GitHub maakte de jobs web/images niet aan (alleen python geslaagd, e2e/stack overgeslagen); Peil-review (stap 5, alleen web-UI en tests; core, API, installatie ongewijzigd, OpenAPI byte-gelijk): lokaal check:peil, typecheck, lint, vitest 55/55, web-image gebouwd en e2e strikt 109/109 (nu met axe = 0 op alle impacts) tegen de teststack; GitHub ci.yaml-run 42682097953 (HEAD c5ff0a8) en run 42687980409 (HEAD dbe0ab4) elk volledig geslaagd: alle 7 jobs (python, web, images 3/3, stack, e2e); QA Peil-omzetting (onafhankelijke review, commits 42f762e, c479514, 48b66d3; alleen tests en docs, core/API/installatie ongewijzigd): lokaal ruff schoon, pytest 817/817 (0 overgeslagen, 1167 s) + de 2 nieuwe hub_url-tests, web-job (check:peil, typecheck, lint, vitest 55/55, build 20 routes), images core/web/mocks en alles-in-één gebouwd, stack 19/19, e2e strikt 112/112 (0 overgeslagen), alles-in-één-test tests/stack/allinone_test.py 10/10 (zonder sudo: alleen chown en de postmaster.pid-controle via een wegwerpcontainer), OpenAPI-export byte-gelijk (sha256 bb551ee1…0471b, ongewijzigd sinds b581fbb); GitHub ci.yaml-run 42696634848 (HEAD 48b66d3) volledig geslaagd: alle 7 jobs, python 819/819 (0 overgeslagen), stack 19/19, e2e strikt 112/112; contract-1.3-ronde (2026-11-10, ADR-0009; commits 56f285b…614b71a): lokaal pytest 932/932 (0 overgeslagen, HEAD 614b71a, basetemp op schijf; een eerdere run had 16 back-uptests rood door te weinig ruimte in /tmp op de testmachine — terechte weigering van de 2 GB-reserve, geen codefout), ruff schoon, scripts/bronkopie.py controleer + vergelijk --online, web-job (check:peil, typecheck, lint, vitest 116/116, next build), images core/web/mocks + alles-in-één gebouwd, stack 19/19 (eerste run 18/19: race bij het aanmaken van de vault-sleutel, gerepareerd in 9485b64, tests/test_vault_key.py), make e2e strikt 114/114 (0 overgeslagen, axe = 0), alles-in-één tests/stack/allinone_test.py 10/10 (zonder sudo), OpenAPI-export byte-gelijk (sha256 bb551ee1…0471b); GitHub ci.yaml-runs 42776871744 (HEAD 9485b64) en 42781156834 (HEAD 614b71a) elk alle 7 jobs geslaagd: python 929 + 3 overgeslagen (de vergelijking met een naastliggende checkout van ai-server-manager; op GitHub doet de stap 'vergelijk --online' dat), stack 19/19, e2e strikt 114/114",
   "blokkade": "Hardwareacceptatie op de echte NAS (D01, D02, D03, D05, D06, D07; docs/HARDWARE_ACCEPTANCE.md: alle punten open en nog geschreven voor Install via YAML). Nog te bouwen: P3-01 (startweigering nieuwer schema), P3-02 (releasestatus op de bestaande Systeem-kaart), P3-03 (echte upgradetest 1.5.0-image → nieuwe image), P3-04 (ci.yaml draait nu groen via workflow_dispatch, run 42638103428; nog open: base-image-digests, digests.json, SBOM, en een push-trigger voor de werkbranches).",
   "opmerking": "Sim-getest in repo-CI: release-run 42575858717 (ruff, pytest, alles-in-één 10/10). Pakketaanname 'VERSION 1.5.0, 1.6.0 alleen op HEAD' is achterhaald. 1.6.0 = CI-geteste release-kandidaat, geen 'stable'. Niet getagd of gepubliceerd door de bouwer. ci.yaml start niet vanzelf bij een push op de ccr-werkbranches (trigger alleen main/tags/PR); de run is handmatig gestart met gh workflow run ci --ref <branch>. Stap 3 (Peil) verandert geen versie, tag of release (CHANGELOG onder Unreleased). Een volledig groene ci.yaml-run op HEAD d7ac49c in één keer is NIET gehaald: GitHub liet in de laatste drie runs jobs weg (oorzaak niet vastgesteld, mogelijk een Actions-limiet van het account); elke job is wel op of vlak vóór deze HEAD geslaagd en lokaal volledig herhaald. Na stap 5 is er wel een volledig groene ci.yaml-run op de werkbranch: 42687980409 op HEAD dbe0ab4 (daarna alleen een documentatiecommit).",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B05-002",
@@ -84,10 +84,10 @@
   "status": "Niet gestart",
   "validatie": "NIET GEVALIDEERD (echte NAS)",
   "bewijs": "code-HEAD 018b119 (= tag v1.6.0); pytest 789/789 + ruff schoon in deze sessie (INVENTARIS.md §15); DELTA_MATRIX.md §1 B05-009 en §6 (routekaart Hub-adapter); ADR-0002; changes.py:126-143, :211-231; apps/web/app/(app)/automatisering/page.tsx:32-33 (deeplinks); bestaand mechanisme Sim-getest: tests/test_change_safety.py::test_apply_and_rollback_refuse_while_another_holds_the_change, ::test_status_transitions_are_guarded; migrations/0605_v160_change_safety.sql:12-13 (unieke open dedupe_key); tweede lezing: DELTA_MATRIX.md §11 (W4, P7, P8, P13)",
-  "blokkade": "Afhankelijk van ai-server-manager (B01/B02): POST /api/v1/services/enroll en GET /api/v1/auth/jwks — op 2026-11-09 alleen als niet-gecommit werk in die repo, nog niet op de branch. Nog te bouwen: P3-06 (machine-auth/enrollment + eigen Ed25519-identiteit), P3-07 (/connector/v1/* + /readyz + Idempotency-Key, migratie 0608), P3-08 (preview_hash, vervaltermijn op Hub-goedkeuring, race-test met twee HTTP-clients).",
+  "blokkade": "Contract 1.3 §2.3 regel 2: geen enrollment in v1 voor bestaande apps (vervangt de eerdere afhankelijkheid van /api/v1/services/enroll en JWKS; 1.2-punt MS1, ADR-0009 punt 6). Nog te bouwen in P3: P3-06 machine-sleutel met scopes (read; later changes:approve met expected_preview_hash + Idempotency-Key), aangemaakt in de MSO-UI en ingevoerd in de Hub-UI; P3-07 /connector/v1/* + /readyz volgens 1.3 (foutcatalogus, Idempotency-Key met uitzonderingslijst, health = slechtste check, max_age; C1.3-MSO-04); P3-08 preview_hash, vervaltermijn op Hub-goedkeuring, race-test met twee HTTP-clients.",
   "opmerking": "Connectorlaag ontbreekt; het bestaande change-set-mechanisme (atomaire statusovergang + advisory lock) is Sim-getest en wordt hergebruikt. De Hub keurt goed via MSO-change-sets; geen eigen schrijfpad van de Hub naar SAB/qBit/Prowlarr; 'force' nooit via de connector.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-09"
+  "bijgewerkt": "2026-11-10"
  },
  {
   "id": "B05-010",
@@ -98,5 +98,75 @@
   "opmerking": "Sim-getest: pytest + alles-in-één scenario 3 en 10 in de release-run. Header-index zit bewust niet in de back-up (REFETCHABLE) en wordt na herstel vanaf de nieuwste headers herbouwd (P3-12 vervalt; ADR-0004). Credentials en audit blijven bij herstel behouden.",
   "repo": "media-source-optimizer",
   "bijgewerkt": "2026-11-09"
+ },
+ {
+  "id": "C1.3-MSO-01",
+  "status": "Bezig",
+  "validatie": "Unit-getest",
+  "bewijs": "commits 56f285b (kopieën + drifttests), d60b0d0 (EVIDENCE-test), 9af1366 (CI), a2c497a; docs/platform-v2/HERKOMST_CONTRACT.json; apps/core/tests/test_contract_kopie.py, apps/core/tests/test_bronkopie.py, apps/core/tests/test_evidence_contract.py (23 negatieve gevallen); scripts/bronkopie.py controleer en vergelijk --online in .github/workflows/ci.yaml (job python); lokaal pytest 932/932, GitHub ci.yaml-run 42781156834 (HEAD 614b71a) alle jobs geslaagd",
+  "blokkade": "",
+  "opmerking": "PLATFORM_CONTRACTEN.md (contracts 1.3) en CONTRACT_1.3_CONFORMITEIT.md byte-gelijk aan lvos04/ai-server-manager@0a7143bc0a94ed5317a9655fa785e73a1fb07ba1 (was een kopie van 1.1); pin in docs/platform-v2/HERKOMST_CONTRACT.json. Andere inhoud of een nieuwere versie op de bronbranch geeft een waarschuwing: een nieuwe kopie overnemen is een stap van de orkestratie (ADR-0009 punt 2). Geen NAS nodig; status blijft Bezig volgens §11 (Gereed wordt in deze bouwomgeving nooit gezet).",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MSO-02",
+  "status": "Bezig",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "commit c8d044b; apps/core/mso/settings_registry.py (validate_hub_url), apps/web/lib/hub.ts (hubUrl), gedeelde vectoren tests/vectoren/hub_url.json (18 geldig, 54 ongeldig); apps/core/tests/test_hub_url_setting.py (90 tests, incl. een onder 1.2 opgeslagen waarde), apps/web/tests/unit/hub.test.ts (84 tests), e2e apps/web/e2e/peil.spec.ts 'peil Terug naar de Hub' (6 ongeldige adressen → 422, geen link); lokaal pytest 932/932, vitest 116/116, make e2e 114/114; GitHub ci.yaml-run 42781156834",
+  "blokkade": "NIET GEVALIDEERD (echte NAS): de link 'Terug naar de Hub' is niet gevolgd naar een echte Hub op de NAS; het Hub-adres is onbekend tot D03 (alleen gereserveerde testnamen gebruikt).",
+  "opmerking": "Adresregels van contract 1.3 §3.2 in core (settings_registry.validate_hub_url) en UI (lib/hub.ts) met gedeelde vectoren tests/vectoren/hub_url.json; strenger dan de letter waar een browser anders zou lezen (ADR-0009 punt 3). MSO verbindt nooit met dit adres (alleen href), dus geen DNS-controle per verbinding. Een onder 1.2 opgeslagen, nu ongeldige waarde blijft staan, geeft geen link en bij opslaan 422.",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MSO-03",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "docs/platform-v2/CONTRACT_1.3_CONFORMITEIT.md §7; docs/platform-v2/DELTA_MATRIX.md §12",
+  "blokkade": "Moment P3 volgens CONTRACT_1.3_CONFORMITEIT.md §7: Healthcheck als 568 met no_new_privs als eerste handeling, bewaker legt de bounding set, rooktest.",
+  "opmerking": "Gemeten 2026-11-10: HEALTHCHECK in deploy/allinone/Dockerfile start als root en healthcheck.py wisselt niet.",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MSO-04",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "docs/platform-v2/CONTRACT_1.3_CONFORMITEIT.md §7; docs/platform-v2/DELTA_MATRIX.md §12",
+  "blokkade": "Moment P3 volgens CONTRACT_1.3_CONFORMITEIT.md §7: Connectorlaag P3-07 volgens 1.3 (foutcatalogus, Idempotency-Key met uitzonderingslijst, health-regels, max_age, change sets via de eigenaar-connector); P3-06 = machine-sleutel met scopes, geen enrollment.",
+  "opmerking": "DELTA_MATRIX §12 legt de correctie vast (MS1); niets gebouwd of gesimuleerd.",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MSO-05",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "docs/platform-v2/CONTRACT_1.3_CONFORMITEIT.md §7; docs/platform-v2/DELTA_MATRIX.md §12",
+  "blokkade": "Moment P3 volgens CONTRACT_1.3_CONFORMITEIT.md §7: Terugkeerpad na inloggen volgens §4.1.",
+  "opmerking": "Niets gebouwd.",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-MSO-06",
+  "status": "Niet gestart",
+  "validatie": "Niet getest",
+  "bewijs": "docs/platform-v2/CONTRACT_1.3_CONFORMITEIT.md §7; docs/platform-v2/DELTA_MATRIX.md §12",
+  "blokkade": "Moment P3 volgens CONTRACT_1.3_CONFORMITEIT.md §7: Manifest deploy/manifest/media-source-optimizer.manifest.yaml (healthcheck.monitor, back-up, geen HUB_*).",
+  "opmerking": "Pas na de validator C1.3-ASF-08 in appstore-en-fork.",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-10"
+ },
+ {
+  "id": "C1.3-ALG-05",
+  "status": "Bezig",
+  "validatie": "Sim-getest; NIET GEVALIDEERD (hardware)",
+  "bewijs": "commits 56f285b (kopieën Peil 1.1.1 met versie + bron-commit, design/ontwerptaal/HERKOMST.json, check-peil.mjs + apps/web/tests/unit/check-peil.test.ts), 68e34d2 (E16 ondernavigatie, E14 eigen focusringkopie weg), 614b71a (56 e2e-afdrukken); make e2e strikt 114/114 met axe (wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa) = 0 op alle schermen licht/donker op 1440 en 390 px en licht op 320/768/1024 px, plus 'peil ondernavigatie (1.1.1, E16)' op 320/390 px; GitHub ci.yaml-run 42781156834 e2e 114/114",
+  "blokkade": "NIET GEVALIDEERD (hardware): echte telefoon, schermlezer (NVDA/TalkBack) en forced colors op een echt toestel; alle metingen in Chromium (Playwright).",
+  "opmerking": "Peil 1.1.1 overgenomen via nieuwe gepinde kopieën (design/ontwerptaal/HERKOMST.json, versie + bron-commit 0a7143b): E14 (aliaslaag zet focusring en scroll-padding terug; eigen kopie in peil-mso.css weg) en E16 (ondernavigatie: balk 3 px + inkt, zonder extra gewicht). Niet overgenomen met reden (ADR-0009 punt 5): E13 'Verzonden' (MSO 'Verstuurd' = verzoek aan downloadclient; repowerk C10, P3), E11 ZekerheidLabel (API levert geen zekerheid), E15 offline/verouderd (functionele ronde).",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-10"
  }
 ]

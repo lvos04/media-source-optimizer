@@ -1,12 +1,12 @@
 {
-  "started": "2026-11-09T06:40:28.898861+00:00",
-  "finished": "2026-11-09T06:43:13.605322+00:00",
+  "started": "2026-11-10T07:35:43.615166+00:00",
+  "finished": "2026-11-10T07:38:33.068325+00:00",
   "project": "msostack",
   "base_url": "http://127.0.0.1:48081",
   "web": true,
   "host": {
-    "platform": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
-    "cpus": 4
+    "platform": "Linux-7.0.0-42-generic-x86_64-with-glibc2.43",
+    "cpus": 22
   },
   "images": {
     "api": "media-source-optimizer-core:stack",
@@ -33,7 +33,7 @@
       "name": "stack: alle containers gezond, init + migrate exit 0",
       "status": "ok",
       "detail": "api=running/healthy/0, init=exited/-/0, migrate=exited/-/0, mock-mediaguard=running/-/0, mock-newznab=running/-/0, mock-nntp=running/-/0, mock-prowlarr=running/-/0, mock-qbittorrent=running/-/0, mock-sabnzbd=running/-/0, mock-spotweb=running/-/0, postgres=running/healthy/0, web=running/healthy/0, worker=running/healthy/0",
-      "seconds": 6.9,
+      "seconds": 6.58,
       "data": {
         "services": {
           "api": "running/healthy/0",
@@ -60,7 +60,7 @@
       "name": "web: UI en same-origin proxy naar core",
       "status": "ok",
       "detail": "/login 200, /api/v1 via proxy 200, /newznab/api?t=caps → 200, /torznab/api?t=caps → 200",
-      "seconds": 0.2,
+      "seconds": 0.1,
       "data": {
         "login": 200,
         "setup_status": 200,
@@ -74,35 +74,35 @@
       "name": "setup: eerste beheerder aanmaken, tweede keer geweigerd",
       "status": "ok",
       "detail": "beheerder 'stackadmin' aangemaakt; tweede setup → 409",
-      "seconds": 0.17,
+      "seconds": 0.11,
       "data": {}
     },
     {
       "name": "auth: uitloggen, foutief wachtwoord 401, inloggen, /auth/me",
       "status": "ok",
       "detail": "logout → me 401; fout wachtwoord 401; login → me admin",
-      "seconds": 0.31,
+      "seconds": 0.2,
       "data": {}
     },
     {
       "name": "security: CSRF-token verplicht bij mutaties",
       "status": "ok",
       "detail": "zonder token 403, fout token 403, met token 200",
-      "seconds": 0.04,
+      "seconds": 0.05,
       "data": {}
     },
     {
       "name": "security: rollen (viewer mag geen config/gebruikers wijzigen)",
       "status": "ok",
       "detail": "viewer: lezen 200; settings/users/backups 403; anoniem 401",
-      "seconds": 0.3,
+      "seconds": 0.22,
       "data": {}
     },
     {
       "name": "koppelingen: elke connector naar zijn mock + verbindingstest",
       "status": "ok",
       "detail": "mediaguard: healthy; prowlarr: degraded; qbittorrent: healthy; sabnzbd: healthy",
-      "seconds": 0.95,
+      "seconds": 0.87,
       "data": {
         "connectors": [
           "mediaguard",
@@ -125,28 +125,28 @@
             "status": "healthy",
             "message": "Verbonden met MediaGuard 0.1.0 als rol 'operator'",
             "version": "0.1.0",
-            "latency_ms": 67
+            "latency_ms": 99
           },
           "prowlarr": {
             "ok": true,
             "status": "degraded",
             "message": "Prowlarr 1.24.3.4754 · 4 indexers · 7/7 endpoints bereikbaar · 1 gezondheidsmelding(en)",
             "version": "1.24.3.4754",
-            "latency_ms": 46
+            "latency_ms": 37
           },
           "qbittorrent": {
             "ok": true,
             "status": "healthy",
             "message": "qBittorrent v5.1.2 (WebAPI 2.11.4), ingelogd via sessie",
             "version": "v5.1.2",
-            "latency_ms": 93
+            "latency_ms": 76
           },
           "sabnzbd": {
             "ok": true,
             "status": "healthy",
             "message": "SABnzbd 4.3.3 · 3 server(s), 5 categorieën",
             "version": "4.3.3",
-            "latency_ms": 42
+            "latency_ms": 23
           }
         }
       }
@@ -155,7 +155,7 @@
       "name": "security: SSRF-weigeringen (metadata, schema, credentials in URL)",
       "status": "ok",
       "detail": "6 onveilige URL's → 422 (connector mediaguard); test naar 169.254.169.254 geweigerd",
-      "seconds": 0.06,
+      "seconds": 0.05,
       "data": {
         "connector": "mediaguard",
         "status_codes": {
@@ -173,7 +173,7 @@
       "name": "API: lees-endpoints en OpenAPI",
       "status": "ok",
       "detail": "11 endpoints 200, OpenAPI 185 paden, schema v607, health=degraded",
-      "seconds": 0.42,
+      "seconds": 0.26,
       "data": {
         "newznab_endpoint": {
           "public_url": null,
@@ -185,11 +185,11 @@
             "id": 1,
             "label": "Prowlarr",
             "node": "prowlarr",
-            "key_hint": "…b538",
+            "key_hint": "…15ca",
             "enabled": true,
             "rate_per_min": null,
             "daily_quota": null,
-            "created_at": "2026-11-09T07:40:38.225273+01:00",
+            "created_at": "2026-11-10T08:35:52.024070+01:00",
             "rotated_at": null,
             "last_used_at": null,
             "default": true
@@ -305,23 +305,23 @@
             {
               "name": "appdata",
               "status": "healthy",
-              "message": "7.6 GB vrij",
+              "message": "35.1 GB vrij",
               "disk": {
                 "path": "/appdata",
-                "total": 270553174016,
-                "free": 8154308608,
-                "used": 33129226240
+                "total": 982240026624,
+                "free": 37654913024,
+                "used": 894614597632
               }
             },
             {
               "name": "work",
               "status": "healthy",
-              "message": "7.6 GB vrij",
+              "message": "35.1 GB vrij",
               "disk": {
                 "path": "/work",
-                "total": 270553174016,
-                "free": 8154308608,
-                "used": 33129226240
+                "total": 982240026624,
+                "free": 37654913024,
+                "used": 894614597632
               }
             },
             {
@@ -355,23 +355,23 @@
     {
       "name": "back-up: maken via worker-job, checksum, bestand aanwezig",
       "status": "ok",
-      "detail": "mso-20261109T064039Z-manual.dump (154849 B), zonder geheimen",
-      "seconds": 2.04,
+      "detail": "mso-20261110T073552Z-manual.dump (154862 B), zonder geheimen",
+      "seconds": 1.03,
       "data": {
-        "file": "mso-20261109T064039Z-manual.dump",
-        "size_bytes": 154849,
+        "file": "mso-20261110T073552Z-manual.dump",
+        "size_bytes": 154862,
         "schema_version": 607
       }
     },
     {
       "name": "herstel: restore zet DB terug, sessies vervallen, koppelingsgeheimen blijven",
       "status": "ok",
-      "detail": "hersteld mso-20261109T064039Z-manual.dump (vangnet mso-20261109T064040Z-pre-restore.dump); onbekende back-up → 422",
-      "seconds": 1.36,
+      "detail": "hersteld mso-20261110T073552Z-manual.dump (vangnet mso-20261110T073553Z-pre-restore.dump); onbekende back-up → 422",
+      "seconds": 3.31,
       "data": {
         "restore": {
-          "restored": "mso-20261109T064039Z-manual.dump",
-          "pre_restore_backup": "mso-20261109T064040Z-pre-restore.dump",
+          "restored": "mso-20261110T073552Z-manual.dump",
+          "pre_restore_backup": "mso-20261110T073553Z-pre-restore.dump",
           "resync": [
             "mediaguard.sync",
             "torrent.ingest"
@@ -390,7 +390,7 @@
       "name": "herstel: beschadigde en ontbrekende back-up geweigerd, database ongewijzigd",
       "status": "ok",
       "detail": "beschadigd → 422 (Checksum klopt niet: back-up is beschadigd); ontbrekend → 422 (Back-upbestand ontbreekt)",
-      "seconds": 2.39,
+      "seconds": 2.47,
       "data": {
         "corrupt": "Checksum klopt niet: back-up is beschadigd",
         "missing": "Back-upbestand ontbreekt"
@@ -399,11 +399,11 @@
     {
       "name": "jobs: onderbroken job (verlopen lease) wordt na worker-start hervat",
       "status": "ok",
-      "detail": "job 15 running(crash) → done; samenvatting: ' · hervat na herstart'",
-      "seconds": 25.55,
+      "detail": "job 16 running(crash) → done; samenvatting: ' · hervat na herstart'",
+      "seconds": 26.93,
       "data": {
         "job": {
-          "id": 15,
+          "id": 16,
           "status": "done",
           "attempts": 2,
           "summary": " · hervat na herstart",
@@ -415,7 +415,7 @@
       "name": "jobs: worker-proces SIGKILL → restart policy herstart, worker weer gezond en functioneel",
       "status": "ok",
       "detail": "pid 7 gedood; RestartCount 0→1; nieuwe job done",
-      "seconds": 9.48,
+      "seconds": 8.13,
       "data": {
         "killed_pid": "7",
         "restart_count": [
@@ -428,176 +428,176 @@
       "name": "persistentie: docker compose restart (alle services) — data en login blijven",
       "status": "ok",
       "detail": "2 gebruikers, 4 koppelingen, 6 back-ups ongewijzigd",
-      "seconds": 24.42,
+      "seconds": 29.17,
       "data": {}
     },
     {
       "name": "persistentie: docker compose down + up (containers opnieuw aangemaakt)",
       "status": "ok",
       "detail": "gebruikers, koppelingen (incl. versleutelde geheimen) en back-ups intact; login werkt",
-      "seconds": 55.52,
+      "seconds": 57.07,
       "data": {}
     },
     {
       "name": "resources: docker stats in rust en onder belasting",
       "status": "ok",
-      "detail": "480 verzoeken in 2.4s (0 fouten), p95 68.0 ms; api idle 61.6 MiB / load 64.0 MiB, postgres idle 32.0 MiB / load 49.5 MiB, web idle 39.4 MiB / load 46.5 MiB, worker idle 59.0 MiB / load 58.8 MiB",
-      "seconds": 30.31,
+      "detail": "480 verzoeken in 2.3s (0 fouten), p95 34.5 ms; api idle 61.3 MiB / load 63.5 MiB, postgres idle 35.2 MiB / load 51.9 MiB, web idle 40.1 MiB / load 45.0 MiB, worker idle 59.2 MiB / load 69.1 MiB",
+      "seconds": 30.2,
       "data": {
         "idle": {
           "web": {
-            "cpu_pct_max": 0.04,
-            "mem_mib_max": 39.4,
+            "cpu_pct_max": 0.03,
+            "mem_mib_max": 40.1,
             "pids_max": 11,
             "limit": "512MiB",
             "samples": 3
           },
           "worker": {
-            "cpu_pct_max": 12.97,
-            "mem_mib_max": 59.0,
+            "cpu_pct_max": 0.1,
+            "mem_mib_max": 59.2,
             "pids_max": 7,
             "limit": "768MiB",
             "samples": 3
           },
           "api": {
-            "cpu_pct_max": 0.12,
-            "mem_mib_max": 61.6,
+            "cpu_pct_max": 0.13,
+            "mem_mib_max": 61.3,
             "pids_max": 11,
             "limit": "768MiB",
             "samples": 3
           },
           "postgres": {
-            "cpu_pct_max": 3.56,
-            "mem_mib_max": 32.0,
+            "cpu_pct_max": 0.09,
+            "mem_mib_max": 35.2,
             "pids_max": 10,
             "limit": "1GiB",
             "samples": 3
           },
           "mock-sabnzbd": {
-            "cpu_pct_max": 0.11,
-            "mem_mib_max": 34.7,
+            "cpu_pct_max": 0.14,
+            "mem_mib_max": 35.0,
             "pids_max": 5,
             "limit": "256MiB",
             "samples": 3
           },
-          "mock-spotweb": {
-            "cpu_pct_max": 0.11,
-            "mem_mib_max": 34.5,
-            "pids_max": 5,
-            "limit": "256MiB",
-            "samples": 3
-          },
-          "mock-prowlarr": {
-            "cpu_pct_max": 0.12,
-            "mem_mib_max": 38.0,
-            "pids_max": 5,
+          "mock-nntp": {
+            "cpu_pct_max": 0.01,
+            "mem_mib_max": 8.0,
+            "pids_max": 1,
             "limit": "256MiB",
             "samples": 3
           },
           "mock-qbittorrent": {
-            "cpu_pct_max": 0.11,
-            "mem_mib_max": 41.5,
-            "pids_max": 5,
-            "limit": "256MiB",
-            "samples": 3
-          },
-          "mock-newznab": {
-            "cpu_pct_max": 0.12,
-            "mem_mib_max": 34.6,
+            "cpu_pct_max": 0.13,
+            "mem_mib_max": 42.3,
             "pids_max": 5,
             "limit": "256MiB",
             "samples": 3
           },
           "mock-mediaguard": {
             "cpu_pct_max": 0.13,
-            "mem_mib_max": 36.3,
+            "mem_mib_max": 36.0,
             "pids_max": 5,
             "limit": "256MiB",
             "samples": 3
           },
-          "mock-nntp": {
-            "cpu_pct_max": 0.01,
-            "mem_mib_max": 7.8,
-            "pids_max": 1,
+          "mock-spotweb": {
+            "cpu_pct_max": 0.12,
+            "mem_mib_max": 34.6,
+            "pids_max": 5,
+            "limit": "256MiB",
+            "samples": 3
+          },
+          "mock-newznab": {
+            "cpu_pct_max": 0.12,
+            "mem_mib_max": 34.5,
+            "pids_max": 5,
+            "limit": "256MiB",
+            "samples": 3
+          },
+          "mock-prowlarr": {
+            "cpu_pct_max": 0.1,
+            "mem_mib_max": 38.1,
+            "pids_max": 5,
             "limit": "256MiB",
             "samples": 3
           }
         },
         "load": {
           "web": {
-            "cpu_pct_max": 22.59,
-            "mem_mib_max": 46.5,
-            "pids_max": 17,
+            "cpu_pct_max": 8.22,
+            "mem_mib_max": 45.0,
+            "pids_max": 11,
             "limit": "512MiB",
             "samples": 2
           },
           "worker": {
-            "cpu_pct_max": 2.59,
-            "mem_mib_max": 58.8,
+            "cpu_pct_max": 2.9,
+            "mem_mib_max": 69.1,
             "pids_max": 7,
             "limit": "768MiB",
             "samples": 2
           },
           "api": {
-            "cpu_pct_max": 95.52,
-            "mem_mib_max": 64.0,
+            "cpu_pct_max": 34.5,
+            "mem_mib_max": 63.5,
             "pids_max": 18,
             "limit": "768MiB",
             "samples": 2
           },
           "postgres": {
-            "cpu_pct_max": 32.46,
-            "mem_mib_max": 49.5,
+            "cpu_pct_max": 17.84,
+            "mem_mib_max": 51.9,
             "pids_max": 16,
             "limit": "1GiB",
             "samples": 2
           },
           "mock-sabnzbd": {
-            "cpu_pct_max": 0.12,
-            "mem_mib_max": 34.7,
-            "pids_max": 5,
-            "limit": "256MiB",
-            "samples": 2
-          },
-          "mock-spotweb": {
-            "cpu_pct_max": 0.12,
-            "mem_mib_max": 34.5,
-            "pids_max": 5,
-            "limit": "256MiB",
-            "samples": 2
-          },
-          "mock-prowlarr": {
-            "cpu_pct_max": 0.1,
-            "mem_mib_max": 38.0,
-            "pids_max": 5,
-            "limit": "256MiB",
-            "samples": 2
-          },
-          "mock-qbittorrent": {
-            "cpu_pct_max": 0.1,
-            "mem_mib_max": 41.5,
-            "pids_max": 5,
-            "limit": "256MiB",
-            "samples": 2
-          },
-          "mock-newznab": {
             "cpu_pct_max": 0.11,
-            "mem_mib_max": 34.6,
-            "pids_max": 5,
-            "limit": "256MiB",
-            "samples": 2
-          },
-          "mock-mediaguard": {
-            "cpu_pct_max": 0.12,
-            "mem_mib_max": 36.3,
+            "mem_mib_max": 35.0,
             "pids_max": 5,
             "limit": "256MiB",
             "samples": 2
           },
           "mock-nntp": {
             "cpu_pct_max": 0.01,
-            "mem_mib_max": 7.8,
+            "mem_mib_max": 8.0,
             "pids_max": 1,
+            "limit": "256MiB",
+            "samples": 2
+          },
+          "mock-qbittorrent": {
+            "cpu_pct_max": 0.11,
+            "mem_mib_max": 42.3,
+            "pids_max": 5,
+            "limit": "256MiB",
+            "samples": 2
+          },
+          "mock-mediaguard": {
+            "cpu_pct_max": 0.09,
+            "mem_mib_max": 36.0,
+            "pids_max": 5,
+            "limit": "256MiB",
+            "samples": 2
+          },
+          "mock-spotweb": {
+            "cpu_pct_max": 0.1,
+            "mem_mib_max": 34.6,
+            "pids_max": 5,
+            "limit": "256MiB",
+            "samples": 2
+          },
+          "mock-newznab": {
+            "cpu_pct_max": 0.1,
+            "mem_mib_max": 34.5,
+            "pids_max": 5,
+            "limit": "256MiB",
+            "samples": 2
+          },
+          "mock-prowlarr": {
+            "cpu_pct_max": 0.11,
+            "mem_mib_max": 38.1,
+            "pids_max": 5,
             "limit": "256MiB",
             "samples": 2
           }
@@ -605,10 +605,10 @@
         "load_requests": {
           "requests": 480,
           "errors": 0,
-          "seconds": 2.4,
-          "rps": 196.9,
-          "p50_ms": 36.6,
-          "p95_ms": 68.0,
+          "seconds": 2.3,
+          "rps": 209.6,
+          "p50_ms": 19.7,
+          "p95_ms": 34.5,
           "via": "http://127.0.0.1:48081"
         }
       }
@@ -616,10 +616,10 @@
     {
       "name": "logs: geen geheimen in de logs van MSO-containers",
       "status": "ok",
-      "detail": "9 geheimen (beheer-/viewer-wachtwoord, DB-wachtwoord, koppelingsgeheimen) niet gevonden in 29012 bytes log van init/postgres/migrate/api/worker/web; mock-toegangslogs met sleutel (geen MSO): ['mock-sabnzbd']",
-      "seconds": 2.06,
+      "detail": "9 geheimen (beheer-/viewer-wachtwoord, DB-wachtwoord, koppelingsgeheimen) niet gevonden in 43183 bytes log van init/postgres/migrate/api/worker/web; mock-toegangslogs met sleutel (geen MSO): ['mock-sabnzbd']",
+      "seconds": 1.32,
       "data": {
-        "log_bytes": 29012,
+        "log_bytes": 43183,
         "secrets_checked": 9,
         "mock_access_logs_with_secret": {
           "mock-sabnzbd": [
@@ -631,168 +631,186 @@
     {
       "name": "logs: 0 foutmeldingen (ERROR/CRITICAL/Traceback/FATAL/PANIC)",
       "status": "ok",
-      "detail": "geen foutregels in de logs van alle containers",
-      "seconds": 2.02,
+      "detail": "geen foutregels in de logs van alle containers; 4 verwachte PostgreSQL-weigering(en) binnen 2 bewuste herstartvenster(s)",
+      "seconds": 1.31,
       "data": {
-        "hits": {}
+        "hits": {},
+        "restart_windows": [
+          [
+            "2026-11-10T07:36:33.917509+00:00",
+            "2026-11-10T07:37:02.902641+00:00"
+          ],
+          [
+            "2026-11-10T07:37:04.226242+00:00",
+            "2026-11-10T07:37:59.949942+00:00"
+          ]
+        ],
+        "tolerated_in_restart_window": {
+          "postgres": [
+            "2026-11-10T07:36:34.538771310Z 2026-11-10 08:36:34.538 CET [166] FATAL:  the database system is shutting down",
+            "2026-11-10T07:36:36.540610514Z 2026-11-10 08:36:36.540 CET [167] FATAL:  the database system is shutting down",
+            "2026-11-10T07:36:37.122305914Z 2026-11-10 08:36:37.122 CET [168] FATAL:  the database system is shutting down",
+            "2026-11-10T07:36:37.128574107Z 2026-11-10 08:36:37.128 CET [169] FATAL:  the database system is shutting down"
+          ]
+        }
       }
     }
   ],
   "stats": {
     "idle": {
       "web": {
-        "cpu_pct_max": 0.04,
-        "mem_mib_max": 39.4,
+        "cpu_pct_max": 0.03,
+        "mem_mib_max": 40.1,
         "pids_max": 11,
         "limit": "512MiB",
         "samples": 3
       },
       "worker": {
-        "cpu_pct_max": 12.97,
-        "mem_mib_max": 59.0,
+        "cpu_pct_max": 0.1,
+        "mem_mib_max": 59.2,
         "pids_max": 7,
         "limit": "768MiB",
         "samples": 3
       },
       "api": {
-        "cpu_pct_max": 0.12,
-        "mem_mib_max": 61.6,
+        "cpu_pct_max": 0.13,
+        "mem_mib_max": 61.3,
         "pids_max": 11,
         "limit": "768MiB",
         "samples": 3
       },
       "postgres": {
-        "cpu_pct_max": 3.56,
-        "mem_mib_max": 32.0,
+        "cpu_pct_max": 0.09,
+        "mem_mib_max": 35.2,
         "pids_max": 10,
         "limit": "1GiB",
         "samples": 3
       },
       "mock-sabnzbd": {
-        "cpu_pct_max": 0.11,
-        "mem_mib_max": 34.7,
+        "cpu_pct_max": 0.14,
+        "mem_mib_max": 35.0,
         "pids_max": 5,
         "limit": "256MiB",
         "samples": 3
       },
-      "mock-spotweb": {
-        "cpu_pct_max": 0.11,
-        "mem_mib_max": 34.5,
-        "pids_max": 5,
-        "limit": "256MiB",
-        "samples": 3
-      },
-      "mock-prowlarr": {
-        "cpu_pct_max": 0.12,
-        "mem_mib_max": 38.0,
-        "pids_max": 5,
+      "mock-nntp": {
+        "cpu_pct_max": 0.01,
+        "mem_mib_max": 8.0,
+        "pids_max": 1,
         "limit": "256MiB",
         "samples": 3
       },
       "mock-qbittorrent": {
-        "cpu_pct_max": 0.11,
-        "mem_mib_max": 41.5,
-        "pids_max": 5,
-        "limit": "256MiB",
-        "samples": 3
-      },
-      "mock-newznab": {
-        "cpu_pct_max": 0.12,
-        "mem_mib_max": 34.6,
+        "cpu_pct_max": 0.13,
+        "mem_mib_max": 42.3,
         "pids_max": 5,
         "limit": "256MiB",
         "samples": 3
       },
       "mock-mediaguard": {
         "cpu_pct_max": 0.13,
-        "mem_mib_max": 36.3,
+        "mem_mib_max": 36.0,
         "pids_max": 5,
         "limit": "256MiB",
         "samples": 3
       },
-      "mock-nntp": {
-        "cpu_pct_max": 0.01,
-        "mem_mib_max": 7.8,
-        "pids_max": 1,
+      "mock-spotweb": {
+        "cpu_pct_max": 0.12,
+        "mem_mib_max": 34.6,
+        "pids_max": 5,
+        "limit": "256MiB",
+        "samples": 3
+      },
+      "mock-newznab": {
+        "cpu_pct_max": 0.12,
+        "mem_mib_max": 34.5,
+        "pids_max": 5,
+        "limit": "256MiB",
+        "samples": 3
+      },
+      "mock-prowlarr": {
+        "cpu_pct_max": 0.1,
+        "mem_mib_max": 38.1,
+        "pids_max": 5,
         "limit": "256MiB",
         "samples": 3
       }
     },
     "load": {
       "web": {
-        "cpu_pct_max": 22.59,
-        "mem_mib_max": 46.5,
-        "pids_max": 17,
+        "cpu_pct_max": 8.22,
+        "mem_mib_max": 45.0,
+        "pids_max": 11,
         "limit": "512MiB",
         "samples": 2
       },
       "worker": {
-        "cpu_pct_max": 2.59,
-        "mem_mib_max": 58.8,
+        "cpu_pct_max": 2.9,
+        "mem_mib_max": 69.1,
         "pids_max": 7,
         "limit": "768MiB",
         "samples": 2
       },
       "api": {
-        "cpu_pct_max": 95.52,
-        "mem_mib_max": 64.0,
+        "cpu_pct_max": 34.5,
+        "mem_mib_max": 63.5,
         "pids_max": 18,
         "limit": "768MiB",
         "samples": 2
       },
       "postgres": {
-        "cpu_pct_max": 32.46,
-        "mem_mib_max": 49.5,
+        "cpu_pct_max": 17.84,
+        "mem_mib_max": 51.9,
         "pids_max": 16,
         "limit": "1GiB",
         "samples": 2
       },
       "mock-sabnzbd": {
-        "cpu_pct_max": 0.12,
-        "mem_mib_max": 34.7,
-        "pids_max": 5,
-        "limit": "256MiB",
-        "samples": 2
-      },
-      "mock-spotweb": {
-        "cpu_pct_max": 0.12,
-        "mem_mib_max": 34.5,
-        "pids_max": 5,
-        "limit": "256MiB",
-        "samples": 2
-      },
-      "mock-prowlarr": {
-        "cpu_pct_max": 0.1,
-        "mem_mib_max": 38.0,
-        "pids_max": 5,
-        "limit": "256MiB",
-        "samples": 2
-      },
-      "mock-qbittorrent": {
-        "cpu_pct_max": 0.1,
-        "mem_mib_max": 41.5,
-        "pids_max": 5,
-        "limit": "256MiB",
-        "samples": 2
-      },
-      "mock-newznab": {
         "cpu_pct_max": 0.11,
-        "mem_mib_max": 34.6,
-        "pids_max": 5,
-        "limit": "256MiB",
-        "samples": 2
-      },
-      "mock-mediaguard": {
-        "cpu_pct_max": 0.12,
-        "mem_mib_max": 36.3,
+        "mem_mib_max": 35.0,
         "pids_max": 5,
         "limit": "256MiB",
         "samples": 2
       },
       "mock-nntp": {
         "cpu_pct_max": 0.01,
-        "mem_mib_max": 7.8,
+        "mem_mib_max": 8.0,
         "pids_max": 1,
+        "limit": "256MiB",
+        "samples": 2
+      },
+      "mock-qbittorrent": {
+        "cpu_pct_max": 0.11,
+        "mem_mib_max": 42.3,
+        "pids_max": 5,
+        "limit": "256MiB",
+        "samples": 2
+      },
+      "mock-mediaguard": {
+        "cpu_pct_max": 0.09,
+        "mem_mib_max": 36.0,
+        "pids_max": 5,
+        "limit": "256MiB",
+        "samples": 2
+      },
+      "mock-spotweb": {
+        "cpu_pct_max": 0.1,
+        "mem_mib_max": 34.6,
+        "pids_max": 5,
+        "limit": "256MiB",
+        "samples": 2
+      },
+      "mock-newznab": {
+        "cpu_pct_max": 0.1,
+        "mem_mib_max": 34.5,
+        "pids_max": 5,
+        "limit": "256MiB",
+        "samples": 2
+      },
+      "mock-prowlarr": {
+        "cpu_pct_max": 0.11,
+        "mem_mib_max": 38.1,
+        "pids_max": 5,
         "limit": "256MiB",
         "samples": 2
       }
@@ -800,10 +818,10 @@
     "load_requests": {
       "requests": 480,
       "errors": 0,
-      "seconds": 2.4,
-      "rps": 196.9,
-      "p50_ms": 36.6,
-      "p95_ms": 68.0,
+      "seconds": 2.3,
+      "rps": 209.6,
+      "p50_ms": 19.7,
+      "p95_ms": 34.5,
       "via": "http://127.0.0.1:48081"
     }
   },

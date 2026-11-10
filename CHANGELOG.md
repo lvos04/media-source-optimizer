@@ -41,6 +41,11 @@ Besluiten: ADR-0009.
   (commando's), `ARCHITECTURE.md` en de koppen van `deploy/truenas/compose*.yaml` zijn gemarkeerd als "alleen
   ontwikkeling/CI/E2E, geen installatiemethode". Herschrijven van de acceptatielijst en een terugdraaiknop blijven P3-05
   en P3-13.
+- **Review (QA): CI test de alles-in-één-image bij elke run.** Tot nu toe bouwde en testte alleen `release.yaml` de image
+  die de gebruiker installeert; `ci.yaml` bouwde alleen core/web/mocks. Nieuwe job `allinone`: image bouwen en
+  `tests/stack/allinone_test.py` draaien (lege `/appdata` als root, gebruiker 568, herstart, harde kill, back-up/herstel,
+  upgrade vanaf het 1.5.0-schema); er wordt niets gepusht. Verder: `apps/core/tests/test_openapi_export.py` bewaakt de
+  OpenAPI-export tegen de echte API.
 
 ### Voorbereiding op publiek maken: licentie en opschoning
 Alleen documentatie, metadata en hulpscripts; productcode, API, datamodel, migraties, poorten en installatie

@@ -5,6 +5,9 @@
 #          against a PostgreSQL 16 service, with pg_dump/pg_restore 16 via MSO_PG_BIN (as release.yaml)
 # web      Peil drift check + typecheck + lint + unit tests (vitest) + production build of the Next.js UI
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
+# allinone docker build of the all-in-one image (deploy/allinone, the TrueNAS Custom App) + tests/stack/allinone_test.py
+#          (empty /appdata as root → healthy, processes as 568, restart/kill without data loss, backup/restore,
+#          upgrade from the 1.5.0 schema, user 568, wrong rights); never pushed (release.yaml publishes)
 # stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
 # e2e      fresh stack, prepared (admin, connectors → mocks, backup, wizard completed) + ALL Playwright tests
 #          (desktop + mobile) with credentials; a skipped test fails the job → screenshots/traces as artifacts
@@ -151,6 +154,37 @@ jobs:
           provenance: false
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  allinone:
+    # The all-in-one image is the only installation form (standard TrueNAS Custom App). Until now only release.yaml
+    # tested it; this job runs the same end-to-end test on every CI run, without pushing anything.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Build all-in-one image + test mocks (local only, never pushed)
+        run: |
+          docker build -f deploy/allinone/Dockerfile -t media-source-optimizer:local .
+          docker build -t mso-mocks:stack apps/mocks
+      - name: End-to-end test of the all-in-one image (empty /appdata as root, user 568, restart, kill, backup/restore, upgrade)
+        run: |
+          python -m venv /tmp/aio-venv && /tmp/aio-venv/bin/pip install -q httpx==0.28.1
+          # root only on the CI runner so the test can chown a folder to 568 and look inside the 0700 database folder
+          # (as release.yaml); the image itself drops to 568
+          sudo /tmp/aio-venv/bin/python tests/stack/allinone_test.py media-source-optimizer:local
+      - name: Job summary
+        if: always()
+        run: cat tests/stack/results/allinone-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: allinone-results
+          path: |
+            tests/stack/results/allinone-report.md
+            tests/stack/results/allinone-report.json
 
   stack:
     runs-on: ubuntu-24.04

@@ -1,9 +1,9 @@
-<!-- HERKOMST — Peil 1.1.0 · bron: ontwerptaal Peil, definitief/ONTWERPTAAL.md (design-agent, 2026-11-09; wordt ai-server-manager/docs/platform-v2/ONTWERPTAAL.md en design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): a957370b1eceac49ab9f47204c252a67d15967ebae240eb33440b8963898d33b · versie-gepinde kopie (O-14), niet met de hand wijzigen. Relatieve links naar bestanden die hier niet zijn gekopieerd (prototypes/, shots/, bouw/, ../REVIEW.md) werken alleen in de bron. -->
+<!-- HERKOMST — Peil 1.1.1 · bron: lvos04/ai-server-manager@0a7143bc0a94ed5317a9655fa785e73a1fb07ba1 docs/platform-v2/ONTWERPTAAL.md · sha256 van het bronbestand (zonder deze kop): 79130d3e7e3002a3205b4a02c565d45cc61ba68a2bea9bf4a6b385e3ab8163db · versie-gepinde kopie (O-14, ONTWERPTAAL §14), niet met de hand wijzigen (scripts/bronkopie.py). Relatieve links naar bestanden die hier niet zijn gekopieerd (prototypes/, shots/, bouw/, REVIEW.md, andere ADR's) werken alleen in de bron. -->
 
 # Peil — ontwerptaal van het TrueNAS Home Platform V2
 
-**Status:** bindend voor bouwers · versie **1.1.0** (na onafhankelijke ontwerpreview, zie `../REVIEW.md`) · 9 november 2026 · eigenaar `lvos04/ai-server-manager` (bron van waarheid)
-**Besluit:** [ADR-ONTWERPTAAL.md](ADR-ONTWERPTAAL.md) (vervangt ADR-0009 punt 1 van de Hub) · **Componentspecificaties:** [COMPONENTEN.md](COMPONENTEN.md)
+**Status:** bindend voor bouwers · versie **1.1.1** (verbeterpunten uit de ontwerpreviews van de apps en statuspagina's, zie §16; 1.1.0 na de onafhankelijke ontwerpreview, zie `design/ontwerptaal/REVIEW.md`) · 10 november 2026 · eigenaar `lvos04/ai-server-manager` (bron van waarheid)
+**Besluit:** [ADR-ONTWERPTAAL.md](../adr/ADR-0015-ontwerptaal-peil.md) (vervangt ADR-0009 punt 1 van de Hub) · **Componentspecificaties:** [COMPONENTEN.md](../../design/ontwerptaal/COMPONENTEN.md)
 
 > **Peil** — zoals een waterpeil: je ziet in één oogopslag hoe het ervoor staat, en je ziet ook eerlijk wanneer er
 > geen meting is. *Op peil* betekent in orde; *geen peil op te trekken* betekent: we weten het niet, en dat zeggen we.
@@ -38,9 +38,10 @@ laatst-bekende waarde (`--stale-ink`, ≈ 6:1 en ≥ 4,5:1 op de arcering) haalt
 | `components.json` | Advies-configuratie voor de shadcn-CLI (zie COMPONENTEN.md §1). | Hub, MediaGuard, MSO |
 | `aliaslagen/*.css` | Migratiefase 1: oude variabelenamen → Peil (MediaGuard/MSO, my_house, Hub P0). | per app |
 | `contrast.json` | Alle contrastparen, ΔE-scheiding, paletvalidatie en de my_house-paren — herberekend. | controle |
-| `prototypes/*.html` | Elf referentieschermen (statische HTML met gecompileerde Tailwind, fictieve data), waaronder de statuspagina in twee toestanden. | referentie |
-| `shots/*.png` | 88 schermafdrukken: 11 schermen × 360/390/768/1440 × licht/donker. | review |
-| `controle/` | Uitkomst van de automatische controle (axe, contrast in de DOM, focus, overloop) en het gedragstest. | bewijs |
+| `prototypes/*.html` | Twintig referentieschermen (statische HTML met gecompileerde Tailwind, fictieve data), waaronder de statuspagina in vier toestanden (sinds 1.1.1 ook "koppelstatus onleesbaar" en "koppelen bezig") en de zeven schermen van de Hub-ontwerpstap P1. | referentie |
+| `shots/*.png` | 160 schermafdrukken: 20 schermen × 360/390/768/1440 × licht/donker. | review |
+| `controle/` | Uitkomst van de automatische controle (axe, contrast in de DOM, focus, overloop, inhoud buiten zijn element) en de gedragstest; `samenvatting-dejavu.txt` = dezelfde controle met DejaVu Sans (§12). | bewijs |
+| `bouw/sjabloon.mjs`, `bouw/sjabloon.py` | Referentie-renderers van het statuspagina-sjabloon (één doorgang, byte-gelijk; `bouw/test-sjabloon.mjs`). | 5 diensten |
 | `bouw/` | Bron (`tokens.mjs`) en alle scripts. `node bouw/alles.mjs --shots --controle` bouwt alles opnieuw. | onderhoud |
 
 **Wijzigen gaat altijd zo:** waarde aanpassen in `bouw/tokens.mjs` → `node bouw/alles.mjs` → `contrast.json` moet
@@ -51,7 +52,7 @@ laatst-bekende waarde (`--stale-ink`, ≈ 6:1 en ≥ 4,5:1 op de arcering) haalt
 ## 1. Principes
 
 1. **Eerlijk boven geruststellend.** Groen betekent alleen *gemeten en goed*. Onbekend is nooit groen en nooit 0.
-   Verouderde data is nooit gezond. "Verstuurd" is geen "klaar". "Ik weet het niet" is een geldige uitkomst.
+   Verouderde data is nooit gezond. "Verzonden" is geen "klaar". "Ik weet het niet" is een geldige uitkomst.
 2. **Status eerst.** Op elk scherm staat bovenaan hoe het ervoor staat en wat actie nodig heeft; uitleg komt daarna.
 3. **Eén betekenis per kleurfamilie, en nooit alleen kleur.** Elke status heeft icoon + woord + vorm. Elke as
    (gezondheid, ernst, risico, validatie, zekerheid, gate) heeft een eigen vorm.
@@ -266,11 +267,11 @@ Regels voor namen (bindend):
 | `--domain-heat` | `#eb6834` | `#d95926` | Verwarmen (my_house) — icoon flame; = chart-2. |
 | `--domain-heat-bg` | `#FDEBDD` | `#3A1F10` | Verwarmen: vlak (modusknop actief, chip). |
 | `--domain-heat-ink` | `#6E2405` | `#FFD3B5` | Verwarmen: tekst. |
-| `--domain-heat-soft` | `#F4A57E` | `#9C3D14` | Verwarmen: decoratieve band/dial (draagt geen informatie). |
+| `--domain-heat-soft` | `#FFC3A4` | `#802300` | Verwarmen: band/dial. Tekst erop alleen in domain-heat-ink (>= 7:1; 1.1.1: was #F4A57E/#9C3D14 met 5,5/4,9:1, my_house zet labels in de schemaband). |
 | `--domain-cool` | `#2a78d6` | `#3987e5` | Koelen (my_house) — icoon snowflake; = chart-1. |
 | `--domain-cool-bg` | `#E0EEFB` | `#0F2740` | Koelen: vlak. |
 | `--domain-cool-ink` | `#0B3B73` | `#C2DDFA` | Koelen: tekst. |
-| `--domain-cool-soft` | `#9ec5f4` | `#184f95` | Koelen: decoratieve band/dial. |
+| `--domain-cool-soft` | `#AAD2FF` | `#064186` | Koelen: band/dial. Tekst erop alleen in domain-cool-ink (>= 7:1; 1.1.1: was #9ec5f4/#184f95 met 6,2/5,8:1). |
 | `--domain-boiler` | `#00a672` | `#199e70` | Boiler (alleen meten) — icoon shower-head; = chart-3. |
 | `--domain-boiler-bg` | `#E4E8EE` | `#1E252E` | Boiler: vlak — bewust NEUTRAAL (review 1.1.0): een aqua/mint vlak was niet te onderscheiden van healthy-bg (ΔE 0,6). De boiler is alleen meten; identiteit = icoon shower-head + woord. |
 | `--domain-boiler-ink` | `#0B0F14` | `#F2F5F8` | Boiler: tekst — neutraal (groenige inkt was ΔE 2,5 van healthy-ink). |
@@ -329,21 +330,23 @@ Regels voor namen (bindend):
 <!-- BEGIN:contrast -->
 | | Licht | Donker |
 |---|---|---|
-| Gemeten paren | 154 | 154 |
-| Tekstparen ≥ 7:1 (AAA) | 59 van 59 | 59 van 59 |
-| Laagste AAA-tekstpaar | 7.31:1 | 7.28:1 |
+| Gemeten paren | 156 | 156 |
+| Tekstparen ≥ 7:1 (AAA) | 61 van 61 | 61 van 61 |
+| Laagste AAA-tekstpaar | 7.08:1 | 7.06:1 |
 | UI- en icoonparen gehaald | 68 van 68 | 68 van 68 |
 | Laagste ΔE grafiek/domein ↔ status/risico (eis ≥ 15) | 16.1 | 16.1 |
 | Laagste ΔE status onderling (eis ≥ 10) | 10.8 | 11.1 |
 | Harde fouten | 0 | |
 | Brede matrix (review 1.1.0): paren per thema, harde fouten | 367 · 0 | 367 · 0 |
-| Brede matrix: laagste tekstpaar | stale-ink op stale-hatch 4.56 | domain-heat-ink op domain-heat-soft 4.93 |
+| Brede matrix: laagste tekstpaar | stale-ink op stale-hatch 4.56 | stale-ink op stale-hatch 5.01 |
 
 <!-- END:contrast -->
 
 Daarnaast meet `bouw/controle.cjs` het contrast **in de gerenderde DOM** (met opacity, color-mix en de donkerste
-arceerpixel) op alle elf prototypes, 6 breedtes × 2 thema's: 0 tekstfouten; laagste tekst 4,56:1 licht en 5,01:1
+arceerpixel) op alle prototypes (eerst elf, sinds de Hub-ontwerpstap achttien, sinds 1.1.1 twintig), 6 breedtes × 2 thema's: 0 tekstfouten; laagste tekst 4,56:1 licht en 5,01:1
 donker — dat is de bewust gedempte laatst-bekende waarde op de arcering (`--stale-ink`, eis ≥ 4,5:1).
+Sinds 1.1.1 is tekst op een `domain-*-soft`-band (my_house-schemaband) een harde AAA-eis: `-ink` op `-soft` ≥ 7:1
+(gemeten 7,06–7,12:1; in 1.1.0 4,93–6,22:1).
 
 ---
 
@@ -370,6 +373,10 @@ donker — dat is de bewust gedempte laatst-bekende waarde op de arcering (`--st
 11. **Domein- en grafiekkleuren zijn nooit tekst en nooit een icoon op hun eigen vlak.** Op `card`/`popover` halen ze
     ≥ 3:1 (icoon, lijn, staaf, legendablokje); op het eigen `-bg`-vlak niet (licht 2,7–2,8:1). Een icoon of tekst op
     `domain-*-bg` krijgt `domain-*-ink`. Tekst naast een reekskleur staat in de teksttokens.
+    **Sinds 1.1.1:** ook de **rand van een gekozen domeinknop** (modus Verwarmen/Koelen, brandende lichtgroep) is
+    `domain-*-ink` (≥ 7:1), niet de domeinkleur (2,8:1 op het eigen vlak; my_house ADR-0010 punt 5 deed dit al op Android).
+    Er komt geen apart randtoken: een nieuw token zou een minor-versie zijn (§14). Tekst op een `domain-*-soft`-band staat
+    altijd in `domain-*-ink` (≥ 7:1).
 12. **Formulierfouten zijn rood, "nog niet ingevuld" niet.** Een veldfout ná een verzendpoging (`aria-invalid`,
     foutsamenvatting) gebruikt `down`/`octagon-x`. Een besluit of instelling die nog open staat, is een neutrale toestand
     (BesluitStatusBadge "Open") — nooit rood, ook niet in een lijst of teller.
@@ -416,6 +423,13 @@ De rand van het SysteemStatusPaneel volgt de totaalstatus (2 px, gestippeld bij 
   gewicht, sr-only "(laatst bekende waarde, verouderd)". Status wordt **Onbekend**, bediening gaat uit met de reden
   ernaast, de kaartrand wordt gestippeld. Grafieken tonen een **gat** na het laatste meetpunt.
 - **Afgeleide kaarten erven de versheid van hun bron** (energie uit my_house is verouderd als my_house dat is).
+- **Statuspillen bij offline of verouderd (1.1.1, E15; my_house ADR-0011):** een laatst bekende **Gezond** (en
+  **Gepauzeerd**) wordt **Verouderd** (`clock-alert`, stippel + arcering) — de geruststelling verdwijnt. **Beperkt** en
+  **Storing** blijven staan met de tijd van de stand ("Storing · stand van 11:52") — een bekend probleem verdwijnt niet
+  als de verbinding wegvalt. Onbekend blijft Onbekend; Nog niet beschikbaar blijft staan (geen meting). De totaalstatus
+  wordt "Onbekend — offline" met "Laatst bekend om 11:52: Storing". **Bediening uit bij verouderde gegevens** geldt in
+  de Hub; in MediaGuard, MSO en my_house is dat gedrag (geen uiterlijk) en komt het alleen in een functionele ronde
+  (MediaGuard ADR-0018 punt 8).
 - **Nog nooit gemeten**: "Onbekend — nog nooit gemeten"; geen waarde, geen 0, geen "—".
 - Meetkwaliteit staat **inline naast het getal**: `· gemeten`, `· afgeleid`, `≈ 30 s · geschat`, `· niet beschikbaar`.
   De "≈" hoort bij de waarde; schermlezer: "ongeveer". In grafieken: geschat = stippellijn / 45°-arcering.
@@ -442,6 +456,9 @@ De rand van het SysteemStatusPaneel volgt de totaalstatus (2 px, gestippeld bij 
   `down` + link naar het incident. Gate onbekend (T-14b): rol `unknown`; onbekend opent nooit.
 - **Beleid / altijd geblokkeerd (T-15):** verbodsteken `ban` + "Alleen meten — schakelen is altijd uitgeschakeld
   (beleid)". Het element staat waar de gebruiker de knop zou zoeken, maar **er is geen schakelaar in de DOM**.
+- **Zekerheid (T-24, 1.1.1 E11):** levert een bron een getal, dan vaste drempels: **≥ 0,85 Zeker · ≥ 0,6
+  Waarschijnlijk · lager Onzeker · geen getal "Ik weet het niet"** (Hub OB-04). Het getal zelf staat alleen onder "Toon
+  bewijs", nooit als percentage of balk in de lijst. MSO gebruikt dezelfde indeling zodra zijn API een zekerheid levert.
 - **Validatie (T-07):** gestippelde mono-tag met exact de strings uit §11 van het contract. Tonen in "Over deze Hub" en
   bij hardwaregevoelige functies en uitvoerders (bijv. in de actie-preview: "Executor 0.1.0 [NIET GEVALIDEERD (echte
   NAS)]"), niet op elk scherm (O-12).
@@ -479,7 +496,11 @@ De rand van het SysteemStatusPaneel volgt de totaalstatus (2 px, gestippeld bij 
 - Geen kapitalen-labels (behalve de vaste validatiestrings). Koppen `text-wrap: balance`, tekst `pretty`.
   Regellengte lopende tekst ≤ `max-w-prose` (Tailwind-standaard **65ch**; `--prose-max` is sinds 1.1.0 ook 65ch).
 - Codes, `action_id`, trace-ID, digests en paden in mono; ze breken waar nodig (`overflow-wrap: anywhere`) en worden
-  **nooit** afgekapt met een ellips. Paden: `<wbr>` na elke `/`.
+  **nooit** afgekapt met een ellips. Paden: `<wbr>` na elke `/` waar de code markup kan zetten (Hub); een sjabloon
+  zonder markup in waarden (statuspagina) leunt op `overflow-wrap: anywhere`.
+- **Lange woorden in lopende tekst** (variabelenaam, foutnaam, adres) breken in plaats van over te lopen: `main` heeft
+  sinds 1.1.1 `overflow-wrap: break-word` in de basislaag (Hub-review R-26: met DejaVu Sans liep een woord 5 px over).
+  Een `svg.lucide` krimpt nooit (`flex-shrink: 0`, Hub-review R-16).
 
 ---
 
@@ -504,13 +525,24 @@ De rand van het SysteemStatusPaneel volgt de totaalstatus (2 px, gestippeld bij 
 
 | Breedte | Schil | Indeling |
 |---|---|---|
-| < 640 | ondernavigatie 5 items + live-regel onder de kop | 1 kolom; statusrijen: naam + badge op één regel, reden eronder; knoppen volle breedte; tabs lopen om; diff "Was/Wordt" onder elkaar; vaste actiebalk boven de ondernavigatie (wizard) |
+| < 640 | ondernavigatie 5 items (op labelbreedte, actief = balk zonder extra gewicht, zie onder) + live-regel onder de kop | 1 kolom; statusrijen: naam + badge op één regel, reden eronder; knoppen volle breedte; tabs lopen om; diff "Was/Wordt" onder elkaar; vaste actiebalk boven de ondernavigatie (wizard) |
 | 640–1023 | ondernavigatie | 2 kolommen kaarten vanaf `md`; tabellen ≤ 4 kolommen, anders kaartenlijst; tabs als rij met onderstreping vanaf `md` |
 | 1024–1279 | zijbalk 9 items + kopbalk (zoekknop als icoon, live-regel onder de kop) | 2 kolommen |
 | ≥ 1280 | zijbalk + kopbalk met Zoeken (Ctrl K), live, Problemen, Goedkeuringen, AI, gebruiker | 3 kolommen kaarten; master-detail (Problemen 24 rem + detail); systeemstatus en "Wat actie nodig heeft" naast elkaar; preview met zijkolom |
 
 - **Scroll-padding** (in `ontwerptaal.css`): boven = kopbalk + 12 px, onder = ondernavigatie (+ actiebalk via
-  `[data-actiebalk]`) + safe area + 12 px. Daardoor verdwijnt focus nooit achter een vaste balk (WCAG 2.4.11).
+  `[data-actiebalk]`) + safe area + 12 px. Daardoor verdwijnt focus nooit achter een vaste balk (WCAG 2.4.11). Sinds
+  1.1.1 houdt een schil met `data-schil="kind"` die ondernavigatie-ruimte ook vanaf 1024 px (de kindschil heeft geen
+  zijbalk; Hub-review R-03). Een app die de Peil-basislaag in een cascadelaag onder zijn eigen CSS laadt, krijgt ring en
+  scroll-padding terug via de aliaslaag (§13.3).
+- **Ondernavigatie (1.1.1, E16):** de items krijgen de breedte van hun label (`flex-auto`, minimaal 44 px), de rest van
+  de ruimte wordt gelijk verdeeld; geen vaste kolommen van 64 px (op 320 px stak "Problemen" er 4 px buiten, "Overzicht"
+  in my_house 2 px). Het **actieve item krijgt geen extra gewicht**: actief = balk van 3 px in `--primary` + inkt +
+  `aria-current="page"`. Labels breken nooit midden in een woord. In forced colors verdwijnt een balk of vlak; daar is
+  elk `[aria-current="page"|"step"]`, `[aria-selected="true"]` en `[aria-pressed="true"]` onderstreept (3 px,
+  `Highlight`; basislaag, MSO-review R-20).
+- **Statuspil-radius (1.1.1):** de helft van de hoogte van één regel (16 px bij 32 px, 20 px bij de grote pil), niet
+  `rounded-full`: op één regel blijft de pil volledig rond, een omlopende pil wordt niet afgesneden (MSO-review R-06).
 - **Beweging:** 150 ms kleur/hover, 200 ms sheet/dialoog, `--ease-standard`; geen decoratieve animatie; aftellers en
   live-grafieken bewegen niet; alles ≈ 0 bij `prefers-reduced-motion`. De focusring wordt nooit geanimeerd.
 
@@ -607,7 +639,7 @@ Volledige specificatie (props, varianten, toestanden, a11y, randgevallen, bewegi
 | Schermtype | Schermen (EISEN §5) | Patroon | Prototype |
 |---|---|---|---|
 | **Overzicht / Home** | S-020, S-030, S-120, S-130 | PageHeader met bijgewerkt + Vernieuwen → SysteemStatusPaneel → "Wat actie nodig heeft" (storing > goedkeuring > gate > onboarding) → kaartraster (StatKaarten). Vernieuwen elke 60 s zonder skeletflits. | `home.html` |
-| **Offline / bron weg** | S-007, T-10, T-10d | banner `unknown` bovenaan; elke kaart is verouderd: gestippelde rand, badge "Verouderd · stand van …" én de waarde in het gearceerde vak (§4.4), nooit een verse look; **lezen blijft** (bekijken, openen: "Toont de stand van 11:52"), **alles wat iets wijzigt of een verse server nodig heeft staat uit** (`aria-disabled` + reden: testen, wizard, vernieuwen, goedkeuren) — hetzelfde label heeft op één scherm altijd dezelfde toestand; nog nooit opgehaald = Onbekend, geen skelet; niets in een wachtrij; na herstel eerst ophalen, dan pas vers. Bron weg = per kaart, geen globale banner. | `offline.html` |
+| **Offline / bron weg** | S-007, T-10, T-10d | banner `unknown` bovenaan; elke kaart is verouderd: gestippelde rand, badge "Verouderd · stand van …" (Beperkt/Storing blijven: "Storing · stand van …", §4.4) én de waarde in het gearceerde vak (§4.4), nooit een verse look; **lezen blijft** (bekijken, openen: "Toont de stand van 11:52"), **alles wat iets wijzigt of een verse server nodig heeft staat uit** (`aria-disabled` + reden: testen, wizard, vernieuwen, goedkeuren) — hetzelfde label heeft op één scherm altijd dezelfde toestand; nog nooit opgehaald = Onbekend, geen skelet; niets in een wachtrij; na herstel eerst ophalen, dan pas vers. Bron weg = per kaart, geen globale banner. | `offline.html` |
 | **Lijst** | S-040, S-050, S-062, S-110, S-140 | FilterBalk (één rij, periode eerst; mobiel als sheet) + resultaatteller `aria-live` + ResponsieveLijst + cursor "Meer laden". Rij = één link; badges aan rij-einde. | `problemen.html` |
 | **Master-detail** | S-050/S-051, S-062/S-063 | ≥ 1280: lijst 24 rem + detail; kleiner: aparte schermen (het statische prototype toont op mobiel lijst en detail onder elkaar, alleen om beide te laten zien). Geselecteerde rij `aria-current`, 2 px primaire rand. | `problemen.html` |
 | **Incident** | S-051 | feiten (`dl`) → acties R0 + deep link → hypothese met zekerheid + "Toon bewijs" → "Ik weet het niet" → Al geprobeerd → stappenplan (runbook; genummerd, huidige stap) → tijdlijn → geschoonde gegevens kopiëren. | `problemen.html` |
@@ -617,11 +649,11 @@ Volledige specificatie (props, varianten, toestanden, a11y, randgevallen, bewegi
 | **Wizard / onboarding** | S-010…S-016, S-047, S-125, S-143 | stepper (stap n van m, `aria-current="step"`) → h2 "Stap n van m: …" → foutsamenvatting (`role=alert`, links naar velden) → velden met bron-tag → vaste actiebalk (Vorige · Opslaan en later verder · Volgende: <stap>); < 640 px vervalt "Opslaan en later verder" uit de balk omdat waarden automatisch bewaard worden (de infomelding zegt dat). Gates als kaartenlijst op mobiel (K1). | `wizardstap.html` |
 | **Formulier** | S-011, S-012, S-160… | label boven veld, hulptekst via `aria-describedby`, veldfout bij het veld + samenvatting; ja/nee zonder standaard; nullable met "onbekend"; geheimen nooit vooringevuld; plaatshouders nooit als voorbeeldwaarde. | `wizardstap.html` |
 | **Dekking / matrix** | S-036, S-120, S-163 | echte tabel ≥ 768 (`th scope`), per rij een kaart < 768; cel = symbool + woord (ja / nee / onbekend / n.v.t.). | (spec) |
-| **Huis / bediening** | S-090…S-096 | KamerKaart: waarden met kwaliteit, doel ± met `output`, readback "Verstuurd — wacht op bevestiging" → "Bevestigd" / "Niet bevestigd — er is niets gewijzigd"; verouderd = bediening uit; klimaatconflict = gate; handmatig = hand + Hervatten; boiler alleen meten. | `huis.html` |
+| **Huis / bediening** | S-090…S-096 | KamerKaart: waarden met kwaliteit, doel ± met `output`, readback "Verzonden — wacht op bevestiging" → "Bevestigd" / "Niet bevestigd — er is niets gewijzigd"; gekozen modus/lichtgroep: `-bg` + `-ink` + rand in `-ink`; verouderd = bediening uit; klimaatconflict = gate; handmatig = hand + Hervatten; boiler alleen meten. | `huis.html` |
 | **AI-chat** | S-060 | bericht met citaten; zekerheid; "Ik weet het niet" + wat er nodig is; "Repareer" → ActiePreview; logtekst altijd als geciteerde data; tegoed-meter. | (spec) |
 | **Kinderprofiel** | S-021, S-087 | eigen schil (Home · Kijken · Zoeken · Ik), kindertaal, geen codes in beeld; trace-ID achter "Details voor een volwassene". | `kind.html` |
 | **Fout- en toegangspagina's** | S-005, S-006, S-007 | Foutpaneel op paginaniveau met terugweg; 403: "Je rol (*kijker*) kan dit scherm niet gebruiken."; 502: waar je anders kijkt (Uptime Kuma, Gotify, TrueNAS-logs). | (spec) |
-| **Statuspagina** | §6 | sjabloon (§13.2). | `statuspagina.html` |
+| **Statuspagina** | §6 | sjabloon (§13.2). | `statuspagina*.html` (vier toestanden) |
 
 ---
 
@@ -680,6 +712,13 @@ tekst in teksttokens (nooit de reekskleur); directe labels selectief (eindpunt, 
 - **Geschat:** stippellijn (de enige toegestane stippel in een grafiek) of 45°-arcering in staven, plus "≈" in labels
   en tooltip. Gemeten en geschat staan nooit in dezelfde look.
 - **Grenslijn** in `chart-limit` met direct label ("Limiet 512 MiB").
+- **Kleine gemeten waarden (1.1.1, Hub-review R-23):** een gemeten waarde die niet 0 is, staat nooit als 0 — niet in de
+  tegel, niet op de as en niet in een label. Onder 1 eenheid: twee significante cijfers ("0,03 Mbit/s"); de asverdeling
+  volgt dezelfde precisie. Alleen een echte 0 is "0".
+- **Eén kleurcodering per figuur (1.1.1, MediaGuard-review §10):** een segmentbalk en de rijbalken eronder ("Wat kwam
+  erbij / Waar ging de ruimte heen") gebruiken dezelfde codering: kleur volgt de **entiteit** (de post), op web en
+  Android gelijk. Het teken (erbij/eraf) staat in de richting vanaf de basislijn en in het label ("+12 GiB", "−3 GiB"),
+  niet in een tweede kleur; plus/min in `chart-1`/`chart-2` naast entiteitkleuren uit dezelfde slots is verboden.
 
 **Meter.** Vulling `chart-1` op spoor `chart-meter-track` (≥ 3:1 tussen vulling en spoor). Vanaf de drempel (standaard
 90 %, per metriek in te stellen) wordt de vulling **Beperkt** (`degraded` op `degraded-bg`) met icoon en tekst
@@ -718,6 +757,9 @@ waarom, dan wat je kunt doen. Knoppen beginnen met een werkwoord + object. Geen 
 | capability | **Niet beschikbaar** — <bron> ondersteunt dit niet | | Not available — <source> does not support this |
 | risico | R0 · Alleen lezen · R1 · Omkeerbaar · R2 · Goedkeuring nodig · R3 · Destructief — extra bevestiging | "Automatisch veilig" (groen, MSO) | R0 · Read only … |
 | uitvoering | **Uitgevoerd en gecontroleerd** | Klaar, Gelukt! | Done and verified |
+| readback (1.1.1) | **Verzonden** — wacht op bevestiging · Bevestigd · Niet bevestigd | Verstuurd | Sent — waiting for confirmation |
+| aflevering die indexers niet vinden (1.1.1, MediaGuard) | **Niet te vinden** | Niet beschikbaar (dat woord is voor `capability_unavailable`) | Not found |
+| koppelen (statuspagina, 1.1.1) | Gekoppeld · Niet gekoppeld · Ontkoppeld · Ingetrokken · **Onleesbaar** · **Koppelen bezig** | | Linked · Not linked · Unlinked · Revoked · Unreadable · Linking in progress |
 | zekerheid | Zeker · Waarschijnlijk · Onzeker · **Ik weet het niet** | percentages zonder model | Certain · Likely · Unsure · I don't know |
 
 Termen: app · dienst · Problemen / incident · goedkeuring · voorstel · herstelpunt · hersteltest · back-up (tekst) /
@@ -747,9 +789,9 @@ Hub-sleutelset). Vaktermen die de bron zelf zo noemt (scrub, digest, crashloop t
 | R2-knop | **Voorstel beoordelen** · **Goedkeuring aanvragen** · **Simuleren (droogtest)** |
 | R3-bevestiging | "Typ `voorbeeld-app` om te bevestigen." · knop **Data definitief verwijderen** (uit tot de naam klopt: "Typ eerst de naam van de app om te bevestigen.") |
 | Goedkeuring vervallen | "**Goedkeuring vervallen:** de app-versie is gewijzigd na de preview. Vraag een nieuw voorstel aan." |
-| Uitvoering | "Pas na de controle (readback) staat er **Uitgevoerd en gecontroleerd**. 'Verstuurd' is nog niet klaar." |
+| Uitvoering | "Pas na de controle (readback) staat er **Uitgevoerd en gecontroleerd**. 'Verzonden' is nog niet klaar." |
 | Gelukt | "Herstart uitgevoerd en gecontroleerd om 11:58 (gezond na 34 s)." |
-| Apparaat | "Verstuurd — wacht op bevestiging van my_house" → "Bevestigd: 21 °C" / "**Niet bevestigd** — het apparaat reageerde niet. Er is niets gewijzigd." |
+| Apparaat | "Verzonden — wacht op bevestiging van my_house" → "Bevestigd: 21 °C" / "**Niet bevestigd** — het apparaat reageerde niet. Er is niets gewijzigd." |
 | Offline | "Je bent offline. Gegevens zijn niet actueel; acties zijn uitgeschakeld. Zodra de verbinding terug is, halen we alles opnieuw op." |
 | Live onderbroken | "**Live-updates onderbroken** — opnieuw verbinden over 10 s. De lijst toont de stand van 11:56." |
 | Weer verbonden | "Weer verbonden. Gegevens worden ververst." (5 s, `aria-live="polite"`) |
@@ -758,6 +800,10 @@ Hub-sleutelset). Vaktermen die de bron zelf zo noemt (scrub, digest, crashloop t
 | Rol | "Je kijkt als **kijker**: je kunt hier niets wijzigen." |
 | Deep link | "Openen in MediaGuard" (+ sr-only "(opent in een nieuw tabblad)") |
 | Kind | "Je kunt kijken." · "Een volwassene kijkt ernaar." · "Er ging iets mis. Vraag het aan een volwassene." + **Details voor een volwassene** |
+| Statuspagina: onleesbaar | "De koppelstatus van deze dienst is onleesbaar. Daarom vertrouwt de dienst niets van de Hub en voert hij niets uit. Hier staat bewust geen formulier." + "Herstel gaat alleen met een nieuw koppeltoken: maak het in de Hub (**Instellingen → Diensten**). De Hub zet het in de instellingen van deze app, of je vult het zelf in bij de Custom App in TrueNAS." |
+| Statuspagina: koppelen bezig | "Er loopt een koppelpoging (gestart om 11:54). Tot die klaar is, blijft de koppeltoestand hierboven gelden en kun je hier niets invullen. Laad de pagina over een minuut opnieuw." |
+| Statuspagina: Gereed | "Gereed betekent: de eigen controles zijn in orde (`/readyz`) én de dienst is gekoppeld met de Hub. `/readyz` kijkt zelf niet naar de koppeling." |
+| Verplicht veld | label + "(verplicht)" in `muted-foreground`, normaal gewicht |
 | Statuspagina-veld | "Vorm: http(s)://<NAS-adres>:<poort>. Geen localhost." · "16 tekens in groepen van 4 (XXXX-XXXX-XXXX-XXXX). Staat in de Hub naast de koppelcode. Zo weet je zeker dat je met jouw Hub koppelt." · "Wordt versleuteld opgeslagen in deze dienst. Je ziet daarna alleen de laatste 4 tekens. De Hub ziet deze sleutel nooit." |
 
 **Notatie:** `Intl` nl-NL (decimale komma, punt voor duizendtallen); 24-uurs tijd; "9 nov 2026, 11:56"; relatief
@@ -791,19 +837,33 @@ Hub-sleutelset). Vaktermen die de bron zelf zo noemt (scrub, digest, crashloop t
 | A-19 kind | eenvoudige taal; codes achter "Details voor een volwassene" |
 
 **Testmatrix (verplicht in elke app met Playwright):** breedtes **320, 360, 390, 768, 1024, 1440** × **licht/donker**:
-geen horizontale overloop; geen doel < 44 px (radio/checkbox: het label telt); geen tekst < 14 px; geen ellips op
+geen horizontale overloop; geen inhoud die buiten zijn eigen knop, pil, navigatie-item of rij steekt (1.1.1; de
+paginaoverloop ziet dat niet); geen doel < 44 px (radio/checkbox: het label telt); geen tekst < 14 px; geen ellips op
 inhoud; **axe-core** tags `wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa` = 0; volledige Tab-doorloop op 390 en 1440:
 elk element heeft een ring ≥ 3:1 en is **niet bedekt** door kop- of ondernavigatie; één h1, geen kopsprongen, geen
 dubbele id's, geen kapotte `aria-*`-verwijzingen; `prefers-reduced-motion` = geen beweging; forced colors toont
 stippelranden; schermafdrukken op 360/390/768/1440 × licht/donker bij elke release (geen pixel-baselines nodig).
 Referentie-implementatie van deze controles: `bouw/controle.cjs` + `bouw/gedrag.cjs`.
 
-**Uitkomst op de prototypes** (`controle/samenvatting.txt`, opnieuw gedraaid bij de review 1.1.0): 11 schermen × 6 breedtes × 2 thema's — axe 0 overtredingen (ook een onafhankelijke run met axe-core 4.14 incl. best-practice: 0),
+**Lettertype bij reflow (1.1.1, E12; contract 1.3 §13):** Peil gebruikt bewust het systeemfont, dus elk gangbaar
+systeemfont moet passen. Reflow, overloop en "inhoud buiten zijn element" worden daarom ook getest met het
+systeemlettertype van de CI-runner (Ubuntu: **DejaVu Sans**, breder dan Noto Sans). Lokaal na te doen met een vlag die
+het lettertype afdwingt: in de Hub `PEIL_REVIEW_LETTER="DejaVu Sans"`, in de prototypecontrole
+`PEIL_LETTER="DejaVu Sans" node bouw/controle.cjs <pagina>` (uitvoer in `controle/uit-letter/`, samenvatting
+`controle/samenvatting-dejavu.txt`).
+
+**Uitkomst op de prototypes** (`controle/samenvatting.txt`, opnieuw gedraaid bij 1.1.1 op 10 november 2026): 20 schermen × 6 breedtes × 2 thema's — axe 0 overtredingen, 0 tekstfouten, 0 overloop, 0 inhoud buiten zijn element, 0 doelen < 44 px, 0 bedekte focus; met DejaVu Sans (`controle/samenvatting-dejavu.txt`) dezelfde uitkomst. Bij de review 1.1.0: 11 schermen × 6 breedtes × 2 thema's — axe 0 overtredingen (ook een onafhankelijke run met axe-core 4.14 incl. best-practice: 0),
 0 tekstfouten, 0 overloop, 0 doelen < 44 px, 0 bedekte focus, ring ≥ 5,1:1, één h1 overal; gedragstest: tabs met
 pijltjes/Home/End, grafiek leest "09:30: Geen meting" voor, R3-knop pas actief na de juiste naam, kopiëren valt terug
 op selecteren, forced colors houdt de stippelrand, 200 %-zoom (640 px) zonder overloop.
 **Niet gedaan:** echte schermlezer (NVDA/TalkBack), echte Android-telefoon in fel licht, tv/speler. Die horen bij de
 acceptatie (08_UI) en blijven open.
+
+**Uitkomst op de gebouwde Hub-UI** (ontwerpreview, `docs/ontwerp/PEIL_REVIEW.md`, ADR-0025): dezelfde controles,
+plus de Peil-semantiek en de woordenlijst, op de echte `apps/web` met de web-E2E-teststack (Sim-getest). Gemeten op
+320/360/390/768/1024/1440 × licht/donker, voor alle schermen van beheerder, kijker en kind, de publieke pagina's, de
+executor-statuspagina en de toestanden NAS offline en browser offline. Opnieuw meten: `make web-review`
+(`apps/web/review/`).
 
 ---
 
@@ -842,31 +902,74 @@ bij bestaande grafieken) vragen akkoord van de gebruiker en zijn géén onderdee
 
 ### 13.2 Statuspagina's (vijf diensten, FastAPI-HTML zonder JS)
 
-- **Eén sjabloon:** `statuspagina.html` (CSS ± 6,8 KB en lucide-symbolen inline; geen JS, geen externe bron, past
-  binnen `default-src 'none'; style-src 'unsafe-inline'`). Vaste opbouw: kop → (melding) → Status (totaal, controles,
-  gereed, versie, bron, bijgewerkt "bij het laden") → Koppeling met de Hub → (Koppelen) → (executor: Schrijfsleutel,
-  Ontkoppelen of sleutel vervangen) → dienstspecifiek blok → voet (`/healthz`, `/readyz`).
-- **Koppelen volgens contract 1.2 §3.7/§3.9** (in 1.0.0 nog volgens 1.1 — hersteld): precies één koppeltoestand:
-  `koppelformulier` (dienst is **nog nooit** gekoppeld, `first_linked_at` leeg) · `gekoppeld` · `ontkoppeld` ·
-  `ingetrokken`. Het formulier heeft drie verplichte velden: **Hub-adres, koppelcode, Hub-vingerafdruk**
-  (`XXXX-XXXX-XXXX-XXXX`); de geldigheid komt uit `{{koppelcode_geldig}}` (diensten 60 minuten, executor 30 minuten).
-  Na de eerste koppeling verdwijnt het formulier voorgoed; ontkoppeld/ingetrokken tonen "Opnieuw koppelen gaat via de
-  Hub". **Geen ontkoppelen en geen ontkoppelcode op de statuspagina** — behalve de executor (§3.9): na het koppelen het
-  blok `schrijfsleutel_formulier` (TrueNAS-API-sleutel met schrijfrechten, live getest) en daarna `executor_beheer`
-  (ontkoppelen of sleutel vervangen, alleen na het opnieuw invoeren van de geverifieerde schrijfsleutel).
-  "Gekoppeld" is een **neutrale** pil (`link-2`), nooit groen.
-- **Plekken:** `{{x}}` = tekst (altijd `html.escape`); `<!--ALS:x-->…<!--/ALS:x-->`, `<!--NIET:x-->…`,
-  `<!--ELK:lijst-->…`. Toonwaarden alleen uit de vaste lijst `gezond | beperkt | storing | onbekend | gate`; meldingen
-  uit de vaste lijst per dienst (zoals `NOTICES` in home-control-hub). Referentie-renderer: `bouw/sjabloon.mjs`
-  (± 10 regels; in Python hetzelfde met `re.sub` + `html.escape`).
+- **Eén sjabloon:** `statuspagina.html` (CSS ± 7,9 KB en lucide-symbolen inline; geen JS, geen externe bron, past
+  binnen `default-src 'none'; style-src 'unsafe-inline'`). Serveer met `Referrer-Policy: same-origin` (contract 1.3
+  §3.7; met `no-referrer` stuurt elke browser `Origin: null` en weigert de herkomstcontrole elke echte POST). Vaste
+  opbouw: kop → (melding) → Status (totaal, controles, gereed, versie, bron, bijgewerkt "bij het laden", uitleg Gereed)
+  → Koppeling met de Hub → (Koppelen) → (executor: Schrijfsleutel, Ontkoppelen of sleutel vervangen) → dienstspecifiek
+  blok → voet (`/healthz`, `/readyz`).
+- **Koppelen volgens contract 1.3 §3.5/§3.7/§3.9:** precies één koppeltoestand: `koppelformulier` (dienst is **nog
+  nooit** gekoppeld, `first_linked_at` leeg en het koppelbestand leesbaar) · `gekoppeld` · `ontkoppeld` · `ingetrokken` ·
+  **`koppelstatus_onleesbaar`** (1.1.1, E01: fail-closed; pil Storing "Onleesbaar", vaste tekst met de herstelweg via een
+  nieuw koppeltoken, **geen formulier**). Daarnaast de vlag **`koppelen_bezig`** (1.1.1, E02; `pending ≠ null`): neutrale
+  pil "Koppelen bezig" (`hourglass`) met de starttijd; het formulier en de stappen verdwijnen (in het sjabloon:
+  `<!--NIET:koppelen_bezig-->` binnen `koppelformulier`), de stabiele toestand blijft erboven staan. Het formulier heeft
+  drie verplichte velden: **Hub-adres, koppelcode, Hub-vingerafdruk** (`XXXX-XXXX-XXXX-XXXX`), elk met "(verplicht)";
+  de geldigheid komt uit `{{koppelcode_geldig}}` (diensten 60 minuten, executor 30 minuten). Na de eerste koppeling
+  verdwijnt het formulier voorgoed; ontkoppeld/ingetrokken tonen "Opnieuw koppelen gaat via de Hub". **Geen ontkoppelen
+  en geen ontkoppelcode op de statuspagina** — behalve de executor (§3.9): na het koppelen het blok
+  `schrijfsleutel_formulier` en daarna `executor_beheer`. "Gekoppeld" is een **neutrale** pil (`link-2`), nooit groen;
+  "Hub openen" is een losse secundaire knop van 44 px (1.1.1).
+- **Formulieren (1.1.1, E09):** altijd `novalidate`: de diensten valideren server-side met vaste Nederlandse teksten
+  (de browservalidatie blokkeerde `192.168.1.10:30400` met een Engelse melding zonder vormhint). `required` blijft
+  staan (schermlezer: verplicht).
+- **Plekken:** `{{x}}` = tekst (altijd escapen); `<!--ALS:x-->…`, `<!--NIET:x-->…`, `<!--ELK:lijst-->…`, ook genest.
+  **Renderer in één doorgang** (1.1.1, E07): het sjabloon wordt eerst gelezen, daarna ingevuld; een waarde wordt nooit
+  opnieuw als sjabloon gelezen (1.1.0 vulde een bronnaam `{{csrf_token}}` in met de CSRF-waarde). Waar = niet leeg
+  (`false`, leeg, 0 en een lege lijst zijn onwaar). Referentie: `bouw/sjabloon.mjs` en `bouw/sjabloon.py` (byte-gelijk
+  getest op alle vier prototypes, `bouw/test-sjabloon.mjs`); de Python-renderers van de diensten nemen dit over.
+- **Tonen** (vaste lijst; het symbool heet altijd `#i-<toon>`, 1.1.1 E03/E04):
+
+  | Toon | Icoon | Vorm | Gebruik | Telt in het totaal |
+  |---|---|---|---|---|
+  | `gezond` | `circle-check` | geen vlak | gemeten en goed | ja |
+  | `beperkt` / `storing` | `triangle-alert` / `octagon-x` | vlak + rand | gemeten probleem | ja (in het dienstblok hooguit Beperkt) |
+  | `onbekend` | `circle-help` | stippel | niet te meten, met reden | ja (Onbekend) |
+  | `niet-gekoppeld` | `link-2-off` | als onbekend | koppeltoestand in de controles (zelfde icoon als in het koppelblok) | ja (Onbekend) |
+  | `niet-beschikbaar` | `circle-slash` | als onbekend | `capability_unavailable`, met code | ja (Onbekend) |
+  | `verouderd` | `clock-alert` | stippel + arcering | laatst bekende stand, met tijd | eigen controle: Onbekend; dienstblok: nee |
+  | `nog-niet` | `hourglass` | neutraal op `muted` | Nog niet beschikbaar (fase) en Koppelen bezig | nee |
+  | `gate` | `lock` | hoekig, inktrand | wacht op een voorwaarde | nee |
+  | `beleid` | `ban` | als gate | altijd geblokkeerd ("Alleen meten") | nee |
+  | `feit` | `info` (inkt) | neutraal, rand | een feit dat geen gezondheid is ("2 apps") | nee |
+
+  Per rij optioneel `{{reden_code}}` (als `<code>` achter de reden). Rijopbouw: naam + pil op regel 1 (past de pil
+  niet, dan rechts op een eigen regel), tijd + reden samen eronder; voor schermlezers staat er een scheiding tussen
+  naam, pil en toelichting.
+- **Totaalstatus (1.1.1, E10):** het slechtste van de eigen controles (inclusief gereedheid en koppeling) en de
+  **verse** metingen in het dienstblok. Een verse Storing of Beperkt in het dienstblok maakt het totaal **hooguit
+  Beperkt** ("Gereed, maar beperkt: …"); niet ingestelde (`gate`, `nog-niet`), beleids- (`beleid`), feit- en
+  verouderde rijen in het dienstblok tellen niet mee, anders wordt de pagina nooit groen. Een functie die
+  `capability_unavailable` geeft, krijgt een rij `niet-beschikbaar` en telt als **Onbekend**: de pagina toont dan nooit
+  "Alles gezond" zonder die functie. Het totaal is nooit groen zonder Gereed (contract 1.3 §3.7/§13).
+- **Melding:** `melding_toon` `fout | info`, `melding_rol` (1.1.1, E05): `alert` alleen voor de fout van **dít**
+  verzoek, `status` voor info na dít verzoek, **leeg** voor een toestand die bij het laden al bestond (geen live-regio,
+  geen alert-spam; C-14, WCAG 4.1.3). `melding_code` staat los van `trace_id` (E06): een blijvende toestand heeft geen
+  trace-ID maar wel een code; `melding_pad` toont een pad of bestandsnaam in mono op een eigen regel. Tekst in meldingen,
+  redenen en feiten breekt waar nodig (`overflow-wrap`).
+- **Bron en Gereed:** `{{bron}}` (optioneel) vervangt de standaardtekst "`/readyz` en `/healthz` van deze dienst" als het
+  totaal meer meeneemt (bijvoorbeeld de connector-gezondheid). Onder de feiten staat vast wat **Gereed** betekent en hoe
+  het verschilt van `/readyz` (contract 1.3 §3.7); `{{gereed_uitleg}}` mag die zin vervangen.
+- **Skiplink:** verborgen met `transform` vanaf `top: 0` (1.1.1): een omlopende linktekst steekt nooit uit, hoe hoog hij
+  ook wordt; bij focus volledig in beeld.
 - **Eerste signaal is nooit groen als de dienst niet gereed is:** totaal = slechtste van gezondheid en gereedheid
   ("Niet gereed — deels onbekend, wacht op koppeling"). Trace-ID in een selecteerbaar, omlopend blok.
-- **Verspreiding (O-14):** elke repo krijgt `statuspagina.css`/`.html` als versie-gepinde kopie met de herkomstkop
-  (`Peil x.y.z · sha256:…`); een CI-stap vergelijkt de checksum met de versie in `ai-server-manager` en faalt bij drift.
-- Bestaande pagina's: CSRF, throttle en de vaste meldingen blijven; de HTML/CSS gaat naar het sjabloon. **Let op:**
-  home-control-hub (`status_page.py`) heeft nog het 1.1-gedrag (lokale ontkoppelcode, geen vingerafdrukveld). Dat is een
-  contractwijziging (1.2), geen ontwerpkeuze; de ombouw naar het sjabloon past die mee toe en de tests op
-  `ontkoppelcode_onjuist`/`ontkoppeld` vervallen dan. Overige tests op teksten uit `NOTICES` blijven gelden.
+- **Verspreiding (O-14, 1.1.1 E08):** zie §14.
+- Bestaande pagina's: CSRF, throttle en de vaste meldingen blijven; de HTML/CSS gaat naar het sjabloon.
+  Overstap 1.1.0 → 1.1.1 per dienst: kopie bijwerken; de renderer op één doorgang zetten; `melding_rol` meegeven (zonder
+  waarde heeft de melding geen live-rol meer — in 1.1.0 stond `role="alert"` vast); de code van een melding zonder
+  trace-ID via `melding_code`; rijen met de juiste toon (o.a. `niet-gekoppeld`, `nog-niet`, `beleid`) in plaats van een
+  omweg via `onbekend` of `gate`; de toestanden `koppelstatus_onleesbaar` en `koppelen_bezig` vullen.
 
 ### 13.3 MediaGuard (Next 16, Tailwind 4 alleen preflight, `mg.css` + 823 inline styles)
 
@@ -883,8 +986,14 @@ bij bestaande grafieken) vragen akkoord van de gebruiker en zijn géén onderdee
 - **Wat blijft:** routes, IA, S1–S21, sneltoetsen, i18n (elke nieuwe term ook en-US, §11.1), `data-theme` +
   `mg.theme`, StateView-set, DangerDialog/DiffViewer/Stepper/Timeline (krijgen Peil-stijl), integriteitsslot
   (icoon `file-lock`), dichtheid via compacte tabellen (niet via kleine tekst).
+- **Woord (1.1.1, E13):** een aflevering die de indexers niet vinden heet **"Niet te vinden"** (en-US "Not found"),
+  niet "Niet beschikbaar": dat woord is voor `capability_unavailable`.
 - **Migratiepad:** **fase 1** `@import "./peil/ontwerptaal.css"` vóór `mg.css` en `aliaslagen/mediaguard-mso.css` erna
-  → alle **kleuren**, radii en lettertypes van de 980 regels en inline styles volgen direct. **Niet** in fase 1: de
+  → alle **kleuren**, radii en lettertypes van de 980 regels en inline styles volgen direct. MediaGuard en MSO laden
+  `mg.css` en de aliaslaag in de cascadelaag `legacy` (na `base`); daardoor verloren Peils focusring en scroll-padding
+  van `mg.css`. Sinds 1.1.1 zet de aliaslaag zelf de tweekleurige ring (ook op `.input/.select/.textarea` en
+  `:focus-within` van datum- en tijdvelden) en de scroll-padding terug (E14, MediaGuard ADR-0016, MSO ADR-0006 punt 6);
+  de repo-eigen kopieën daarvan in `peil-mg.css`/`peil-mso.css` mogen weg na de overstap naar 1.1.1. **Niet** in fase 1: de
   harde lettermaten onder 14 px (mg.css ± 120 declaraties, MSO ± 98; inline `fontSize` ± 189 in MediaGuard en ± 254 in
   MSO) en vaste hoogtes onder 44 px op desktop. De ondergrens 14 px geldt pas na fase 2/3; tot dan alleen voor regels
   die `--mg-fs-11…13` gebruiken. De episodekaart (`.heat-cell--*`) blijft in fase 1 kleur-alleen: in fase 2 een
@@ -918,7 +1027,12 @@ bij bestaande grafieken) vragen akkoord van de gebruiker en zijn géén onderdee
   variabelenamen, vitest/e2e-klassen.
 - **Migratiepad:** **fase 1** `aliaslagen/my_house.css` na `styles.css` importeren: zelfstandige hex-waarden voor
   licht en donker (`prefers-color-scheme` + klaar voor `data-theme`), dezelfde variabelenamen, plus een kleine set
-  selectorcorrecties (gemeten: 50 paren, 0 fouten; `.light-tile.on` 8,5:1). Geen Tailwind nodig (O-10).
+  selectorcorrecties (gemeten: 60 paren, 0 fouten; `.light-tile.on` 8,5:1). Geen Tailwind nodig (O-10). Sinds 1.1.1
+  staan de correcties uit my_house PEIL_MIGRATIE §8.1 in de generator (E14, X-32): rand van de lichttegel, balk bij het
+  actieve navigatie-item en de gekozen tab, inktrand bij een gekozen keuzeknop, "Klaar om te installeren" en "Bevestigd"
+  neutraal, uitgeschakeld gestippeld zonder opacity, dimmen als arcering — in dezelfde vorm als de fase-2-recepten van
+  my_house. De schemaband (`-soft`) haalt nu ≥ 7:1 met `-ink`; de rand van een gekozen modus en een brandende lichtgroep
+  is `-ink` (§4.1 regel 11). Readback-woord: **Verzonden** (my_house was hier al eigenaar van het woord).
   **Fase 2** (optioneel): lucide i.p.v. de 18 eigen iconen (nieuwe afhankelijkheid, alleen uiterlijk). Tailwind/shadcn
   alleen na een apart besluit; op React 18 met forwardRef-varianten, of na een aparte React 19-upgrade (functioneel risico).
 - **Tests:** unit-tests op klassen (`toHaveClass('note','warn')`, `.q`, `.en-seg-rest`, …) en e2e (`.state-line.ok`,
@@ -934,18 +1048,89 @@ bij bestaande grafieken) vragen akkoord van de gebruiker en zijn géén onderdee
   `design/peil/`; dat week af van het contract.) Versie in `tokens.mjs`
   (semver: patch = waarde zonder betekeniswijziging, minor = nieuw token, major = hernoemd/verwijderd token).
 - Kopieën: `ontwerptaal.css` (Hub, MediaGuard, MSO), `aliaslagen/<app>.css`, `statuspagina.css` + `.html` (5 diensten).
-  Elke kopie houdt de herkomstkop met versie en sha256. CI: checksum gelijk aan de gepinde versie, anders falen.
+  Elke kopie houdt de herkomstkop met versie en sha256.
+- **Pin- en driftregel (1.1.1, E08):** een kopie pint **versie én commit-SHA** van de bron (Peil staat op de werkbranch,
+  niet op `main`; een vergelijking met `main` geeft dus vals alarm). CI **faalt** bij (1) een afwijking van de gepinde
+  inhoud (sha256 van de kopie ≠ sha256 van de bron op de gepinde SHA) en (2) dezelfde versie met andere inhoud in de
+  bron. Een **nieuwere** bronversie geeft alleen een **waarschuwing**: bijwerken is een bewuste stap
+  (`tools/peil_kopie.py bijwerken` + de eigen tests), geen rode CI. Zo doen home-control-hub, appstore-en-fork en
+  zoeken-en-persoonlijke-ai het al; jelly-leon-platform (faalde bij elke nieuwe versie) trekt gelijk. Binnen
+  ai-server-manager volgen de Hub-kopie (`apps/web/tests/unit/peil-tokens.test.ts`) en de executor-statuspagina
+  (`apps/executor/tests/test_statuspagina.py`) dezelfde regel; beide pinnen nog 1.1.0.
 - Geen npm-registry: de builds blijven offline en zonder geheimen werken.
 
 ---
 
-## 15. Open punten (besluit van de gebruiker nodig)
+## 15. Open punten
 
-1. **O-07 productnaam** in de schil: prototypes gebruiken "Hub · Thuisplatform" als plaatshouder.
-2. **O-09 themaknop in my_house** en **O-11 "Terug naar de Hub"** in de bestaande apps: functionele toevoegingen.
-3. **Tabelweergave en toetsenbord bij bestaande grafieken** in MediaGuard/MSO: verbetert toegankelijkheid maar is een
-   UI-toevoeging.
-4. **Native Android-apps** van MediaGuard en my_house vallen buiten de reikwijdte en gaan visueel afwijken.
-5. **O-05 rechten van de rol kind** (prototype: Home · Kijken · Zoeken · Ik) — bevestigen met de API-bouwer.
-6. **O-03** vraagt een codewijziging in de Hub (laatst bekend bewaren) — pas na de overdracht.
-7. Echte schermlezer-, telefoon- en tv-test vóór afmelding (08_UI).
+Besloten door de gebruiker op 9 november 2026 (`design/ontwerptaal/BESLUITEN_GEBRUIKER.md`, ADR-0015):
+
+1. ~~O-07 productnaam~~: **TrueNAS Home Platform**. Dit staat in de prototypes en is in de Hub gebouwd (ADR-0024).
+2. ~~O-09 themaknop in my_house en O-11 "Terug naar de Hub"~~: allebei toegestaan.
+3. ~~Tabelweergave en toetsenbord bij bestaande grafieken in MediaGuard/MSO~~: toegestaan.
+4. ~~Native Android-apps van MediaGuard en my_house~~: vallen nu binnen de reikwijdte, in Peil-stijl.
+5. ~~O-05 rechten van de rol kind~~: Home · Kijken · Zoeken · Ik. De API weigert kind op de beheerroutes (ADR-0024).
+6. ~~O-03 laatst bekend bewaren~~: gebouwd in de Hub (ADR-0024 punt 4).
+
+Nog open:
+
+7. Echte schermlezer-, telefoon- en tv-test vóór afmelding (08_UI). Alle metingen tot nu toe zijn Sim-getest in
+   Chromium (NIET GEVALIDEERD).
+8. Tabelweergave bij de grafiek "Laatste 24 uur" in my_house (functionele toevoeging; het besluit van de gebruiker gold
+   alleen MediaGuard/MSO).
+
+---
+
+## 16. Wijzigingslog
+
+### 1.1.1 — 10 november 2026 (patch: geen nieuw, hernoemd of verwijderd token)
+
+Bron: de verbeterpunten uit de ontwerpreviews (`docs/ontwerp/PEIL_REVIEW.md` in my_house, media-source-optimizer,
+media-guard-ultimate en ai-server-manager, en de reviews van de statuspagina's van home-control-hub, appstore-en-fork,
+jelly-leon-platform en zoeken-en-persoonlijke-ai), samengevat in de groepen **(e)** van
+`CONTRACT_1.3_KANDIDATEN.md` (E01–E16). Geen besluit van de gebruiker of uit ADR-0015 verandert (ADR-0015, "Peil 1.1.1").
+
+| Groep | Wat er veranderde | Waar |
+|---|---|---|
+| E01 | Sjabloonblok `koppelstatus_onleesbaar`: pil Storing "Onleesbaar", vaste tekst met herstel via een nieuw koppeltoken, geen formulier; prototype `statuspagina-onleesbaar.html` | §13.2, sjabloon |
+| E02 | Vlag `koppelen_bezig`: neutrale pil "Koppelen bezig" (`hourglass`), formulier en stappen weg; prototype `statuspagina-bezig.html` | §13.2, sjabloon |
+| E03 | Tonen `verouderd`, `niet-beschikbaar`, `nog-niet`, `beleid`, `feit` (+ `niet-gekoppeld`), elk met een eigen symbool `#i-<toon>` | §13.2, `statuspagina.css` |
+| E04 | "Niet gekoppeld" overal `link-2-off` (controles én koppelblok; ook Ontkoppeld/Ingetrokken); prototype gelijkgetrokken | §13.2, COMPONENTEN §25 |
+| E05 | `melding_rol`: `alert` / `status` / leeg (geen alert-spam bij een bestaande toestand) | §13.2 |
+| E06 | `melding_code` los van `trace_id`; `melding_pad` in mono; `reden_code` per rij; meldingen, redenen en feiten breken | §5, §13.2 |
+| E07 | Renderer in één doorgang (JS + Python, byte-gelijk getest; geneste blokken; lege lijst = onwaar) | §13.2, `bouw/sjabloon.*` |
+| E08 | Pin- en driftregel: versie + commit-SHA; falen bij afwijking of zelfde versie met andere inhoud; nieuwere versie = waarschuwing | §14 |
+| E09 | `novalidate`, "(verplicht)", skiplink met `transform`, "Hub openen" als knop van 44 px, rijen naam + pil / tijd + reden, `{{bron}}`, schermlezerscheiding, uitleg Gereed ↔ `/readyz` | §11.2, §13.2 |
+| E10 | Totaalregel statuspagina: verse Storing/Beperkt in het dienstblok hooguit Beperkt; niet ingesteld/verouderd telt niet; `niet-beschikbaar` = Onbekend | §13.2 |
+| E11 | Zekerheid als woord met drempels ≥ 0,85 / ≥ 0,6 / lager / leeg | §4.6 |
+| E12 | Reflow ook met het systeemlettertype van de CI-runner (DejaVu Sans); vlag `PEIL_LETTER`; `main` met `overflow-wrap: break-word` | §5, §12 |
+| E13 | "Verzonden" (readback) en "Niet te vinden" (MediaGuard-aflevering) | §11.1, §13.3 |
+| E14 | Aliaslaag MediaGuard/MSO zet focusring en scroll-padding terug; my_house-correcties in de generator; rand van een gekozen domeinknop = `-ink` (regel, geen token); `domain-heat-soft`/`domain-cool-soft` lichter (licht) en donkerder (donker) zodat `-ink` erop ≥ 7:1 haalt | §4.1, §13.3, §13.5, tokens |
+| E15 | Offline/verouderd: laatst bekende Gezond → Verouderd, Beperkt/Storing blijven met de tijd; bediening uit alleen in de Hub (in bestaande apps een functionele ronde); prototype `offline.html` | §4.4, §9 |
+| E16 | Ondernavigatie: items op labelbreedte, actief zonder extra gewicht; forced colors onderstreept het actieve item | §6, COMPONENTEN §2 |
+
+Ook uit de reviews overgenomen (algemeen geldig): ring op `:focus-within` van datum- en tijdvelden (Hub R-02),
+scroll-padding van de kindschil vanaf 1024 px (Hub R-03), `svg.lucide` krimpt niet (Hub R-16), kleine waarden nooit als 0
+(Hub R-23), statuspil-radius = halve regelhoogte (MSO R-06), forced colors voor gekozen toestanden (MSO R-20), één
+kleurcodering per figuur (MediaGuard §10), controle "inhoud buiten zijn element" (my_house, appstore-en-fork).
+
+**Gevonden en hersteld in de prototypes zelf** (door de nieuwe controle met DejaVu Sans): de kindschil zette vanaf
+1024 px alle inhoud in de zijbalkkolom van 256 px (de schil heeft geen zijbalk; nu geen zijbalkraster en
+`data-schil="kind"`); de kopbalk liep op 1440 px 22 px over bij de live-pil "Onderbroken" (zoekknop `w-56` → `w-48`);
+de lichttegel "Plafondlamp" stak op 320 px 6 px uit (raster van de my_house-handoff: hooguit twee kolommen van ≥ 8,5 rem).
+
+**Niet overgenomen (met reden):** een apart randtoken voor gekozen domeinknoppen (nieuw token = minor-versie; de regel
+`-ink` als rand lost hetzelfde op); lettermaten 12–13 → 14 px in de my_house-aliaslaag (vraagt een meting in de app op
+320/360 px; fase 2 van my_house regelt dit al in eigen recepten); de vlag van `.en-col.is-incomplete` in koelen-blauw
+(zou een domeinbetekenis lenen; my_house koos al het info-drieluik); `<wbr>` na `/` in sjabloonwaarden (de renderer
+escapet alleen; `overflow-wrap` breekt het pad).
+
+**Gevolgen voor de kopieën:** elke repo neemt 1.1.1 over via een nieuwe gepinde kopie (§14), niet door lokaal te
+omzeilen. Visueel veranderen: de `-soft`-banden (my_house), de ondernavigatie (Hub, MSO, my_house), de statuspagina's
+(rijopbouw, tonen, meldingsrol). Tests die op `role="alert"` bij een bestaande toestand of op de tekst "Verstuurd"
+controleren, moeten mee. De verouderde migratienoot over het 1.1-gedrag van home-control-hub is vervallen (die dienst
+volgt contract 1.2 sinds zijn ADR-0013).
+
+### 1.1.0 — 9 november 2026
+
+Herstellingen uit de onafhankelijke ontwerpreview van 1.0.0: zie `design/ontwerptaal/REVIEW.md` en ADR-0015.

@@ -1,0 +1,77 @@
+{
+  "soort": "peil",
+  "versie": "1.1.1",
+  "bron_repo": "lvos04/ai-server-manager",
+  "bron_ref": "ccr-c133d7a0-kuz1cv",
+  "bron_commit": "0a7143bc0a94ed5317a9655fa785e73a1fb07ba1",
+  "versiebron": "design/ontwerptaal/ontwerptaal.css",
+  "mappen": [
+    "design/ontwerptaal",
+    "apps/web/styles/peil"
+  ],
+  "bestanden": [
+    {
+      "kopie": "design/ontwerptaal/ontwerptaal.css",
+      "bron": "design/ontwerptaal/ontwerptaal.css",
+      "kop": "css",
+      "sha256": "a69a46d2ccd2eb499511734529d551946844ea00a9d9996fe2acd6bf76cdf0c8",
+      "toelichting": "Versie-gepinde kopie (O-14, ONTWERPTAAL §14). Niet met de hand wijzigen: nieuwe versie = scripts/bronkopie.py bijwerken --soort peil; controle: scripts/bronkopie.py controleer. De app importeert de byte-gelijke kopie in apps/web/styles/peil/ (Docker-context apps/web)."
+    },
+    {
+      "kopie": "design/ontwerptaal/aliaslagen/mediaguard-mso.css",
+      "bron": "design/ontwerptaal/aliaslagen/mediaguard-mso.css",
+      "kop": "css",
+      "sha256": "f042894fb1bab031eae6c4ac4053af5324b6f3eece0890176292e397f760637c",
+      "toelichting": "Versie-gepinde kopie (O-14, ONTWERPTAAL §14). Niet met de hand wijzigen: nieuwe versie = scripts/bronkopie.py bijwerken --soort peil; controle: scripts/bronkopie.py controleer. De app importeert de byte-gelijke kopie in apps/web/styles/peil/ (Docker-context apps/web)."
+    },
+    {
+      "kopie": "design/ontwerptaal/tokens.json",
+      "bron": "design/ontwerptaal/tokens.json",
+      "kop": null,
+      "sha256": "cc03fcd019b43d9ee52509c7812eff38a726de80a6cf4041b82593c52e88fb0e",
+      "toelichting": ""
+    },
+    {
+      "kopie": "design/ontwerptaal/components.json",
+      "bron": "design/ontwerptaal/components.json",
+      "kop": null,
+      "sha256": "831fdce06c6c25c7f67d23b737f27184bca9e4a0ff5c0a60175a6a58edbe4c7e",
+      "toelichting": ""
+    },
+    {
+      "kopie": "design/ontwerptaal/ONTWERPTAAL.md",
+      "bron": "docs/platform-v2/ONTWERPTAAL.md",
+      "kop": "md",
+      "sha256": "79130d3e7e3002a3205b4a02c565d45cc61ba68a2bea9bf4a6b385e3ab8163db",
+      "toelichting": "versie-gepinde kopie (O-14, ONTWERPTAAL §14), niet met de hand wijzigen (scripts/bronkopie.py). Relatieve links naar bestanden die hier niet zijn gekopieerd (prototypes/, shots/, bouw/, REVIEW.md, andere ADR's) werken alleen in de bron."
+    },
+    {
+      "kopie": "design/ontwerptaal/COMPONENTEN.md",
+      "bron": "design/ontwerptaal/COMPONENTEN.md",
+      "kop": "md",
+      "sha256": "9172bf053cedc4821e08ae14e13dc04ddf64ffd253e6fb9b62f2239fdd3cd17c",
+      "toelichting": "versie-gepinde kopie (O-14, ONTWERPTAAL §14), niet met de hand wijzigen (scripts/bronkopie.py). Relatieve links naar bestanden die hier niet zijn gekopieerd (prototypes/, shots/, bouw/, REVIEW.md, andere ADR's) werken alleen in de bron."
+    },
+    {
+      "kopie": "design/ontwerptaal/ADR-ONTWERPTAAL.md",
+      "bron": "docs/adr/ADR-0015-ontwerptaal-peil.md",
+      "kop": "md",
+      "sha256": "af350a471658a22669b18058b21314d731226a23245f8af4874534f6e2808ac8",
+      "toelichting": "versie-gepinde kopie (O-14, ONTWERPTAAL §14), niet met de hand wijzigen (scripts/bronkopie.py). Relatieve links naar bestanden die hier niet zijn gekopieerd (prototypes/, shots/, bouw/, REVIEW.md, andere ADR's) werken alleen in de bron."
+    },
+    {
+      "kopie": "apps/web/styles/peil/ontwerptaal.css",
+      "bron": "design/ontwerptaal/ontwerptaal.css",
+      "kop": "css",
+      "sha256": "a69a46d2ccd2eb499511734529d551946844ea00a9d9996fe2acd6bf76cdf0c8",
+      "toelichting": "Versie-gepinde kopie (O-14, ONTWERPTAAL §14) binnen de Docker-context apps/web. Niet met de hand wijzigen: nieuwe versie = scripts/bronkopie.py bijwerken --soort peil; controle: npm run check:peil en scripts/bronkopie.py controleer."
+    },
+    {
+      "kopie": "apps/web/styles/peil/mediaguard-mso.css",
+      "bron": "design/ontwerptaal/aliaslagen/mediaguard-mso.css",
+      "kop": "css",
+      "sha256": "f042894fb1bab031eae6c4ac4053af5324b6f3eece0890176292e397f760637c",
+      "toelichting": "Versie-gepinde kopie (O-14, ONTWERPTAAL §14) binnen de Docker-context apps/web. Niet met de hand wijzigen: nieuwe versie = scripts/bronkopie.py bijwerken --soort peil; controle: npm run check:peil en scripts/bronkopie.py controleer."
+    }
+  ]
+}

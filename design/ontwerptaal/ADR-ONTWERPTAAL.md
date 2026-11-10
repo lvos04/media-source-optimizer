@@ -1,11 +1,12 @@
-<!-- HERKOMST — Peil 1.1.0 · bron: ontwerptaal Peil, definitief/ADR-ONTWERPTAAL.md (design-agent, 2026-11-09; wordt ai-server-manager/design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): df302eb5a727b5649dafec1c0c0d469cf5bfc39fd32b3834c415aaa805db05ac · versie-gepinde kopie (O-14), niet met de hand wijzigen. Relatieve links naar bestanden die hier niet zijn gekopieerd (prototypes/, shots/, bouw/, ../REVIEW.md) werken alleen in de bron. -->
+<!-- HERKOMST — Peil 1.1.1 · bron: lvos04/ai-server-manager@0a7143bc0a94ed5317a9655fa785e73a1fb07ba1 docs/adr/ADR-0015-ontwerptaal-peil.md · sha256 van het bronbestand (zonder deze kop): af350a471658a22669b18058b21314d731226a23245f8af4874534f6e2808ac8 · versie-gepinde kopie (O-14, ONTWERPTAAL §14), niet met de hand wijzigen (scripts/bronkopie.py). Relatieve links naar bestanden die hier niet zijn gekopieerd (prototypes/, shots/, bouw/, REVIEW.md, andere ADR's) werken alleen in de bron. -->
 
 # ADR — Eén ontwerptaal "Peil" voor het TrueNAS Home Platform V2
 
 - **Status:** Aangenomen door de ontwerp-agent (mandaat van de gebruiker: "de ontwerp-agent beslist zelfstandig binnen
   deze kaders en legt keuzes vast"). In te nemen in `ai-server-manager/docs/adr/` als volgend ADR-nummer zodra
   ai-server-manager na "OVERDRACHT VOLTOOID" weer beschrijfbaar is.
-- **Datum:** 9 november 2026 · **Versie ontwerptaal:** 1.1.0 (1.0.0 + herstellingen uit de ontwerpreview)
+- **Datum:** 9 november 2026, aangevuld 10 november 2026 · **Versie ontwerptaal:** 1.1.1 (1.0.0 + herstellingen uit de
+  ontwerpreview = 1.1.0; + verbeterpunten uit de reviews van de apps en statuspagina's = 1.1.1, zie onderaan)
 - **Vervangt:** ADR-0009 punt 1 van de Hub ("geen CSS-framework, geen iconenbibliotheek"). De overige punten van
   ADR-0009 (navigatie, Apps onder Server, service worker alleen voor de schil, "zero empty screens") blijven.
 - **Raakt:** ai-server-manager (Hub-UI en executor-statuspagina), home-control-hub, appstore-en-fork,
@@ -129,3 +130,70 @@ Vastgelegde keuzes (de open ontwerpbesluiten uit EISEN §11 en eigen keuzes):
 2. Statuspagina's: sjabloon + CSS per repo als gepinde kopie (O-14).
 3. MediaGuard → MSO → my_house: fase 1 aliaslaag, daarna fase 2/3 per app (ONTWERPTAAL §13.3–13.5).
 4. Besluiten van de gebruiker: O-05, O-07, O-09, O-11, tabelweergave in bestaande grafieken, native apps.
+
+## Besluiten van de gebruiker na oplevering (2026-11-09, via keuzemenu)
+
+- **O-07 productnaam:** "TrueNAS Home Platform" (linksboven in de Hub-UI; vervangt de plaatshouder "Hub · Thuisplatform").
+- **O-05 rol kind:** Home · Kijken · Zoeken · Ik (geen server, apps, huis of instellingen).
+- **Functionele toevoegingen in de bestaande apps** (alle vier toegestaan):
+  - O-11: link "Terug naar de Hub" in MediaGuard, MSO en my_house (adres uit de configuratie; verborgen als onbekend).
+  - O-09: themaknop Systeem/Licht/Donker in my_house.
+  - Tabelweergave + toetsenbordbediening bij de grafieken van MediaGuard en MSO.
+  - Nieuwe reikwijdte: ook de native Android-apps van MediaGuard en my_house in Peil-stijl.
+- **my_house fase 2:** Tailwind 4 + shadcn/ui in de React 18-variant (forwardRef), geen React 19-upgrade.
+- Eerder (2026-11-09): design-agent in de workflows; eigen ontwerptaal op Tailwind 4 + shadcn/ui + lucide; reikwijdte Hub-UI,
+  statuspagina's en het uiterlijk van MediaGuard/MSO/my_house; Jelly Leon web/clients niet; zelfstandig, achteraf tonen.
+
+## Plaats en verspreiding
+
+- Bron van waarheid (contract 1.2 §13): `docs/platform-v2/ONTWERPTAAL.md` + `design/ontwerptaal/` in deze repo.
+- Bouwen en controleren: `cd design/ontwerptaal/bouw && npm ci && cd .. && node bouw/alles.mjs --controle` (optioneel `--shots`;
+  `DATAVIZ_VALIDATOR=<pad>` om de paletcontrole opnieuw te meten, anders blijft de vorige meting staan).
+- Andere repos krijgen een versie-gepinde kopie met herkomstkop en sha256 (O-14).
+- Vervangt punt 1 van ADR-0009 ("geen CSS-framework, geen iconenbibliotheek").
+
+## Peil 1.1.1 (2026-11-10)
+
+**Context.** Na 1.1.0 zijn de Hub-UI, MediaGuard, MSO, my_house en de vijf statuspagina's in Peil gebouwd en elk
+onafhankelijk gereviewd (`docs/ontwerp/PEIL_REVIEW.md` per repo). De verbeterpunten voor de ontwerptaal zelf staan
+ontdubbeld in de groepen **(e)** E01–E16 van `docs/platform-v2/CONTRACT_1.3_KANDIDATEN.md`; contract 1.3 §13 verwijst
+ze naar "Peil 1.1.1". Wijzigingslog: `ONTWERPTAAL.md` §16; handoff: `COMPONENTEN.md` §29.
+
+**Besluiten** (de ontwerp-agent, binnen het mandaat; geen besluit van de gebruiker of uit dit ADR verandert):
+
+| # | Besluit | Waarom / afgewezen alternatief |
+|---|---|---|
+| 1.1.1-a | **Patchversie, geen nieuw token.** Alle verbeteringen zijn regels, sjabloonplekken, klassen en tokenwaarden zonder betekeniswijziging. | §14: patch = waarde zonder betekeniswijziging, minor = nieuw token. De opdracht vraagt 1.1.1. |
+| 1.1.1-b | **Rand van een gekozen domeinknop = `domain-*-ink`** (regel), geen randtoken (X-30). | Een nieuw token zou minor zijn; `-ink` haalt ≥ 7:1 en my_house Android deed het al (ADR-0010 punt 5). |
+| 1.1.1-c | **`domain-heat-soft` / `domain-cool-soft` krijgen nieuwe waarden** zodat `-ink` erop ≥ 7:1 haalt (licht `#FFC3A4`/`#AAD2FF`, donker `#802300`/`#064186`; was 4,93–6,22:1) en dat paar is nu een harde AAA-eis in `contrast.mjs`. | my_house zet labels in de schemaband. Alternatief "tekst alleen op `-bg`" vroeg een markupwijziging in my_house; een waarde aanpassen werkt voor elke kopie. Zelfde OKLCH-tint, alleen de lichtheid verschoven (dataviz-skill: grafiekpalet ongewijzigd, validator opnieuw PASS). |
+| 1.1.1-d | **Onleesbare koppelstatus = pil Storing "Onleesbaar"**, geen formulier (E01). | Contract 1.3 §3.5: fail-closed na een gemeten fout (geen geldig bestand); dat is gemeten falen, niet "we weten het niet". De reviews noemden Storing of Onbekend; Storing is de veiligste lezing (actie nodig). |
+| 1.1.1-e | **Koppelen bezig = vlag naast de stabiele toestand** (E02), neutrale zandloper; het formulier verdwijnt in het sjabloon zelf (`NIET:koppelen_bezig` binnen `koppelformulier`). | Contract 1.3 §3.7 laat de weergave aan Peil; de regel in het sjabloon voorkomt dat een dienst het formulier vergeet te verbergen. |
+| 1.1.1-f | **Totaal van een statuspagina**: verse Storing/Beperkt in het dienstblok hooguit Beperkt; niet ingesteld, beleid, feit en verouderd tellen niet; `niet-beschikbaar` telt als Onbekend (E10). | Anders wordt een pagina met één niet ingestelde functie nooit groen, of verbergt een ontbrekende functie zich achter "Alles gezond". |
+| 1.1.1-g | **Offline/verouderd**: laatst bekende Gezond (en Gepauzeerd) → Verouderd; Beperkt/Storing blijven met de tijd (E15, my_house ADR-0011). | De veiligste lezing van §4.4: de waarschuwing blijft, de geruststelling verdwijnt. Alles Onbekend maken zou een bekende storing verbergen. |
+| 1.1.1-h | **Ondernavigatie op labelbreedte, actief zonder extra gewicht** (E16). | Vaste kolommen van 64 px waren te smal voor "Problemen" (ook niet-vet 4 px over); vet maakte het erger. Gemeten met Noto Sans én DejaVu Sans. |
+| 1.1.1-i | **Renderer in één doorgang**, met een Python-referentie die byte-gelijk getest wordt (E07). | Een waarde met `{{x}}` werd in 1.1.0 opnieuw ingevuld (bewezen in `bouw/test-sjabloon.mjs`). Waar/onwaar vastgelegd (lege lijst = onwaar) zodat JS en Python gelijk zijn. |
+| 1.1.1-j | **Driftregel**: pin versie + commit-SHA; falen bij afwijking of zelfde versie met andere inhoud; nieuwere bronversie = waarschuwing (E08). | Wat drie diensten al deden; falen bij elke nieuwe versie blokkeerde CI zonder dat de kopie fout was. |
+| 1.1.1-k | **Reflow ook met DejaVu Sans** (E12; contract 1.3 §13). De prototypecontrole kreeg `PEIL_LETTER` en de meting "inhoud buiten zijn element". | Die meting vond in 1.1.0-prototypes drie fouten die de paginaoverloop niet zag: de kindschil stond ≥ 1024 px in een kolom van 256 px, de kopbalk liep op 1440 px 22 px over, een lichttegel 6 px. Alle drie hersteld. |
+
+**Kopieën in deze repo (buiten `design/ontwerptaal`, alleen tests):** de Hub (`apps/web/tests/unit/peil-tokens.test.ts`)
+en de executor (`apps/executor/tests/test_statuspagina.py`) vergeleken hun kopie byte voor byte met de werkversie van de
+bron; elke nieuwe Peil-versie maakte de CI van deze repo dus rood. Beide tests volgen nu de pinregel 1.1.1-j: de kopie
+moet ongewijzigd zijn (sha256 van de gepinde inhoud), dezelfde bronversie moet byte-gelijk zijn, een nieuwere
+bronversie geeft een waarschuwing. De Hub-UI en de executor-statuspagina zelf blijven op **1.1.0** tot hun bouwer
+overstapt (kopie, renderer in één doorgang, nieuwe plekken, tests) — geen productcode gewijzigd. Buiten deze repo:
+jelly-leon-platform vergelijkt in CI met de werkbranch en faalt bewust bij elke nieuwe versie
+(`tests/repo/test_peil_kopie.py::test_no_drift_with_the_current_source`); die test wordt rood tot jelly-leon-platform
+de regel 1.1.1-j overneemt of naar 1.1.1 overstapt.
+
+**Niet overgenomen:** apart randtoken (zie 1.1.1-b); lettermaten 12–13 → 14 px in de my_house-aliaslaag (vraagt een
+meting in de app; fase 2 van my_house regelt het); vlag van `.en-col.is-incomplete` in koelen-blauw (domeinbetekenis);
+`<wbr>` in sjabloonwaarden (de renderer escapet alleen).
+
+**Gevolgen.** Visueel verandert: de `-soft`-banden in my_house, de ondernavigatie (Hub, MSO, my_house), de
+statuspagina's (rijopbouw, tonen, meldingsrol, "Hub openen" als knop) en de kindschil ≥ 1024 px. De vijf diensten
+nemen de nieuwe sjabloonkopie en de één-doorgang-renderer over; tests die `role="alert"` bij een bestaande toestand of
+"Verstuurd" verwachten, gaan mee. Gemeten op de 20 prototypes (6 breedtes × 2 thema's, met Noto Sans én DejaVu Sans):
+axe 0, contrast AA (tekst ≥ 4,5:1; beide tekstniveaus ≥ 7:1 behalve de bewust gedempte laatst bekende waarde),
+`contrast.json` 0 harde fouten. **Niet gevalideerd:** echte schermlezer, echte telefoon/tv, de statuspagina's op een
+echte NAS (NIET GEVALIDEERD; alles Sim-getest in Chromium).
+

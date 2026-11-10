@@ -1,7 +1,7 @@
-/* HERKOMST — Peil 1.1.0 · bron: ontwerptaal Peil, definitief/ontwerptaal.css (design-agent, 2026-11-09; wordt ai-server-manager/design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): b384b3d074c7c892d8e5a8320b1bdcd3d8612d98b3a05daa9a9e6d12560d020e
-   Versie-gepinde kopie (O-14). Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256. Sinds fase 1a in de app geïmporteerd via de byte-gelijke kopie apps/web/styles/peil/ (Docker-context; controle: npm run check:peil). */
+/* HERKOMST — Peil 1.1.1 · bron: lvos04/ai-server-manager@0a7143bc0a94ed5317a9655fa785e73a1fb07ba1 design/ontwerptaal/ontwerptaal.css · sha256 van het bronbestand (zonder deze kop): a69a46d2ccd2eb499511734529d551946844ea00a9d9996fe2acd6bf76cdf0c8
+   Versie-gepinde kopie (O-14, ONTWERPTAAL §14). Niet met de hand wijzigen: nieuwe versie = scripts/bronkopie.py bijwerken --soort peil; controle: scripts/bronkopie.py controleer. De app importeert de byte-gelijke kopie in apps/web/styles/peil/ (Docker-context apps/web). */
 /* ==================================================================================================================
-   Peil 1.1.0 — ontwerptaal TrueNAS Home Platform V2
+   Peil 1.1.1 — ontwerptaal TrueNAS Home Platform V2
    Tailwind CSS 4 + shadcn/ui (new-york, CSS-variabelen) + lucide-react.
    GEGENEREERD door bouw/genereer.mjs uit bouw/tokens.mjs (bron: tokens.json). Niet met de hand wijzigen.
    Herkomst: ai-server-manager (bron van waarheid). Kopie in een andere repo: zet de herkomstkop + sha256 erboven.
@@ -132,11 +132,11 @@
   --domain-heat: #eb6834;
   --domain-heat-bg: #FDEBDD;
   --domain-heat-ink: #6E2405;
-  --domain-heat-soft: #F4A57E;
+  --domain-heat-soft: #FFC3A4;
   --domain-cool: #2a78d6;
   --domain-cool-bg: #E0EEFB;
   --domain-cool-ink: #0B3B73;
-  --domain-cool-soft: #9ec5f4;
+  --domain-cool-soft: #AAD2FF;
   --domain-boiler: #00a672;
   --domain-boiler-bg: #E4E8EE;
   --domain-boiler-ink: #0B0F14;
@@ -299,11 +299,11 @@
   --domain-heat: #d95926;
   --domain-heat-bg: #3A1F10;
   --domain-heat-ink: #FFD3B5;
-  --domain-heat-soft: #9C3D14;
+  --domain-heat-soft: #802300;
   --domain-cool: #3987e5;
   --domain-cool-bg: #0F2740;
   --domain-cool-ink: #C2DDFA;
-  --domain-cool-soft: #184f95;
+  --domain-cool-soft: #064186;
   --domain-boiler: #199e70;
   --domain-boiler-bg: #1E252E;
   --domain-boiler-ink: #F2F5F8;
@@ -504,7 +504,11 @@
   }
   /* Pagina met een vaste actiebalk boven de ondernavigatie (wizard, preview op mobiel). */
   html:has([data-actiebalk]) { --actiebalk-h: 4.5rem; }
-  @media (width >= 64rem) { html { scroll-padding-bottom: 0.75rem; } }
+  @media (width >= 64rem) {
+    html { scroll-padding-bottom: 0.75rem; }
+    /* 1.1.1 (Hub-review R-03): de kindschil houdt op elke breedte een ondernavigatie; zet data-schil="kind" op de schil. */
+    html:has([data-schil="kind"]) { scroll-padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + 0.75rem); }
+  }
   body {
     background: var(--background);
     color: var(--foreground);
@@ -520,10 +524,18 @@
   code, kbd, samp, pre { font-family: var(--font-mono); font-size: max(0.9375em, 0.875rem); }
   /* Paden, digests, ID's: breken waar nodig, nooit horizontale overloop of afkappen (reflow 320 px). */
   :where(code, kbd, samp, .font-mono) { overflow-wrap: anywhere; }
+  /* 1.1.1 (Hub-review R-26, E12): een lang woord zonder breekpunt (variabelenaam, foutnaam) breekt in plaats van over te
+     lopen; nodig omdat het systeemfont per machine breder kan zijn (DejaVu Sans op de CI-runner). */
+  :where(main) { overflow-wrap: break-word; }
+  /* 1.1.1 (Hub-review R-16): een icoon in een lange regel krimpt nooit tot een stip. */
+  :where(svg.lucide) { flex-shrink: 0; }
   input, select, textarea { font-size: max(1rem, 16px); }
   ::placeholder { color: var(--muted-foreground); opacity: 1; }
   ::selection { background: var(--primary); color: var(--primary-foreground); }
-  :focus-visible {
+  :focus-visible,
+  /* 1.1.1 (Hub-review R-02, C-66): in een datum- of tijdveld kan de focus op de kalenderknop binnen het veld staan; dan
+     geldt :focus-visible niet op het veld. De ring staat daarom ook op :focus-within. */
+  :where(input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"]):focus-within {
     outline: var(--focus-width) solid var(--ring);
     outline-offset: var(--focus-offset);
     box-shadow: 0 0 0 var(--focus-offset) var(--ring-halo);
@@ -542,6 +554,14 @@
   @media (forced-colors: active) {
     [data-status], [data-risico], [data-as] { border-color: CanvasText !important; }
     :focus-visible { outline-color: Highlight; }
+    /* 1.1.1 (MSO-review R-20): een vlak of een inset-balk (box-shadow) verdwijnt in forced colors. Het actieve
+       navigatie-item, de gekozen tab en een ingedrukte keuzeknop krijgen daarom een onderstreping in Highlight. */
+    [aria-current="page"], [aria-current="step"], [aria-selected="true"], [aria-pressed="true"] {
+      text-decoration-line: underline !important;
+      text-decoration-thickness: 3px !important;
+      text-underline-offset: 4px;
+      text-decoration-color: Highlight !important;
+    }
   }
 }
 

@@ -1,8 +1,8 @@
-/* HERKOMST — Peil 1.1.0 · bron: ontwerptaal Peil, definitief/aliaslagen/mediaguard-mso.css (design-agent, 2026-11-09; wordt ai-server-manager/design/ontwerptaal/ na de overdracht) · sha256 van het bronbestand (zonder deze kop): b120cf9a41357dc3cc4981db24c08ae6f557a33faa4f62512ba8f45a27124a4c
-   Versie-gepinde kopie (O-14). Niet met de hand wijzigen: nieuwe versie = nieuwe kopie + nieuwe sha256. Sinds fase 1a in de app geïmporteerd via de byte-gelijke kopie apps/web/styles/peil/ (Docker-context; controle: npm run check:peil). */
-/* Peil 1.1.0 — aliaslaag voor MediaGuard (apps/web/styles/mg.css) en MSO (apps/web/styles/mg.css + mso.css) (migratiefase 1: alleen uiterlijk; routes, functies, teksten en testids blijven).
+/* HERKOMST — Peil 1.1.1 · bron: lvos04/ai-server-manager@0a7143bc0a94ed5317a9655fa785e73a1fb07ba1 design/ontwerptaal/aliaslagen/mediaguard-mso.css · sha256 van het bronbestand (zonder deze kop): f042894fb1bab031eae6c4ac4053af5324b6f3eece0890176292e397f760637c
+   Versie-gepinde kopie (O-14, ONTWERPTAAL §14). Niet met de hand wijzigen: nieuwe versie = scripts/bronkopie.py bijwerken --soort peil; controle: scripts/bronkopie.py controleer. De app importeert de byte-gelijke kopie in apps/web/styles/peil/ (Docker-context apps/web). */
+/* Peil 1.1.1 — aliaslaag voor MediaGuard (apps/web/styles/mg.css) en MSO (apps/web/styles/mg.css + mso.css) (migratiefase 1: alleen uiterlijk; routes, functies, teksten en testids blijven).
    GEGENEREERD door ai-server-manager/design/ontwerptaal/bouw/aliaslagen.mjs. Kopie in de app met deze kop + sha256 (O-14); niet met de hand wijzigen.
-   Volgorde in globals.css: @import "tailwindcss"; @import "./ontwerptaal.css"; @import "./mg.css"; @import "./peil-alias.css";
+   Volgorde in globals.css: @layer theme, base, legacy, components, utilities; @import "tailwindcss"; @import "./ontwerptaal.css"; @import "./mg.css" layer(legacy); (MSO: ook mso.css) @import "./peil-alias.css" layer(legacy); — of ongelaagd, maar altijd NA mg.css.
    Zie ONTWERPTAAL.md §13 voor het volledige migratiepad (fase 2 componenten, fase 3 opruimen). */
 
 :root, :root[data-theme="light"], :root[data-theme="dark"] {
@@ -66,3 +66,18 @@
 :root .phase-bar--verify > span { background: var(--foreground); } /* controle-fase ≠ gezond */
 :root .phase-bar--paused > span { background: var(--paused); }
 :root .phase-bar--stale > span { opacity: 1; background-color: var(--stale); background-image: repeating-linear-gradient(135deg, var(--stale-hatch) 0 2px, transparent 2px 6px); } /* nooit opacity */
+/* 1.1.1 (E14, X-22: MediaGuard ADR-0016, MSO ADR-0006 punt 6) — Peils focusring en scroll-padding staan in @layer base en
+   verliezen van mg.css (ongelaagd of in de laag legacy, die na base komt). Deze laag staat na mg.css en zet ze terug.
+   mg.css haalde bij invoervelden de outline weg (box-shadow 3 px); daarom ook .input/.select/.textarea. */
+:focus-visible,
+.input:focus-visible, .select:focus-visible, .textarea:focus-visible,
+:where(input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"]):focus-within {
+  outline: var(--focus-width) solid var(--ring);
+  outline-offset: var(--focus-offset);
+  box-shadow: 0 0 0 var(--focus-offset) var(--ring-halo);
+}
+html {
+  scroll-padding-top: calc(var(--header-h) + 0.75rem);
+  scroll-padding-bottom: calc(var(--bottomnav-h) + var(--actiebalk-h, 0px) + env(safe-area-inset-bottom, 0px) + 0.75rem);
+}
+@media (width >= 64rem) { html { scroll-padding-bottom: 0.75rem; } }

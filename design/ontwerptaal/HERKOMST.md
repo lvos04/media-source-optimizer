@@ -1,41 +1,51 @@
-# Herkomst van `design/ontwerptaal/` (O-14)
+# Herkomst van `design/ontwerptaal/` (O-14, ONTWERPTAAL §14)
 
-Versie-gepinde kopie van de ontwerptaal **Peil 1.1.0** (9 november 2026, design-agent; goedgekeurd na de onafhankelijke
-ontwerpreview 1.0.0 → 1.1.0). De bron van waarheid wordt na de overdracht
-`ai-server-manager/docs/platform-v2/ONTWERPTAAL.md` + `ai-server-manager/design/ontwerptaal/` (contract 1.2 §13). Tot die
-commit bestaat staat de bron in de map `definitief/` van de ontwerptaal (buiten de repos).
+Versie-gepinde kopie van de ontwerptaal **Peil 1.1.1** (10 november 2026) uit de bron van waarheid
+`lvos04/ai-server-manager` (contract 1.3 §13), gepind op **versie én bron-commit**
+`0a7143bc0a94ed5317a9655fa785e73a1fb07ba1` (branch `ccr-c133d7a0-kuz1cv`; Peil staat op de werkbranch, niet op `main`).
+De pin met de sha256 per bestand staat in [`HERKOMST.json`](HERKOMST.json); dat is de enige plek waar versie, commit en
+sha256 vastliggen. Vorige versie: Peil 1.1.0 (9 november 2026, uit de map `definitief/` van de design-agent).
 
-**Status in MSO:** sinds fase 1a (stap 3) gebruikt de web-UI `ontwerptaal.css` en `aliaslagen/mediaguard-mso.css`.
-Omdat de Docker-context van het web-image `apps/web` is, staat daar een tweede, byte-gelijke kopie:
-`apps/web/styles/peil/ontwerptaal.css` en `apps/web/styles/peil/mediaguard-mso.css` (eigen herkomstkop van 2 regels,
-zelfde sha256). `npm run check:peil` (ook in CI, job `web`) controleert dat die kopieën hun sha256 halen en gelijk zijn
-aan deze map. De omzetting staat in [`docs/ontwerp/PEIL_MIGRATIE.md`](../../docs/ontwerp/PEIL_MIGRATIE.md).
+**Status in MSO:** sinds fase 1a gebruikt de web-UI `ontwerptaal.css` en `aliaslagen/mediaguard-mso.css`. Omdat de
+Docker-context van het web-image `apps/web` is, staat daar een tweede, byte-gelijke kopie:
+`apps/web/styles/peil/ontwerptaal.css` en `apps/web/styles/peil/mediaguard-mso.css` (eigen toelichting in de kop,
+zelfde versie, commit en sha256). De omzetting staat in `docs/ontwerp/PEIL_MIGRATIE.md`; de overstap naar 1.1.1 in
+`docs/adr/ADR-0009-contract-1-3-en-peil-1-1-1.md`.
 
-| Bestand | Gebruik in MSO | sha256 van het bronbestand |
+| Kopie | Bron in `lvos04/ai-server-manager` | Gebruik in MSO |
 |---|---|---|
-| `aliaslagen/mediaguard-mso.css` | fase 1a: na `mg.css`/`mso.css` importeren (gedeeld met MediaGuard) | `b120cf9a41357dc3cc4981db24c08ae6f557a33faa4f62512ba8f45a27124a4c` |
-| `ontwerptaal.css` | fase 1a: vóór `mg.css`; fase 2: Tailwind 4 `@theme` + shadcn-variabelen | `b384b3d074c7c892d8e5a8320b1bdcd3d8612d98b3a05daa9a9e6d12560d020e` |
-| `tokens.json` | tokenbron (DTCG), voor controles | `9583506d8585ba39486f75d4c27f8e40f7878104674c27e229d10f92013a30e1` |
-| `components.json` | fase 2: advies voor de shadcn-CLI (paden aanpassen: `css: "app/globals.css"`) | `831fdce06c6c25c7f67d23b737f27184bca9e4a0ff5c0a60175a6a58edbe4c7e` |
-| `ONTWERPTAAL.md` | regels (bindend; MSO: §13.3 en §13.4) | `a957370b1eceac49ab9f47204c252a67d15967ebae240eb33440b8963898d33b` |
-| `COMPONENTEN.md` | componentspecificaties (handoff) | `d0b0999d8f07537fcc4447d30ab5a3d45632d559487736082beae8a3c28b0154` |
-| `ADR-ONTWERPTAAL.md` | het besluit en de alternatieven | `df302eb5a727b5649dafec1c0c0d469cf5bfc39fd32b3834c415aaa805db05ac` |
+| `ontwerptaal.css` | `design/ontwerptaal/ontwerptaal.css` | tokens + basislaag (Tailwind 4 `@theme`, shadcn-variabelen) |
+| `aliaslagen/mediaguard-mso.css` | `design/ontwerptaal/aliaslagen/mediaguard-mso.css` | na `mg.css`/`mso.css` (gedeeld met MediaGuard); zet sinds 1.1.1 ook focusring en scroll-padding terug (E14) |
+| `tokens.json` | `design/ontwerptaal/tokens.json` | tokenbron (DTCG), voor controles |
+| `components.json` | `design/ontwerptaal/components.json` | advies voor de shadcn-CLI |
+| `ONTWERPTAAL.md` | `docs/platform-v2/ONTWERPTAAL.md` | regels (bindend; MSO: §13.3, §13.4; wijzigingslog §16) |
+| `COMPONENTEN.md` | `design/ontwerptaal/COMPONENTEN.md` | componentspecificaties (handoff; 1.1.1: §29) |
+| `ADR-ONTWERPTAAL.md` | `docs/adr/ADR-0015-ontwerptaal-peil.md` | het besluit en de alternatieven (1.1.1-a t/m k) |
+| `apps/web/styles/peil/ontwerptaal.css` | `design/ontwerptaal/ontwerptaal.css` | wat de app importeert (`app/globals.css`) |
+| `apps/web/styles/peil/mediaguard-mso.css` | `design/ontwerptaal/aliaslagen/mediaguard-mso.css` | idem |
 
-- `.css`- en `.md`-bestanden hebben een **herkomstkop van 2 regels** bovenaan; de rest is byte-gelijk aan de bron.
-  `tokens.json` en `components.json` kunnen geen kop dragen en zijn byte-gelijk.
-- Niet gekopieerd (te groot of niet nodig in deze repo): `prototypes/`, `shots/`, `bouw/`, `controle/`, `contrast.json`,
-  `statuspagina.*` (MSO heeft geen platform-statuspagina) en de aliaslagen van my_house en de Hub.
-- Zelfde indeling en koppen als de kopie in `my_house` (zelfde bronbestanden, zelfde sha256 voor de gedeelde
-  bestanden).
+- `.css`- en `.md`-kopieën hebben een **herkomstkop van precies 2 regels** (versie, `bron@commit pad`, sha256 van het
+  bronbestand, toelichting); alles daaronder is byte-gelijk aan de bron. `tokens.json` en `components.json` kunnen geen
+  kop dragen en zijn byte-gelijk.
+- Niet gekopieerd (te groot of niet nodig): `prototypes/`, `shots/`, `bouw/`, `controle/`, `onderzoek/`,
+  `contrast.json`, `REVIEW.md`, `BESLUITEN_GEBRUIKER.md`, `statuspagina.*` (MSO heeft geen platform-statuspagina) en de
+  aliaslagen van my_house en de Hub. Relatieve links in de kopieën naar die bestanden werken alleen in de bron.
 
-## Controleren
+## Controleren en bijwerken
 
 ```sh
-cd design/ontwerptaal
-for f in aliaslagen/mediaguard-mso.css ontwerptaal.css ONTWERPTAAL.md COMPONENTEN.md ADR-ONTWERPTAAL.md; do
-  echo "$(tail -n +3 "$f" | sha256sum | cut -d' ' -f1)  $f"; done
-sha256sum tokens.json components.json
+python3 scripts/bronkopie.py controleer                       # offline: koppen, inhoud en pins (CI, job python)
+python3 scripts/bronkopie.py vergelijk --online               # tegen GitHub (CI, job python)
+python3 scripts/bronkopie.py vergelijk --bron ../ai-server-manager   # tegen een checkout ernaast
+(cd apps/web && npm run check:peil)                           # de kopieën in de Docker-context (CI, job web)
 ```
 
-De uitkomst moet gelijk zijn aan de tabel. Een CI-stap die dit vergelijkt met de versie in `ai-server-manager` komt
-pas als die bron gecommit is (ONTWERPTAAL §14); tot dan is dit een handmatige controle.
+Driftregel (ONTWERPTAAL §14, E08): CI **faalt** bij een afwijking van de gepinde inhoud en bij **dezelfde versie met
+andere inhoud** in de bron; een **nieuwere** bronversie geeft alleen een **waarschuwing**. Bijwerken is een bewuste stap:
+
+```sh
+python3 scripts/bronkopie.py bijwerken --soort peil --bron ../ai-server-manager --commit <40 hex>
+# daarna PEIL_VERSION/PEIL_COMMIT in apps/web/scripts/check-peil.mjs, de eigen tests en make e2e (axe = 0)
+```
+
+Hetzelfde gereedschap bewaakt de byte-gelijke contractkopie (`docs/platform-v2/HERKOMST_CONTRACT.json`).

@@ -1,6 +1,6 @@
 # Media Source Optimizer — developer entry points.
 #
-#   make lint     ruff (core, mocks, stack test)
+#   make lint     ruff (core, mocks, stack test, scripts) + offline check of the pinned contract/Peil copies
 #   make test     lint + core unit/contract/integration tests (needs PostgreSQL 16, see docs/dev/AGENT_BRIEF.md)
 #   make images   build media-source-optimizer-{core,web}:local and mso-mocks:local
 #   make stack    build + run the container stack with mocks + smoke/e2e (tests/stack/results/)
@@ -15,7 +15,8 @@ PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 .PHONY: lint test images stack e2e down
 
 lint:
-	$(PY) -m ruff check apps/core apps/mocks tests/stack
+	$(PY) -m ruff check apps/core apps/mocks tests/stack scripts
+	$(PY) scripts/bronkopie.py controleer
 
 test: lint
 	cd apps/core && ../../$(PY) -m pytest -q -p no:warnings

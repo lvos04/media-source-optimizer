@@ -32,6 +32,15 @@ Besluiten: ADR-0009.
   Kelvin-teken (U+212A) door `lower()`/`toLowerCase()` stil een ASCII-"k", zodat `http://nas.\u212alan` werd opgeslagen
   als `http://nas.klan`; ADR-0009 punt 3 zegt "geen niet-ASCII". Twee nieuwe vectoren in `tests/vectoren/hub_url.json`
   (zonder de reparatie falen ze in core en UI).
+- **Review (QA): installatie alleen als standaard Custom App, zonder YAML en zonder terminal** (vaste keuze van de
+  gebruiker, contract §2.3 regel 4; 1.2-punt MS4, documentdeel). README en `docs/TRUENAS_CUSTOM_APP.md` noemden
+  *Install via YAML* nog als alternatief en gaven een terugdraaiprocedure met `sudo docker exec`. Nu: Custom App is de
+  enige installatiemanier; tag met digest (`1.6.0@sha256:9bcdec69…`, anoniem opgehaald op 2026-11-10); terugdraaien
+  via snapshot + vorige tag in de TrueNAS-web-UI; stap "image openbaar maken" is een onderhoudsnotitie (het pakket is
+  openbaar); geen `tank`/`192.168.…` meer als waarde. `TRUENAS_INSTALL.md`, `HARDWARE_ACCEPTANCE.md`, `MIGRATION.md`
+  (commando's), `ARCHITECTURE.md` en de koppen van `deploy/truenas/compose*.yaml` zijn gemarkeerd als "alleen
+  ontwikkeling/CI/E2E, geen installatiemethode". Herschrijven van de acceptatielijst en een terugdraaiknop blijven P3-05
+  en P3-13.
 
 ### Voorbereiding op publiek maken: licentie en opschoning
 Alleen documentatie, metadata en hulpscripts; productcode, API, datamodel, migraties, poorten en installatie

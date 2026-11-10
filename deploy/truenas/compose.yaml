@@ -1,4 +1,7 @@
-# Media Source Optimizer — TrueNAS SCALE app ("Apps → Discover Apps → ⋮ → Install via YAML")
+# Media Source Optimizer — ontwikkel-/CI-stack met losse containers (tests/stack, make stack, make e2e).
+# ALLEEN ONTWIKKELING, CI EN E2E — GEEN INSTALLATIEMETHODE. Installeren op de NAS = standaard Custom App met het
+# formulier (docs/TRUENAS_CUSTOM_APP.md); nooit "Install via YAML" (contract §2.3 regel 4). Het kader hieronder is
+# de oude YAML-route en blijft alleen als ontwikkelnotitie staan; 'tank' en IP-adressen zijn voorbeelden.
 #
 # ┌─ INSTALLEREN (volledige handleiding: docs/TRUENAS_INSTALL.md) ───────────────────────────────┐
 # │ 1. Maak twee datasets: tank/apps/media-source-optimizer (APPDATA) en                       │

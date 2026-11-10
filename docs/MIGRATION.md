@@ -39,6 +39,12 @@ ruimte ook in "Wacht op jou". Een nieuwe installatie krijgt geen back-up (er is 
 
 ## Commando's
 
+> **Voor ontwikkelaars, niet voor de gebruiker.** De commando's hieronder vragen een terminal op de NAS. Een gebruiker
+> werkt zonder terminal: updaten en terugdraaien gaan via het Custom App-formulier en een ZFS-snapshot
+> ([TRUENAS_CUSTOM_APP.md](TRUENAS_CUSTOM_APP.md) → *Updaten en terugdraaien*). Een knop om het schema vanuit de
+> MSO-UI terug te zetten is gepland (P3-13). De varianten voor "losse containers (YAML)" gelden alleen voor de
+> ontwikkelstack (TRUENAS_INSTALL.md); dat is geen installatiemethode.
+
 In een draaiende core-container (de wrapper `mso` leest het databasewachtwoord uit
 `/run/mso-db/password`):
 

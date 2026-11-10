@@ -1,7 +1,15 @@
-# Media Source Optimizer installeren op TrueNAS SCALE
+# Media Source Optimizer — stack met losse containers (alleen ontwikkeling en CI)
 
-Deze handleiding installeert Media Source Optimizer (MSO) als eigen app op TrueNAS SCALE via
-**Apps → Discover Apps → ⋮ → Install via YAML**, met het bestand `deploy/truenas/compose.yaml`.
+> **Geen installatiemethode.** Installeer MSO op de NAS alleen als standaard Custom App met het formulier:
+> [TRUENAS_CUSTOM_APP.md](TRUENAS_CUSTOM_APP.md). Dit document beschrijft de stack met losse containers
+> (`deploy/truenas/compose.yaml`) die CI en de end-to-end-tests gebruiken (`tests/stack/`). *Install via YAML*, een
+> terminal en `docker compose` op de NAS vallen buiten het platformbeleid (contract §2.3 regel 4). De tekst hieronder
+> blijft staan als ontwikkelnotitie en voor wie de oude YAML-installatie al heeft; overstappen naar de Custom App staat
+> op de planning (P3-05, `docs/platform-v2/DELTA_MATRIX.md`). Paden met `tank` en IP-adressen zijn voorbeelden, nooit
+> de waarden van jouw NAS.
+
+Oorspronkelijk installeerde deze handleiding MSO via **Apps → Discover Apps → ⋮ → Install via YAML**, met het bestand
+`deploy/truenas/compose.yaml`.
 
 > **Verificatiestatus.** De compose-stack is gebouwd en getest in een Linux/Docker-sandbox (zie
 > `tests/stack/results/smoke-report.md` en docs/OPERATIONS.md). Een installatie op echte TrueNAS-hardware is

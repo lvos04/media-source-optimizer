@@ -1,4 +1,5 @@
-# Alternatief: images zelf bouwen uit de broncode in plaats van de gepinde ghcr.io-images.
+# Ontwikkeling/CI: images zelf bouwen uit de broncode in plaats van de gepinde ghcr.io-images.
+# GEEN INSTALLATIEMETHODE (installeren = standaard Custom App, docs/TRUENAS_CUSTOM_APP.md; contract §2.3 regel 4).
 #
 #   git clone https://github.com/lvos04/media-source-optimizer && cd media-source-optimizer
 #   git checkout v1.0.0                       # altijd een release-tag, nooit een losse branch

@@ -40,7 +40,8 @@ mediamount (`MSO_MEDIA_DIR`) alleen voor hardlink-/vrije-ruimte-diagnose.
 | `apps/core/mso/features/costs`, `overview`, `automation`, `ai` | orchestrator-laag: kosten/simulatie, dashboard (`overview/goals` doelenkaart, `overview/autopilot` Wacht op jou + Wat MSO deed), automatisering (`autopilot` afkoeling/noodrem, `footprint` + `overrides` voetafdruk en eigen keuze), opt-in AI-adviseur |
 | `apps/web/` | Next.js-UI, 15 schermen (plus de subpagina Voetafdruk) + login + setup |
 | `apps/mocks/msomocks/` | testdubbels (Prowlarr, SABnzbd, qBittorrent, MediaGuard, Newznab/Torznab, Spotweb, NNTP) — nooit in productie |
-| `deploy/truenas/` | `compose.yaml` (Install via YAML) + build-override |
+| `deploy/allinone/` | alles-in-één image (de enige installatievorm: standaard TrueNAS Custom App, `docs/TRUENAS_CUSTOM_APP.md`) |
+| `deploy/truenas/` | `compose.yaml` + build-override: **alleen ontwikkeling/CI/E2E**, geen installatiemethode |
 | `tests/stack/` | containerstack + mocks + smoke/e2e |
 
 De twee engines zijn onafhankelijk: Usenet (`features/usenet` + SABnzbd) en Torrent (`features/torrent` +

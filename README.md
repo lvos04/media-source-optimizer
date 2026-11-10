@@ -31,11 +31,13 @@ Screenshots: [docs/screenshots/](docs/screenshots/).
 
 ## Installeren
 
-**Aanbevolen — gewone Custom App, zonder YAML:** één image `ghcr.io/lvos04/media-source-optimizer:1.6.0`
-(database, API, worker en web in één container), één map → `/appdata`, poort `38081`. Geen wachtwoorden of
-variabelen nodig; rechten worden automatisch goed gezet. Stap voor stap: **[docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md)**.
+**Standaard TrueNAS Custom App, zonder YAML en zonder terminal:** één image `ghcr.io/lvos04/media-source-optimizer:1.6.0`
+(database, API, worker en web in één container; tag met digest in de handleiding), één map → `/appdata`, poort
+`38081`. Geen wachtwoorden of variabelen nodig; rechten worden automatisch goed gezet. Stap voor stap:
+**[docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md)**. Dat is de enige installatiemanier.
 
-Alternatief met losse containers via *Install via YAML*: [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md).
+De compose-bestanden in `deploy/truenas/` en [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) zijn **alleen voor
+ontwikkeling, CI en de end-to-end-tests**, nooit een installatiemethode (geen *Install via YAML*, contract §2.3 regel 4).
 
 ## Documentatie
 
@@ -44,8 +46,8 @@ Alternatief met losse containers via *Install via YAML*: [docs/TRUENAS_INSTALL.m
 | [ARCHITECTURE.md](ARCHITECTURE.md) | componenten, engines, change sets, jobs, anti-loop, data |
 | [INTEGRATION_MEDIAGUARD.md](INTEGRATION_MEDIAGUARD.md) | eigenaarschap, compatibiliteitsmatrix, grenzen |
 | [SECURITY.md](SECURITY.md) | beveiligingsmodel en bijbehorende tests |
-| [docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md) | installatie als gewone Custom App (alles-in-één) |
-| [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) | installatie met losse containers (YAML), Prowlarr-koppeling, updates, rollback |
+| [docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md) | installatie als standaard Custom App (alles-in-één; de enige installatiemanier) |
+| [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) | **alleen ontwikkeling/CI:** de stack met losse containers (compose), Prowlarr-koppeling, updates, rollback |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | beheer, logs, back-ups, resources (gemeten) |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | schema-migraties, upgrade (1.5.0 → 1.6.0), terugdraaien |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | gebruikershandleiding |

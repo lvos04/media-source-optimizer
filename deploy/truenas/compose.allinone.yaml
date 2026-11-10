@@ -1,5 +1,6 @@
-# Media Source Optimizer — alles-in-één, voor TrueNAS SCALE "Install via YAML".
-# (Liever zonder YAML? Gebruik het gewone Custom App-formulier: zie docs/TRUENAS_CUSTOM_APP.md.)
+# Media Source Optimizer — alles-in-één image als compose-bestand: ALLEEN ONTWIKKELING EN TESTS.
+# GEEN INSTALLATIEMETHODE: installeer op de NAS met het standaard Custom App-formulier (docs/TRUENAS_CUSTOM_APP.md);
+# nooit "Install via YAML" (contract §2.3 regel 4).
 #
 # Eén container (database + API + worker + web), één map, één poort. Geen wachtwoorden of geheimen hier:
 # die voer je in de setup-wizard van de app in. Pas alleen het pad en eventueel de poort aan.

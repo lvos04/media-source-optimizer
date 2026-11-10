@@ -11,6 +11,11 @@ Optimizer (MSO) als productierijp geldt.
 > Vink een punt pas af nadat je het zelf op je eigen systeem hebt uitgevoerd, en noteer datum, versie en
 > eventuele afwijkingen.
 
+> **Let op: hoofdstuk 0–1 beschrijven nog de oude installatie met *Install via YAML* en terminalcommando's.** Dat is
+> geen installatiemethode meer (contract §2.3 regel 4). Installeer voor de acceptatie als standaard Custom App volgens
+> [TRUENAS_CUSTOM_APP.md](TRUENAS_CUSTOM_APP.md) en sla de YAML-stappen over. Deze checklist wordt in P3-05
+> herschreven naar de Custom App (`docs/platform-v2/DELTA_MATRIX.md`).
+
 Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 
 ## 0. Voorbereiding

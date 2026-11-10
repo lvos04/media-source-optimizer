@@ -3,7 +3,8 @@
 **Status:** ontwerp (stap 2) **uitgevoerd in stap 3** — zie §12 hieronder, ADR-0007 en
 [`docs/screenshots/peil/na/`](../screenshots/peil/na/README.md) · ontwerp 9 november 2026 · design-agent · code-HEAD bij
 het ontwerp `b581fbb` (MSO 1.6.0)
-**Ontwerptaal:** Peil **1.1.0**, versie-gepinde kopie in [`design/ontwerptaal/`](../../design/ontwerptaal/HERKOMST.md)
+**Ontwerptaal:** ontworpen op Peil **1.1.0**; sinds 2026-11-10 staat de versie-gepinde kopie op Peil **1.1.1**
+(versie + bron-commit, [`design/ontwerptaal/`](../../design/ontwerptaal/HERKOMST.md); overstap: ADR-0009)
 (bindend: `ONTWERPTAAL.md`, `COMPONENTEN.md`, `ADR-ONTWERPTAAL.md`; MSO-pad: ONTWERPTAAL §13.3 en §13.4)
 **Besluiten:** [`docs/adr/ADR-0006-peil-omzetting-interpretaties.md`](../adr/ADR-0006-peil-omzetting-interpretaties.md)
 **Nulmeting:** [`docs/screenshots/peil/voor/`](../screenshots/peil/voor/README.md) (250 afdrukken, `metingen.json`,
@@ -596,7 +597,8 @@ sha256). Hookklassen die tests gebruiken (`.skeleton`, `.state--error`, `.btn`, 
 - **Niet gevalideerd:** echte telefoon, schermlezer (NVDA/TalkBack), 200 %-zoom, forced colors op MSO; echte NAS
   (Excel B05-*: blijft "NIET GEVALIDEERD (echte NAS)"). Deze ontwerpstap verandert geen Excel-status.
 - **Vervolg:** na "OVERDRACHT VOLTOOID" de herkomst in `design/ontwerptaal/HERKOMST.md` omzetten naar
-  `ai-server-manager` (commit + sha256) en een CI-driftcontrole toevoegen (ONTWERPTAAL §14).
+  `ai-server-manager` (commit + sha256) en een CI-driftcontrole toevoegen (ONTWERPTAAL §14). **Gedaan op 2026-11-10**
+  bij de overstap naar Peil 1.1.1: `design/ontwerptaal/HERKOMST.json` en `scripts/bronkopie.py` (ADR-0009).
 
 ---
 

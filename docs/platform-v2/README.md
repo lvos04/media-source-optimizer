@@ -39,6 +39,17 @@ Onbekende NAS-gegevens (D01–D18) worden nooit met voorbeeldwaarden ingevuld; z
 - `INVENTARIS.md` — inventaris van MSO 1.6.0 (modules, 211 API-routes met bestand:regel, migraties, auth, events,
   back-up/rollback, monitoring, veiligheidsinvarianten, CI, images, releasestatus, baselinetestrun).
 - `DELTA_MATRIX.md` — B05-eisen, I04/I17/I18, A13/A14/A19 en contract 1.1: bestaand / onvolledig / ontbrekend, met
-  bewijs en de geprioriteerde bouwlijst voor P3.
-- `EVIDENCE.json` — Excel-status en validatie voor B05-001 … B05-010 (contract §11).
-- Besluiten: `docs/adr/ADR-0001` … `ADR-0003`; OpenAPI-momentopname: `docs/openapi/media-source-optimizer.openapi.json`.
+  bewijs en de geprioriteerde bouwlijst voor P3; §12: de stand tegenover contract 1.3.
+- `EVIDENCE.json` — Excel-status en validatie voor B05-001 … B05-010 en de contractpunten `C1.3-…` van deze repo
+  (contract 1.3 §11; bewaakt door `apps/core/tests/test_evidence_contract.py`).
+- Besluiten: `docs/adr/ADR-0001` … `ADR-0009` (contract 1.3 en Peil 1.1.1: ADR-0009); OpenAPI-momentopname:
+  `docs/openapi/media-source-optimizer.openapi.json`.
+
+## Platformcontract (byte-gelijke kopie, niet lokaal aanpassen)
+
+- `PLATFORM_CONTRACTEN.md` (`contracts 1.3`) en `CONTRACT_1.3_CONFORMITEIT.md` (wat elke repo moet veranderen; MSO:
+  §7) zijn byte-gelijk aan `lvos04/ai-server-manager`, gepind op een vaste bron-commit in `HERKOMST_CONTRACT.json`.
+- Drifttest: `apps/core/tests/test_contract_kopie.py` (sha256) en `scripts/bronkopie.py controleer` / `vergelijk
+  --online` (CI, job python). Een nieuwe kopie overnemen is een stap van de orkestratie:
+  `python3 scripts/bronkopie.py bijwerken --soort contract --bron <checkout van ai-server-manager> --commit <40 hex>`.
+- De ontwerptaal Peil (1.1.1) staat gepind in `design/ontwerptaal/` (`HERKOMST.md`, `HERKOMST.json`).

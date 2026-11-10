@@ -3,8 +3,8 @@
 Peildatum **2026-11-09** · repo `lvos04/media-source-optimizer` · branch `ccr-c133d7a0-kuz1cv` · code-HEAD **`018b119`**
 (= tag `v1.6.0` op GitHub). Bron van de eisen: `02_BOUWPLANNEN/B05_MSO_DELTA.md`, `EXCEL_TAKEN.json` (B05-001…010),
 `03_INSTALLATIE/I04`, `I17`, `I18`, `04_BESTAANDE_APPS/A13`, `A14`, `A19`, `05_TESTS/INTEGRALE_E2E_TESTMATRIX.md` en
-`PLATFORM_CONTRACTEN.md` **1.1**. Feitenbasis: `INVENTARIS.md` (zelfde map); bestand:regel-verwijzingen gelden voor
-`018b119`, paden in de code zijn relatief aan `apps/core/mso/` tenzij anders vermeld.
+`PLATFORM_CONTRACTEN.md` **1.1** (stand tegenover contract **1.3**: §12). Feitenbasis: `INVENTARIS.md` (zelfde map);
+bestand:regel-verwijzingen gelden voor `018b119`, paden in de code zijn relatief aan `apps/core/mso/` tenzij anders vermeld.
 
 **Legenda.** **Bestaand** = in code + geautomatiseerde test aanwezig (met mocks/simulators — **nooit** op de echte NAS
 gevalideerd). **Onvolledig** = deels aanwezig; wat mist staat erbij. **Ontbrekend** = niet aanwezig. **Geblokkeerd** =
@@ -506,3 +506,34 @@ gestart`, de rest `Bezig`; overal NIET GEVALIDEERD voor de echte NAS. Aangepast:
 - `bewijs`/`blokkade` volgen W1–W8 en P1–P14: o.a. B05-001 + D05/D06 en `workflow_dispatch` bestaat; B05-004 +
   header-index-budget en het retentiegat (P5); B05-009 + gelijktijdigheidstests, unieke `dedupe_key`-index en de status
   van de Hub-afhankelijkheid; B05-010 zonder P3-12, + D16.
+
+---
+
+## 12. Contract 1.3 (conformiteitsronde 2026-11-10)
+
+Bron: `PLATFORM_CONTRACTEN.md` **1.3** en `CONTRACT_1.3_CONFORMITEIT.md` §7 (byte-gelijke kopieën in deze map, gepind op
+`lvos04/ai-server-manager@0a7143b` in `HERKOMST_CONTRACT.json`; drifttest `apps/core/tests/test_contract_kopie.py`).
+§5 hierboven beschrijft de stand tegenover contract **1.1** (fase P0) en blijft als historie staan; waar 1.3 iets
+anders zegt, geldt deze paragraaf. Besluiten: ADR-0009.
+
+| ID | Eis (1.3) | Klasse na deze ronde | Bewijs | Moment / wat mist |
+|---|---|---|---|---|
+| C1.3-MSO-01 | Kopie 1.3 + drifttest; EVIDENCE-test §11 | **Bestaand** | `test_contract_kopie.py`, `test_bronkopie.py`, `test_evidence_contract.py`; CI: `scripts/bronkopie.py controleer` + `vergelijk --online` | — |
+| C1.3-MSO-02 | `systeem.hub_url` volgens §3.2; ongeldig of leeg → geen link | **Bestaand** | `settings_registry.py` (`validate_hub_url`), `apps/web/lib/hub.ts`, gedeelde vectoren `tests/vectoren/hub_url.json`; `test_hub_url_setting.py`, `hub.test.ts`, e2e `peil.spec.ts` | Echte Hub op de NAS: NIET GEVALIDEERD (D03) |
+| C1.3-MSO-03 | Healthcheck als 568 + no_new_privs als eerste handeling; bounding set leeg bij root-start; rooktest | **Ontbrekend** | `deploy/allinone/healthcheck.py` wisselt niet naar 568 en zet geen no_new_privs (`HEALTHCHECK` in `deploy/allinone/Dockerfile` start als root, gemeten 2026-11-10) | P3 |
+| C1.3-MSO-04 | Connectorlaag P3-07 volgens 1.3 (foutcatalogus, `Idempotency-Key` met uitzonderingslijst, health = slechtste check, `max_age`, change sets via de eigenaar-connector) | **Ontbrekend** | — | P3; zie de correctie hieronder |
+| C1.3-MSO-05 | Terugkeerpad na inloggen (§4.1) | **Ontbrekend** | — | P3 |
+| C1.3-MSO-06 | Manifest (`healthcheck.monitor`, back-up, geen `HUB_*`) | **Ontbrekend** | — | P3 (na de validator C1.3-ASF-08) |
+| C1.3-ALG-03 | `LICENSE` GPL-3.0 | **Bestaand** | `LICENSE` | — |
+| C1.3-ALG-05 | Peil-verbeterpunten alleen via Peil 1.1.1 | **Bestaand** (kopieën 1.1.1, E14, E16) | `design/ontwerptaal/HERKOMST.json`, `apps/web/scripts/check-peil.mjs`, e2e `peil.spec.ts` (ondernavigatie) | E11/E13/E15: repowerk C10 (P3), zie ADR-0009 punt 5 |
+
+**Correctie P3-06 (1.2-punt MS1, C1.3-MSO-04):** de rijen §5 "§3 Enrollment" en "§4 Hub-JWT", §6 "Enrollment §3" en
+§9 P3-06 noemen nog enrollment/koppelcode, een Hub-JWT via JWKS en een eigen Ed25519-identiteit. Dat **vervalt**:
+contract 1.3 §2.3 regel 2 zegt "geen enrollment in v1" voor bestaande apps. P3-06 wordt een **machine-sleutel met
+scopes** (`read`; later `changes:approve` met `expected_preview_hash` + `Idempotency-Key`), aangemaakt in de MSO-UI en
+ingevoerd in de Hub-UI (vault); geen menselijk wachtwoord of CSRF-sessie in de Hub. `HUB_URL`/`systeem.hub_url` start
+nooit een enrollment (§2.3 regel 5). De eigen Ed25519-identiteit (W7) is pas nodig als MSO ooit ondertekende verzoeken
+verifieert of pusht. Dit is alleen vastgelegd; gebouwd wordt het in P3 (EVIDENCE B05-009 en C1.3-MSO-04: `Niet gestart`).
+
+**HARDE EIS (§2.3 regel 7):** deze ronde raakt geen connector, MediaGuard-route, job, migratie of databaseschema;
+kijkgeschiedenis en MediaGuard-voortgang blijven onaangeroerd (OpenAPI byte-gelijk, sha256 `bb551ee1…0471b`).

@@ -21,7 +21,8 @@ vastgesteld. De conformiteitslijst noemt voor MSO:
 
 De **HARDE EIS** (contract §2.3 regel 7): geen wijziging mag kijkgeschiedenis of MediaGuard-voortgang raken. Deze ronde
 verandert niets aan connectors, MediaGuard-routes, jobs, migraties of de database: alleen documentkopieën, een
-validatie van één instelling, CSS/markup van de ondernavigatie, tests en CI. OpenAPI is byte-gelijk.
+validatie van één instelling, CSS/markup van de ondernavigatie, het veilig aanmaken van de vault-sleutel (punt 7),
+tests en CI. OpenAPI is byte-gelijk.
 
 ## Besluiten
 
@@ -84,6 +85,14 @@ validatie van één instelling, CSS/markup van de ondernavigatie, tests en CI. O
    een **machine-sleutel met scopes** (`read`; later `changes:approve` met `expected_preview_hash` +
    `Idempotency-Key`), aangemaakt in de MSO-UI en ingevoerd in de Hub-UI. Dat bouwen is P3; hier alleen vastgelegd
    (DELTA_MATRIX §12) zodat niemand in P3 het verkeerde bouwt.
+
+7. **Bijvangst: vault-sleutel bij een verse start.** De lokale stackrun van deze ronde faalde één keer op de
+   logcontrole (18/19): api en worker starten tegelijk op een lege `/appdata`, en het proces dat de `O_EXCL`-aanmaak
+   van `secrets/vault.key` verloor, crashte met `FileExistsError` (de restart policy herstelde het). Dat raakt elke
+   eerste installatie (ook alles-in-één, waar de supervisor beide start). Gekozen: de verliezer leest de sleutel van de
+   winnaar en wacht hooguit 5 s als die nog schrijft; de winnaar doet `fsync`; een beschadigde sleutel wordt nog steeds
+   geweigerd en nooit overschreven. *Alternatief:* de sleutel in `init`/`migrate` aanmaken — verworpen: verandert de
+   volgorde van de bestaande opstart en raakt de alles-in-één-bewaker; deze reparatie is lokaal in `vault.py`.
 
 ## Gevolgen
 

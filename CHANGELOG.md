@@ -5,8 +5,9 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 ## [Unreleased]
 
 ### Contract 1.3 en Peil 1.1.1 (conformiteitsronde, alleen de NU-punten)
-Productcode alleen voor de validatie van het Hub-adres en de ondernavigatie; API (OpenAPI byte-gelijk), datamodel,
-migraties, connectors, MediaGuard-koppeling, poorten en installatie ongewijzigd. Besluiten: ADR-0009.
+Productcode alleen voor de validatie van het Hub-adres, de ondernavigatie en het aanmaken van de vault-sleutel; API
+(OpenAPI byte-gelijk), datamodel, migraties, connectors, MediaGuard-koppeling, poorten en installatie ongewijzigd.
+Besluiten: ADR-0009.
 - **Contractkopie 1.3 (C1.3-MSO-01):** `docs/platform-v2/PLATFORM_CONTRACTEN.md` (was 1.1) en nieuw
   `CONTRACT_1.3_CONFORMITEIT.md`, byte-gelijk aan `lvos04/ai-server-manager@0a7143b`, met drifttest
   (`test_contract_kopie.py`) en een EVIDENCE-test volgens §11 (`test_evidence_contract.py`).
@@ -21,6 +22,10 @@ migraties, connectors, MediaGuard-koppeling, poorten en installatie ongewijzigd.
   `tests/vectoren/hub_url.json`): verkorte, decimale, octale en hex-vormen van IPv4 (`127.1`, `2130706433`,
   `0x7f000001`, `010.0.0.1`) en IPv4-mapped loopback worden geweigerd met een eigen uitleg. Een eerder opgeslagen,
   nu ongeldige waarde blijft staan maar geeft geen link meer.
+- **Vault-sleutel bij een verse start (gevonden in de lokale stackrun):** api en worker startten tegelijk en het
+  proces dat de aanmaak van `secrets/vault.key` verloor, crashte met `FileExistsError` (herstart door de restart
+  policy, Traceback in de log). Nu leest de verliezer de sleutel van de winnaar en wacht hij kort als die nog schrijft;
+  een beschadigde sleutel blijft geweigerd en wordt nooit overschreven (`tests/test_vault_key.py`).
 - **Docs:** `DELTA_MATRIX.md` §12 (stand tegenover 1.3; P3-06 wordt een machine-sleutel, geen enrollment), README's,
   `PEIL_MIGRATIE.md`, `EVIDENCE.json` (C1.3-MSO-01…06, C1.3-ALG-05, B05-009 bijgewerkt).
 

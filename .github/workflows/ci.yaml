@@ -1,7 +1,8 @@
 # Media Source Optimizer — CI
 #
-# python   ruff + pytest (unit/contract/integration incl. mocks over real HTTP) against a PostgreSQL 16 service,
-#          with pg_dump/pg_restore 16 via MSO_PG_BIN (as release.yaml)
+# python   ruff + pinned copies (contract 1.3 and Peil 1.1.1: offline + against the source on GitHub, scripts/bronkopie.py)
+#          + pytest (unit/contract/integration incl. mocks over real HTTP, contract drift test, EVIDENCE test §11)
+#          against a PostgreSQL 16 service, with pg_dump/pg_restore 16 via MSO_PG_BIN (as release.yaml)
 # web      Peil drift check + typecheck + lint + unit tests (vitest) + production build of the Next.js UI
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
 # stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
@@ -67,7 +68,11 @@ jobs:
       - name: Install core + test extras
         run: pip install -e "apps/core[test]"
       - name: Ruff
-        run: ruff check apps/core apps/mocks tests/stack
+        run: ruff check apps/core apps/mocks tests/stack scripts
+      - name: Gepinde kopieën ongewijzigd (contract 1.3, Peil 1.1.1)
+        run: python scripts/bronkopie.py controleer
+      - name: Gepinde kopieën tegen de bron (ai-server-manager op GitHub; Peil E08, contract 1.3 kop)
+        run: python scripts/bronkopie.py vergelijk --online
       - name: Pytest
         working-directory: apps/core
         run: python -m pytest -q -p no:warnings --junitxml=../../test-results/pytest.xml

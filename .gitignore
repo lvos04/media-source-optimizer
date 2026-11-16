@@ -14,3 +14,4 @@ apps/web/playwright-report/
 !.env.example
 /var/
 /tmp/
+*.egg-info/

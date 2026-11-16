@@ -60,6 +60,10 @@ Daarnaast zette de python-job van `ci.yaml`, anders dan `release.yaml`, geen `MS
    hem niet. Besluit: de run op de werkbranch starten met `gh workflow run ci --ref <branch>` (bestaande
    `workflow_dispatch`, `release_version` leeg = alleen bouwen, niets publiceren). De triggers aanpassen is een
    aparte keuze voor de eigenaar (zie gevolgen).
+   **Achterhaald op 2026-11-16 (besluit Z-10, optie 1, stap S-P3-200):** `ci.yaml` start nu ook vanzelf bij een
+   push op `ccr-*` (`on.push.branches: [main, "ccr-*"]`); `tags`, `workflow_dispatch` en `release_version` zijn
+   ongewijzigd. Na een push dus niet meer met de hand starten: `concurrency` met `cancel-in-progress` breekt de
+   push-run dan af. Bewaakt door `apps/core/tests/test_ci_werkbranch.py`.
 
 ## Gevolgen
 
@@ -69,3 +73,5 @@ Daarnaast zette de python-job van `ci.yaml`, anders dan `release.yaml`, geen `MS
 - Geen wijziging aan API, OpenAPI, datamodel, poorten, installatie of productcode.
 - Open voor de eigenaar: `ci.yaml` ook bij push op de werkbranches laten draaien (of de standaardbranch hernoemen naar
   `main`). Tot dan start iemand de CI-run handmatig.
+- Genomen op 2026-11-16 (Z-10, optie 1): push op `ccr-*` start `ci.yaml` (zie besluit 7). Een push op een werkbranch
+  publiceert niets; dat blijft alleen bij een tag `v*` of een gevulde `release_version`.

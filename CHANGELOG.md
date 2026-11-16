@@ -4,6 +4,13 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 
 ## [Unreleased]
 
+### CI op de werkbranch en opruimen (S-P3-200, besluit Z-10 optie 1)
+- `ci.yaml` start nu ook bij een push op de werkbranches `ccr-*`; `tags`, `workflow_dispatch` en `release_version`
+  ongewijzigd, publiceren blijft alleen bij een tag `v*` of `release_version` (B05-001, P3-04/P3-14).
+- `apps/core/mso_core.egg-info` niet meer in git; `*.egg-info/` in `.gitignore`.
+- Nieuwe test `apps/core/tests/test_ci_werkbranch.py` bewaakt triggers, publicatievoorwaarde, `release.yaml` en de
+  egg-info-regel. README (Ontwikkelen) en ADR-0005 bijgewerkt.
+
 ### Contract 1.3 en Peil 1.1.1 (conformiteitsronde, alleen de NU-punten)
 Productcode alleen voor de validatie van het Hub-adres, de ondernavigatie en het aanmaken van de vault-sleutel; API
 (OpenAPI byte-gelijk), datamodel, migraties, connectors, MediaGuard-koppeling, poorten en installatie ongewijzigd.

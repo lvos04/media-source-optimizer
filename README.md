@@ -67,6 +67,9 @@ make e2e                  # verse stack voorbereid (beheerder, koppelingen, back
 cd apps/web && npm ci && npm run dev
 ```
 
+CI: `.github/workflows/ci.yaml` start vanzelf bij elke push op `main` en op de werkbranches `ccr-*` (alleen bouwen
+en testen; publiceren naar ghcr.io alleen bij een tag `v*` of met `release_version`), dus niet ook met de hand starten.
+
 ## Licenties
 
 Licentie: **GPL-3.0** (zie [`LICENSE`](LICENSE); besluit van de eigenaar, 2026-11-09).

@@ -9,6 +9,8 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
   onder de bestaande migratielock. Eigen Nederlandse foutmelding en opdrachtregel-exitcode 79.
 - Gevulde regressieproeven vergelijken alle tabelrijen en back-upbestanden bij herhaalde weigering. De bestaande
   oudere-schema-upgradeproef zet de dump ook terug in een lege proefdatabase en vergelijkt de inhoud.
+- De alles-in-één-bewaker herkent exitcode 79 bij back-up, migratie en eigen diensten, meldt de weigering en wacht
+  op stoppen van de app. Geen herstartlus of gewone API/worker; een levend bewakerproces telt niet als gereedheid.
 
 ### CI op de werkbranch en opruimen (S-P3-200, besluit Z-10 optie 1)
 - `ci.yaml` start nu ook bij een push op de werkbranches `ccr-*`; `tags`, `workflow_dispatch` en `release_version`

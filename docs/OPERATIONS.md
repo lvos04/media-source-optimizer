@@ -111,6 +111,9 @@ zet de bijpassende snapshot/back-up terug". De opdrachtregel eindigt dan met cod
 back-up, retentie-opruiming of automatische terugzetting. Kies in het standaardformulier van de TrueNAS Custom App
 de image die bij de database hoort, of stop de app in de TrueNAS-web-UI en zet daar de snapshot van vóór de update
 terug met de daarbij horende image. Alleen een oudere image kiezen maakt een nieuwere database niet compatibel.
+De bewaker zet bij deze weigering één duidelijke foutregel in het containerlog, stopt zijn eigen database en
+wacht op stoppen van de app, zonder opnieuw te migreren of API, worker of web te starten. Een nog levend
+bewakerproces betekent dus geen gereedheid: de bestaande applicatie-healthcheck faalt zolang deze diensten uit staan.
 
 Sinds 1.6.0 maakt MSO vóór openstaande migraties automatisch een back-up van soort `pre-upgrade` ("Vóór upgrade" in
 Systeem → Back-ups):

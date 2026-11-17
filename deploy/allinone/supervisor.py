@@ -12,6 +12,7 @@ Robustness rules (each fixes a classic self-hosting failure):
 - The database password problem does not exist: PostgreSQL listens on a unix socket in /tmp only.
 - Children that crash are restarted with backoff; SIGTERM stops web → api → worker → database cleanly.
 - Before pending migrations a ``pre-upgrade`` backup is made (if there is room); a failure never blocks the start.
+- Een nieuwer databaseschema houdt de gewone diensten uit; de bewaker wacht zonder herstart tot de app stopt.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ import sys
 import threading
 import time
 from pathlib import Path
+
+from mso.db import NEWER_DATABASE_EXIT_CODE, NewerDatabaseError
 
 UID = int(os.environ.get("MSO_UID", "568"))
 GID = int(os.environ.get("MSO_GID", "568"))
@@ -265,7 +268,22 @@ def wait_for_db(pg: Child, timeout: float = 90) -> None:
             fail("database 'mso' aanmaken mislukt")
 
 
+def wait_on_newer_schema(pg: Child, children: list[Child] | None = None) -> None:
+    """Proces blijft leven tot een stopverzoek; gewone gereedheid blijft onwaar."""
+    for child in reversed(children or []):
+        child.stop()
+    pg.stop(60)
+    log(f"FOUT: {NewerDatabaseError()}; API en worker blijven uit; wacht op stoppen van de app.")
+    STOP.wait()
+
+
 def main() -> None:
+    def shutdown(signum: int, _frame: object) -> None:
+        log(f"signaal {signum}: netjes stoppen")
+        STOP.set()
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
     log(f"Media Source Optimizer (alles-in-één) · data {DATA} · poort {PORT}")
     prepare_dirs()
     demote()  # least privilege: from here on nothing runs as root (only the ownership fix above needed it)
@@ -274,10 +292,18 @@ def main() -> None:
     pg.start()
     wait_for_db(pg)
     # safety net for upgrades: a dump before pending migrations (only when there are any and the disk has room).
-    # It never blocks the start: on failure the step logs a clear line and MSO starts as usual.
-    if run_once("back-up vóór upgrade", [sys.executable, "-m", "mso", "backup", "--pre-upgrade"]) != 0:
+    # Een dumpfout blokkeert niet; een database van een nieuwere versie wel.
+    rc = run_once("back-up vóór upgrade", [sys.executable, "-m", "mso", "backup", "--pre-upgrade"])
+    if rc == NEWER_DATABASE_EXIT_CODE:
+        wait_on_newer_schema(pg)
+        return
+    if rc != 0:
         log("back-up vóór upgrade mislukt (zie log hierboven); MSO start gewoon door")
-    if run_once("migraties", [sys.executable, "-m", "mso", "migrate", "--no-backup"]) != 0:
+    rc = run_once("migraties", [sys.executable, "-m", "mso", "migrate", "--no-backup"])
+    if rc == NEWER_DATABASE_EXIT_CODE:
+        wait_on_newer_schema(pg)
+        return
+    if rc != 0:
         pg.stop()
         fail("databasemigratie mislukt; de vorige versie van de database is ongewijzigd. Zie docs/MIGRATION.md.")
 
@@ -303,15 +329,11 @@ def main() -> None:
     for c in children:
         c.start()
 
-    def shutdown(signum: int, _frame: object) -> None:
-        log(f"signaal {signum}: netjes stoppen")
-        STOP.set()
-
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
-
     backoff: dict[str, float] = {}
     while not STOP.is_set():
+        if any(c.proc is not None and c.proc.poll() == NEWER_DATABASE_EXIT_CODE for c in children):
+            wait_on_newer_schema(pg, children)
+            return
         if not pg.alive():
             log("database gestopt; opnieuw starten")
             for c in children:
@@ -323,6 +345,9 @@ def main() -> None:
                 c.start()
         for c in children:
             if not c.alive() and not STOP.is_set():
+                if c.proc is not None and c.proc.returncode == NEWER_DATABASE_EXIT_CODE:
+                    wait_on_newer_schema(pg, children)
+                    return
                 wait = min(60.0, backoff.get(c.name, 1.0))
                 log(f"{c.name} gestopt (code {c.proc.returncode if c.proc else '?'}); herstart over {wait:.0f} s")
                 STOP.wait(wait)

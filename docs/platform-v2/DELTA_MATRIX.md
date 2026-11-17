@@ -511,8 +511,9 @@ gestart`, de rest `Bezig`; overal NIET GEVALIDEERD voor de echte NAS. Aangepast:
 
 ## 12. Contract 1.3 (conformiteitsronde 2026-11-10)
 
-Bron: `PLATFORM_CONTRACTEN.md` **1.3** en `CONTRACT_1.3_CONFORMITEIT.md` §7 (byte-gelijke kopieën in deze map, gepind op
-`lvos04/ai-server-manager@0a7143b` in `HERKOMST_CONTRACT.json`; drifttest `apps/core/tests/test_contract_kopie.py`).
+Bron: `PLATFORM_CONTRACTEN.md` **1.3** en `CONTRACT_1.3_CONFORMITEIT.md` §7 (contractkopie byte-gelijk aan
+`lvos04/ai-server-manager@e88a290` (aanvulling C-12, blijft contracts 1.3), pin in `HERKOMST_CONTRACT.json`; drifttest
+`apps/core/tests/test_contract_kopie.py`).
 §5 hierboven beschrijft de stand tegenover contract **1.1** (fase P0) en blijft als historie staan; waar 1.3 iets
 anders zegt, geldt deze paragraaf. Besluiten: ADR-0009.
 

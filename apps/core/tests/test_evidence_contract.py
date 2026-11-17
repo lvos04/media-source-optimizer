@@ -240,7 +240,14 @@ def test_echte_hub_is_een_geldige_validatiewaarde() -> None:
     )
 
 
-def test_vaste_lijst_niet_gevalideerd_staat_in_het_contract() -> None:
-    """Elke ``NIET GEVALIDEERD (…)``-waarde van de vaste lijst staat in §11 van de contractkopie."""
+def test_vaste_lijst_is_de_tabel_van_paragraaf_11() -> None:
+    """De vaste lijst is precies de tabel van §11 in de contractkopie: een waarde erbij of eraf is rood (C12-6)."""
     tekst = (PV2 / "PLATFORM_CONTRACTEN.md").read_text(encoding="utf-8")
-    assert [w for w in sorted(NIET_GEVALIDEERD) if f"`{w}`" not in tekst] == []
+    begin = tekst.index("## 11. Bewijs en Excel")
+    p11 = tekst[begin : tekst.index("## 12.", begin)]
+    in_tabel: set[str] = set()
+    for ruw in p11.splitlines():
+        regel = ruw.strip()
+        if regel.startswith("| `"):
+            in_tabel.update(re.findall(r"`([^`]+)`", regel.split(" | ")[0]))
+    assert in_tabel == VALIDATIE, f"verschil met contract §11: {sorted(in_tabel ^ VALIDATIE)}"

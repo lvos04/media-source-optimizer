@@ -105,6 +105,13 @@ nieuwere migraties blijven anders staan en de volgende start (`migrate`) loopt e
 
 ## Back-up vóór upgrade
 
+MSO weigert een database waarvan het hoogste migratienummer nieuwer is dan deze image kent, vóór de
+back-up en vóór API of worker iets schrijven. In de log verschijnt: "database is van een nieuwere MSO-versie;
+zet de bijpassende snapshot/back-up terug". De opdrachtregel eindigt dan met code 79. Er volgt geen migratie,
+back-up, retentie-opruiming of automatische terugzetting. Kies in het standaardformulier van de TrueNAS Custom App
+de image die bij de database hoort, of stop de app in de TrueNAS-web-UI en zet daar de snapshot van vóór de update
+terug met de daarbij horende image. Alleen een oudere image kiezen maakt een nieuwere database niet compatibel.
+
 Sinds 1.6.0 maakt MSO vóór openstaande migraties automatisch een back-up van soort `pre-upgrade` ("Vóór upgrade" in
 Systeem → Back-ups):
 

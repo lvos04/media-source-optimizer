@@ -26,7 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from mso import settings_registry
 from mso.config import VERSION, get_settings
 from mso.connectors import base as connectors
-from mso.db import Database, get_db, migrate_up, set_db
+from mso.db import Database, check_schema_compatibility, get_db, migrate_up, set_db
 from mso.security import configure_logging, limiter, redact
 from mso.vault import Vault, set_vault
 
@@ -67,7 +67,14 @@ def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Databas
     Pending migrations get a ``pre-upgrade`` backup first (only when there is something to keep and enough free
     space; never blocks the start)."""
     settings = get_settings()
+    own_db = db is None
     db = db or Database(settings.database_url)
+    try:
+        check_schema_compatibility(db)
+    except Exception:
+        if own_db:
+            db.close()
+        raise
     set_db(db)
     if migrate:
         from mso import backups

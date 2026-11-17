@@ -4,6 +4,12 @@ Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies 
 
 ## [Unreleased]
 
+### Database van een nieuwere versie weigeren (S-P3-205)
+- Numerieke, alleen-lezen voorcontrole vóór back-up en API/worker-initialisatie; `migrate_up` controleert opnieuw
+  onder de bestaande migratielock. Eigen Nederlandse foutmelding en opdrachtregel-exitcode 79.
+- Gevulde regressieproeven vergelijken alle tabelrijen en back-upbestanden bij herhaalde weigering. De bestaande
+  oudere-schema-upgradeproef zet de dump ook terug in een lege proefdatabase en vergelijkt de inhoud.
+
 ### CI op de werkbranch en opruimen (S-P3-200, besluit Z-10 optie 1)
 - `ci.yaml` start nu ook bij een push op de werkbranches `ccr-*`; `tags`, `workflow_dispatch` en `release_version`
   ongewijzigd, publiceren blijft alleen bij een tag `v*` of `release_version` (B05-001, P3-04/P3-14).

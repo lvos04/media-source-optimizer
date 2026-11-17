@@ -4,6 +4,7 @@ backups (refetchable data excluded + resync after restore), safety-backup prunin
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
@@ -305,9 +306,15 @@ def swap_db(app: Any) -> Any:
     set_db(original)
 
 
-def test_pre_upgrade_backup_before_pending_migrations(app: Any, old_db: Any, swap_db: Any) -> None:
+def test_pre_upgrade_backup_before_pending_migrations(app: Any, old_db: Any, swap_db: Any,
+                                                     database_bytes: Any) -> None:
     from mso.db import migrate_up, schema_version
 
+    old_db.execute("INSERT INTO users(username,password_hash,role) VALUES ('upgradeproef','testhash','admin')")
+    old_db.execute("INSERT INTO audit_log(actor,action,summary) VALUES ('test','upgrade.proef','bewaren')")
+    old_db.execute("INSERT INTO jobs(kind,payload) VALUES ('upgrade.proef','{}')")
+    before = database_bytes(old_db)
+    assert all(before[t] != b"[]" for t in ("users", "settings", "audit_log", "jobs"))
     lines: list[str] = []
     res = backups.pre_upgrade_backup(old_db, log=lines.append)
     assert res["status"] == "created", res
@@ -315,10 +322,37 @@ def test_pre_upgrade_backup_before_pending_migrations(app: Any, old_db: Any, swa
     assert row["file"] == res["file"] and row["schema_version"] == 600
     assert (get_settings().backup_dir / row["file"]).exists()
     assert lines and "back-up vóór upgrade gemaakt" in lines[0]
+    # De dump moet de gevulde oude toestand werkelijk terugzetten, inclusief migratierijen.
+    import psycopg
+
+    from mso.db import Database
+
+    base, name = old_db.url.rsplit("/", 1)
+    name += "_restore"
+    with psycopg.connect(base + "/postgres", autocommit=True) as conn:
+        conn.execute(f'CREATE DATABASE "{name}"')
+    restored = Database(base + "/" + name, max_size=2)
+    try:
+        args, env = backups._pg_env()
+        subprocess.run([backups._bin("pg_restore"), *args, "-d", name, "--no-owner", "--no-privileges",
+                        "--single-transaction", str(get_settings().backup_dir / row["file"])],
+                       env=env, capture_output=True, text=True, check=True)
+        assert database_bytes(restored) == before
+    finally:
+        restored.close()
+        with psycopg.connect(base + "/postgres", autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
     # api + worker + `mso migrate` starting together: only one dump per upgrade
     assert backups.pre_upgrade_backup(old_db)["status"] == "exists"
     migrate_up(old_db)
     assert schema_version(old_db) > 600
+    after = database_bytes(old_db)
+    for table in before.keys() - {"schema_migrations", "backups", "system_state"}:
+        # Migraties mogen kolommen toevoegen; alle oorspronkelijke rijwaarden blijven bewaard.
+        old_rows, new_rows = json.loads(before[table]), json.loads(after[table])
+        assert len(new_rows) == len(old_rows), table
+        for old, new in zip(old_rows, new_rows, strict=True):
+            assert {key: new[key] for key in old} == old, table
     swap_db(old_db)
     v = backups.flush_pre_upgrade(old_db)
     assert v["status"] == "created" and v["from"] == 600

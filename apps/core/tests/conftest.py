@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import sys
@@ -23,6 +24,7 @@ import psycopg
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
+from psycopg import sql
 
 os.environ.setdefault("MSO_ALLOW_LOOPBACK", "1")
 # mock services (fake Prowlarr/SABnzbd/qBittorrent/MediaGuard/NNTP/indexers) live in apps/mocks/msomocks
@@ -31,6 +33,22 @@ os.environ.setdefault("MSO_TESTING", "1")
 
 BASE_URL = os.environ.get("MSO_TEST_DATABASE_URL", "postgresql://mso@127.0.0.1:55432/postgres")
 KEEP_TABLES = {"schema_migrations", "system_state", "ai_model_prices"}
+
+
+@pytest.fixture()
+def database_bytes() -> Callable[[Any], dict[str, bytes]]:
+    """Vaste byteweergave van alle publieke tabelrijen, inclusief migratietijden en controlesommen."""
+    def snapshot(db: Any) -> dict[str, bytes]:
+        tables = db.fetchall("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
+        result = {}
+        for table in tables:
+            name = table["tablename"]
+            rows = db.fetchall(sql.SQL("SELECT to_jsonb(t) AS row FROM {} AS t ORDER BY to_jsonb(t)::text")
+                               .format(sql.Identifier("public", name)))
+            result[name] = json.dumps([r["row"] for r in rows], sort_keys=True, ensure_ascii=False).encode()
+        return result
+
+    return snapshot
 
 
 @pytest.fixture(scope="session")

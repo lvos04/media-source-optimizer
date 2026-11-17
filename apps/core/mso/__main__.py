@@ -11,6 +11,7 @@ import threading
 import time
 
 from mso.config import get_settings
+from mso.db import NEWER_DATABASE_EXIT_CODE, NewerDatabaseError
 from mso.security import configure_logging
 
 LOGGER = logging.getLogger("mso")
@@ -57,23 +58,26 @@ def _say(msg: str) -> None:
 
 def _migrate(args: argparse.Namespace) -> None:
     from mso import backups
-    from mso.db import Database, migrate_down, migrate_up, schema_version, set_db
+    from mso.db import Database, check_schema_compatibility, migrate_down, migrate_up, schema_version, set_db
 
     db = Database(get_settings().database_url, max_size=2)
-    set_db(db)
-    if args.down is not None:
-        print("teruggedraaid:", migrate_down(db, args.down))
-    else:
-        if not args.no_backup:
-            # safety net before the schema changes (compose 'migrate' service; the all-in-one supervisor makes it
-            # as a separate step and passes --no-backup). Never blocks the upgrade.
-            backups.pre_upgrade_backup(db, target=args.to, log=_say)
-        print("toegepast:", migrate_up(db, args.to))
-        try:
-            backups.flush_pre_upgrade(db)
-        except Exception as exc:  # the audit row is a nicety; the migration itself succeeded
-            LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
-    print("schemaversie:", schema_version(db))
+    try:
+        check_schema_compatibility(db)
+        set_db(db)
+        if args.down is not None:
+            print("teruggedraaid:", migrate_down(db, args.down))
+        else:
+            if not args.no_backup:
+                # De bewaker maakt de back-up als aparte stap; de ontwikkelstack gebruikt deze ingang.
+                backups.pre_upgrade_backup(db, target=args.to, log=_say)
+            print("toegepast:", migrate_up(db, args.to))
+            try:
+                backups.flush_pre_upgrade(db)
+            except Exception as exc:  # the audit row is a nicety; the migration itself succeeded
+                LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
+        print("schemaversie:", schema_version(db))
+    finally:
+        db.close()
 
 
 def _backup(args: argparse.Namespace) -> None:
@@ -81,17 +85,18 @@ def _backup(args: argparse.Namespace) -> None:
 
     if args.pre_upgrade:
         # runs BEFORE the migrations, against the old schema: no init_runtime (that would migrate first)
-        from mso.db import Database, set_db
+        from mso.db import Database, check_schema_compatibility, set_db
 
         db = Database(get_settings().database_url, max_size=2)
-        set_db(db)
         try:
+            check_schema_compatibility(db)
+            set_db(db)
             res = backups.pre_upgrade_backup(db, log=_say)
             if res["status"] in ("not_needed", "exists"):
                 _say(f"back-up vóór upgrade: niet nodig ({res.get('reason')})")
         finally:
             db.close()
-        return  # never a non-zero exit: a missing pre-upgrade backup must not block the start
+        return  # Een mislukte dump blokkeert niet; een nieuwer schema wordt wél geweigerd.
     from mso.app import init_runtime
 
     init_runtime()
@@ -117,10 +122,14 @@ def main(argv: list[str] | None = None) -> None:
     b = sub.add_parser("backup")
     b.add_argument("--include-secrets", action="store_true")
     b.add_argument("--pre-upgrade", action="store_true",
-                   help="alleen als er openstaande migraties zijn: back-up vóór de upgrade (faalt nooit hard)")
+                   help="back-up vóór openstaande migraties; weigert een database van een nieuwere MSO-versie")
     b.set_defaults(fn=_backup)
     args = p.parse_args(argv)
-    args.fn(args)
+    try:
+        args.fn(args)
+    except NewerDatabaseError as exc:
+        print(f"[mso] FOUT: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(NEWER_DATABASE_EXIT_CODE) from None
 
 
 if __name__ == "__main__":

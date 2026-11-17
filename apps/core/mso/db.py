@@ -30,6 +30,12 @@ from psycopg_pool import ConnectionPool
 
 LOGGER = logging.getLogger(__name__)
 MIGRATION_RE = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
+NEWER_DATABASE_EXIT_CODE = 79
+
+
+class NewerDatabaseError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__("database is van een nieuwere MSO-versie; zet de bijpassende snapshot/back-up terug")
 
 
 class Database:
@@ -123,6 +129,21 @@ def applied_migrations(db: Database) -> list[dict[str, Any]]:
             "SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version").fetchall())
 
 
+def _check_schema_compatibility(conn: psycopg.Connection[Any], migrations: list[Migration]) -> None:
+    """Alleen lezen: ook bij een lege database wordt geen migratietabel aangemaakt."""
+    if conn.execute("SELECT to_regclass('schema_migrations') AS table_name").fetchone()["table_name"] is None:
+        return
+    current = conn.execute("SELECT max(version) AS version FROM schema_migrations").fetchone()["version"] or 0
+    if current > max((m.version for m in migrations), default=0):
+        raise NewerDatabaseError()
+
+
+def check_schema_compatibility(db: Database) -> None:
+    """Weiger een nieuwer schema vóór back-up, retentie of runtime-initialisatie."""
+    with db.tx() as conn:
+        _check_schema_compatibility(conn, load_migrations())
+
+
 def migrate_up(db: Database, target: int | None = None) -> list[int]:
     """Apply pending migrations (up to ``target``). Uses an advisory lock so api+worker never race."""
     done: list[int] = []
@@ -130,10 +151,12 @@ def migrate_up(db: Database, target: int | None = None) -> list[int]:
         conn.autocommit = True
         conn.execute("SELECT pg_advisory_lock(727001)")
         try:
+            migrations = load_migrations()
+            _check_schema_compatibility(conn, migrations)
             with conn.transaction():
                 _ensure_table(conn)
             applied = {r["version"]: r for r in conn.execute("SELECT version, checksum FROM schema_migrations")}
-            for mig in load_migrations():
+            for mig in migrations:
                 if target is not None and mig.version > target:
                     break
                 if mig.version in applied:

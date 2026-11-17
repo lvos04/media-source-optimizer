@@ -371,6 +371,181 @@ def test_migrations_down_and_up(database_url: str) -> None:
 
 
 # ------------------------------------------------------------------ backups
+@pytest.fixture()
+def schema_db(app: Any, database_url: str, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Eén gevulde proefdatabase voor instellingen, globale runtime en echte CLI-processen."""
+    import psycopg
+
+    from mso.config import get_settings
+    from mso.db import Database, get_db, migrate_up, set_db
+    from mso.vault import get_vault, set_vault
+
+    original, vault = get_db(), get_vault()
+    base, name = database_url.rsplit("/", 1)
+    name += "_schema"
+    with psycopg.connect(base + "/postgres", autocommit=True) as conn:
+        conn.execute(f'CREATE DATABASE "{name}"')
+    probe = Database(base + "/" + name, max_size=3)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "database_url", probe.url)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    monkeypatch.setattr(settings, "work_dir", tmp_path / "work")
+    set_db(probe)
+    try:
+        migrate_up(probe)
+        probe.execute("INSERT INTO users(username,password_hash,role) VALUES ('proefgebruiker','testhash','admin')")
+        probe.execute("INSERT INTO settings(key,value) VALUES ('backup.keep','14')")
+        probe.execute("INSERT INTO audit_log(actor,action,summary) VALUES ('test','schema.proef','bewaren')")
+        probe.execute("INSERT INTO jobs(kind,payload) VALUES ('schema.proef','{}')")
+        settings.backup_dir.mkdir(parents=True)
+        for i in range(5):
+            name_file = f"bewaren-{i}.dump"
+            (settings.backup_dir / name_file).write_bytes(f"proefbestand {i}".encode())
+            probe.execute("INSERT INTO backups(file,kind,schema_version,created_at) VALUES (%s,'pre-upgrade',1,"
+                          "now() - interval '2 days')", (name_file,))
+        yield probe
+    finally:
+        set_db(original)
+        set_vault(vault)
+        probe.close()
+        with psycopg.connect(base + "/postgres", autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+
+
+def _newer_schema(db: Any, offset: int = 1, gap: bool = False) -> int:
+    from mso.db import load_migrations
+
+    latest = max(m.version for m in load_migrations())
+    db.execute("INSERT INTO schema_migrations(version,name,checksum) VALUES (%s,'toekomst','proef')",
+               (latest + offset,))
+    if gap:
+        db.execute("DELETE FROM schema_migrations WHERE version=%s", (latest,))
+    return latest + offset
+
+
+def _file_bytes(root: Any) -> dict:
+    return {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+            for p in root.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("offset", [1, 10000])
+@pytest.mark.parametrize("target", [None, 600])
+@pytest.mark.parametrize("gap", [False, True])
+def test_newer_schema_refuses_without_writes(schema_db: Any, database_bytes: Any,
+                                           offset: int, target: int | None, gap: bool) -> None:
+    from mso.db import NewerDatabaseError, migrate_up
+
+    _newer_schema(schema_db, offset, gap)
+    before = database_bytes(schema_db)
+    assert before["users"] != b"[]" and before["jobs"] != b"[]" and before["audit_log"] != b"[]"
+    for _ in range(2):
+        with pytest.raises(NewerDatabaseError, match="database is van een nieuwere MSO-versie; "
+                           "zet de bijpassende snapshot/back-up terug"):
+            migrate_up(schema_db, target)
+        assert database_bytes(schema_db) == before
+
+
+@pytest.mark.parametrize("command", [
+    ["migrate"], ["migrate", "--no-backup"], ["migrate", "--to", "600"],
+    ["backup", "--pre-upgrade"], ["backup"], ["api"], ["worker"],
+])
+def test_newer_schema_cli_refuses_before_backup_or_runtime(schema_db: Any, database_bytes: Any,
+                                                         command: list[str]) -> None:
+    import os
+    import subprocess
+    import sys
+
+    from mso.config import get_settings
+    from mso.db import NEWER_DATABASE_EXIT_CODE
+
+    _newer_schema(schema_db, gap=True)
+    settings = get_settings()
+    before, files = database_bytes(schema_db), _file_bytes(settings.data_dir)
+    env = dict(os.environ, MSO_DATABASE_URL=schema_db.url, MSO_DATA_DIR=str(settings.data_dir),
+               MSO_WORK_DIR=str(settings.work_dir))
+    for _ in range(2):
+        result = subprocess.run([sys.executable, "-m", "mso", *command], env=env,
+                                capture_output=True, text=True, timeout=20, check=False)
+        assert result.returncode == NEWER_DATABASE_EXIT_CODE, result.stderr
+        assert "database is van een nieuwere MSO-versie; zet de bijpassende snapshot/back-up terug" in result.stderr
+        assert "Traceback" not in result.stderr
+        assert database_bytes(schema_db) == before
+        assert _file_bytes(settings.data_dir) == files
+
+
+@pytest.mark.parametrize("migrate", [True, False])
+def test_newer_schema_runtime_refuses_even_without_migration(schema_db: Any, database_bytes: Any,
+                                                            migrate: bool) -> None:
+    from mso.app import create_app
+    from mso.config import get_settings
+    from mso.db import NewerDatabaseError
+
+    _newer_schema(schema_db, gap=True)
+    before, files = database_bytes(schema_db), _file_bytes(get_settings().data_dir)
+    with pytest.raises(NewerDatabaseError):
+        create_app(schema_db, migrate=migrate)
+    assert database_bytes(schema_db) == before
+    assert _file_bytes(get_settings().data_dir) == files
+
+
+def test_schema_preflight_is_read_only_and_does_not_create_table(database_url: str) -> None:
+    import psycopg
+
+    from mso.db import Database, check_schema_compatibility
+
+    base, name = database_url.rsplit("/", 1)
+    name += "_readonly"
+    with psycopg.connect(base + "/postgres", autocommit=True) as conn:
+        conn.execute(f'CREATE DATABASE "{name}"')
+    probe = Database(base + "/" + name + "?options=-cdefault_transaction_read_only%3Don", max_size=2)
+    try:
+        check_schema_compatibility(probe)
+        assert probe.scalar("SELECT to_regclass('schema_migrations')") is None
+    finally:
+        probe.close()
+        with psycopg.connect(base + "/postgres", autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+
+
+def test_schema_is_rechecked_under_migration_lock(schema_db: Any, database_bytes: Any,
+                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    import mso.db as module
+
+    module.check_schema_compatibility(schema_db)
+    original = module._check_schema_compatibility
+    before = None
+
+    def changed_after_preflight(conn: Any, migrations: Any) -> None:
+        nonlocal before
+        assert conn.execute("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid=pg_backend_pid() "
+                            "AND locktype='advisory' AND objid=727001 AND granted) AS held").fetchone()["held"]
+        _newer_schema(schema_db, gap=True)
+        before = database_bytes(schema_db)
+        original(conn, migrations)
+
+    monkeypatch.setattr(module, "_check_schema_compatibility", changed_after_preflight)
+    with pytest.raises(module.NewerDatabaseError):
+        module.migrate_up(schema_db)
+    assert before is not None and database_bytes(schema_db) == before
+    # Ook de foutweg geeft de sessielock vrij.
+    assert schema_db.scalar("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=727001 "
+                            "AND database=(SELECT oid FROM pg_database WHERE datname=current_database())") == 0
+
+
+def test_current_schema_starts_and_target_is_not_compatibility_limit(schema_db: Any, database_bytes: Any) -> None:
+    from mso.app import create_app
+    from mso.db import check_schema_compatibility, migrate_up
+
+    before = database_bytes(schema_db)
+    check_schema_compatibility(schema_db)
+    assert migrate_up(schema_db, 600) == []
+    assert migrate_up(schema_db) == []
+    assert database_bytes(schema_db) == before
+    with TestClient(create_app(schema_db)) as client:
+        assert client.get("/healthz").json()["status"] == "ok"
+    assert schema_db.scalar("SELECT count(*) FROM users WHERE username='proefgebruiker'") == 1
+
+
 def test_backup_and_restore_roundtrip(app: Any, db: Any, admin: Any) -> None:
     from mso import backups
     from mso.vault import get_vault

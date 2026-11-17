@@ -37,6 +37,7 @@ NIET_GEVALIDEERD = {
     "NIET GEVALIDEERD (hardware)",
     "NIET GEVALIDEERD (account)",
     "NIET GEVALIDEERD (Mac/Xcode)",
+    "NIET GEVALIDEERD (echte Hub)",  # contract §11, aanvulling C-12 (C12-6)
 }
 GETEST = {"Sim-getest", "Unit-getest", "Intel-iGPU-getest (ontwikkelmachine)"}
 TESTMATRIX_WAARDEN = {"Sim-geslaagd", "Sim-mislukt"}
@@ -223,3 +224,23 @@ def test_contractpunt_en_review_met_de_vaste_vorm_zijn_toegestaan() -> None:
     assert _check(_met(id="C1.3-MSO-01")) == []
     assert _check(_met(id=f"REVIEW-{REPO}-contract-1.3")) == []
     assert _check(_met(id="C1.3-MSO-01", status="Niet gestart", validatie="Niet getest", blokkade="")) == []
+
+
+def test_echte_hub_is_een_geldige_validatiewaarde() -> None:
+    """Contract §11, aanvulling C-12 (C12-6): ``NIET GEVALIDEERD (echte Hub)`` staat in de vaste lijst."""
+    assert "NIET GEVALIDEERD (echte Hub)" in VALIDATIE
+    assert (
+        _check(
+            _met(
+                validatie="Sim-getest; NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub)",
+                blokkade="NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub): alleen met de simulator",
+            )
+        )
+        == []
+    )
+
+
+def test_vaste_lijst_niet_gevalideerd_staat_in_het_contract() -> None:
+    """Elke ``NIET GEVALIDEERD (…)``-waarde van de vaste lijst staat in §11 van de contractkopie."""
+    tekst = (PV2 / "PLATFORM_CONTRACTEN.md").read_text(encoding="utf-8")
+    assert [w for w in sorted(NIET_GEVALIDEERD) if f"`{w}`" not in tekst] == []

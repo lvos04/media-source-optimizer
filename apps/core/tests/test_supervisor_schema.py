@@ -60,8 +60,9 @@ def supervisor(monkeypatch: pytest.MonkeyPatch) -> Any:
         trace.append(command)
         return codes[command]
 
-    for name in ("prepare_dirs", "demote", "init_database", "wait_for_db"):
-        monkeypatch.setattr(module, name, lambda *_: None)
+    for name in ("prepare_dirs", "demote", "init_database", "wait_for_db", "check_schema_compatibility"):
+        monkeypatch.setattr(module, name, lambda *_, **__: None)
+    monkeypatch.setattr(module, "Database", lambda *_a, **_k: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(module, "Child", Child)
     monkeypatch.setattr(module, "run_once", run_once)
     monkeypatch.setattr(module, "fail", fail)

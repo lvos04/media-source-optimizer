@@ -58,24 +58,34 @@ def _say(msg: str) -> None:
 
 def _migrate(args: argparse.Namespace) -> None:
     from mso import backups
-    from mso.db import Database, check_schema_compatibility, migrate_down, migrate_up, schema_version, set_db
+    from mso.db import (
+        Database,
+        check_schema_compatibility,
+        migrate_down,
+        migrate_up,
+        schema_version,
+        set_db,
+        upgrade_lock,
+    )
 
     db = Database(get_settings().database_url, max_size=2)
     try:
         check_schema_compatibility(db)
-        set_db(db)
-        if args.down is not None:
-            print("teruggedraaid:", migrate_down(db, args.down))
-        else:
-            if not args.no_backup:
-                # De bewaker maakt de back-up als aparte stap; de ontwikkelstack gebruikt deze ingang.
-                backups.pre_upgrade_backup(db, target=args.to, log=_say)
-            print("toegepast:", migrate_up(db, args.to))
-            try:
-                backups.flush_pre_upgrade(db)
-            except Exception as exc:  # the audit row is a nicety; the migration itself succeeded
-                LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
-        print("schemaversie:", schema_version(db))
+        with upgrade_lock(db):
+            check_schema_compatibility(db)
+            set_db(db)
+            if args.down is not None:
+                print("teruggedraaid:", migrate_down(db, args.down))
+            else:
+                if not args.no_backup:
+                    # De bewaker maakt de back-up als aparte stap; de ontwikkelstack gebruikt deze ingang.
+                    backups.pre_upgrade_backup(db, target=args.to, log=_say)
+                print("toegepast:", migrate_up(db, args.to))
+                try:
+                    backups.flush_pre_upgrade(db)
+                except Exception as exc:  # the audit row is a nicety; the migration itself succeeded
+                    LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
+            print("schemaversie:", schema_version(db))
     finally:
         db.close()
 
@@ -85,15 +95,17 @@ def _backup(args: argparse.Namespace) -> None:
 
     if args.pre_upgrade:
         # runs BEFORE the migrations, against the old schema: no init_runtime (that would migrate first)
-        from mso.db import Database, check_schema_compatibility, set_db
+        from mso.db import Database, check_schema_compatibility, set_db, upgrade_lock
 
         db = Database(get_settings().database_url, max_size=2)
         try:
             check_schema_compatibility(db)
-            set_db(db)
-            res = backups.pre_upgrade_backup(db, log=_say)
-            if res["status"] in ("not_needed", "exists"):
-                _say(f"back-up vóór upgrade: niet nodig ({res.get('reason')})")
+            with upgrade_lock(db):
+                check_schema_compatibility(db)
+                set_db(db)
+                res = backups.pre_upgrade_backup(db, log=_say)
+                if res["status"] in ("not_needed", "exists"):
+                    _say(f"back-up vóór upgrade: niet nodig ({res.get('reason')})")
         finally:
             db.close()
         return  # Een mislukte dump blokkeert niet; een nieuwer schema wordt wél geweigerd.

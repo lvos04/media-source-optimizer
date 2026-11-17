@@ -26,7 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from mso import settings_registry
 from mso.config import VERSION, get_settings
 from mso.connectors import base as connectors
-from mso.db import Database, check_schema_compatibility, get_db, migrate_up, set_db
+from mso.db import Database, check_schema_compatibility, get_db, migrate_up, set_db, upgrade_lock
 from mso.security import configure_logging, limiter, redact
 from mso.vault import Vault, set_vault
 
@@ -71,23 +71,25 @@ def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Databas
     db = db or Database(settings.database_url)
     try:
         check_schema_compatibility(db)
+        with upgrade_lock(db):
+            check_schema_compatibility(db)
+            set_db(db)
+            if migrate:
+                from mso import backups
+
+                backups.pre_upgrade_backup(db)
+                migrate_up(db)
+                try:
+                    backups.flush_pre_upgrade(db)
+                except Exception as exc:
+                    LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
+            set_vault(Vault(db))
+            load_modules()
+            connectors.ensure_rows()
     except Exception:
         if own_db:
             db.close()
         raise
-    set_db(db)
-    if migrate:
-        from mso import backups
-
-        backups.pre_upgrade_backup(db)
-        migrate_up(db)
-        try:
-            backups.flush_pre_upgrade(db)
-        except Exception as exc:
-            LOGGER.warning("audit van de back-up vóór de upgrade niet geschreven: %s", type(exc).__name__)
-    set_vault(Vault(db))
-    load_modules()
-    connectors.ensure_rows()
     return db
 
 

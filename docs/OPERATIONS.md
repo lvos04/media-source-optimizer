@@ -114,6 +114,12 @@ terug met de daarbij horende image. Alleen een oudere image kiezen maakt een nie
 De bewaker zet bij deze weigering één duidelijke foutregel in het containerlog, stopt zijn eigen database en
 wacht op stoppen van de app, zonder opnieuw te migreren of API, worker of web te starten. Een nog levend
 bewakerproces betekent dus geen gereedheid: de bestaande applicatie-healthcheck faalt zolang deze diensten uit staan.
+Na het wachten op de back-upvergrendeling controleert MSO het schema opnieuw, met ook de migratievergrendeling
+vast. Die vergrendelingen blijven vast tijdens de beslissing over back-up en retentie en tijdens het migreren.
+Zo weigeren ook gelijktijdig startende processen zonder tabelwijzigingen of nieuwe of verwijderde herstelbestanden;
+ook de aparte back-upstap eindigt dan met code 79. De bewaker bereidt vóór zijn eerste alleen-lezen schemacontrole
+uitsluitend de databaseopslag en databasesocket voor. De mappen voor back-ups, geheimen en werkbestanden worden pas
+na een geslaagde controle voorbereid. Een lege installatie en een gewone update blijven normaal starten.
 
 Sinds 1.6.0 maakt MSO vóór openstaande migraties automatisch een back-up van soort `pre-upgrade` ("Vóór upgrade" in
 Systeem → Back-ups):

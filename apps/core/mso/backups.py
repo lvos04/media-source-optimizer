@@ -25,7 +25,7 @@
 - ``pre_upgrade_backup`` runs before pending migrations (all-in-one supervisor, ``mso migrate``, API/worker start).
   It runs new code against the OLD schema, so it only touches 0001-era tables/columns (``backups``,
   ``system_state``); the audit row and any "Wacht op jou" item are written after the migration
-  (``flush_pre_upgrade``). It never raises: a failed dump is a clear log line and the start continues.
+  (``flush_pre_upgrade``). Een dumpfout blokkeert de start niet; een nieuwer schema wel.
 """
 
 from __future__ import annotations
@@ -45,14 +45,17 @@ from mso import jobs
 from mso.audit import audit
 from mso.config import get_settings
 from mso.db import (
+    PRE_UPGRADE_LOCK,  # noqa: F401 - bestaande importplek voor tests en andere aanroepers
     Database,
     applied_migrations,
+    check_schema_compatibility,
     get_db,
     jsonb,
     load_migrations,
     migrate_down,
     migrate_up,
     schema_version,
+    upgrade_lock,
 )
 from mso.security import redact
 from mso.settings_registry import get as setting
@@ -65,7 +68,6 @@ REFETCHABLE = ("release_cache", "mg_wanted_cache", "mg_snapshots", "usenet_hi_he
 AUDIT_KEEP_TABLE = "mso_restore_audit_keep"  # temporary, server-side copy of audit_log during a restore
 SAFETY_KIND, SAFETY_DAYS, SAFETY_KEEP = "pre-restore", 30, 2
 UPGRADE_KIND, UPGRADE_KEEP = "pre-upgrade", 3
-PRE_UPGRADE_LOCK = 727002  # advisory lock: api, worker and `mso migrate` never dump twice for one upgrade
 PRE_UPGRADE_STATE = "backup.pre_upgrade_pending"
 SPACE_ALERT_KEY = "backup.space"
 # the operating state belongs to now, not to the dump: never lift a noodrem or leave Alleen-lezen through a restore
@@ -461,6 +463,16 @@ def pending_migrations(db: Database) -> list[int]:
 
 def pre_upgrade_backup(db: Database | None = None, *, target: int | None = None,
                        log: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """Controleer na het wachten opnieuw, vóór iedere schrijfactie; schemaveiligheid blokkeert wel."""
+    db = db or get_db()
+    check_schema_compatibility(db)
+    with upgrade_lock(db):
+        check_schema_compatibility(db)
+        return _pre_upgrade_backup(db, target=target, log=log)
+
+
+def _pre_upgrade_backup(db: Database | None = None, *, target: int | None = None,
+                       log: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Dump the database before pending migrations run (kind ``pre-upgrade``). Never raises.
 
     Status: ``not_needed`` (nothing pending / brand-new database), ``exists`` (another process just made it),
@@ -475,46 +487,39 @@ def pre_upgrade_backup(db: Database | None = None, *, target: int | None = None,
             return {"status": "not_needed", "reason": "geen openstaande migraties"}
         if current == 0:
             return {"status": "not_needed", "reason": "nieuwe installatie: nog niets om te bewaren"}
-        with db.pool.connection() as conn:
-            conn.autocommit = True
-            conn.execute("SELECT pg_advisory_lock(%s)", (PRE_UPGRADE_LOCK,))
-            try:
-                current = schema_version(db)
-                pending = [v for v in pending_migrations(db) if target is None or v <= target]
-                if not pending:
-                    return {"status": "not_needed", "reason": "migraties al uitgevoerd door een ander proces"}
-                # one dump per upgrade, not per start: a failing migration (each one commits on its own) leaves
-                # a half-migrated schema and a restart loop; the marker lives until a migration run succeeds
-                marker = _pending_marker(db) or {}
-                if marker.get("status") == "created" and int(marker.get("to") or 0) >= max(pending):
-                    return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al",
-                            "file": marker.get("file")}
-                if db.scalar("SELECT count(*) FROM backups WHERE kind=%s AND schema_version=%s "
-                             "AND created_at > now() - interval '1 hour'", (UPGRADE_KIND, current)):
-                    return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al"}
-                info: dict[str, Any] = {"from": current, "to": max(pending), "pending": pending}
-                if marker.get("status") == "created":  # an even newer image on top of an unfinished upgrade
-                    info |= {"origin_file": marker.get("origin_file") or marker.get("file"),
-                             "origin_from": marker.get("origin_from") or marker.get("from")}
-                st = space_status(db)
-                if not st["ok"]:
-                    msg = _space_message(st)
-                    warn(f"back-up vóór upgrade overgeslagen: {msg}; MSO start gewoon door")
-                    _mark(db, info | {"status": "skipped", "reason": msg,
-                                      "space": {k: st[k] for k in ("free_bytes", "needed_bytes", "path",
-                                                                   "reference", "reference_bytes",
-                                                                   "reserve_bytes")}})
-                    return {"status": "skipped", "reason": msg}
-                path = _dump(kind=UPGRADE_KIND, include_secrets=False, timeout=900)
-                row = _register(path, UPGRADE_KIND, False, db)
-                _mark(db, info | {"status": "created", "file": row["file"], "size": row["size_bytes"]})
-                prune_safety(db)
-                say(f"back-up vóór upgrade gemaakt: {row['file']} ({_gb(row['size_bytes'])}; schema "
-                    f"{current} → {max(pending)})")
-                return {"status": "created", "file": row["file"], "size_bytes": row["size_bytes"]}
-            finally:
-                conn.execute("SELECT pg_advisory_unlock(%s)", (PRE_UPGRADE_LOCK,))
-                conn.autocommit = False
+        current = schema_version(db)
+        pending = [v for v in pending_migrations(db) if target is None or v <= target]
+        if not pending:
+            return {"status": "not_needed", "reason": "migraties al uitgevoerd door een ander proces"}
+        # one dump per upgrade, not per start: a failing migration (each one commits on its own) leaves
+        # a half-migrated schema and a restart loop; the marker lives until a migration run succeeds
+        marker = _pending_marker(db) or {}
+        if marker.get("status") == "created" and int(marker.get("to") or 0) >= max(pending):
+            return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al",
+                    "file": marker.get("file")}
+        if db.scalar("SELECT count(*) FROM backups WHERE kind=%s AND schema_version=%s "
+                     "AND created_at > now() - interval '1 hour'", (UPGRADE_KIND, current)):
+            return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al"}
+        info: dict[str, Any] = {"from": current, "to": max(pending), "pending": pending}
+        if marker.get("status") == "created":  # an even newer image on top of an unfinished upgrade
+            info |= {"origin_file": marker.get("origin_file") or marker.get("file"),
+                     "origin_from": marker.get("origin_from") or marker.get("from")}
+        st = space_status(db)
+        if not st["ok"]:
+            msg = _space_message(st)
+            warn(f"back-up vóór upgrade overgeslagen: {msg}; MSO start gewoon door")
+            _mark(db, info | {"status": "skipped", "reason": msg,
+                              "space": {k: st[k] for k in ("free_bytes", "needed_bytes", "path",
+                                                           "reference", "reference_bytes",
+                                                           "reserve_bytes")}})
+            return {"status": "skipped", "reason": msg}
+        path = _dump(kind=UPGRADE_KIND, include_secrets=False, timeout=900)
+        row = _register(path, UPGRADE_KIND, False, db)
+        _mark(db, info | {"status": "created", "file": row["file"], "size": row["size_bytes"]})
+        prune_safety(db)
+        say(f"back-up vóór upgrade gemaakt: {row['file']} ({_gb(row['size_bytes'])}; schema "
+            f"{current} → {max(pending)})")
+        return {"status": "created", "file": row["file"], "size_bytes": row["size_bytes"]}
     except Exception as exc:
         reason = redact(f"{exc}")[:400] or type(exc).__name__
         warn(f"back-up vóór upgrade mislukt: {reason}; MSO start gewoon door (maak zelf een back-up of "

@@ -28,7 +28,7 @@ import threading
 import time
 from pathlib import Path
 
-from mso.db import NEWER_DATABASE_EXIT_CODE, NewerDatabaseError
+from mso.db import NEWER_DATABASE_EXIT_CODE, Database, NewerDatabaseError, check_schema_compatibility
 
 UID = int(os.environ.get("MSO_UID", "568"))
 GID = int(os.environ.get("MSO_GID", "568"))
@@ -61,29 +61,38 @@ def demote() -> None:
         os.setuid(UID)
 
 
-def prepare_dirs() -> None:
+def prepare_dirs(*, database_only: bool = False) -> None:
     if not DATA.exists():
         fail(f"{DATA} bestaat niet. Koppel een host-map (dataset) aan {DATA} in de app-instellingen.")
     root = os.getuid() == 0
+    managed = {"postgres"} if database_only else {"postgres", "secrets", "backups", "work", "logs"}
     if root:
         # first start or wrong owner: make 568 the owner of everything we manage (never of anything else)
         for path in [
             DATA,
-            *[p for p in DATA.iterdir() if p.name in {"postgres", "secrets", "backups", "work", "logs"}],
+            *[p for p in DATA.iterdir() if p.name in managed],
         ]:
             st = path.stat()
+            if database_only and path == DATA:
+                shift = 6 if st.st_uid == UID else 3 if st.st_gid == GID else 0
+                if (st.st_mode >> shift) & 1:
+                    continue  # De database heeft alleen doorgang door deze bovenmap nodig.
             if (st.st_uid, st.st_gid) != (UID, GID):
                 log(f"eigenaar van {path} wordt {UID}:{GID}")
+                if path == DATA:
+                    os.chown(DATA, UID, GID)
+                    continue
                 for dirpath, dirnames, filenames in os.walk(path):
                     for name in [dirpath, *[os.path.join(dirpath, n) for n in dirnames + filenames]]:
                         try:
                             os.lchown(name, UID, GID)
                         except OSError:
                             pass
-    for sub in (PGDATA, DATA / "secrets", DATA / "backups", WORK):
+    folders = (PGDATA,) if database_only else (PGDATA, DATA / "secrets", DATA / "backups", WORK)
+    for sub in folders:
         try:
             sub.mkdir(parents=True, exist_ok=True)
-            if root:
+            if root and (sub.stat().st_uid, sub.stat().st_gid) != (UID, GID):
                 os.chown(sub, UID, GID)
         except PermissionError:
             fail(
@@ -91,15 +100,18 @@ def prepare_dirs() -> None:
                 f"of laat de app als root starten zodat MSO dit zelf regelt."
             )
     try:
-        os.chmod(PGDATA, 0o700)  # PostgreSQL refuses a group/world-readable data directory
+        if PGDATA.stat().st_mode & 0o777 != 0o700:
+            os.chmod(PGDATA, 0o700)  # PostgreSQL weigert te ruime databaserechten
     except PermissionError:
         fail(
             f"{PGDATA} is niet van gebruiker {UID}; start de app als root (MSO regelt dan de rechten) "
             f"of maak {UID} eigenaar van de dataset."
         )
     SOCKET_DIR.mkdir(parents=True, exist_ok=True)
-    if root:
+    if root and (SOCKET_DIR.stat().st_uid, SOCKET_DIR.stat().st_gid) != (UID, GID):
         os.chown(SOCKET_DIR, UID, GID)
+    if database_only:
+        return
     # final writability probe as the runtime user
     probe = subprocess.run(
         [
@@ -285,12 +297,25 @@ def main() -> None:
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
     log(f"Media Source Optimizer (alles-in-één) · data {DATA} · poort {PORT}")
-    prepare_dirs()
-    demote()  # least privilege: from here on nothing runs as root (only the ownership fix above needed it)
+    prepare_dirs(database_only=True)
     init_database()
     pg = postgres_child()
     pg.start()
     wait_for_db(pg)
+    db = Database(DB_URL, max_size=1)
+    newer_schema = False
+    try:
+        check_schema_compatibility(db)
+    except NewerDatabaseError:
+        newer_schema = True
+    finally:
+        db.close()
+    if newer_schema:
+        demote()
+        wait_on_newer_schema(pg)
+        return
+    prepare_dirs()
+    demote()  # Ook applicatiemappen pas na de alleen-lezen schemacontrole voorbereiden.
     # safety net for upgrades: a dump before pending migrations (only when there are any and the disk has room).
     # Een dumpfout blokkeert niet; een database van een nieuwere versie wel.
     rc = run_once("back-up vóór upgrade", [sys.executable, "-m", "mso", "backup", "--pre-upgrade"])

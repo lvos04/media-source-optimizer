@@ -19,6 +19,7 @@ import logging
 import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from importlib import resources
 from typing import Any
@@ -31,6 +32,7 @@ from psycopg_pool import ConnectionPool
 LOGGER = logging.getLogger(__name__)
 MIGRATION_RE = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
 NEWER_DATABASE_EXIT_CODE = 79
+PRE_UPGRADE_LOCK = 727002
 
 
 class NewerDatabaseError(RuntimeError):
@@ -41,6 +43,8 @@ class NewerDatabaseError(RuntimeError):
 class Database:
     def __init__(self, url: str, min_size: int = 1, max_size: int = 10) -> None:
         self.url = url
+        self._upgrade_connection: ContextVar[psycopg.Connection[Any] | None] = ContextVar(
+            "mso_upgrade_connection", default=None)
         self.pool = ConnectionPool(
             url, min_size=min_size, max_size=max_size, open=True,
             kwargs={"row_factory": dict_row, "autocommit": False},
@@ -144,34 +148,57 @@ def check_schema_compatibility(db: Database) -> None:
         _check_schema_compatibility(conn, load_migrations())
 
 
+@contextmanager
+def upgrade_lock(db: Database) -> Iterator[psycopg.Connection[Any]]:
+    """Eén sessie bewaakt back-up, retentie en migratie; geneste aanroepen delen de locks.
+
+    Altijd eerst de bestaande back-uplock, dan de migratielock. Controleer het schema pas
+    nadat beide zijn verkregen; een andere migrator kan tijdens het wachten klaar zijn.
+    """
+    active = db._upgrade_connection.get()
+    if active is not None:
+        yield active
+        return
+    with db.pool.connection() as conn:
+        conn.autocommit = True
+        locked = []
+        token = None
+        try:
+            for key in (PRE_UPGRADE_LOCK, 727001):
+                conn.execute("SELECT pg_advisory_lock(%s)", (key,))
+                locked.append(key)
+            token = db._upgrade_connection.set(conn)
+            yield conn
+        finally:
+            if token is not None:
+                db._upgrade_connection.reset(token)
+            for key in reversed(locked):
+                conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
+            conn.autocommit = False
+
+
 def migrate_up(db: Database, target: int | None = None) -> list[int]:
     """Apply pending migrations (up to ``target``). Uses an advisory lock so api+worker never race."""
     done: list[int] = []
-    with db.pool.connection() as conn:
-        conn.autocommit = True
-        conn.execute("SELECT pg_advisory_lock(727001)")
-        try:
-            migrations = load_migrations()
-            _check_schema_compatibility(conn, migrations)
+    with upgrade_lock(db) as conn:
+        migrations = load_migrations()
+        _check_schema_compatibility(conn, migrations)
+        with conn.transaction():
+            _ensure_table(conn)
+        applied = {r["version"]: r for r in conn.execute("SELECT version, checksum FROM schema_migrations")}
+        for mig in migrations:
+            if target is not None and mig.version > target:
+                break
+            if mig.version in applied:
+                if applied[mig.version]["checksum"] != mig.checksum:
+                    LOGGER.warning("migratie %s gewijzigd na toepassen (checksum wijkt af)", mig.version)
+                continue
             with conn.transaction():
-                _ensure_table(conn)
-            applied = {r["version"]: r for r in conn.execute("SELECT version, checksum FROM schema_migrations")}
-            for mig in migrations:
-                if target is not None and mig.version > target:
-                    break
-                if mig.version in applied:
-                    if applied[mig.version]["checksum"] != mig.checksum:
-                        LOGGER.warning("migratie %s gewijzigd na toepassen (checksum wijkt af)", mig.version)
-                    continue
-                with conn.transaction():
-                    conn.execute(mig.up)
-                    conn.execute("INSERT INTO schema_migrations(version,name,checksum) VALUES (%s,%s,%s)",
-                                 (mig.version, mig.name, mig.checksum))
-                LOGGER.info("migratie %04d_%s toegepast", mig.version, mig.name)
-                done.append(mig.version)
-        finally:
-            conn.execute("SELECT pg_advisory_unlock(727001)")
-            conn.autocommit = False
+                conn.execute(mig.up)
+                conn.execute("INSERT INTO schema_migrations(version,name,checksum) VALUES (%s,%s,%s)",
+                             (mig.version, mig.name, mig.checksum))
+            LOGGER.info("migratie %04d_%s toegepast", mig.version, mig.name)
+            done.append(mig.version)
     return done
 
 
@@ -179,25 +206,19 @@ def migrate_down(db: Database, target: int) -> list[int]:
     """Roll back applied migrations with version > ``target`` (newest first)."""
     undone: list[int] = []
     by_version = {m.version: m for m in load_migrations()}
-    with db.pool.connection() as conn:
-        conn.autocommit = True
-        conn.execute("SELECT pg_advisory_lock(727001)")
-        try:
-            rows = conn.execute(
-                "SELECT version FROM schema_migrations WHERE version > %s ORDER BY version DESC",
-                (target,)).fetchall()
-            for row in rows:
-                mig = by_version.get(row["version"])
-                if mig is None:
-                    raise RuntimeError(f"geen down-script voor migratie {row['version']}")
-                with conn.transaction():
-                    conn.execute(mig.down)
-                    conn.execute("DELETE FROM schema_migrations WHERE version=%s", (mig.version,))
-                LOGGER.info("migratie %04d_%s teruggedraaid", mig.version, mig.name)
-                undone.append(mig.version)
-        finally:
-            conn.execute("SELECT pg_advisory_unlock(727001)")
-            conn.autocommit = False
+    with upgrade_lock(db) as conn:
+        rows = conn.execute(
+            "SELECT version FROM schema_migrations WHERE version > %s ORDER BY version DESC",
+            (target,)).fetchall()
+        for row in rows:
+            mig = by_version.get(row["version"])
+            if mig is None:
+                raise RuntimeError(f"geen down-script voor migratie {row['version']}")
+            with conn.transaction():
+                conn.execute(mig.down)
+                conn.execute("DELETE FROM schema_migrations WHERE version=%s", (mig.version,))
+            LOGGER.info("migratie %04d_%s teruggedraaid", mig.version, mig.name)
+            undone.append(mig.version)
     return undone
 
 

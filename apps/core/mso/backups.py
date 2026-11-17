@@ -47,6 +47,7 @@ from mso.config import get_settings
 from mso.db import (
     PRE_UPGRADE_LOCK,  # noqa: F401 - bestaande importplek voor tests en andere aanroepers
     Database,
+    NewerDatabaseError,
     applied_migrations,
     check_schema_compatibility,
     get_db,
@@ -297,6 +298,10 @@ def restore_backup(backup_id: int, actor: str) -> dict:
         raise BackupError(f"Herstel mislukt (database ongewijzigd): {redact(proc.stderr.strip())[:400]}")
     try:
         upgraded = migrate_up(db) if dump_v > 0 else []  # the running code needs its own schema right away
+    except NewerDatabaseError:
+        # De metadata is vóór elke wijziging gecontroleerd. Wijkt de teruggezette inhoud daarvan af,
+        # rond dan net als voorheen het herstel af: veiligheidsback-up, audit en opruimen blijven nodig.
+        upgraded = []
     except Exception as exc:
         raise BackupError(f"Back-up {row['file']} is hersteld, maar het schema bijwerken mislukte "
                           f"({redact(str(exc))[:300]}); herstart MSO (migrate). De veiligheidsback-up "

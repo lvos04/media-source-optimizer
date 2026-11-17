@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import psycopg
 import pytest
 
 from mso.db import NEWER_DATABASE_EXIT_CODE
@@ -25,6 +26,7 @@ def supervisor(monkeypatch: pytest.MonkeyPatch) -> Any:
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    real_fail = module.fail
     trace: list[str] = []
     handlers: dict = {}
     stopped = threading.Event()
@@ -67,7 +69,8 @@ def supervisor(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(module, "run_once", run_once)
     monkeypatch.setattr(module, "fail", fail)
     monkeypatch.setattr(module.signal, "signal", lambda signum, fn: handlers.update({signum: fn}))
-    yield SimpleNamespace(module=module, trace=trace, handlers=handlers, codes=codes, stopped=stopped)
+    yield SimpleNamespace(module=module, trace=trace, handlers=handlers, codes=codes,
+                          stopped=stopped, real_fail=real_fail)
     module.STOP.set()
 
 
@@ -134,3 +137,41 @@ def test_waiting_supervisor_is_not_application_readiness(monkeypatch: pytest.Mon
     with pytest.raises(SystemExit) as exc:
         runpy.run_path(str(DEPLOY / "healthcheck.py"))
     assert exc.value.code == 1
+
+
+@pytest.mark.parametrize("stage", ["open", "check", "close"])
+@pytest.mark.parametrize("error", [psycopg.OperationalError, RuntimeError])
+def test_supervisor_preflight_error_stops_database_and_delays_exit(
+    supervisor: Any, monkeypatch: pytest.MonkeyPatch, stage: str, error: type[Exception],
+) -> None:
+    """Elke andere fout in de voorcontrole volgt de bestaande nette stop met pauze en code 78."""
+    module, trace = supervisor.module, supervisor.trace
+
+    def broken() -> None:
+        raise error("synthetische databasefout")
+
+    def close() -> None:
+        trace.append("db-close")
+        if stage == "close":
+            broken()
+
+    def database(*_: Any, **__: Any) -> Any:
+        if stage == "open":
+            broken()
+        return SimpleNamespace(close=close)
+
+    def check(_: Any) -> None:
+        if stage == "check":
+            broken()
+
+    monkeypatch.setattr(module, "Database", database)
+    monkeypatch.setattr(module, "check_schema_compatibility", check)
+    monkeypatch.setattr(module, "fail", supervisor.real_fail)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: trace.append(f"slaap-{seconds}"))
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+    assert exc.value.code == 78
+    expected = ["start database"]
+    if stage != "open":
+        expected.append("db-close")
+    assert trace == [*expected, "stop database", "slaap-30"]

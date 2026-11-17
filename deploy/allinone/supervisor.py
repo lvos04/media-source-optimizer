@@ -302,14 +302,18 @@ def main() -> None:
     pg = postgres_child()
     pg.start()
     wait_for_db(pg)
-    db = Database(DB_URL, max_size=1)
     newer_schema = False
     try:
-        check_schema_compatibility(db)
+        db = Database(DB_URL, max_size=1)
+        try:
+            check_schema_compatibility(db)
+        finally:
+            db.close()
     except NewerDatabaseError:
         newer_schema = True
-    finally:
-        db.close()
+    except Exception:
+        pg.stop()
+        fail("databaseschemacontrole mislukt; zie het databaselog en probeer de app opnieuw te starten.")
     if newer_schema:
         demote()
         wait_on_newer_schema(pg)

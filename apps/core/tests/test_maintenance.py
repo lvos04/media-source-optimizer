@@ -491,12 +491,51 @@ def test_restore_of_an_older_dump_migrates_down_first_and_up_after(app: Any, old
     assert schema_version(old_db) == head
 
 
-def test_restore_of_a_newer_dump_is_refused(app: Any, db: Any) -> None:
+def test_restore_of_a_newer_dump_is_refused(app: Any, db: Any, database_bytes: Any) -> None:
     b = backups.create_backup(actor="test")
     db.execute("UPDATE backups SET schema_version=schema_version + 1000 WHERE id=%s", (b["id"],))
+
+    def tree() -> dict:
+        root = get_settings().backup_dir
+        fields = ("st_mode", "st_uid", "st_gid", "st_size", "st_mtime_ns", "st_ctime_ns")
+        return {str(p.relative_to(root)): (tuple(getattr(p.stat(), f) for f in fields),
+                                         p.read_bytes() if p.is_file() else None)
+                for p in [root, *root.rglob("*")]}
+
+    before, files = database_bytes(db), tree()
     with pytest.raises(backups.BackupError, match="nieuwere MSO-versie"):
         backups.restore_backup(b["id"], "test")
+    assert database_bytes(db) == before
+    assert tree() == files
     assert not db.scalar("SELECT count(*) FROM backups WHERE kind='pre-restore'")
+
+
+def test_restore_with_mismatched_schema_metadata_finishes_cleanup(app: Any, db: Any) -> None:
+    """Een al teruggezette dump krijgt dezelfde volledige afronding als vóór de schemabewaking."""
+    from mso.db import schema_version
+
+    current = schema_version(db)
+    future = current + 1
+    db.execute("INSERT INTO users(username,password_hash,role) VALUES ('in-dump','proef','admin')")
+    db.execute("INSERT INTO schema_migrations(version,name,checksum) VALUES (%s,'toekomst','proef')", (future,))
+    try:
+        backup = backups.create_backup(actor="test")
+        db.execute("DELETE FROM schema_migrations WHERE version=%s", (future,))
+        db.execute("UPDATE backups SET schema_version=%s WHERE id=%s", (current, backup["id"]))
+        db.execute("INSERT INTO users(username,password_hash,role) VALUES ('na-dump','proef','admin')")
+        result = backups.restore_backup(backup["id"], "test")
+        assert result["schema_version"] == future
+        assert db.scalar("SELECT count(*) FROM users WHERE username='in-dump'") == 1
+        assert db.scalar("SELECT count(*) FROM users WHERE username='na-dump'") == 0
+        assert db.scalar("SELECT count(*) FROM backups") == 2
+        safety = db.fetchone("SELECT * FROM backups WHERE kind='pre-restore'")
+        assert safety["file"] == result["pre_restore_backup"]
+        backups.verify_backup(get_settings().backup_dir / safety["file"], safety["sha256"])
+        assert db.scalar("SELECT count(*) FROM audit_log WHERE action='backup.restored'") == 1
+        assert db.scalar("SELECT to_regclass('mso_restore_audit_keep') IS NULL")
+    finally:
+        db.execute("DELETE FROM schema_migrations WHERE version=%s", (future,))
+        db.execute("DROP TABLE IF EXISTS mso_restore_audit_keep")
 
 
 def test_restore_keeps_mode_pause_and_noodrem_and_settles_applying(app: Any, db: Any) -> None:

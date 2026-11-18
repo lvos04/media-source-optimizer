@@ -171,10 +171,13 @@ def main() -> int:
         )
 
         info = c.get("/api/v1/system/info")
+        build_time = os.environ.get("MSO_BUILD_TIME", "").strip() or "onbekend"
+        if build_time.endswith("+00:00"):
+            build_time = build_time.removesuffix("+00:00") + "Z"
         expected = {
             "version": os.environ.get("MSO_BUILD_VERSION", "").strip() or "onbekend",
             "git_sha": os.environ.get("MSO_BUILD_GIT_SHA", "").strip() or "onbekend",
-            "build_time": os.environ.get("MSO_BUILD_TIME", "").strip() or "onbekend",
+            "build_time": build_time,
             "channel": os.environ.get("MSO_BUILD_CHANNEL", "").strip() or "onbekend",
         }
         metadata = info.json()

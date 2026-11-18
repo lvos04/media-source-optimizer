@@ -188,7 +188,8 @@ jobs:
       - name: Build all-in-one image + test mocks (local only, never pushed)
         run: |
           MSO_BUILD_VERSION="$(< release/VERSION)"
-          MSO_BUILD_TIME="$(date -u +%FT%TZ)"
+          # Toets canonieke API-uitvoer met Z bij een buildargument met UTC-offset en fractie.
+          MSO_BUILD_TIME="$(date -u +%FT%T.%3N+00:00)"
           export MSO_BUILD_VERSION MSO_BUILD_TIME MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL=development
           printf '%s\n' "MSO_BUILD_VERSION=$MSO_BUILD_VERSION" "MSO_BUILD_GIT_SHA=$MSO_BUILD_GIT_SHA" \
             "MSO_BUILD_TIME=$MSO_BUILD_TIME" "MSO_BUILD_CHANNEL=$MSO_BUILD_CHANNEL" >> "$GITHUB_ENV"
@@ -267,7 +268,8 @@ jobs:
           MSO_POSTGRES_IMAGE: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
         run: |
           MSO_BUILD_VERSION="$(< release/VERSION)"
-          MSO_BUILD_TIME="$(date -u +%FT%TZ)"
+          # Toets de API-waarde en het datetime-attribuut met dezelfde UTC-offset als invoer.
+          MSO_BUILD_TIME="$(date -u +%FT%T.%3N+00:00)"
           export MSO_BUILD_VERSION MSO_BUILD_TIME MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL=development
           make e2e PY=python
       - uses: actions/upload-artifact@v4.6.2

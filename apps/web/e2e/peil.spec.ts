@@ -6,6 +6,7 @@ import { expect, test, type Page } from "@playwright/test";
  * desktop project (playwright.config.ts: the mobile project ignores this file) and sets its own viewports:
  *  - main screens × 320 / 768 / 1024 (light): no horizontal overflow against the device width, axe (wcag2a, 2aa, 21a,
  *    21aa, 22aa) = 0 violations of any impact (Peil §12; review stap 5), exactly one h1, no duplicate ids, every control in <main> ≥ 44 px
+ *  - Systeem × 320 / 360 / 390 / 768 / 1024 / 1440 (licht en donker): dezelfde controles, tekstafstand en toetsenbordfocus
  *  - axe on the shell's dialogs and sheets (Meer, pauze-dialoog, profielmenu) in light and dark
  *  - status shapes: an unknown status never carries the pause icon; only a health badge is green
  *  - keyboard: every tab stop has the Peil ring (≥ 3 px) and is never hidden behind the top bar or bottom navigation
@@ -53,16 +54,71 @@ async function axe(page: Page): Promise<string[]> {
   return res.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`);
 }
 
+async function expectNoOverflow(page: Page, width: number, message: string): Promise<void> {
+  const overflow = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w, width);
+  expect(overflow, `${message} op ${width} px`).toBeLessThanOrEqual(1);
+}
+
+async function checkSystemAccessibility(page: Page, width: number): Promise<void> {
+  const card = page.getByRole("region", { name: "MSO-core" });
+  await expect(card.getByText("Buildgegevens uit de core-image")).toBeVisible();
+
+  const spacing = await page.addStyleTag({ content: `
+    * { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
+    p { margin-block-end: 2em !important; }
+  ` });
+  await expectNoOverflow(page, width, "geen horizontale overloop met vergrote tekstafstand");
+  const clipped = await card.locator("dt, dd, p").evaluateAll((elements) =>
+    elements.filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+      .map((el) => el.textContent?.trim()));
+  expect(clipped, "geen afgekapte kaarttekst met vergrote tekstafstand").toEqual([]);
+  await spacing.evaluate((el) => el.parentNode?.removeChild(el));
+
+  let backupFocused = false;
+  let finishedTabbing = false;
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.press("Tab");
+    const stop = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (el === document.body) return { end: true } as const;
+      if (!el?.closest("main")) return null;
+      const box = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return {
+        end: false,
+        backup: el.getAttribute("data-testid") === "backup-create",
+        name: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim(),
+        ring: style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 3,
+        visible: hit !== null && el.contains(hit),
+      } as const;
+    });
+    if (stop?.end) {
+      finishedTabbing = true;
+      break;
+    }
+    if (!stop) continue;
+    expect(stop.ring, `Peil-ring bij ${stop.name}`).toBe(true);
+    expect(stop.visible, `focus onbedekt bij ${stop.name}`).toBe(true);
+    backupFocused ||= stop.backup;
+  }
+  expect(backupFocused, "toetsenbord bereikt de back-upknop op Systeem").toBe(true);
+  expect(finishedTabbing, "de volledige toetsenvolgorde is doorlopen").toBe(true);
+}
+
 test.describe.configure({ mode: "default" });
 
-for (const width of [320, 768, 1024]) {
-  for (const s of MAIN) {
-    test(`peil ${s.slug} · ${width}`, async ({ page }) => {
+for (const s of MAIN) {
+  const system = s.slug === "systeem";
+  const widths = system ? [320, 360, 390, 768, 1024, 1440] : [320, 768, 1024];
+  const themes = system ? ["light", "dark"] as const : ["light"] as const;
+  for (const { width, theme } of widths.flatMap((width) => themes.map((theme) => ({ width, theme })))) {
+    test(`peil ${s.slug} · ${width}${system ? ` · ${theme}` : ""}`, async ({ page }) => {
       test.skip(!USER, "MSO_E2E_USER niet gezet");
-      await page.setViewportSize({ width, height: 900 });
-      await open(page, s.route);
-      const overflow = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w, width);
-      expect(overflow, `geen horizontale overloop op ${width} px`).toBeLessThanOrEqual(1);
+      await page.setViewportSize({ width, height: system && width <= 390 ? 844 : 900 });
+      await open(page, s.route, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await expectNoOverflow(page, width, "geen horizontale overloop");
       expect(await axe(page), "axe (Peil-set), alle impacts").toEqual([]);
       expect(await page.locator("h1").count(), "precies één h1").toBe(1);
       const dupIds = await page.evaluate(() => {
@@ -87,6 +143,7 @@ for (const width of [320, 768, 1024]) {
       expect(wrongIcons, "Onbekend nooit met het pauze-icoon").toBe(0);
       const greenOutsideHealth = await page.locator('.chip--healthy:not([data-status="healthy"]), .chip--success').count();
       expect(greenOutsideHealth, "groen alleen voor gemeten gezondheid").toBe(0);
+      if (system) await checkSystemAccessibility(page, width);
     });
   }
 }

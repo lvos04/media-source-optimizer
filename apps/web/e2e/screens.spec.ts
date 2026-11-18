@@ -86,7 +86,8 @@ test("Systeem toont de buildgegevens uit de core-image", async ({ page }) => {
   const fields = [
     { name: "version", label: "Versie", value: process.env.MSO_BUILD_VERSION },
     { name: "git_sha", label: "Commit", value: process.env.MSO_BUILD_GIT_SHA },
-    { name: "build_time", label: "Bouwtijd", value: process.env.MSO_BUILD_TIME },
+    // De API en het datetime-attribuut gebruiken de canonieke UTC-notatie van contract §5.
+    { name: "build_time", label: "Bouwtijd", value: process.env.MSO_BUILD_TIME?.trim().replace(/\+00:00$/, "Z") },
     { name: "channel", label: "Kanaal", value: process.env.MSO_BUILD_CHANNEL },
   ];
   await login(page);

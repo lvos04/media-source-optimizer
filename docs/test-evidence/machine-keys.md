@@ -16,8 +16,8 @@ vergelijkt status, inhoudstype, foutcode, foutvelden, de volledige genormaliseer
 en de auditdelta in volgorde van toevoeging. Inhoud en audit worden elk vergeleken met hun
 SHA-256-vingerafdruk in de basisfixture. De proef normaliseert tijden, willekeurige UUID's,
 trace-ID's en testmappaden en controleert het teruggegeven CSRF-token tegen de eigen sessie.
-De instellingsdefinities worden op sleutel geordend omdat de registratievolgorde van de
-importvolgorde in pytest afhangt.
+De instellingsdefinities en connectoren worden op sleutel en ID geordend omdat hun
+registratievolgorde van de importvolgorde in pytest afhangt.
 Beide apps krijgen dezelfde schijf- en databasecapaciteitsmetingen en dezelfde synthetische
 Newznab-sleutelinvoer.
 

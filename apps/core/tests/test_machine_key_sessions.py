@@ -76,6 +76,8 @@ def _matrix_body(response, operation, caller, installed_schema):
     if operation == ("get", "/api/v1/settings"):
         # De registratievolgorde hangt af van welke modules pytest al heeft geïmporteerd.
         body["definitions"].sort(key=lambda definition: definition["key"])
+    if operation == ("get", "/api/v1/connectors"):
+        body.sort(key=lambda connector: connector["id"])
     difference = EXPECTED_MATRIX_DIFFERENCES.get(operation)
     if difference and installed_schema != difference["base_version"]:
         migration = difference["added_migration"]

@@ -74,9 +74,10 @@ async function checkSystemAccessibility(page: Page, width: number): Promise<void
   expect(clipped, "geen afgekapte kaarttekst met vergrote tekstafstand").toEqual([]);
   await spacing.evaluate((el) => el.parentNode?.removeChild(el));
 
+  const tabLimit = 2 + await page.locator("a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]").count();
   let backupFocused = false;
   let finishedTabbing = false;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < tabLimit; i++) {
     await page.keyboard.press("Tab");
     const stop = await page.evaluate(() => {
       const el = document.activeElement;
@@ -84,13 +85,20 @@ async function checkSystemAccessibility(page: Page, width: number): Promise<void
       if (!el?.closest("main")) return null;
       const box = el.getBoundingClientRect();
       const style = getComputedStyle(el);
-      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      // Bij een hoge scrollregio kan het middelpunt buiten beeld liggen. Toets het deel binnen de viewport.
+      const left = Math.max(0, box.left);
+      const top = Math.max(0, box.top);
+      const width = Math.min(innerWidth, box.right) - left;
+      const height = Math.min(innerHeight, box.bottom) - top;
+      const fractions = [0.1, 0.5, 0.9];
+      const visible = width > 0 && height > 0 && fractions.some((y) => fractions.some((x) =>
+        el.contains(document.elementFromPoint(left + width * x, top + height * y))));
       return {
         end: false,
         backup: el.getAttribute("data-testid") === "backup-create",
         name: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim(),
         ring: style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 3,
-        visible: hit !== null && el.contains(hit),
+        visible,
       } as const;
     });
     if (stop?.end) {

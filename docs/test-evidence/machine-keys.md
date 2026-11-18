@@ -6,9 +6,33 @@ Status: Bezig; gemeten op 18 november 2026, uitsluitend met eigen wegwerpdatabas
 
 Basis: `acaf0b34a4162f3bb959a1dfc243f19585ce98cb`; kern `8b44a814e64a70ea0b69ccf0d9209c925755cfb8`; web `88a76c716e611e3b577bb2790b1193156c9b7ffc`. De definitieve bereikgrenzen inclusief deze bewijscommit staan in het ketenrapport. De machine heeft geen rol. `read` opent 34 expliciete GET-routes; `changes:approve` opent in deze stap niets. Alle 111 schrijfoperaties uit de export worden geweigerd, inclusief publieke ingangen en sleutelbeheer. Onbekende routes, aliassen, websockets, corrupte scopes en `force` blijven gesloten.
 
-De basis-authfixture is na het broncommentaar bytegelijk aan de basiscode. De operatiefixture bevat exact de 210 bestaande operaties uit de basisexport. De test `test_sessions_all_routes_match_pre_machine_auth` vergelijkt antwoorden en audit voor anoniem, kijker, operator en beheerder: 840 vergelijkingen. Schrijvers gebruiken daarbij onjuiste CSRF en lege invoer; dit meet bestaande auth-uitkomsten en is geen meting van alle succesvolle domeinmutaties. Bestaande connectorcode is ongewijzigd; de volledige core-suite toetst ook de bestaande koppelingen tegen lokale mocks.
+## Herstelproeven
 
-## Lokale eindproeven
+De fixtures in `apps/core/tests/fixtures` zijn vastgelegd vanuit de uitgepakte basis
+`acaf0b34a4162f3bb959a1dfc243f19585ce98cb` met dezelfde testclients en scenario’s.
+`test_machine_key_sessions.py` vergelijkt 210 bestaande operaties voor vier identiteiten.
+De matrix gebruikt geldige CSRF bij sessies en meet status, inhoudstype, foutcode en foutvelden
+met minimale invoer. Afzonderlijke proeven gebruiken geldige invoer bij bestaande aanmeldingen
+en geslaagde schrijfhandelingen van kijker, operator en beheerder. Die vergelijken de sessie-,
+gebruikers- en systeemstand en de auditregels per handeling. De publieke proeven vergelijken
+`healthz`, publieke routes en de menselijke en algemene begrenzing. `test_machine_key_feeds.py`
+vergelijkt caps en zoeken met geldige en ongeldige consumentensleutels in de kop en de query op
+beide feeds, inclusief voorrang bij gelijktijdig gebruik van beide ingangen.
+
+`test_machine_key_restore.py` onderbreekt het echte lokale `pg_restore` met procesuitval en
+`KeyboardInterrupt`, en laat ook een schema-update vanaf 0607 falen. De proeven meten
+herstel van de huidige scopes en intrekkingen bij de start, en de menselijke aanmelding tijdens
+de sluiting. Een aparte terugzetproef op databaseniveau liet zien dat een oude sleutel weer
+toegang kreeg en zijn intrekking uit het auditlog verdween. De TrueNAS-snapshot zelf blijft
+NIET GEVALIDEERD (echte NAS).
+
+De mutatieproeven in `scripts/test-machine-key-mutaties.py` bewaken ook de
+API-grenzen: beheerdersrol, opmaak van bestaande fouten, routecontrole, terugzetfouten,
+achterwege gelaten auditregels en behoud van de bytes van alle bestaande tabellen bij
+migratie 0608. De machinegrens voor schrijfoperaties wordt daarnaast bewaakt door de
+negatieve OpenAPI-matrix in `test_machine_keys.py`.
+
+## Bouwronde op commit a3429c9
 
 - Volledige core-suite: `1051 passed in 738.43s (0:12:18)`, nul fouten en nul overgeslagen volgens JUnit. Inclusief scopegrenzen, sleutelintrekking tijdens verzoeken, twee processen, begrenzing, geheimopslag, gebruikstijd, migratie heen/terug, herstel zonder heractivering en weigering van een nieuwer schema.
 - OpenAPI opnieuw gegenereerd en gecontroleerd: `3 passed in 1.92s`; de export bleef gelijk aan de eerder gecontroleerde eindstand.
@@ -24,9 +48,9 @@ De basis-authfixture is na het broncommentaar bytegelijk aan de basiscode. De op
 
 De eerste startcontrole vóór de browserrun weigerde een tijdelijk niet-bindbare testpoort; daarbij zijn geen containers of tests gestart. Na hercontrole met `ss` en opnieuw binden startte dezelfde proef zonder productwijziging. De eerder genoemde UID-mappingfout van de alles-in-één-proef is niet opnieuw geprobeerd.
 
-CI wordt op de eindcommit gevolgd en met run-ID en jobaantallen in het ketenrapport vastgelegd; er wordt geen basisrun als nieuw bewijs gebruikt. Eigen proefcontainers en netwerken zijn na iedere proef verwijderd. De gevolgde bestaande stackrapporten en bestaande schermbeelden zijn na het bewaren van deze eigen uitvoer teruggezet; ruwe uitvoer hoort niet in deze wijziging.
+CI op de bouw- en herstelcommits wordt met run-ID en jobaantallen in het ketenrapport vastgelegd. Eigen proefcontainers en netwerken zijn na iedere proef verwijderd. De gevolgde bestaande stackrapporten en bestaande schermbeelden zijn na het bewaren van deze eigen uitvoer teruggezet; ruwe uitvoer hoort niet in deze wijziging.
 
-## Tegenproeven
+## Tegenproeven van de bouwronde
 
 `scripts/test-machine-key-mutaties.py` eindigt met exitcode 0 wanneer iedere gerichte verzwakking aantoonbaar rood wordt. Letterlijke regels van deze uitvoering:
 

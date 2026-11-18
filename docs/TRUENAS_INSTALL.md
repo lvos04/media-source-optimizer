@@ -185,6 +185,10 @@ Zet daarna in **Edit** de oude image-tags terug en **Save**. De oude versie star
 TrueNAS, `sudo zfs rollback -r tank/apps/media-source-optimizer@voor-update-…`, zet de oude tags terug en
 start de app.
 
+Een teruggezette dataset-snapshot kan een ingetrokken machine-sleutel weer toegang
+geven. De intrekking kan ook uit het auditlog verdwijnen. Loop daarna
+**Instellingen → Machine-sleutels** na en trek opnieuw de sleutels in die na de snapshot zijn ingetrokken.
+
 ## Back-up en herstel
 
 - **Automatisch:** dagelijks een `pg_dump` (instelling `backup.auto_daily`, bewaard: `backup.keep`, standaard
@@ -193,12 +197,16 @@ start de app.
 - **Geheimen:** standaard zonder de tabel met versleutelde koppelingsgeheimen; alleen met expliciete keuze
   ("inclusief geheimen") gaan ze mee. De sleutel `APPDATA/secrets/vault.key` zit nooit in een dump.
 - **Herstel:** Systeem → Back-ups → Herstellen. MSO controleert checksum en archief, maakt eerst een
-  vangnet-back-up (`pre-restore`) en herstelt in één transactie (alles of niets). Daarna moet iedereen opnieuw
-  inloggen.
+  vangnet-back-up (`pre-restore`) en zet de dump in één databasetransactie terug. Daarna voert
+  MSO eventueel een schema-update uit. Iedereen meldt zich opnieuw aan. De actuele
+  intrekkingen van machine-sleutels blijven bij herstel binnen MSO behouden.
 - **Naar een andere server:** kopieer de héle APPDATA-dataset (bijv. `zfs send | zfs recv`), inclusief
   `secrets/vault.key` en `db/password`. Zonder `vault.key` zijn opgeslagen koppelingsgeheimen onleesbaar en
   moet je ze opnieuw invoeren.
 - Neem APPDATA op in je periodieke ZFS-snapshots/replicatie. WORK bevat alleen herbouwbare cache/index.
+  Bij terugzetten van een dataset-snapshot kunnen ingetrokken machine-sleutels weer
+  toegang krijgen en kunnen hun intrekkingen uit het auditlog verdwijnen. Loop
+  **Instellingen → Machine-sleutels** na en trek opnieuw de sleutels in die na de snapshot zijn ingetrokken.
 
 ## Zelf bouwen in plaats van ghcr.io-images
 

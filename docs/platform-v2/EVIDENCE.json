@@ -83,7 +83,7 @@
   "id": "B05-009",
   "status": "Bezig",
   "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "Kerncommit 8b44a81; webcommit 88a76c7. S-P3-220: apps/core/tests/test_machine_keys.py: scopegrens, schrijfmatrix uit OpenAPI, intrekking, rolvrij, geheimopslag, corrupte scopes, gedeelde begrenzing, migratie, herstel zonder heractivering en basis-authvergelijking over 210 bestaande operaties voor vier identiteiten; scripts/test-machine-key-mutaties.py: achttien gerichte mutaties rood bevestigd; scripts/machine-key-basisproef.py: basis weigert schema 0608 met exitcode 79 zonder tabelwijziging. Volledige lokale core-suite: 1051 tests, nul overgeslagen. Eindpoort en beperkingen: docs/test-evidence/machine-keys.md; volledige web-e2e 118 tests, nul overgeslagen, inclusief apps/web/e2e/machine-keys.spec.ts; echte lokale proxy/API/databaseketen maken/lezen/weigeren/intrekken, uitsluitend eigen simulators. CI op de eindcommit wordt in het ketenrapport gekoppeld.",
+  "bewijs": "S-P3-220: apps/core/tests/test_machine_key_sessions.py vergelijkt 210 bestaande HTTP-operaties voor vier identiteiten met de werkelijke basis-app (status, foutcode en foutvorm), plus geslaagde schrijvers met geldige CSRF, gebruikers- en sessiestand, audit en bestaande begrenzing. test_machine_key_feeds.py vergelijkt Newznab en Torznab via kop en query. test_machine_keys.py, test_machine_key_limits.py, test_machine_key_restore.py en test_machine_key_redaction.py toetsen scopes, intrekking, audit, redactie, begrenzing en herstel op eigen PostgreSQL. scripts/test-machine-key-mutaties.py bewaakt ook de negatieve paden. Zie docs/test-evidence/machine-keys.md.",
   "blokkade": "S-P3-230 (connectorroutes), S-P3-240 (gebonden goedkeuren/toepassen) en de Hub-adapter ontbreken nog. Invoeren in de echte Hub: NIET GEVALIDEERD (echte NAS). De integrale gelijktijdige Hub/MSO-goedkeuring is nog niet gebouwd of getest.",
   "opmerking": "Machine-sleutel met scope read; changes:approve opent in deze stap geen route. Geen gebruikersrol of enrollment. Alleen het MSO-onderdeel is lokaal getoetst; MSO werkt zelfstandig zonder Hub.",
   "repo": "media-source-optimizer",
@@ -133,7 +133,7 @@
   "id": "C1.3-MSO-04",
   "status": "Bezig",
   "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "Kerncommit 8b44a81; webcommit 88a76c7. S-P3-220 bouwt de authenticatievoorwaarde: apps/core/tests/test_machine_keys.py en docs/openapi/media-source-optimizer.openapi.json. Connectorroutes zijn hiermee nog niet geleverd. Lokale eindpoort en afbakening: docs/test-evidence/machine-keys.md.",
+  "bewijs": "S-P3-220 toetst de machine-authenticatievoorwaarde met apps/core/tests/test_machine_keys.py, test_machine_key_limits.py en test_machine_key_restore.py. test_machine_key_sessions.py en test_machine_key_feeds.py vergelijken de bestaande toegang met de echte basis-app. Zie docs/test-evidence/machine-keys.md voor de gemeten scenario’s.",
   "blokkade": "Nog te bouwen: S-P3-230 en S-P3-240 en de Hub-kant. Integrale koppeling: NIET GEVALIDEERD (echte NAS).",
   "opmerking": "Alleen de machine-authenticatievoorwaarde is gebouwd en lokaal getoetst; geen conformiteitsclaim voor de volledige connectorlaag.",
   "repo": "media-source-optimizer",
@@ -182,10 +182,10 @@
  {
   "id": "EX16",
   "status": "Bezig",
-  "validatie": "Sim-geslaagd; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "Kerncommit 8b44a81; webcommit 88a76c7. Alleen MSO-deel S-P3-220: apps/core/tests/test_machine_keys.py test_create_read_revoke, test_no_implicit_read, test_all_writes_denied, test_alias_public_and_websocket_denied en test_sessions_all_routes_match_pre_machine_auth; achttien mutatieproeven via scripts/test-machine-key-mutaties.py. HTTP-testclient met eigen PostgreSQL-testdatabase; geen echte diensten. Aanvullend: werkelijke lokale proxy/API/databaseketen met 200 bij lezen, 403 bij schrijven en 401 na intrekken; docs/test-evidence/machine-keys.md.",
-  "blokkade": "Overige diensten en de integrale Hub-keten vallen buiten deze proef; S-P3-230/240 en de Hub-kant ontbreken nog. NIET GEVALIDEERD (echte NAS).",
-  "opmerking": "Uitsluitend het werkelijk uitgevoerde MSO-onderdeel; geen integrale EX16-acceptatie en geen NAS-acceptatie.",
+  "validatie": "NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub)",
+  "bewijs": "MSO-deel S-P3-220: apps/core/tests/test_machine_keys.py en test_machine_key_restore.py meten 401 na intrekking, ook na een onderbroken gegevensherstel. test_machine_key_sessions.py en test_machine_key_feeds.py meten behoud van bestaande MSO-toegang tegen de echte basis-app, met een lokale PostgreSQL-testdatabase. Zie docs/test-evidence/machine-keys.md.",
+  "blokkade": "De integrale simulatorproef S-P6-18 moet nog worden uitgevoerd. S-P3-230/240 en de Hub-adapter ontbreken nog. NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub).",
+  "opmerking": "Bezig. Getoetst is dat MSO een ingetrokken sleutel weigert. De integrale proef moet ook meten dat de Hub de koppeling als onbekend toont en verouderde gegevens niet als actueel weergeeft.",
   "repo": "media-source-optimizer",
   "bijgewerkt": "2026-11-18"
  }

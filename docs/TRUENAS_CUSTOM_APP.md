@@ -95,6 +95,12 @@ Alles hieronder gaat via de TrueNAS-web-UI, zonder terminal. De menunamen volgen
   2. **Datasets** → de dataset → **Snapshots** → de snapshot van vóór de update → **Rollback**.
   3. App → **Edit** → Tag terug naar de vorige versie → **Update** en start de app.
 
+  Een teruggezette dataset-snapshot kan machine-sleutels opnieuw toegang geven.
+  Hun intrekkingen kunnen ook uit het auditlog verdwijnen. Loop in een versie met
+  sleutelbeheer **Instellingen → Machine-sleutels** na en trek opnieuw de sleutels
+  in die na de snapshot zijn ingetrokken. Herstel via **Systeem → Back-ups** in
+  MSO behoudt de actuele intrekkingen.
+
   Wat je sinds de update in MSO hebt gedaan, gaat daarbij verloren. Een terugweg die je gegevens van na de update
   bewaart (het schema eerst met de nieuwe versie terugzetten), vraagt nu nog een commando in de container en is
   daarom geen gebruikersroute; die staat voor ontwikkelaars in `docs/MIGRATION.md` → *Terug naar 1.5.0*. Een knop

@@ -502,26 +502,28 @@ bewust een nieuw geheim en valt onder de bestaande uitzondering van contract §5
 De statische routetest bewaakt de uitzondering en verplichte idempotentie op alle
 nieuwe mutaties; bestaande native routes behouden hun contract.
 
-Mislukte machine-aanmeldingen gebruiken dezelfde grens per minuut als menselijke
-inlogpogingen, dezelfde lokale adres- en identiteitsbuckets en daarnaast gedeelde databasetellers
-per bron en sleutelidentiteit voor meerdere processen. 429 bevat `Retry-After`; een koppeling wacht die duur af.
-Alle beheerhandelingen en mislukte/begrensde machine-aanmeldingen krijgen een eigen
-auditactie zonder sleutel of hash. Laatst gebruikt is best-efforttelemetrie: een
+De begrenzing van machine-aanmeldingen en alle 429-antwoorden op de sleutelbeheerroutes
+geven `Retry-After` mee. Een koppeling wacht die duur af. Het auditlog vermeldt
+sleutelbeheer zonder geheime waarde of hash. Laatst gebruikt is best-efforttelemetrie: een
 bezette rij/pool of schrijffout mag het lezen niet laten mislukken. Vóór het antwoord
 begint wordt intrekking opnieuw gecontroleerd; een eerder ingetrokken sleutel krijgt
 geen reeds berekend antwoord.
 
 Migratie `0608_machine_keys.sql` heeft een terugweg naar 0607. Die verwijdert uitsluitend
 de nieuwe sleuteltabel, begrenzingstabel en idempotentietabel; gebruikers en sessies blijven behouden.
-Alle machine-sleutels vervallen bij die terugweg. Bij een gegevensherstel binnen
-deze versie blijven de actuele sleutels, scopes, intrekkingen en idempotentierecords
-behouden; een oude back-up activeert geen oude sleutel of oudere rechten opnieuw.
-Herstel, aanmaken en intrekken delen hiervoor een vergrendeling. Machine-leesverzoeken
-controleren die zonder te wachten en blijven tijdens dat korte beheer- of herstelvenster
-gesloten (403, of 401 wanneer het antwoord al wordt berekend). Een herstelde back-up op een nieuwe installatie zonder actuele sleutels
-activeert ook geen sleutels uit die back-up: maak daar nieuwe sleutels aan. Voor terugzetten van een installatie
-geldt de bestaande weg via het Custom App-formulier met de bijpassende vorige image én
-de bijbehorende snapshot/back-up. Gemeten met de ongewijzigde basiscode `acaf0b34a4162f3bb959a1dfc243f19585ce98cb`
+Alle machine-sleutels vervallen bij die terugweg. Herstel via **Systeem → Back-ups**
+behoudt de actuele sleutels, scopes, intrekkingen en idempotentierecords. Bij een
+onderbreking blijft machine-aanmelding gesloten tot MSO de actuele stand heeft teruggezet.
+De beheer-API meldt de herstelstatus en het auditlog legt het afronden vast.
+Mensen kunnen tijdens deze sluiting inloggen. Op een installatie zonder actuele sleutels
+vervallen alle sleutels uit de back-up. Maak daar nieuwe sleutels aan.
+
+Bij het terugzetten van een **dataset-snapshot** kan een ingetrokken sleutel weer
+toegang krijgen. De eerdere intrekking verdwijnt dan ook uit het auditlog.
+Loop daarna **Instellingen → Machine-sleutels** na en trek opnieuw de sleutels in
+die na de snapshot zijn ingetrokken.
+
+Gemeten met de ongewijzigde basiscode `acaf0b34a4162f3bb959a1dfc243f19585ce98cb`
 op een eigen gevulde database met schema 0608: de ingangen `migrate`, `api` en `worker`
 weigerden alle drie met exitcode 79; alle tabelbytes bleven gelijk. De oude auth-functie
 herkende een losse machineheader niet en gaf geen principal. Met alleen de vorige

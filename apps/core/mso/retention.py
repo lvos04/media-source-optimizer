@@ -148,10 +148,26 @@ def rollup_observations(db: Database, *, deadline: float | None = None, ctx: job
             "observations_hourly": hourly_deleted}
 
 
+AUTOMATION_RETENTION_KEY = "connector_automation_retention"
+
+
 def purge_logs(db: Database) -> dict[str, int]:
+    deleted = db.scalar(
+        """WITH deleted AS (
+               DELETE FROM automation_log WHERE ts < now() - make_interval(days => %s) RETURNING id
+           ), stats AS (SELECT count(*) AS n, max(id) AS max_id FROM deleted),
+           recorded AS (
+               INSERT INTO system_state(key,value)
+               SELECT %s, jsonb_build_object('revision', 1, 'max_id', max_id) FROM stats WHERE n>0
+               ON CONFLICT (key) DO UPDATE SET value=jsonb_build_object(
+                   'revision', (system_state.value->>'revision')::bigint+1,
+                   'max_id', greatest((system_state.value->>'max_id')::bigint, (EXCLUDED.value->>'max_id')::bigint)
+               ), updated_at=now()
+           )
+           SELECT n FROM stats""",
+        (int(_setting("retention.automation_log_days", 180)), AUTOMATION_RETENTION_KEY))
     return {
-        "automation_log": db.execute("DELETE FROM automation_log WHERE ts < now() - make_interval(days => %s)",
-                                     (int(_setting("retention.automation_log_days", 180)),)),
+        "automation_log": deleted,
         "login_attempts": db.execute("DELETE FROM login_attempts WHERE ts < now() - make_interval(days => %s)",
                                      (int(_setting("retention.login_attempts_days", 90)),)),
     }

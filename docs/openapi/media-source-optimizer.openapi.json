@@ -1,6 +1,30 @@
 {
  "components": {
   "schemas": {
+   "Actor": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "type": {
+      "enum": [
+       "system",
+       "user",
+       "ai",
+       "flow"
+      ],
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "id"
+    ],
+    "title": "Actor",
+    "type": "object"
+   },
    "AdhocTest": {
     "properties": {
      "api_key": {
@@ -319,6 +343,49 @@
      }
     },
     "title": "CategoryProposalIn",
+    "type": "object"
+   },
+   "Check": {
+    "properties": {
+     "detail": {
+      "additionalProperties": true,
+      "title": "Detail",
+      "type": "object"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "status": {
+      "enum": [
+       "healthy",
+       "unknown",
+       "degraded",
+       "down"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "status",
+     "observed_at",
+     "detail"
+    ],
+    "title": "Check",
     "type": "object"
    },
    "CleanupBody": {
@@ -935,6 +1002,58 @@
     "title": "DirectPatch",
     "type": "object"
    },
+   "Discovery": {
+    "properties": {
+     "app_id": {
+      "default": "media-source-optimizer",
+      "title": "App Id",
+      "type": "string"
+     },
+     "capabilities": {
+      "items": {
+       "const": "read",
+       "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+     },
+     "limits": {
+      "$ref": "#/components/schemas/Limits"
+     },
+     "permissions": {
+      "items": {
+       "const": "read",
+       "type": "string"
+      },
+      "title": "Permissions",
+      "type": "array"
+     },
+     "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+     },
+     "source_version": {
+      "title": "Source Version",
+      "type": "string"
+     },
+     "timestamp_utc": {
+      "format": "date-time",
+      "title": "Timestamp Utc",
+      "type": "string"
+     }
+    },
+    "required": [
+     "source_version",
+     "capabilities",
+     "permissions",
+     "limits",
+     "timestamp_utc"
+    ],
+    "title": "Discovery",
+    "type": "object"
+   },
    "DismissBody": {
     "properties": {
      "reason": {
@@ -971,6 +1090,208 @@
      "dst"
     ],
     "title": "EdgeBody",
+    "type": "object"
+   },
+   "Entity": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "id"
+    ],
+    "title": "Entity",
+    "type": "object"
+   },
+   "ErrorBody": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "trace_id": {
+      "format": "uuid",
+      "title": "Trace Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code",
+     "message",
+     "details",
+     "trace_id"
+    ],
+    "title": "ErrorBody",
+    "type": "object"
+   },
+   "Event": {
+    "properties": {
+     "actor": {
+      "$ref": "#/components/schemas/Actor"
+     },
+     "classification": {
+      "const": "internal",
+      "default": "internal",
+      "title": "Classification",
+      "type": "string"
+     },
+     "correlation_id": {
+      "anyOf": [
+       {
+        "format": "uuid",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correlation Id"
+     },
+     "entity": {
+      "$ref": "#/components/schemas/Entity"
+     },
+     "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+     },
+     "event_type": {
+      "title": "Event Type",
+      "type": "string"
+     },
+     "payload": {
+      "$ref": "#/components/schemas/Evidence"
+     },
+     "payload_ref": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Payload Ref"
+     },
+     "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+     },
+     "source_app": {
+      "default": "media-source-optimizer",
+      "title": "Source App",
+      "type": "string"
+     },
+     "source_event_id": {
+      "title": "Source Event Id",
+      "type": "string"
+     },
+     "timestamp_utc": {
+      "format": "date-time",
+      "title": "Timestamp Utc",
+      "type": "string"
+     },
+     "trace_id": {
+      "format": "uuid",
+      "title": "Trace Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "event_id",
+     "source_event_id",
+     "event_type",
+     "entity",
+     "timestamp_utc",
+     "trace_id",
+     "actor",
+     "payload"
+    ],
+    "title": "Event",
+    "type": "object"
+   },
+   "EventsPage": {
+    "properties": {
+     "events": {
+      "items": {
+       "$ref": "#/components/schemas/Event"
+      },
+      "title": "Events",
+      "type": "array"
+     },
+     "next_cursor": {
+      "title": "Next Cursor",
+      "type": "string"
+     }
+    },
+    "required": [
+     "events",
+     "next_cursor"
+    ],
+    "title": "EventsPage",
+    "type": "object"
+   },
+   "Evidence": {
+    "properties": {
+     "change_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Change Id"
+     },
+     "deep_link": {
+      "title": "Deep Link",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+     },
+     "source": {
+      "enum": [
+       "audit_log",
+       "automation_log"
+      ],
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "source",
+     "observed_at",
+     "deep_link",
+     "change_id"
+    ],
+    "title": "Evidence",
     "type": "object"
    },
    "FailureReset": {
@@ -1141,6 +1462,144 @@
     "title": "HeaderIndexConfig",
     "type": "object"
    },
+   "Health": {
+    "properties": {
+     "checks": {
+      "items": {
+       "$ref": "#/components/schemas/Check"
+      },
+      "title": "Checks",
+      "type": "array"
+     },
+     "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+     },
+     "reason_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason Code"
+     },
+     "status": {
+      "enum": [
+       "healthy",
+       "unknown",
+       "degraded",
+       "down"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "observed_at",
+     "reason_code",
+     "checks"
+    ],
+    "title": "Health",
+    "type": "object"
+   },
+   "Item": {
+    "properties": {
+     "deep_link": {
+      "title": "Deep Link",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "reason_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason Code"
+     },
+     "source": {
+      "enum": [
+       "connectors",
+       "change_sets"
+      ],
+      "title": "Source",
+      "type": "string"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     },
+     "type": {
+      "enum": [
+       "connector",
+       "change_set"
+      ],
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "type",
+     "source",
+     "observed_at",
+     "deep_link",
+     "status"
+    ],
+    "title": "Item",
+    "type": "object"
+   },
+   "ItemsPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/Item"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "next_cursor": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Next Cursor"
+     }
+    },
+    "required": [
+     "items",
+     "next_cursor"
+    ],
+    "title": "ItemsPage",
+    "type": "object"
+   },
    "KeyBody": {
     "properties": {
      "api_key": {
@@ -1154,6 +1613,32 @@
      "api_key"
     ],
     "title": "KeyBody",
+    "type": "object"
+   },
+   "Limits": {
+    "properties": {
+     "max_age_s": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "title": "Max Age S",
+      "type": "object"
+     },
+     "max_body_bytes": {
+      "default": 1048576,
+      "title": "Max Body Bytes",
+      "type": "integer"
+     },
+     "max_limit": {
+      "default": 200,
+      "title": "Max Limit",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "max_age_s"
+    ],
+    "title": "Limits",
     "type": "object"
    },
    "MachineKeyCreate": {
@@ -1918,6 +2403,31 @@
      }
     },
     "title": "PurgeBody",
+    "type": "object"
+   },
+   "Readiness": {
+    "properties": {
+     "checks": {
+      "additionalProperties": {
+       "type": "boolean"
+      },
+      "title": "Checks",
+      "type": "object"
+     },
+     "status": {
+      "enum": [
+       "ready",
+       "not_ready"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "checks"
+    ],
+    "title": "Readiness",
     "type": "object"
    },
    "RefreshBody": {
@@ -11920,6 +12430,971 @@
     "summary": "Patch User"
    }
   },
+  "/connector/v1/apply": {
+   "post": {
+    "operationId": "unavailable_connector_v1_apply_post",
+    "responses": {
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "501": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "capability_unavailable"
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     }
+    ],
+    "summary": "Unavailable",
+    "tags": [
+     "connector"
+    ],
+    "x-idempotency-exception": "Uitgeschakeld met 501 capability_unavailable (contract §5)."
+   }
+  },
+  "/connector/v1/discover": {
+   "get": {
+    "operationId": "discover_connector_v1_discover_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Discovery"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Discover",
+    "tags": [
+     "connector"
+    ],
+    "x-machine-scopes": [
+     "read"
+    ]
+   }
+  },
+  "/connector/v1/events": {
+   "get": {
+    "operationId": "events_connector_v1_events_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "cursor",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 80,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Cursor"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 100,
+       "maximum": 200,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EventsPage"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "cursor_expired: begin opnieuw zonder cursor"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Events",
+    "tags": [
+     "connector"
+    ],
+    "x-machine-scopes": [
+     "read"
+    ]
+   }
+  },
+  "/connector/v1/evidence/{id}": {
+   "get": {
+    "operationId": "evidence_connector_v1_evidence__id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "id",
+      "required": true,
+      "schema": {
+       "maxLength": 80,
+       "title": "Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Evidence"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "not_found"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Evidence",
+    "tags": [
+     "connector"
+    ],
+    "x-machine-scopes": [
+     "read"
+    ]
+   }
+  },
+  "/connector/v1/health": {
+   "get": {
+    "operationId": "health_connector_v1_health_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Health"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Health",
+    "tags": [
+     "connector"
+    ],
+    "x-machine-scopes": [
+     "read"
+    ]
+   }
+  },
+  "/connector/v1/items": {
+   "get": {
+    "operationId": "items_connector_v1_items_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "type",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "connector",
+          "change_set"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Type"
+      }
+     },
+     {
+      "in": "query",
+      "name": "cursor",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 80,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Cursor"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 100,
+       "maximum": 200,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ItemsPage"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Items",
+    "tags": [
+     "connector"
+    ],
+    "x-machine-scopes": [
+     "read"
+    ]
+   }
+  },
+  "/connector/v1/propose": {
+   "post": {
+    "operationId": "unavailable_connector_v1_propose_post",
+    "responses": {
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "501": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "capability_unavailable"
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     }
+    ],
+    "summary": "Unavailable",
+    "tags": [
+     "connector"
+    ],
+    "x-idempotency-exception": "Uitgeschakeld met 501 capability_unavailable (contract §5)."
+   }
+  },
+  "/connector/v1/rollback": {
+   "post": {
+    "operationId": "unavailable_connector_v1_rollback_post",
+    "responses": {
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "forbidden"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "validation_error"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "rate_limited",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "501": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "capability_unavailable"
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "dependency_unavailable",
+      "headers": {
+       "Retry-After": {
+        "schema": {
+         "minimum": 1.0,
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     }
+    ],
+    "summary": "Unavailable",
+    "tags": [
+     "connector"
+    ],
+    "x-idempotency-exception": "Uitgeschakeld met 501 capability_unavailable (contract §5)."
+   }
+  },
   "/newznab/api": {
    "get": {
     "operationId": "newznab_api_newznab_api_get",
@@ -11937,6 +13412,34 @@
     "tags": [
      "newznab"
     ]
+   }
+  },
+  "/readyz": {
+   "get": {
+    "operationId": "readyz_readyz_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Readiness"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Readiness"
+        }
+       }
+      },
+      "description": "Eigen afhankelijkheid onbeschikbaar"
+     }
+    },
+    "summary": "Readyz"
    }
   },
   "/torznab/api": {

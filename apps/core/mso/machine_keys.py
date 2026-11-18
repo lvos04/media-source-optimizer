@@ -27,12 +27,15 @@ from starlette.routing import Match
 
 from mso.audit import audit
 from mso.auth import Principal, current_principal, token_hash
+from mso.connector_api.errors import PREFIX, is_connector
 from mso.db import Database, get_db, jsonb
 from mso.security import redact
 
 SCOPES = frozenset({"read", "changes:approve"})
 IDEMPOTENCY_EXCEPTIONS = {
     ("post", "/api/v1/machine-keys"): "Bewuste eenmalige uitgifte van een nieuw geheim (contract §5).",
+    **{("post", f"{PREFIX}/{action}"): "Uitgeschakeld met 501 capability_unavailable (contract §5)."
+       for action in ("propose", "apply", "rollback")},
 }
 KEY_RE = re.compile(r"mso_mk_([0-9a-f]{32})_([A-Za-z0-9_-]{43})", re.ASCII)
 PUBLIC_FIELDS = ("id", "name", "scopes", "created_at", "last_used_at", "revoked_at", "last_four")
@@ -148,6 +151,7 @@ def _size_error() -> JSONResponse:
 # Nieuwe routes worden nooit automatisch geopend. Geen GET die importeert, synchroniseert,
 # cache ververst, een geheim leest/maakt of een externe opdracht start.
 READ_ROUTES = frozenset({
+    f"{PREFIX}/discover", f"{PREFIX}/health", f"{PREFIX}/items", f"{PREFIX}/events", f"{PREFIX}/evidence/{{id}}",
     "/api/v1/overview", "/api/v1/overview/goals", "/api/v1/overview/autopilot", "/api/v1/overview/waiting",
     "/api/v1/system/mode", "/api/v1/system/health", "/api/v1/system/info",
     "/api/v1/audit", "/api/v1/jobs", "/api/v1/jobs/{job_id}",
@@ -331,8 +335,9 @@ class MachineKeyMiddleware:
             from mso.app import _error
             code = getattr(exc, "code", {401: "unauthorized", 403: "forbidden", 429: "rate_limited"}.get(
                 exc.status_code, "error"))
-            response = _error(exc.status_code, exc.detail, code, connection)
-            response.headers.update({"Cache-Control": "no-store", **(exc.headers or {})})
+            response = _error(exc.status_code, exc.detail, code, connection, headers=exc.headers)
+            if not is_connector(connection.url.path):
+                response.headers.update({"Cache-Control": "no-store", **(exc.headers or {})})
             await response(scope, receive, send)
 
         try:

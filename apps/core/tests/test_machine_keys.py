@@ -242,7 +242,7 @@ def test_all_new_mutations_require_idempotency_or_documented_secret_exception(ap
             else:
                 assert any(p["name"] == "Idempotency-Key" and p["required"]
                            for p in operation.get("parameters", [])), (method, path)
-    assert checked == {("post", "/api/v1/machine-keys"), ("post", "/api/v1/machine-keys/{key_id}/revoke")}
+    assert checked == {("post", "/api/v1/machine-keys/{key_id}/revoke"), *IDEMPOTENCY_EXCEPTIONS}
 
 
 def test_every_unopened_get_is_denied_without_side_effects(admin, client, db, app, database_bytes):

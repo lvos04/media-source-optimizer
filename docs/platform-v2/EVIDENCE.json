@@ -82,10 +82,10 @@
  {
   "id": "B05-009",
   "status": "Bezig",
-  "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "S-P3-220: apps/core/tests/test_machine_key_sessions.py vergelijkt 210 bestaande HTTP-operaties voor vier identiteiten met minimale invoer en geldige CSRF voor sessies tegen de werkelijke basis-app. Per operatie vergelijkt de matrix status, inhoudstype, foutcode, foutvelden, genormaliseerde antwoordinhoud en auditdelta, met het verwachte schemaverschil op systeeminfo expliciet vastgelegd. Gerichte proeven vergelijken succesvolle schrijfhandelingen, gebruikers- en sessiestand, audit en bestaande begrenzing. test_machine_key_feeds.py vergelijkt Newznab en Torznab via kop en query. test_machine_keys.py, test_machine_key_limits.py, test_machine_key_restore.py en test_machine_key_redaction.py toetsen scopes, intrekking, audit, redactie, begrenzing en herstel op eigen PostgreSQL. scripts/test-machine-key-mutaties.py bewaakt ook de negatieve paden. Zie docs/test-evidence/machine-keys.md.",
-  "blokkade": "S-P3-230 (connectorroutes), S-P3-240 (gebonden goedkeuren/toepassen) en de Hub-adapter ontbreken nog. Invoeren in de echte Hub: NIET GEVALIDEERD (echte NAS). De integrale gelijktijdige Hub/MSO-goedkeuring is nog niet gebouwd of getest.",
-  "opmerking": "Machine-sleutel met scope read; changes:approve opent in deze stap geen route. Geen gebruikersrol of enrollment. Alleen het MSO-onderdeel is lokaal getoetst; MSO werkt zelfstandig zonder Hub.",
+  "validatie": "Sim-getest; Unit-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "S-P3-220: apps/core/tests/test_machine_key_sessions.py vergelijkt 210 bestaande HTTP-operaties voor vier identiteiten met minimale invoer en geldige CSRF voor sessies tegen de werkelijke basis-app. Per operatie vergelijkt de matrix status, inhoudstype, foutcode, foutvelden, genormaliseerde antwoordinhoud en auditdelta, met het verwachte schemaverschil op systeeminfo expliciet vastgelegd. Gerichte proeven vergelijken succesvolle schrijfhandelingen, gebruikers- en sessiestand, audit en bestaande begrenzing. test_machine_key_feeds.py vergelijkt Newznab en Torznab via kop en query. test_machine_keys.py, test_machine_key_limits.py, test_machine_key_restore.py en test_machine_key_redaction.py toetsen scopes, intrekking, audit, redactie, begrenzing en herstel op eigen PostgreSQL. scripts/test-machine-key-mutaties.py bewaakt ook de negatieve paden. Zie docs/test-evidence/machine-keys.md. S-P3-230: een lokale proxyproef met gesimuleerde core gaf de verwachte 404, readiness-503 en de contractfout bij uitval. Scenario 11 in tests/stack/allinone_test.py toetst bovendien de openbare webpoort van het lokale alles-in-één-image en een nep-SABnzbd. Het scenario controleert de twee leesidentiteiten, het foutformaat, een gestreamd verzoek boven de limiet en readiness met en zonder beschikbare kluis. Zie RAPPORT-A-BOUW.md in de keten S-P3-230 voor commit, lokale poorten en CI-uitkomst.",
+  "blokkade": "S-P3-240 en de Hub-kant moeten nog worden gebouwd. De integrale Hub/MSO-goedkeuring en de proef N-P6-05 blijven open. NIET GEVALIDEERD (echte NAS).",
+  "opmerking": "Sim-getest betreft het MSO-leesdeel. Scope read opent de vijf connectorleesroutes. De drie POST-routes zijn uitgeschakeld en readiness werkt zelfstandig.",
   "repo": "media-source-optimizer",
   "bijgewerkt": "2026-11-18"
  },
@@ -133,9 +133,9 @@
   "id": "C1.3-MSO-04",
   "status": "Bezig",
   "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "S-P3-220 toetst de machine-authenticatievoorwaarde met apps/core/tests/test_machine_keys.py, test_machine_key_limits.py en test_machine_key_restore.py. test_machine_key_sessions.py vergelijkt per bestaande operatie status, inhoudstype, foutcode, foutvelden, genormaliseerde antwoordinhoud en auditdelta met de echte basis-app. test_machine_key_feeds.py vergelijkt bestaande toegang tot de twee feeds. Zie docs/test-evidence/machine-keys.md voor de gemeten scenario’s.",
-  "blokkade": "Nog te bouwen: S-P3-230 en S-P3-240 en de Hub-kant. Integrale koppeling: NIET GEVALIDEERD (echte NAS).",
-  "opmerking": "Alleen de machine-authenticatievoorwaarde is gebouwd en lokaal getoetst; geen conformiteitsclaim voor de volledige connectorlaag.",
+  "bewijs": "S-P3-220 toetst de machine-authenticatievoorwaarde met apps/core/tests/test_machine_keys.py, test_machine_key_limits.py en test_machine_key_restore.py. test_machine_key_sessions.py vergelijkt per bestaande operatie status, inhoudstype, foutcode, foutvelden, genormaliseerde antwoordinhoud en auditdelta met de echte basis-app. test_machine_key_feeds.py vergelijkt bestaande toegang tot de twee feeds. Zie docs/test-evidence/machine-keys.md voor de gemeten scenario’s. S-P3-230: apps/core/tests/test_connector_api.py toetst authenticatie, scope, versheid, retentie, stabiele event-ID’s, aanvraaggrootte, weigering van mutaties, redactie en readiness. apps/core/tests/test_openapi_export.py vergelijkt de export en de contractmetadata. De gerichte run met test_machine_keys.py en test_machine_key_sessions.py telde 71 groene proeven. Zie RAPPORT-A-BOUW.md in de keten S-P3-230 voor commit en CI-uitkomst.",
+  "blokkade": "S-P3-240 en de Hub-kant moeten nog worden gebouwd. De integrale proef N-P6-05 blijft open. NIET GEVALIDEERD (echte NAS).",
+  "opmerking": "Unit-getest dekt de connectorleeslaag en de tijdelijke weigeringen. docs/adr/ADR-0010-pollingcursor-mso.md legt HTTP 409 cursor_expired en de expliciete herstart vast.",
   "repo": "media-source-optimizer",
   "bijgewerkt": "2026-11-18"
  },

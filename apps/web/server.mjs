@@ -9,6 +9,7 @@
 //
 // Streaming responses (SSE) are piped without buffering. WebSocket upgrades on these paths are
 // forwarded as well.
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -27,9 +28,15 @@ const trustProxy = process.env.MSO_TRUST_PROXY === "1";
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
   "trailer", "transfer-encoding", "upgrade", "host"]);
 
-const CORE_PREFIXES = ["/api/v1", "/newznab", "/torznab"];
+const CONNECTOR_PREFIX = "/connector/v1";
+const CORE_PREFIXES = ["/api/v1", "/newznab", "/torznab", CONNECTOR_PREFIX];
+
+function connectorPath(pathname) {
+  return pathname === CONNECTOR_PREFIX || pathname.startsWith(`${CONNECTOR_PREFIX}/`);
+}
 
 function target(pathname) {
+  if (pathname === "/readyz") return { base: coreUrl, path: pathname };
   for (const prefix of CORE_PREFIXES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return { base: coreUrl, path: pathname };
   }
@@ -79,8 +86,16 @@ function proxy(req, res, dest) {
   upstream.setTimeout(0);
   upstream.on("error", () => {
     if (!res.headersSent) {
-      res.writeHead(502, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      res.end(JSON.stringify({ detail: "Upstream service unreachable", code: "upstream_unreachable" }));
+      const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+      if (connectorPath(dest.path) || dest.path === "/readyz") {
+        res.writeHead(503, { ...headers, "retry-after": "1" });
+        res.end(JSON.stringify(dest.path === "/readyz" ? { status: "not_ready", checks: { core: false } } : {
+          code: "dependency_unavailable", message: "MSO is tijdelijk onbereikbaar.", details: {}, trace_id: randomUUID(),
+        }));
+      } else {
+        res.writeHead(502, headers);
+        res.end(JSON.stringify({ detail: "Upstream service unreachable", code: "upstream_unreachable" }));
+      }
     } else {
       res.destroy();
     }

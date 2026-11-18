@@ -44,6 +44,27 @@ def test_export_noemt_versie_en_paden() -> None:
     assert "/api/v1/settings" in schema["paths"]
 
 
+def test_export_connectorcontract() -> None:
+    paths = json.loads(EXPORT.read_text(encoding="utf-8"))["paths"]
+    for route in ("discover", "health", "items", "events", "evidence/{id}"):
+        operation = paths[f"/connector/v1/{route}"]["get"]
+        assert operation["security"] == [{"SessionCookie": []}, {"MachineKey": []}]
+        assert operation["x-machine-scopes"] == ["read"]
+        for status in ("401", "403", "413", "422", "429", "503"):
+            schema = operation["responses"][status]["content"]["application/json"]["schema"]
+            assert schema["$ref"] == "#/components/schemas/ErrorBody"
+    assert paths["/connector/v1/events"]["get"]["responses"]["409"]["description"].startswith("cursor_expired")
+    for route in ("propose", "apply", "rollback"):
+        operation = paths[f"/connector/v1/{route}"]["post"]
+        assert operation["security"] == [{"SessionCookie": []}]
+        assert operation["x-idempotency-exception"]
+        assert operation["responses"]["501"]["description"] == "capability_unavailable"
+    assert "security" not in paths["/readyz"]["get"]
+    assert "/healthz" not in paths
+    assert paths["/api/v1/overview"]["get"]["x-machine-scopes"] == ["read"]
+    assert "x-machine-scopes" not in paths["/api/v1/users"]["get"]
+
+
 def test_afwijking_wordt_gezien(runtime: Any) -> None:
     """Negatief: één extra pad in het schema geeft een andere export (de vergelijking is niet blind)."""
     schema = json.loads(json.dumps(runtime.openapi()))

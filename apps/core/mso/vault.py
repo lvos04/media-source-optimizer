@@ -7,11 +7,14 @@ not part of the dump (restore on another host needs the key file copied separate
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import secrets as pysecrets
 import time
 from pathlib import Path
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from mso.config import get_settings
@@ -57,7 +60,22 @@ def _load_key(path: Path, wait_s: float = KEY_WAIT_S) -> bytes:
 class Vault:
     def __init__(self, db: Database, key: bytes | None = None) -> None:
         self.db = db
-        self._aes = AESGCM(key or _load_key(get_settings().secret_key_file))
+        key = key or _load_key(get_settings().secret_key_file)
+        self._key_digest = hashlib.sha256(key).digest()
+        self._aes = AESGCM(key)
+
+    def key_file_is_current(self) -> bool:
+        """Toets de actieve sleutel en een bewaard kluisrecord zonder iets te herstellen."""
+        try:
+            key = _read_key(get_settings().secret_key_file, wait_s=0)
+            if not hmac.compare_digest(hashlib.sha256(key).digest(), self._key_digest):
+                return False
+            row = self.db.fetchone("SELECT name, nonce, ciphertext FROM secrets ORDER BY updated_at DESC LIMIT 1")
+            if row:
+                self._aes.decrypt(bytes(row["nonce"]), bytes(row["ciphertext"]), row["name"].encode("utf-8"))
+        except (OSError, RuntimeError, InvalidTag, ValueError):
+            return False
+        return True
 
     def set(self, name: str, value: str | None) -> None:
         if value is None or value == "":

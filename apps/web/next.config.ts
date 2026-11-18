@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: "/api/v1/:path*", destination: `${core}/api/v1/:path*` },
+      { source: "/connector/v1/:path*", destination: `${core}/connector/v1/:path*` },
+      { source: "/readyz", destination: `${core}/readyz` },
       { source: "/newznab/:path*", destination: `${core}/newznab/:path*` },
       { source: "/torznab/:path*", destination: `${core}/torznab/:path*` },
     ];

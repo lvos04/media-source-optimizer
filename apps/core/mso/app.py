@@ -17,21 +17,26 @@ from contextlib import asynccontextmanager
 from types import ModuleType
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import HTTPConnection
 
 from mso import settings_registry
 from mso.config import VERSION, get_settings
+from mso.connector_api.errors import ConnectorRequestMiddleware, error_response, is_connector
+from mso.connector_api.status import Readiness, readiness
 from mso.connectors import base as connectors
 from mso.db import Database, check_schema_compatibility, get_db, migrate_up, set_db, upgrade_lock
 from mso.security import configure_logging, limiter, redact
 from mso.vault import Vault, set_vault
 
 LOGGER = logging.getLogger(__name__)
-CORE_MODULES = ["mso.api.foundation", "mso.backups", "mso.retention", "mso.machine_keys"]
+CORE_MODULES = ["mso.api.foundation", "mso.backups", "mso.retention", "mso.machine_keys", "mso.connector_api.router"]
 
 
 def _allowed(name: str) -> bool:
@@ -95,9 +100,18 @@ def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Databas
     return db
 
 
-def _error(status: int, detail: Any, code: str, request: Request) -> JSONResponse:
+def _error(status: int, detail: Any, code: str, request: HTTPConnection, *,
+           safe_details: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> JSONResponse:
     from mso.machine_keys import has_machine_header
 
+    if is_connector(request.url.path):
+        if status == 401:
+            safe_details = {"reason": "invalid_token"}
+        if status == 403:
+            safe_details = {"reason": "not_allowed"}
+        safe_headers = {key: value for key, value in (headers or {}).items()
+                        if key.lower() in {"allow", "retry-after"}}
+        return error_response(status, code, safe_details, safe_headers)
     cid = getattr(request.state, "correlation_id", None) or uuid.uuid4().hex[:12]
     body = {"detail": detail, "code": code, "correlation_id": cid}
     if has_machine_header(request) or request.url.path.startswith("/api/v1/machine-keys"):
@@ -113,10 +127,13 @@ class GuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
         from mso.machine_keys import has_machine_header
 
-        request.state.correlation_id = request.headers.get("X-Correlation-Id", "")[:32] or uuid.uuid4().hex[:12]
         path = request.url.path
+        connector = is_connector(path)
+        client_cid = "" if connector else request.headers.get("X-Correlation-Id", "")[:32]
+        request.state.correlation_id = client_cid or uuid.uuid4().hex[:12]
         machine = has_machine_header(request)
-        if machine or path.startswith("/api/") and path not in ("/api/v1/auth/login", "/api/v1/setup/admin"):
+        native_api = path.startswith("/api/") and path not in ("/api/v1/auth/login", "/api/v1/setup/admin")
+        if machine or connector or native_api:
             remote = request.client.host if request.client else "?"
             key = remote if machine else request.cookies.get("mso_session") or remote
             if machine:
@@ -126,11 +143,11 @@ class GuardMiddleware(BaseHTTPMiddleware):
                     per_min = int(settings_registry.get(settings_registry.API_RATE_SETTING))
                 except Exception:
                     per_min = 600
-            ok, wait = limiter.hit("api", key, per_min, 60)
+            ok, wait = limiter.hit("connector" if connector else "api", key, per_min, 60)
             if not ok:
                 seconds = int(wait) + 1
                 response = _error(429, f"Te veel verzoeken; wacht {seconds} s", "rate_limited", request)
-                if machine or path == "/api/v1/machine-keys" or path.startswith("/api/v1/machine-keys/"):
+                if machine or connector or path == "/api/v1/machine-keys" or path.startswith("/api/v1/machine-keys/"):
                     response.headers["Retry-After"] = str(seconds)
                 return response
         response = await call_next(request)
@@ -162,15 +179,30 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
     from mso.machine_keys import MachineKeyMiddleware
     app.add_middleware(MachineKeyMiddleware, routes=app.router.routes)
     app.add_middleware(GuardMiddleware)
+    app.add_middleware(ConnectorRequestMiddleware)
 
     @app.exception_handler(HTTPException)
     async def http_exc(request: Request, exc: HTTPException) -> JSONResponse:
         code = {401: "unauthorized", 403: "forbidden", 404: "not_found", 409: "conflict", 422: "invalid",
                 429: "rate_limited", 502: "upstream_error"}.get(exc.status_code, "error")
-        return _error(exc.status_code, exc.detail, getattr(exc, "code", code), request)
+        return _error(exc.status_code, exc.detail, getattr(exc, "code", code), request,
+                      safe_details=getattr(exc, "safe_details", None), headers=exc.headers)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def routing_exc(request: Request, exc: StarletteHTTPException):
+        if is_connector(request.url.path):
+            return _error(exc.status_code, None, "", request, headers=exc.headers)
+        return await http_exception_handler(request, exc)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exc(request: Request, exc: RequestValidationError) -> JSONResponse:
+        if is_connector(request.url.path):
+            fields = {"cursor", "limit", "type", "id"}
+            errors = [{"veld": part, "reden": "ongeldig"} for part in sorted({
+                part for error in exc.errors() for part in error["loc"]
+                if isinstance(part, str) and part in fields
+            })]
+            return _error(422, None, "validation_error", request, safe_details={"fouten": errors})
         if request.url.path.startswith("/api/v1/machine-keys"):
             if any("idempotency-key" in str(e.get("loc", ())).lower() for e in exc.errors()):
                 return _error(400, "Idempotency-Key ontbreekt of is ongeldig", "idempotency_key_required", request)
@@ -198,6 +230,14 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
             raise HTTPException(503, detail="database onbereikbaar")
         return {"status": "ok", "version": VERSION}
 
+    @app.get("/readyz", responses={503: {"model": Readiness, "description": "Eigen afhankelijkheid onbeschikbaar"}})
+    def readyz(response: Response) -> Readiness:
+        result = readiness()
+        if result.status != "ready":
+            response.status_code = 503
+            response.headers["Retry-After"] = "1"
+        return result
+
     for module in load_modules():
         routers = list(getattr(module, "routers", []) or [])
         if getattr(module, "router", None) is not None:
@@ -218,6 +258,11 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
             if path in READ_ROUTES and "get" in operations:
                 operations["get"]["security"] = [{"SessionCookie": []}, {"MachineKey": []}]
                 operations["get"]["x-machine-scopes"] = ["read"]
+            if is_connector(path) and "post" in operations:
+                operation = operations["post"]
+                operation["security"] = [{"SessionCookie": []}]
+                if ("post", path) in IDEMPOTENCY_EXCEPTIONS:
+                    operation["x-idempotency-exception"] = IDEMPOTENCY_EXCEPTIONS[("post", path)]
             if path.startswith("/api/v1/machine-keys"):
                 for method, operation in operations.items():
                     operation["security"] = [{"SessionCookie": []}]

@@ -14,6 +14,7 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
  9  no secret (admin password, connector key) in the container log
 10  upgrade: database back to the 1.5.0 schema (migrate --down 501), restart → a ``pre-upgrade`` backup is made
     before the migrations, every migration is applied again, data and login intact
+11  readiness en connectorcontract via de publieke webpoort
 """
 
 from __future__ import annotations
@@ -168,6 +169,46 @@ def main() -> int:
             and done.status_code == 200
             and SAB_KEY not in put.text,
             f"admin {r.status_code}; zonder CSRF {no_csrf}; SABnzbd-test {test.get('status')} v{test.get('version')}",
+        )
+
+        def connector_response(response: httpx.Response, status: int, code: str) -> bool:
+            if response.status_code != status or not response.headers.get("content-type", "").startswith(
+                "application/json"
+            ):
+                return False
+            body = response.json()
+            return set(body) == {"code", "message", "details", "trace_id"} and body["code"] == code
+
+        anonymous = httpx.get(f"{BASE}/connector/v1/discover", timeout=30)
+        discovery = c.get("/connector/v1/discover")
+        read_key = c.post("/api/v1/machine-keys", headers={"X-CSRF-Token": csrf},
+                          json={"name": "Leessleutel voor de proef", "scopes": ["read"]})
+        machine = httpx.get(f"{BASE}/connector/v1/discover", headers={"X-Api-Key": read_key.json()["key"]},
+                            timeout=30)
+        missing = c.get("/connector/v1/bestaat-niet")
+        unavailable = c.post("/connector/v1/apply", headers={"X-CSRF-Token": csrf}, json={})
+        oversized = httpx.post(f"{BASE}/connector/v1/apply", content=iter((b"x" * 1_048_576, b"x")), timeout=30)
+        ready = httpx.get(f"{BASE}/readyz", timeout=30)
+        key_file = "/appdata/secrets/vault.key"
+        hidden_key = key_file + ".readyz-test"
+        sh("docker", "exec", NAME, "mv", key_file, hidden_key)
+        try:
+            unready = httpx.get(f"{BASE}/readyz", timeout=30)
+        finally:
+            sh("docker", "exec", NAME, "mv", hidden_key, key_file)
+        record(
+            "11 connector en readiness via webpoort",
+            connector_response(anonymous, 401, "unauthorized")
+            and connector_response(missing, 404, "not_found")
+            and connector_response(unavailable, 501, "capability_unavailable")
+            and connector_response(oversized, 413, "payload_too_large")
+            and discovery.status_code == 200 and discovery.json()["capabilities"] == ["read"]
+            and machine.status_code == 200 and machine.json()["permissions"] == ["read"]
+            and ready.status_code == 200 and ready.json()["status"] == "ready"
+            and unready.status_code == 503 and unready.json()["checks"]["vault"] is False,
+            f"discover {anonymous.status_code}/{discovery.status_code}/{machine.status_code}; "
+            f"onbekend {missing.status_code}; apply {unavailable.status_code}/{oversized.status_code}; "
+            f"readiness {ready.status_code}/{unready.status_code}",
         )
 
         info = c.get("/api/v1/system/info")

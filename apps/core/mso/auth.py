@@ -30,16 +30,20 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 @dataclass
 class Principal:
     username: str
-    role: str
+    role: str | None
     user_id: int | None = None
     csrf_token: str | None = None
     machine: bool = False
+    machine_key_id: str | None = None
+    scopes: frozenset[str] = frozenset()
 
     @property
     def actor(self) -> str:
         return self.username
 
     def can(self, role: str) -> bool:
+        if self.machine:
+            return False
         return ROLE_RANK.get(self.role, 0) >= ROLE_RANK[role]
 
 
@@ -90,6 +94,11 @@ def delete_session(db: Database, token: str) -> None:
 
 
 def principal_from_request(request: Request) -> Principal | None:
+    if "x-api-key" in request.headers:
+        from mso.machine_keys import authenticate, authorize
+        principal = authenticate(request)
+        authorize(request, principal)
+        return principal
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None
@@ -117,7 +126,15 @@ def current_principal(request: Request) -> Principal:
 def require(role: str):  # type: ignore[no-untyped-def]
     """FastAPI dependency: at least ``role`` (viewer < operator < admin)."""
 
-    def dep(principal: Principal = Depends(current_principal)) -> Principal:
+    def dep(principal: Principal = Depends(current_principal), request: Request = None) -> Principal:
+        if principal.machine:
+            # De centrale routecontrole is al uitgevoerd. Geen impliciete rol en
+            # geen intern gebruik van een beheerafhankelijkheid met een machine.
+            if role != "viewer" or request is None:
+                raise HTTPException(403, detail="Deze handeling is niet toegestaan met een machine-sleutel")
+            from mso.machine_keys import authorize
+            authorize(request, principal)
+            return principal
         if not principal.can(role):
             raise HTTPException(status_code=403, detail=f"Rol '{role}' of hoger vereist")
         return principal

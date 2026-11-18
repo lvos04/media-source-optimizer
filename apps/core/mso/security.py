@@ -19,7 +19,7 @@ _REDACT_PATTERNS = [
                 r"nzbkey|passkey|session)(\"?\s*[=:]\s*\"?)([^\s&\"',;]+)"),
     re.compile(r"(?i)(https?://)([^/\s:@]+):([^/\s@]+)@"),  # credentials in URLs
     re.compile(r"(?i)\b(bearer\s+)([a-z0-9._\-]+)"),
-    re.compile(r"\b(mgk_)([A-Za-z0-9_\-]{8,})"),  # MediaGuard API keys, wherever they appear
+    re.compile(r"\b(mgk_|mso_mk_)([A-Za-z0-9_\-]{8,})"),  # sleutels, ook los in foutteksten
 ]
 
 

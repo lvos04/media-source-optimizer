@@ -247,6 +247,19 @@ def verify_backup(path: Path, expected_sha: str | None) -> None:
 
 # ------------------------------------------------------------------ restore
 def restore_backup(backup_id: int, actor: str) -> dict:
+    from mso.machine_keys import administration_lock, restore_security_snapshot, security_snapshot
+
+    db = get_db()
+    with administration_lock(db):
+        machine_state = security_snapshot(db)
+        try:
+            return _restore_backup(backup_id, actor, machine_state)
+        except Exception:
+            restore_security_snapshot(machine_state, db)
+            raise
+
+
+def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[dict[str, Any]]]) -> dict:
     db = get_db()
     row = db.fetchone("SELECT * FROM backups WHERE id=%s", (backup_id,))
     if row is None:
@@ -329,6 +342,8 @@ def restore_backup(backup_id: int, actor: str) -> dict:
         db.execute("INSERT INTO secrets(name,nonce,ciphertext,updated_at) VALUES (%s,%s,%s,%s) "
                    "ON CONFLICT (name) DO NOTHING", (sec["name"], sec["nonce"], sec["ciphertext"], sec["updated_at"]))
     _keep_state(kept_state, db)
+    from mso.machine_keys import restore_security_snapshot
+    restore_security_snapshot(machine_state, db)
     settled = _settle_applying(row["file"], db)
     resync = resync_after_restore(db)
     audit(actor, "backup.restored", f"Back-up {row['file']} hersteld",

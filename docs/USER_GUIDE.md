@@ -441,3 +441,83 @@ daarna 30 dagen niet opnieuw automatisch toe (§4.5).
 3. Verwijder daarna de app in TrueNAS: Apps → media-source-optimizer → Delete (zie TRUENAS_INSTALL.md → Verwijderen;
    de dataset met je gegevens blijft staan tot je die zelf verwijdert). Heb je MSO's indexer in Prowlarr geregistreerd,
    dan haalt "Alles terugzetten" die ook weg; als operator vraagt dat eerst goedkeuring door een beheerder.
+
+
+## Machine-sleutels voor koppelingen (S-P3-220)
+
+Een menselijke beheerder maakt een machine-sleutel aan en kiest de scopes. Er is geen
+Hub nodig om MSO te gebruiken. De sleutel krijgt geen gebruikersrol. Bewaar de eenmalig
+getoonde waarde in de kluis van de koppeling; MSO bewaart alleen de SHA-256-hash, de laatste
+vier tekens en beheergegevens. Een verloren waarde kan niet opnieuw worden getoond:
+maak zo nodig een nieuwe sleutel en trek de oude in.
+
+De koppeling stuurt de sleutel uitsluitend in `X-Api-Key`. Een aanwezige sleutelheader
+heeft voorrang op een sessiecookie; een ongeldige of ingetrokken sleutel geeft 401, ook
+met een geldige sessie. Een geldige sleutel op een niet uitdrukkelijk geopende route
+geeft 403, inclusief onbekende routes, websockets, publieke routes en routealiassen.
+`read` opent uitsluitend de gecontroleerde GET-routes in
+`apps/core/mso/machine_keys.py`, constante `READ_ROUTES`; de OpenAPI-export markeert ze
+met `x-machine-scopes`. `changes:approve` is kiesbaar maar opent nu geen routes.
+Goedkeuren en toepassen worden pas in S-P3-240 gebouwd.
+
+Uitgesloten blijven gebruikers- en sleutelbeheer, de kluis, instellingen wijzigen,
+back-ups terugzetten en ieder verzoek met een `force`-parameter (ook `false`).
+Onbekende, lege of onleesbare opgeslagen scopes openen niets. Een nieuwe GET-route
+krijgt nooit vanzelf leesrecht. GET-routes met neveneffecten blijven gesloten voor
+machines: onder meer kosten/diensten (automatische import), Newznab-endpointinformatie
+(aanmaken standaardconsument), torrentafstemming (synchroniseren van runs), zoeken
+(cache/gebruik), MediaGuard-status en individuele diagnose (verversen/probe), SAB-servers
+(status verversen) en categoriediagnose (optionele refresh). Hun sessiegedrag blijft bestaan.
+
+Beheer-API, uitsluitend met beheerderssessie en bij schrijven de bestaande CSRF-kop:
+
+- `POST /api/v1/machine-keys`: naam en expliciete lijst `scopes`; antwoord `item` en eenmalig `key`.
+- `GET /api/v1/machine-keys`: `items`, inclusief ingetrokken sleutels. Alleen ID, naam,
+  scopes, aangemaakt, laatst gebruikt, ingetrokken en laatste vier tekens.
+- `POST /api/v1/machine-keys/{key_id}/revoke`: definitief intrekken, met een UUID in
+  `Idempotency-Key`. Dezelfde beheerder, doel-ID en invoer geven bij herhaling exact
+  hetzelfde antwoord, met `Idempotent-Replay: true`, zonder tweede audituitvoering.
+  Hergebruik voor een andere invoer of sleutel geeft 422 `idempotency_key_reused`.
+  Een nieuw verzoek voor een al ingetrokken sleutel meldt `already_revoked` en toont
+  de oorspronkelijke intrektijd. De UI maakt de verzoek-UUID ook buiten een beveiligde
+  browsercontext met `crypto.getRandomValues`.
+
+Naam: na trimmen 1–80 tekens, zonder besturingstekens; unieke naam zonder onderscheid
+in hoofdletters, ook na intrekken. Foutcodes: `invalid_name` (422), `scope_required`
+(422), `unknown_scope` (422), `duplicate_name` (409), `admin_required` (403).
+Nieuwe beheerfouten bevatten naast de MSO-velden `detail` en `correlation_id` ook
+`message`, `details` en de UUID `trace_id` volgens het contract. De beheerroutes
+begrenzen de body vóór authenticatie op 1 MiB, inclusief chunked verzoeken en een
+te grote `Content-Length`; 413 noemt `details.max_bytes`. Sleutel aanmaken geeft
+bewust een nieuw geheim en valt onder de bestaande uitzondering van contract §5.
+De statische routetest bewaakt de uitzondering en verplichte idempotentie op alle
+nieuwe mutaties; bestaande native routes behouden hun contract.
+
+Mislukte machine-aanmeldingen gebruiken dezelfde grens per minuut als menselijke
+inlogpogingen, dezelfde lokale adres- en identiteitsbuckets en daarnaast gedeelde databasetellers
+per bron en sleutelidentiteit voor meerdere processen. 429 bevat `Retry-After`; een koppeling wacht die duur af.
+Alle beheerhandelingen en mislukte/begrensde machine-aanmeldingen krijgen een eigen
+auditactie zonder sleutel of hash. Laatst gebruikt is best-efforttelemetrie: een
+bezette rij/pool of schrijffout mag het lezen niet laten mislukken. Vóór het antwoord
+begint wordt intrekking opnieuw gecontroleerd; een eerder ingetrokken sleutel krijgt
+geen reeds berekend antwoord.
+
+Migratie `0608_machine_keys.sql` heeft een terugweg naar 0607. Die verwijdert uitsluitend
+de nieuwe sleuteltabel, begrenzingstabel en idempotentietabel; gebruikers en sessies blijven behouden.
+Alle machine-sleutels vervallen bij die terugweg. Bij een gegevensherstel binnen
+deze versie blijven de actuele sleutels, scopes, intrekkingen en idempotentierecords
+behouden; een oude back-up activeert geen oude sleutel of oudere rechten opnieuw.
+Herstel, aanmaken en intrekken delen hiervoor een vergrendeling. Machine-leesverzoeken
+controleren die zonder te wachten en blijven tijdens dat korte beheer- of herstelvenster
+gesloten (403, of 401 wanneer het antwoord al wordt berekend). Een herstelde back-up op een nieuwe installatie zonder actuele sleutels
+activeert ook geen sleutels uit die back-up: maak daar nieuwe sleutels aan. Voor terugzetten van een installatie
+geldt de bestaande weg via het Custom App-formulier met de bijpassende vorige image én
+de bijbehorende snapshot/back-up. Gemeten met de ongewijzigde basiscode `acaf0b34a4162f3bb959a1dfc243f19585ce98cb`
+op een eigen gevulde database met schema 0608: de ingangen `migrate`, `api` en `worker`
+weigerden alle drie met exitcode 79; alle tabelbytes bleven gelijk. De oude auth-functie
+herkende een losse machineheader niet en gaf geen principal. Met alleen de vorige
+code kan deze nieuwe database dus niet starten en werkt een machine-sleutel niet.
+Herhaalbaar met `scripts/machine-key-basisproef.py --basis <uitgepakte-basismap/apps/core>`.
+
+De machine-sleutel is een voorwaarde voor S-P3-230 (connector), S-P3-240 (gebonden
+wijzigingen) en de Hub-kant. Invoeren in een echte Hub is NIET GEVALIDEERD (echte NAS).

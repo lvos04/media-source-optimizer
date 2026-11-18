@@ -1156,6 +1156,197 @@
     "title": "KeyBody",
     "type": "object"
    },
+   "MachineKeyCreate": {
+    "additionalProperties": false,
+    "properties": {
+     "name": {
+      "description": "Unieke naam na trimmen, 1–80 tekens zonder besturingstekens",
+      "title": "Name",
+      "type": "string"
+     },
+     "scopes": {
+      "description": "Expliciet gekozen: read en/of changes:approve",
+      "items": {
+       "enum": [
+        "changes:approve",
+        "read"
+       ],
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Scopes",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "scopes"
+    ],
+    "title": "MachineKeyCreate",
+    "type": "object"
+   },
+   "MachineKeyCreated": {
+    "properties": {
+     "item": {
+      "$ref": "#/components/schemas/MachineKeyView"
+     },
+     "key": {
+      "description": "Eenmalige waarde; wordt nooit opgeslagen of later teruggegeven",
+      "title": "Key",
+      "type": "string"
+     }
+    },
+    "required": [
+     "item",
+     "key"
+    ],
+    "title": "MachineKeyCreated",
+    "type": "object"
+   },
+   "MachineKeyErrorView": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+     },
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "trace_id": {
+      "format": "uuid",
+      "title": "Trace Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code",
+     "message",
+     "details",
+     "trace_id",
+     "detail",
+     "correlation_id"
+    ],
+    "title": "MachineKeyErrorView",
+    "type": "object"
+   },
+   "MachineKeyList": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/MachineKeyView"
+      },
+      "title": "Items",
+      "type": "array"
+     }
+    },
+    "required": [
+     "items"
+    ],
+    "title": "MachineKeyList",
+    "type": "object"
+   },
+   "MachineKeyRevoked": {
+    "properties": {
+     "already_revoked": {
+      "title": "Already Revoked",
+      "type": "boolean"
+     },
+     "item": {
+      "$ref": "#/components/schemas/MachineKeyView"
+     }
+    },
+    "required": [
+     "item",
+     "already_revoked"
+    ],
+    "title": "MachineKeyRevoked",
+    "type": "object"
+   },
+   "MachineKeyView": {
+    "properties": {
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "last_four": {
+      "title": "Last Four",
+      "type": "string"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "revoked_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Revoked At"
+     },
+     "scopes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Scopes"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "scopes",
+     "last_four",
+     "created_at",
+     "last_used_at",
+     "revoked_at"
+    ],
+    "title": "MachineKeyView",
+    "type": "object"
+   },
    "ManualWanted": {
     "properties": {
      "absolute_episode_number": {
@@ -2580,6 +2771,19 @@
     "title": "SendBody",
     "type": "object"
    }
+  },
+  "securitySchemes": {
+   "MachineKey": {
+    "description": "Rolvrije machine-sleutel. Alleen expliciet geopende scopes; changes:approve opent in deze versie geen routes.",
+    "in": "header",
+    "name": "X-Api-Key",
+    "type": "apiKey"
+   },
+   "SessionCookie": {
+    "in": "cookie",
+    "name": "mso_session",
+    "type": "apiKey"
+   }
   }
  },
  "info": {
@@ -3013,7 +3217,18 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Audit List"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Audit List",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/auth/login": {
@@ -3400,9 +3615,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Hold",
     "tags": [
      "automatisering"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -3520,9 +3746,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "List Recommendations",
     "tags": [
      "automatisering"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -3673,9 +3910,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Safety",
     "tags": [
      "automatisering"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -3697,9 +3945,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Schedules",
     "tags": [
      "automatisering"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -3720,9 +3979,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Status",
     "tags": [
      "automatisering"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -4039,7 +4309,18 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Changes List"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Changes List",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/changes/{change_id}": {
@@ -4080,7 +4361,18 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Change Get"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Change Get",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/changes/{change_id}/apply": {
@@ -4284,7 +4576,18 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Connectors List"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Connectors List",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/connectors/{cid}": {
@@ -5536,7 +5839,18 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Jobs List"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Jobs List",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/jobs/{job_id}": {
@@ -5577,7 +5891,18 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Job Get"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Job Get",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/jobs/{job_id}/cancel": {
@@ -5662,6 +5987,394 @@
     "summary": "Job Retry"
    }
   },
+  "/api/v1/machine-keys": {
+   "get": {
+    "operationId": "list_keys_api_v1_machine_keys_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyList"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "idempotency_key_required of idempotency_key_invalid"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Niet ingelogd"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "admin_required: alleen menselijke beheerder"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "duplicate_name: naam bestaat al"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "payload_too_large: maximaal 1 MiB"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "invalid_name, scope_required, unknown_scope of idempotency_key_reused"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "rate_limited: wacht volgens Retry-After"
+     },
+     "500": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Internal Server Error"
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     }
+    ],
+    "summary": "List Keys",
+    "tags": [
+     "Machine-sleutels"
+    ]
+   },
+   "post": {
+    "operationId": "create_key_api_v1_machine_keys_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MachineKeyCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyCreated"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "idempotency_key_required of idempotency_key_invalid"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Niet ingelogd"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "admin_required: alleen menselijke beheerder"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "duplicate_name: naam bestaat al"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "payload_too_large: maximaal 1 MiB"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "invalid_name, scope_required, unknown_scope of idempotency_key_reused"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "rate_limited: wacht volgens Retry-After"
+     },
+     "500": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Internal Server Error"
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     }
+    ],
+    "summary": "Create Key",
+    "tags": [
+     "Machine-sleutels"
+    ],
+    "x-idempotency-exception": "Bewuste eenmalige uitgifte van een nieuw geheim (contract §5)."
+   }
+  },
+  "/api/v1/machine-keys/{key_id}/revoke": {
+   "post": {
+    "operationId": "revoke_key_api_v1_machine_keys__key_id__revoke_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "key_id",
+      "required": true,
+      "schema": {
+       "format": "uuid",
+       "title": "Key Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": true,
+      "schema": {
+       "format": "uuid",
+       "title": "Idempotency-Key",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyRevoked"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "idempotency_key_required of idempotency_key_invalid"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Niet ingelogd"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "admin_required: alleen menselijke beheerder"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "duplicate_name: naam bestaat al"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "payload_too_large: maximaal 1 MiB"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "invalid_name, scope_required, unknown_scope of idempotency_key_reused"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "rate_limited: wacht volgens Retry-After"
+     },
+     "500": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Internal Server Error"
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     }
+    ],
+    "summary": "Revoke Key",
+    "tags": [
+     "Machine-sleutels"
+    ]
+   }
+  },
   "/api/v1/mediaguard/compat": {
    "get": {
     "operationId": "get_compat_api_v1_mediaguard_compat_get",
@@ -5679,9 +6392,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Get Compat",
     "tags": [
      "mediaguard"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -5702,9 +6426,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Get Kpis",
     "tags": [
      "mediaguard"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -5772,9 +6507,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Get Reasons",
     "tags": [
      "mediaguard"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -5819,9 +6565,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Get Search Requests",
     "tags": [
      "mediaguard"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -5994,9 +6751,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Get Wanted",
     "tags": [
      "mediaguard"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -6377,9 +7145,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Overview",
     "tags": [
      "overzicht"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -6424,9 +7203,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Autopilot Summary",
     "tags": [
      "overzicht"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -6447,9 +7237,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Goals",
     "tags": [
      "overzicht"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -6471,9 +7272,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Waiting Summary",
     "tags": [
      "overzicht"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -7802,9 +8614,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Sends",
     "tags": [
      "zoeken"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -7990,7 +8813,18 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Health"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Health",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/system/info": {
@@ -8010,7 +8844,18 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Info"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Info",
+    "x-machine-scopes": [
+     "read"
+    ]
    }
   },
   "/api/v1/system/maintenance": {
@@ -8076,7 +8921,18 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Get Mode"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Get Mode",
+    "x-machine-scopes": [
+     "read"
+    ]
    },
    "put": {
     "operationId": "put_mode_api_v1_system_mode_put",
@@ -8174,9 +9030,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Clients",
     "tags": [
      "torrent"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -9232,9 +10099,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Article Tests",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    },
    "post": {
@@ -9317,9 +10195,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Article Test Get",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -9530,9 +10419,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Failure Reasons",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -9767,9 +10667,20 @@
       "description": "Validation Error"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Nzbs List",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    },
    "post": {
@@ -9941,9 +10852,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Providers Presets",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -10469,9 +11391,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Sab Reclassify Status",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    },
    "post": {
@@ -10565,9 +11498,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Sab Server Status",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -10589,9 +11533,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Tests Overview",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },
@@ -10750,9 +11705,20 @@
       "description": "Successful Response"
      }
     },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
     "summary": "Stat Budget",
     "tags": [
      "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },

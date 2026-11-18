@@ -31,7 +31,7 @@ from mso.security import configure_logging, limiter, redact
 from mso.vault import Vault, set_vault
 
 LOGGER = logging.getLogger(__name__)
-CORE_MODULES = ["mso.api.foundation", "mso.backups", "mso.retention"]
+CORE_MODULES = ["mso.api.foundation", "mso.backups", "mso.retention", "mso.machine_keys"]
 
 
 def _allowed(name: str) -> bool:
@@ -95,7 +95,11 @@ def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Databas
 
 def _error(status: int, detail: Any, code: str, request: Request) -> JSONResponse:
     cid = getattr(request.state, "correlation_id", None) or uuid.uuid4().hex[:12]
-    return JSONResponse({"detail": detail, "code": code, "correlation_id": cid}, status_code=status,
+    body = {"detail": detail, "code": code, "correlation_id": cid}
+    if "x-api-key" in request.headers or request.url.path.startswith("/api/v1/machine-keys"):
+        body.update(message=detail, details={"reason": code} if status in {401, 403} else {},
+                    trace_id=str(uuid.uuid4()))
+    return JSONResponse(body, status_code=status,
                         headers={"X-Correlation-Id": cid})
 
 
@@ -141,15 +145,25 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
                            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
                            allow_headers=["Content-Type", "X-CSRF-Token"])
     app.add_middleware(GuardMiddleware)
+    from mso.machine_keys import MachineKeyMiddleware
+    app.add_middleware(MachineKeyMiddleware, routes=app.router.routes)
 
     @app.exception_handler(HTTPException)
     async def http_exc(request: Request, exc: HTTPException) -> JSONResponse:
         code = {401: "unauthorized", 403: "forbidden", 404: "not_found", 409: "conflict", 422: "invalid",
                 429: "rate_limited", 502: "upstream_error"}.get(exc.status_code, "error")
-        return _error(exc.status_code, exc.detail, code, request)
+        return _error(exc.status_code, exc.detail, getattr(exc, "code", code), request)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exc(request: Request, exc: RequestValidationError) -> JSONResponse:
+        if request.url.path.startswith("/api/v1/machine-keys"):
+            if any("idempotency-key" in str(e.get("loc", ())).lower() for e in exc.errors()):
+                return _error(400, "Idempotency-Key ontbreekt of is ongeldig", "idempotency_key_required", request)
+            scope_error = any("scopes" in e.get("loc", ()) for e in exc.errors())
+            code, detail = (("unknown_scope", "Onbekend recht (scope). Toegestaan: read, changes:approve.")
+                            if scope_error else ("invalid_name",
+                                                 "Kies een naam van 1 tot 80 tekens zonder besturingstekens."))
+            return _error(422, detail, code, request)
         errors = [{"loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()]
         return _error(422, errors, "invalid", request)
 
@@ -175,4 +189,34 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
             routers.append(module.router)
         for r in routers:
             app.include_router(r)
+    original_openapi = app.openapi
+
+    def machine_openapi() -> dict[str, Any]:
+        from mso.machine_keys import IDEMPOTENCY_EXCEPTIONS, READ_ROUTES
+        schema = original_openapi()
+        schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
+        schemes["MachineKey"] = {"type": "apiKey", "in": "header", "name": "X-Api-Key",
+                                 "description": "Rolvrije machine-sleutel. Alleen expliciet geopende scopes; "
+                                 "changes:approve opent in deze versie geen routes."}
+        schemes["SessionCookie"] = {"type": "apiKey", "in": "cookie", "name": "mso_session"}
+        for path, operations in schema["paths"].items():
+            if path in READ_ROUTES and "get" in operations:
+                operations["get"]["security"] = [{"SessionCookie": []}, {"MachineKey": []}]
+                operations["get"]["x-machine-scopes"] = ["read"]
+            if path.startswith("/api/v1/machine-keys"):
+                for method, operation in operations.items():
+                    operation["security"] = [{"SessionCookie": []}]
+                    if (method, path) in IDEMPOTENCY_EXCEPTIONS:
+                        operation["x-idempotency-exception"] = IDEMPOTENCY_EXCEPTIONS[(method, path)]
+                    for code, description in {
+                            400: "idempotency_key_required of idempotency_key_invalid",
+                            401: "Niet ingelogd", 403: "admin_required: alleen menselijke beheerder",
+                            409: "duplicate_name: naam bestaat al",
+                            413: "payload_too_large: maximaal 1 MiB",
+                            422: "invalid_name, scope_required, unknown_scope of idempotency_key_reused",
+                            429: "rate_limited: wacht volgens Retry-After"}.items():
+                        operation["responses"].setdefault(str(code), {})["description"] = description
+        return schema
+
+    app.openapi = machine_openapi
     return app

@@ -78,19 +78,18 @@ def test_interrupted_restore_keeps_current_permissions(admin, client, db, interr
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='backup.machine_keys_restore_recovered'") == 1
 
 
-@pytest.mark.parametrize("schema", [607, 608], ids=["pre-upgrade", "gewone-back-up"])
+@pytest.mark.parametrize("schema", [607, 608, 609], ids=["voor-sleutelbeheer", "voor-event-id", "gewone-back-up"])
 def test_restore_keep_tables_stay_out_of_dumps(admin, db, schema):
-    if schema == 607:
-        assert migrate_down(db, 607) == [608]
+    expected = {607: [609, 608], 608: [609], 609: []}[schema]
+    assert migrate_down(db, schema) == expected
     original = backups.create_backup(actor="test")
-    if schema == 607:
-        assert migrate_up(db) == [608]
+    assert migrate_up(db) == list(reversed(expected))
     create(admin)
 
     _interrupt_restore(db, original["id"])
     keep_tables = ("mso_restore_machine_keep", "mso_restore_audit_keep")
     assert all(db.scalar("SELECT to_regclass(%s)", (table,)) for table in keep_tables)
-    if schema == 608:
+    if schema >= 608:
         dump = backups.create_backup(kind="auto", actor="test")
     init_runtime(db)
     if schema == 607:
@@ -107,6 +106,7 @@ def test_restore_keep_tables_stay_out_of_dumps(admin, db, schema):
 def test_open_restore_blocks_key_management(admin, client, db):
     active = create(admin)
     revoked = create(admin, name="Al ingetrokken")
+    cursor = admin.get("/connector/v1/events").json()["next_cursor"]
     backup = backups.create_backup(actor="test")
     assert revoke(admin, revoked["item"]["id"]).status_code == 200
 
@@ -114,10 +114,15 @@ def test_open_restore_blocks_key_management(admin, client, db):
     login = admin.post("/api/v1/auth/login", json={"username": "beheerder", "password": USER_FIXTURE_PASSWORD})
     assert login.status_code == 200
     admin.csrf = login.json()["csrf_token"]
+    pending = admin.get("/connector/v1/events", params={"cursor": cursor})
+    assert pending.status_code == 503 and pending.json()["code"] == "dependency_unavailable"
     listed = admin.get("/api/v1/machine-keys")
     created = admin.post("/api/v1/machine-keys", json={"name": "Nieuwe koppeling", "scopes": ["read"]})
     denied = revoke(admin, active["item"]["id"])
     init_runtime(db)
+    expired = admin.get("/connector/v1/events", params={"cursor": cursor})
+    assert expired.status_code == 409 and expired.json()["code"] == "cursor_expired"
+    assert expired.json()["details"] == {"restart": True}
 
     for response in (listed, created, denied):
         assert response.status_code == 409
@@ -131,9 +136,9 @@ def test_open_restore_blocks_key_management(admin, client, db):
 
 
 def test_migration_failure_retains_keys_from_current_schema(admin, client, db, monkeypatch):
-    assert migrate_down(db, 607) == [608]
+    assert migrate_down(db, 607) == [609, 608]
     backup = backups.create_backup(actor="test")
-    assert migrate_up(db) == [608]
+    assert migrate_up(db) == [608, 609]
     active = create(admin)
     revoked = create(admin, name="Ingetrokken")
     assert revoke(admin, revoked["item"]["id"]).status_code == 200

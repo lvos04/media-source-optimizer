@@ -49,12 +49,21 @@ def as_utc(at: datetime | None) -> datetime | None:
 
 
 def fresh(at: datetime | None, now: datetime, max_age: int) -> bool:
-    return at is not None and (now - at).total_seconds() <= max_age
+    return at is not None and 0 <= (now - at).total_seconds() <= max_age
+
+
+def measurement_reason(at: datetime | None, now: datetime, max_age: int) -> str | None:
+    if at is None:
+        return "meting_ontbreekt"
+    if at > now:
+        return "meting_in_toekomst"
+    return None if fresh(at, now, max_age) else "meting_verouderd"
 
 
 def connector_status(status: str, at: datetime | None, now: datetime) -> tuple[Status, str | None]:
-    if not fresh(at, now, CONNECTOR_MAX_AGE):
-        return "unknown", "meting_verouderd" if at is not None else "meting_ontbreekt"
+    reason = measurement_reason(at, now, CONNECTOR_MAX_AGE)
+    if reason:
+        return "unknown", reason
     return CONNECTOR_STATUS.get(status, "unknown"), None
 
 
@@ -86,13 +95,10 @@ def _jobs(db: Database) -> Check:
                   count(*) FILTER (WHERE status='running') AS running,
                   max(updated_at) FILTER (WHERE status='done') AS last_done,
                   min(run_after) FILTER (WHERE status='queued') AS waiting_since,
-                  max(heartbeat_at) FILTER (WHERE status='running') AS active_since,
                   now() AS measured_at
            FROM jobs""")
     now = row["measured_at"].astimezone(UTC)
-    stalled = (row["waiting_since"] is not None and not fresh(row["waiting_since"], now, JOB_STALL_AGE)
-               and not fresh(row["last_done"], now, JOB_STALL_AGE)
-               and not fresh(row["active_since"], now, JOB_STALL_AGE))
+    stalled = row["waiting_since"] is not None and (now - row["waiting_since"]).total_seconds() > JOB_STALL_AGE
     last = row["last_done"]
     last_utc = last.astimezone(UTC).isoformat().replace("+00:00", "Z") if last else None
     return Check(name="jobs", status="degraded" if stalled else "healthy", observed_at=now,
@@ -106,17 +112,17 @@ def collect_health() -> Health:
     if ok:
         hb = worker_at(db)
         now = datetime.now(UTC)
-        worker_reason = None if fresh(hb, now, WORKER_MAX_AGE) else (
-            "meting_verouderd" if hb is not None else "meting_ontbreekt")
+        worker_reason = measurement_reason(hb, now, WORKER_MAX_AGE)
         checks.append(Check(name="worker", status="unknown" if worker_reason else "healthy", observed_at=hb,
                             detail={"reason_code": worker_reason} if worker_reason else {}))
         checks.append(_jobs(db))
         last_backup = as_utc(db.scalar("SELECT max(created_at) FROM backups"))
         now = datetime.now(UTC)
-        backup_reason = ("backup_ontbreekt" if last_backup is None else
-                         None if fresh(last_backup, now, BACKUP_MAX_AGE) else "backup_verouderd")
-        checks.append(Check(name="backup", status="unknown" if last_backup is None else
-                            "degraded" if backup_reason else "healthy", observed_at=now,
+        reason = measurement_reason(last_backup, now, BACKUP_MAX_AGE)
+        backup_reasons = {"meting_ontbreekt": "backup_ontbreekt", "meting_verouderd": "backup_verouderd"}
+        backup_reason = backup_reasons.get(reason, reason)
+        checks.append(Check(name="backup", status="degraded" if backup_reason == "backup_verouderd" else
+                            "unknown" if backup_reason else "healthy", observed_at=now,
                             detail={"reason_code": backup_reason, "laatste_backup": last_backup}))
         for row in db.fetchall("SELECT id,last_checked_at,status FROM connectors WHERE enabled ORDER BY id"):
             # Alleen geregistreerde connector-ID's worden onderdeel van het contract.
@@ -128,4 +134,5 @@ def collect_health() -> Health:
                                 detail={"reason_code": reason} if reason else {}))
     worst = max(checks, key=lambda c: (SEVERITY.index(c.status), c.detail.get("reason_code") == "meting_verouderd"))
     reason = None if worst.status == "healthy" else worst.detail.get("reason_code") or worst.name.replace(".", "_")
-    return Health(status=worst.status, observed_at=datetime.now(UTC), reason_code=reason, checks=checks)
+    observed_at = min(check.observed_at for check in checks if check.observed_at is not None)
+    return Health(status=worst.status, observed_at=observed_at, reason_code=reason, checks=checks)

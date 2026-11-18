@@ -116,6 +116,19 @@ def current_principal(request: Request) -> Principal:
     principal = principal_from_request(request)
     if principal is None:
         raise HTTPException(status_code=401, detail="Niet ingelogd")
+    limit = getattr(request.state, "user_rate_limit", None)
+    if limit and principal.user_id is not None:
+        from mso.connector_api.errors import is_connector
+        from mso.security import limiter
+
+        bucket, per_min = limit
+        ok, wait = limiter.hit(bucket, str(principal.user_id), per_min, 60)
+        if not ok:
+            seconds = int(wait) + 1
+            path = request.url.path
+            retry = is_connector(path) or path.startswith("/api/v1/machine-keys")
+            raise HTTPException(429, detail=f"Te veel verzoeken; wacht {seconds} s",
+                                headers={"Retry-After": str(seconds)} if retry else None)
     if request.method not in SAFE_METHODS and principal.csrf_token is not None:
         sent = request.headers.get(CSRF_HEADER, "")
         if not hmac.compare_digest(sent, principal.csrf_token):

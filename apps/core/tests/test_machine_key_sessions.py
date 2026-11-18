@@ -21,9 +21,10 @@ ISO_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 EXPECTED_MATRIX_DIFFERENCES = {
     ("get", "/api/v1/system/info"): {
-        # Migratie 0608 voegt machine-sleuteltabellen toe.
+        # Beide toegevoegde migraties moeten exact in systeeminfo staan.
         "base_version": 607,
-        "added_migration": {"version": 608, "name": "machine_keys", "applied_at": "<tijd>"},
+        "added_migrations": [{"version": 608, "name": "machine_keys", "applied_at": "<tijd>"},
+                             {"version": 609, "name": "automation_event_id", "applied_at": "<tijd>"}],
         # S-P3-210 voegt imageherkomst toe. Zonder buildargumenten is ook de versie onbekend.
         "base_software_version": "1.6.0",
         "build_fields": ("git_sha", "build_time", "channel"),
@@ -90,11 +91,11 @@ def _matrix_body(response, operation, caller, installed_schema):
         for field in difference["build_fields"]:
             assert body.pop(field) == "onbekend"
         if installed_schema != difference["base_version"]:
-            migration = difference["added_migration"]
-            assert body["schema_version"] == installed_schema == migration["version"]
-            assert body["migrations"][-1] == migration
+            migrations = [m for m in difference["added_migrations"] if m["version"] <= installed_schema]
+            assert body["schema_version"] == installed_schema == migrations[-1]["version"]
+            assert body["migrations"][-len(migrations):] == migrations
             body["schema_version"] = difference["base_version"]
-            body["migrations"].pop()
+            del body["migrations"][-len(migrations):]
     return body
 
 

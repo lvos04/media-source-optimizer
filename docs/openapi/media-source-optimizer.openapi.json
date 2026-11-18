@@ -1266,6 +1266,13 @@
       "title": "Deep Link",
       "type": "string"
      },
+     "entity": {
+      "$ref": "#/components/schemas/Entity"
+     },
+     "event_type": {
+      "title": "Event Type",
+      "type": "string"
+     },
      "id": {
       "title": "Id",
       "type": "string"
@@ -1289,7 +1296,9 @@
      "source",
      "observed_at",
      "deep_link",
-     "change_id"
+     "change_id",
+     "event_type",
+     "entity"
     ],
     "title": "Evidence",
     "type": "object"
@@ -13035,26 +13044,6 @@
     "parameters": [
      {
       "in": "query",
-      "name": "type",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "enum": [
-          "connector",
-          "change_set"
-         ],
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "title": "Type"
-      }
-     },
-     {
-      "in": "query",
       "name": "cursor",
       "required": false,
       "schema": {
@@ -13081,6 +13070,26 @@
        "minimum": 1,
        "title": "Limit",
        "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "type",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "connector",
+          "change_set"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Type"
       }
      }
     ],
@@ -13427,6 +13436,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "payload_too_large"
      },
      "503": {
       "content": {

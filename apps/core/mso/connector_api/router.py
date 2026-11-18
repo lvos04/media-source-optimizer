@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Query
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from mso.audit import _clean
 from mso.auth import Principal, require
@@ -82,8 +82,21 @@ class ItemsPage(BaseModel):
     next_cursor: str | None
 
 
+class NoQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PageQuery(NoQuery):
+    cursor: Cursor = None
+    limit: Limit = 100
+
+
+class ItemsQuery(PageQuery):
+    type: ItemType | None = None
+
+
 @router.get("/discover", responses=COMMON_ERRORS)
-def discover(_: Viewer) -> Discovery:
+def discover(_: Viewer, query: Annotated[NoQuery, Query()]) -> Discovery:
     version = get_settings().build.version
     return Discovery(source_version=VERSION if version == "onbekend" else version,
                      capabilities=["read"], permissions=["read"], timestamp_utc=datetime.now(UTC),
@@ -94,7 +107,7 @@ def discover(_: Viewer) -> Discovery:
 
 
 @router.get("/health", responses=COMMON_ERRORS)
-def health(_: Viewer) -> Health:
+def health(_: Viewer, query: Annotated[NoQuery, Query()]) -> Health:
     return collect_health()
 
 
@@ -125,17 +138,18 @@ def _change_items(after: int, limit: int) -> list[Item]:
 
 
 @router.get("/items", responses=COMMON_ERRORS)
-def items(_: Viewer, type: ItemType | None = None, cursor: Cursor = None, limit: Limit = 100) -> ItemsPage:
-    selection = type or "all"
+def items(_: Viewer, query: Annotated[ItemsQuery, Query()]) -> ItemsPage:
+    selection = query.type or "all"
+    limit = query.limit
     after = 0
     connector_after = ""
-    if cursor is not None:
-        match = ITEM_CURSOR.fullmatch(cursor)
+    if query.cursor is not None:
+        match = ITEM_CURSOR.fullmatch(query.cursor)
         invalid = ConnectorError(422, "validation_error", {"fouten": [{"veld": "cursor", "reden": "ongeldig"}]})
         if match is None or match[1] != selection:
             raise invalid
         last_type, last_id = match[2].split(":")
-        if type is not None and last_type != type:
+        if query.type is not None and last_type != query.type:
             raise invalid
         if last_type == "connector":
             connector_after = match[2]
@@ -144,21 +158,21 @@ def items(_: Viewer, type: ItemType | None = None, cursor: Cursor = None, limit:
             if not 1 <= after <= MAX_ID:
                 raise invalid
 
-    page = [] if type == "change_set" or after else [
+    page = [] if query.type == "change_set" or after else [
         item for item in _connector_items(datetime.now(UTC)) if item.id > connector_after]
-    if type != "connector" and len(page) <= limit:
+    if query.type != "connector" and len(page) <= limit:
         page += _change_items(after, limit + 1 - len(page))
     next_cursor = f"{selection}.{page[limit - 1].id}" if len(page) > limit else None
     return ItemsPage(items=page[:limit], next_cursor=next_cursor)
 
 
 @router.get("/events", responses={**COMMON_ERRORS, 409: _error("cursor_expired: begin opnieuw zonder cursor")})
-def events(_: Viewer, cursor: Cursor = None, limit: Limit = 100) -> EventsPage:
-    return poll(cursor, limit)
+def events(_: Viewer, query: Annotated[PageQuery, Query()]) -> EventsPage:
+    return poll(query.cursor, query.limit)
 
 
 @router.get("/evidence/{id}", responses={**COMMON_ERRORS, 404: _error("not_found")})
-def evidence(_: Viewer, id: Annotated[str, Path(max_length=80)]) -> Evidence:
+def evidence(_: Viewer, id: Annotated[str, Path(max_length=80)], query: Annotated[NoQuery, Query()]) -> Evidence:
     return get_evidence(id)
 
 

@@ -72,11 +72,12 @@ def test_general_machine_rate_limit_precedes_authentication(admin, app, db, monk
     )
 
 
-def test_management_general_limit_returns_retry_after(admin):
+def test_management_general_limit_returns_retry_after(admin, db):
     limit = 60
     settings_registry.put({"security.api_rate_per_min": limit}, "test")
+    user_id = db.scalar("SELECT id FROM users WHERE username='beheerder'")
     for _ in range(limit):
-        assert limiter.hit("api", admin.cookies["mso_session"], limit, 60)[0]
+        assert limiter.hit("api.user", str(user_id), limit, 60)[0]
     listed = admin.get("/api/v1/machine-keys")
     assert listed.status_code == 429 and int(listed.headers["Retry-After"]) >= 1
     existing = admin.get("/api/v1/settings")

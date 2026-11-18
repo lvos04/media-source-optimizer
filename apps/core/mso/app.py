@@ -28,7 +28,7 @@ from starlette.requests import HTTPConnection
 
 from mso import settings_registry
 from mso.config import VERSION, get_settings
-from mso.connector_api.errors import ConnectorRequestMiddleware, error_response, is_connector
+from mso.connector_api.errors import ConnectorRequestMiddleware, ErrorBody, error_response, is_connector
 from mso.connector_api.status import Readiness, readiness
 from mso.connectors import base as connectors
 from mso.db import Database, check_schema_compatibility, get_db, migrate_up, set_db, upgrade_lock
@@ -117,8 +117,10 @@ def _error(status: int, detail: Any, code: str, request: HTTPConnection, *,
     if has_machine_header(request) or request.url.path.startswith("/api/v1/machine-keys"):
         body.update(message=detail, details={"reason": code} if status in {401, 403} else {},
                     trace_id=str(uuid.uuid4()))
-    return JSONResponse(body, status_code=status,
-                        headers={"X-Correlation-Id": cid})
+    response_headers = {"X-Correlation-Id": cid}
+    if status == 429 and headers and "Retry-After" in headers:
+        response_headers["Retry-After"] = headers["Retry-After"]
+    return JSONResponse(body, status_code=status, headers=response_headers)
 
 
 class GuardMiddleware(BaseHTTPMiddleware):
@@ -129,27 +131,22 @@ class GuardMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
         connector = is_connector(path)
-        client_cid = "" if connector else request.headers.get("X-Correlation-Id", "")[:32]
+        client_cid = "" if connector or path == "/readyz" else request.headers.get("X-Correlation-Id", "")[:32]
         request.state.correlation_id = client_cid or uuid.uuid4().hex[:12]
         machine = has_machine_header(request)
         native_api = path.startswith("/api/") and path not in ("/api/v1/auth/login", "/api/v1/setup/admin")
         if machine or connector or native_api:
             remote = request.client.host if request.client else "?"
-            key = remote if machine else request.cookies.get("mso_session") or remote
-            if machine:
-                per_min = settings_registry.machine_api_rate_limit(get_db())
-            else:
-                try:
-                    per_min = int(settings_registry.get(settings_registry.API_RATE_SETTING))
-                except Exception:
-                    per_min = 600
-            ok, wait = limiter.hit("connector" if connector else "api", key, per_min, 60)
+            per_min = settings_registry.machine_api_rate_limit(get_db())
+            bucket = "connector" if connector else "api"
+            ok, wait = limiter.hit(bucket, remote, per_min, 60)
             if not ok:
                 seconds = int(wait) + 1
                 response = _error(429, f"Te veel verzoeken; wacht {seconds} s", "rate_limited", request)
                 if machine or connector or path == "/api/v1/machine-keys" or path.startswith("/api/v1/machine-keys/"):
                     response.headers["Retry-After"] = str(seconds)
                 return response
+            request.state.user_rate_limit = (bucket + ".user", per_min)
         response = await call_next(request)
         response.headers["X-Correlation-Id"] = request.state.correlation_id
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -202,6 +199,8 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
                 part for error in exc.errors() for part in error["loc"]
                 if isinstance(part, str) and part in fields
             })]
+            if any(e["type"] == "extra_forbidden" for e in exc.errors()):
+                errors.append({"veld": "query", "reden": "onbekend veld"})
             return _error(422, None, "validation_error", request, safe_details={"fouten": errors})
         if request.url.path.startswith("/api/v1/machine-keys"):
             if any("idempotency-key" in str(e.get("loc", ())).lower() for e in exc.errors()):
@@ -230,7 +229,8 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
             raise HTTPException(503, detail="database onbereikbaar")
         return {"status": "ok", "version": VERSION}
 
-    @app.get("/readyz", responses={503: {"model": Readiness, "description": "Eigen afhankelijkheid onbeschikbaar"}})
+    @app.get("/readyz", responses={413: {"model": ErrorBody, "description": "payload_too_large"},
+                                   503: {"model": Readiness, "description": "Eigen afhankelijkheid onbeschikbaar"}})
     def readyz(response: Response) -> Readiness:
         result = readiness()
         if result.status != "ready":

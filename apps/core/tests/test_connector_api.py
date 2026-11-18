@@ -2,7 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
 from conftest import USER_FIXTURE_PASSWORD
@@ -12,7 +12,7 @@ from test_machine_keys import create, revoke
 from mso import retention
 from mso.audit import audit
 from mso.config import get_settings
-from mso.db import jsonb
+from mso.db import jsonb, migrate_down, migrate_up
 from mso.vault import get_vault
 
 PREFIX = "/connector/v1"
@@ -110,6 +110,41 @@ def _poll(client, cursor=None, limit=200):
     return client.get(PREFIX + "/events", params=params)
 
 
+def _bronnummer(event):
+    bron, nummer, kenmerk = event["payload"]["id"].split(":")
+    assert UUID(kenmerk) == UUID(event["event_id"])
+    assert event["payload"]["id"] == event["source_event_id"]
+    return f"{bron}:{nummer}"
+
+
+def test_bestaande_waarneming_behoudt_event_id_na_upgrade(viewer, db):
+    at = datetime.now(UTC)
+    assert migrate_down(db, 608) == [609]
+    try:
+        nummer = db.scalar("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',%s) RETURNING id", (at,))
+    finally:
+        assert migrate_up(db) == [609]
+    legacy = f"automation:{nummer}"
+    expected = uuid5(NAMESPACE_URL, f"urn:media-source-optimizer:{legacy}:{at.isoformat()}")
+    event = next(e for e in _poll(viewer).json()["events"] if _bronnummer(e) == legacy)
+    assert event["event_id"] == str(expected)
+    assert event["source_event_id"] == f"{legacy}:{expected.hex}"
+    assert viewer.get(f"{PREFIX}/evidence/{legacy}").json() == {**event["payload"], "id": legacy}
+
+
+def test_upgrade_herkent_eerder_native_herstel(viewer, db):
+    cursor = _poll(viewer).json()["next_cursor"]
+    assert migrate_down(db, 608) == [609]
+    try:
+        nummer = audit("systeem", "backup.restored", "Back-up teruggezet met het vorige schema")
+    finally:
+        assert migrate_up(db) == [609]
+    assert fout(_poll(viewer, cursor), 409, "cursor_expired") == {"restart": True}
+    fout(viewer.get(f"{PREFIX}/evidence/audit:{nummer}"), 404, "not_found")
+    event = next(e for e in _poll(viewer).json()["events"] if _bronnummer(e) == f"audit:{nummer}")
+    assert viewer.get(f"{PREFIX}/evidence/{event['payload']['id']}").json() == event["payload"]
+
+
 def test_c_cursor_en_retentie(viewer, db):
     db.execute("TRUNCATE audit_log RESTART IDENTITY")
     empty = _poll(viewer).json()
@@ -121,7 +156,7 @@ def test_c_cursor_en_retentie(viewer, db):
     assert retention.purge_logs(db)["automation_log"] == 1
     assert fout(_poll(viewer, empty["next_cursor"]), 409, "cursor_expired") == {"restart": True}
     reset = _poll(viewer).json()
-    assert [row["payload"]["id"] for row in reset["events"]] == ["audit:1"]
+    assert [_bronnummer(row) for row in reset["events"]] == ["audit:1"]
     assert _poll(viewer, reset["next_cursor"]).json() == {"events": [], "next_cursor": reset["next_cursor"]}
     fout(_poll(viewer, "ongeldige cursor"), 422, "validation_error")
 
@@ -134,7 +169,7 @@ def test_d_stabiele_ids_en_later_zichtbare_transactie(viewer, db):
     first = _poll(viewer).json()
     assert first == _poll(viewer).json()
     events = first["events"]
-    assert {e["payload"]["id"] for e in events} == {"audit:1", "automation:1"}
+    assert {_bronnummer(e) for e in events} == {"audit:1", "automation:1"}
     assert len({e["source_event_id"] for e in events}) == 2
     assert len({e["event_id"] for e in events}) == 2
     for event in events:
@@ -155,7 +190,7 @@ def test_d_stabiele_ids_en_later_zichtbare_transactie(viewer, db):
             assert during.headers["Retry-After"]
     page = _poll(viewer, first["next_cursor"], limit=1).json()
     next_page = _poll(viewer, page["next_cursor"], limit=1).json()
-    assert [e["payload"]["id"] for e in page["events"] + next_page["events"]] == ["automation:2", "automation:3"]
+    assert [_bronnummer(e) for e in page["events"] + next_page["events"]] == ["automation:2", "automation:3"]
     db.execute("UPDATE automation_log SET ts=ts + interval '1 second' WHERE id=3")
     fout(_poll(viewer, next_page["next_cursor"]), 409, "cursor_expired")
 
@@ -208,8 +243,9 @@ def test_f_geen_geheimen_in_bereikbare_projecties(admin, viewer, db, caplog, mon
     for response in [items, events, bewijs]:
         assert response.status_code == 200
     assert items.json()["items"][0]["deep_link"] == f"/automatisering?tab=wijzigingen&change={change}"
-    assert f"audit:{evidence}" in {e["payload"]["id"] for e in events.json()["events"]}
-    assert bewijs.json()["id"] == f"audit:{evidence}"
+    event = next(e for e in events.json()["events"] if _bronnummer(e) == f"audit:{evidence}")
+    assert bewijs.json() == {**event["payload"], "id": f"audit:{evidence}"}
+    assert viewer.get(f"{PREFIX}/evidence/{event['source_event_id']}").json() == event["payload"]
     invalid = viewer.get(PREFIX + "/items", params={"type": text}, headers={"X-Correlation-Id": password})
     fout(invalid, 422, "validation_error")
     assert invalid.headers.get("X-Correlation-Id") != password

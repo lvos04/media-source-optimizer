@@ -208,7 +208,8 @@ def status(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
             else None,
         },
         "risk_explanation": RISK_EXPLANATION,
-        "log": db.fetchall("SELECT * FROM automation_log ORDER BY id DESC LIMIT 30"),
+        "log": db.fetchall("SELECT id,ts,kind,change_id,area,result,message "
+                           "FROM automation_log ORDER BY id DESC LIMIT 30"),
         "jobs": jobs_summary,
     }
 

@@ -224,7 +224,11 @@ def test_concurrent_revoke_idempotency(admin, db):
 
 
 def test_all_new_mutations_require_idempotency_or_documented_secret_exception(app):
-    from mso.machine_keys import IDEMPOTENCY_EXCEPTIONS
+    exceptions = {
+        ("post", "/api/v1/machine-keys"): "Bewuste eenmalige uitgifte van een nieuw geheim (contract §5).",
+        **{("post", f"/connector/v1/{action}"): "Uitgeschakeld met 501 capability_unavailable (contract §5)."
+           for action in ("propose", "apply", "rollback")},
+    }
 
     baseline = json.loads((Path(__file__).parent / "fixtures/native_operations_before_machine_keys.json").read_text())
     legacy = {tuple(pair) for pair in baseline["operations"]}
@@ -237,12 +241,13 @@ def test_all_new_mutations_require_idempotency_or_documented_secret_exception(ap
                 # Bestaande native routes behouden hun contract (§2.3 regel 1).
                 continue
             checked.add((method, path))
-            if (method, path) in IDEMPOTENCY_EXCEPTIONS:
-                assert operation["x-idempotency-exception"] == IDEMPOTENCY_EXCEPTIONS[(method, path)]
+            if (method, path) in exceptions:
+                assert operation["x-idempotency-exception"] == exceptions[(method, path)]
             else:
+                assert "x-idempotency-exception" not in operation
                 assert any(p["name"] == "Idempotency-Key" and p["required"]
                            for p in operation.get("parameters", [])), (method, path)
-    assert checked == {("post", "/api/v1/machine-keys/{key_id}/revoke"), *IDEMPOTENCY_EXCEPTIONS}
+    assert checked == {("post", "/api/v1/machine-keys/{key_id}/revoke"), *exceptions}
 
 
 def test_every_unopened_get_is_denied_without_side_effects(admin, client, db, app, database_bytes):
@@ -554,13 +559,13 @@ def test_migration_roundtrip_preserves_existing_tables(admin, operator, db, data
     made = create(admin)
     new_tables = {"machine_keys", "machine_key_requests", "machine_auth_limits", "schema_migrations"}
     before = database_bytes(db)
-    assert migrate_down(db, 607) == [608]
+    assert migrate_down(db, 607) == [609, 608]
     assert db.scalar("SELECT to_regclass('machine_keys')") is None
     assert {name: data for name, data in before.items() if name not in new_tables} == {
         name: data for name, data in database_bytes(db).items() if name != "schema_migrations"
     }
     assert admin.get("/api/v1/auth/me").status_code == 200
-    assert migrate_up(db) == [608]
+    assert migrate_up(db) == [608, 609]
     check_schema_compatibility(db)
     after = database_bytes(db)
     assert {name: data for name, data in before.items() if name not in new_tables} == {

@@ -46,7 +46,8 @@ def main() -> None:
         with tempfile.TemporaryDirectory(prefix="mso-basis-", dir=os.environ.get("TMPDIR")) as work:
             set_settings(Settings(database_url=url, data_dir=Path(work), work_dir=Path(work), testing=True))
             set_db(db)
-            migrate_up(db)
+            migrate_up(db, target=608)
+            assert db.scalar("SELECT max(version) FROM schema_migrations") == 608
             create_key(MachineKeyCreate(name="Basisproef", scopes=["read"]), Principal("proefbeheerder", "admin"))
             before = snapshot(db)
             env = dict(os.environ, PYTHONPATH=str(base), MSO_DATABASE_URL=url,

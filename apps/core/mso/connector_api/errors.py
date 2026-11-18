@@ -70,7 +70,7 @@ class ConnectorRequestMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not is_connector(scope["path"]):
+        if scope["type"] != "http" or (scope["path"] != "/readyz" and not is_connector(scope["path"])):
             await self.app(scope, receive, send)
             return
 
@@ -116,7 +116,7 @@ class ConnectorRequestMiddleware:
         try:
             await self.app(scope, replay, send_response)
         except Exception as exc:
-            if started:
+            if started or scope["path"] == "/readyz":
                 raise
             if isinstance(exc, (psycopg.OperationalError, PoolTimeout)):
                 response = error_response(503)

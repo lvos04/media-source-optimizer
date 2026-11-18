@@ -69,6 +69,7 @@ REFETCHABLE = ("release_cache", "mg_wanted_cache", "mg_snapshots", "usenet_hi_he
                "torrent_client_snapshot")
 AUDIT_KEEP_TABLE = "mso_restore_audit_keep"  # temporary, server-side copy of audit_log during a restore
 RESTORE_KEEP_TABLE = machine_keys.RESTORE_KEEP_TABLE
+EVENT_HISTORY_KEY = "connector_event_history"
 SAFETY_KIND, SAFETY_DAYS, SAFETY_KEEP = "pre-restore", 30, 2
 UPGRADE_KIND, UPGRADE_KEEP = "pre-upgrade", 3
 PRE_UPGRADE_STATE = "backup.pre_upgrade_pending"
@@ -256,7 +257,8 @@ def restore_backup(backup_id: int, actor: str) -> dict:
         machine_state = machine_keys.security_snapshot(db)
         try:
             result = _restore_backup(backup_id, actor, machine_state, (upgrade.fileno(),))
-            db.execute(f"DROP TABLE IF EXISTS {RESTORE_KEEP_TABLE}")
+            with db.tx() as conn:
+                _finish_restore(conn)
             return result
         except BaseException:
             _recover_machine_keys(db)
@@ -289,11 +291,18 @@ def _recover_machine_keys(db: Database) -> bool:
                          ("system", "backup.machine_keys_restore_recovered",
                           "Actuele machine-sleutels bewaard na onderbroken gegevensherstel.",
                           jsonb({"machine_keys_kept": len(snapshot["machine_keys"])})))
-            conn.execute(f"DROP TABLE {RESTORE_KEEP_TABLE}")
+            _finish_restore(conn)
         return True
     except Exception as exc:
         LOGGER.error("Herstel van machine-sleutels blijft open: %s", type(exc).__name__)
         return False
+
+
+def _finish_restore(conn) -> None:
+    # Geef lezers pas vrij zodra ook cursors uit de vorige historie zijn verlopen.
+    conn.execute("INSERT INTO system_state(key,value) VALUES (%s,to_jsonb(gen_random_uuid())) "
+                 "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()", (EVENT_HISTORY_KEY,))
+    conn.execute(f"DROP TABLE IF EXISTS {RESTORE_KEEP_TABLE}")
 
 
 def _restore_audit(db: Database) -> int:

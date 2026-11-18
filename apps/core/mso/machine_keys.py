@@ -37,6 +37,8 @@ IDEMPOTENCY_EXCEPTIONS = {
 KEY_RE = re.compile(r"mso_mk_([0-9a-f]{32})_([A-Za-z0-9_-]{43})", re.ASCII)
 PUBLIC_FIELDS = ("id", "name", "scopes", "created_at", "last_used_at", "revoked_at", "last_four")
 ADMIN_LOCK = 727008
+RESTORE_KEEP_TABLE = "mso_restore_machine_keep"
+RESTORE_PENDING = "Machine-sleutels zijn tijdelijk gesloten zolang het back-upherstel niet is afgerond."
 
 
 def has_machine_header(request: HTTPConnection) -> bool:
@@ -64,6 +66,11 @@ def security_snapshot(db: Database) -> dict[str, list[dict[str, Any]]]:
         return {"machine_keys": [], "machine_key_requests": []}
     return {"machine_keys": db.fetchall("SELECT * FROM machine_keys ORDER BY id"),
             "machine_key_requests": db.fetchall("SELECT * FROM machine_key_requests ORDER BY request_id")}
+
+
+def restore_pending(conn: psycopg.Connection) -> bool:
+    row = conn.execute("SELECT to_regclass(%s) IS NOT NULL AS pending", (RESTORE_KEEP_TABLE,)).fetchone()
+    return bool(row["pending"])
 
 
 def restore_security_snapshot(snapshot: dict[str, list[dict[str, Any]]], db: Database) -> None:
@@ -200,13 +207,17 @@ def _failed(request: HTTPConnection) -> None:
     raise HTTPException(401, "Ongeldige of ingetrokken machine-sleutel")
 
 
-def _read_key(key_id: str | uuid.UUID) -> dict[str, Any] | None:
+def _read_key(key_id: str | uuid.UUID | None) -> dict[str, Any] | None:
     # Een herstel kan tussentijds oudere autorisatierijen terugzetten. Lezen
     # wacht nooit op dat herstel en gebruikt die tijdelijke toestand niet.
     with get_db().tx() as conn:
-        if not conn.execute("SELECT pg_try_advisory_xact_lock_shared(%s) AS available", (ADMIN_LOCK,)).fetchone()[
-                "available"]:
+        available = conn.execute("SELECT pg_try_advisory_xact_lock_shared(%s) AS available", (ADMIN_LOCK,)).fetchone()
+        if restore_pending(conn):
+            raise MachineKeyError(403, "machine_key_restore_pending", RESTORE_PENDING)
+        if not available["available"]:
             raise HTTPException(403, "Machine-aanmelding is tijdelijk gesloten tijdens sleutelbeheer of herstel")
+        if key_id is None:
+            return None
         return conn.execute("SELECT id,key_hash,scopes,revoked_at FROM machine_keys WHERE id=%s", (key_id,)).fetchone()
 
 
@@ -214,7 +225,7 @@ def authenticate(request: HTTPConnection) -> Principal:
     values = request.headers.getlist("x-api-key")
     raw = values[0] if len(values) == 1 else ""
     match = KEY_RE.fullmatch(raw)
-    row = _read_key(uuid.UUID(match[1])) if match else None
+    row = _read_key(uuid.UUID(match[1]) if match else None)
     expected = row["key_hash"] if row else "0" * 64
     good = hmac.compare_digest(token_hash(raw), expected)
     if not good or row is None or row["revoked_at"] is not None:
@@ -305,7 +316,8 @@ class MachineKeyMiddleware:
                 await send({"type": "websocket.close", "code": 4403})
                 return
             from mso.app import _error
-            code = {401: "unauthorized", 403: "forbidden", 429: "rate_limited"}.get(exc.status_code, "error")
+            code = getattr(exc, "code", {401: "unauthorized", 403: "forbidden", 429: "rate_limited"}.get(
+                exc.status_code, "error"))
             response = _error(exc.status_code, exc.detail, code, connection)
             response.headers.update({"Cache-Control": "no-store", **(exc.headers or {})})
             await response(scope, receive, send)
@@ -359,7 +371,11 @@ def admin_only(p: Principal = Depends(current_principal)) -> Principal:
 @router.get("", response_model=MachineKeyList)
 def list_keys(p: Principal = Depends(admin_only)) -> dict[str, Any]:
     p = admin_only(p)
-    rows = get_db().fetchall("SELECT * FROM machine_keys ORDER BY created_at DESC,id")
+    with get_db().tx() as conn:
+        available = conn.execute("SELECT pg_try_advisory_xact_lock_shared(%s) AS available", (ADMIN_LOCK,)).fetchone()
+        if not available["available"] or restore_pending(conn):
+            raise MachineKeyError(409, "machine_key_restore_pending", RESTORE_PENDING)
+        rows = conn.execute("SELECT * FROM machine_keys ORDER BY created_at DESC,id").fetchall()
     audit(p.actor, "machine_keys.list", "Machine-sleutellijst bekeken.")
     return {"items": [public(row) for row in rows]}
 
@@ -380,6 +396,8 @@ def create_key(body: MachineKeyCreate, p: Principal = Depends(admin_only)) -> di
     try:
         with get_db().tx() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(%s)", (ADMIN_LOCK,))
+            if restore_pending(conn):
+                raise MachineKeyError(409, "machine_key_restore_pending", RESTORE_PENDING)
             row = conn.execute(
                 "INSERT INTO machine_keys(id,name,key_hash,last_four,scopes) VALUES (%s,%s,%s,%s,%s) RETURNING *",
                 (key_id, name.strip(), token_hash(key), key[-4:], jsonb(sorted(set(scopes))))).fetchone()
@@ -404,6 +422,8 @@ def revoke_key(key_id: uuid.UUID, p: Principal = Depends(admin_only), response: 
     body_hash = token_hash(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
     with get_db().tx() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (ADMIN_LOCK,))
+        if restore_pending(conn):
+            raise MachineKeyError(409, "machine_key_restore_pending", RESTORE_PENDING)
         old = conn.execute("SELECT * FROM machine_keys WHERE id=%s FOR UPDATE", (key_id,)).fetchone()
         if old is None:
             raise HTTPException(404, "Machine-sleutel niet gevonden")

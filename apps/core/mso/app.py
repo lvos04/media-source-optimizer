@@ -79,6 +79,7 @@ def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Databas
 
                 backups.pre_upgrade_backup(db)
                 migrate_up(db)
+                backups.recover_machine_keys_on_start(db)
                 try:
                     backups.flush_pre_upgrade(db)
                 except Exception as exc:

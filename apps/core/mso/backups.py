@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from mso import jobs
+from mso import jobs, machine_keys
 from mso.audit import audit
 from mso.config import get_settings
 from mso.db import (
@@ -67,6 +67,7 @@ LOGGER = logging.getLogger(__name__)
 REFETCHABLE = ("release_cache", "mg_wanted_cache", "mg_snapshots", "usenet_hi_headers", "torrent_samples",
                "torrent_client_snapshot")
 AUDIT_KEEP_TABLE = "mso_restore_audit_keep"  # temporary, server-side copy of audit_log during a restore
+RESTORE_KEEP_TABLE = machine_keys.RESTORE_KEEP_TABLE
 SAFETY_KIND, SAFETY_DAYS, SAFETY_KEEP = "pre-restore", 30, 2
 UPGRADE_KIND, UPGRADE_KEEP = "pre-upgrade", 3
 PRE_UPGRADE_STATE = "backup.pre_upgrade_pending"
@@ -186,7 +187,7 @@ def _dump(*, kind: str, include_secrets: bool, timeout: int = 1800) -> Path:
     path = target_dir / f"mso-{stamp}-{kind}.dump"
     args, env = _pg_env()
     cmd = [_bin("pg_dump"), *args, "-Fc", "--no-owner", "--no-privileges", "--exclude-table-data=sessions",
-           f"--exclude-table={AUDIT_KEEP_TABLE}", "-f", str(path)]
+           f"--exclude-table={AUDIT_KEEP_TABLE}", f"--exclude-table={RESTORE_KEEP_TABLE}", "-f", str(path)]
     cmd += [f"--exclude-table-data={t}" for t in REFETCHABLE]
     if not include_secrets:
         cmd.append("--exclude-table-data=secrets")
@@ -247,19 +248,64 @@ def verify_backup(path: Path, expected_sha: str | None) -> None:
 
 # ------------------------------------------------------------------ restore
 def restore_backup(backup_id: int, actor: str) -> dict:
-    from mso.machine_keys import administration_lock, restore_security_snapshot, security_snapshot
-
     db = get_db()
-    with administration_lock(db):
-        machine_state = security_snapshot(db)
+    with upgrade_lock(db) as upgrade, machine_keys.administration_lock(db):
+        if not _recover_machine_keys(db):
+            raise BackupError("Rond het vorige herstel van machine-sleutels eerst af door MSO te herstarten.")
+        machine_state = machine_keys.security_snapshot(db)
         try:
-            return _restore_backup(backup_id, actor, machine_state)
-        except Exception:
-            restore_security_snapshot(machine_state, db)
+            result = _restore_backup(backup_id, actor, machine_state, (upgrade.fileno(),))
+            db.execute(f"DROP TABLE IF EXISTS {RESTORE_KEEP_TABLE}")
+            return result
+        except BaseException:
+            _recover_machine_keys(db)
             raise
 
 
-def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[dict[str, Any]]]) -> dict:
+def recover_machine_keys_on_start(db: Database) -> None:
+    """De aanroeper houdt het upgradeslot. Mensen kunnen ook bij een open herstel aanmelden."""
+    if db.scalar("SELECT to_regclass(%s)", (RESTORE_KEEP_TABLE,)):
+        with machine_keys.administration_lock(db):
+            _recover_machine_keys(db)
+
+
+def _recover_machine_keys(db: Database) -> bool:
+    """Behoud bij een fout de duurzame herstelstand en geef de menselijke API vrij."""
+    try:
+        if not db.scalar("SELECT to_regclass(%s)", (RESTORE_KEEP_TABLE,)):
+            return True
+        if not db.scalar("SELECT to_regclass('machine_keys')"):
+            LOGGER.warning("Herstel van machine-sleutels wacht op het bijwerken van het schema.")
+            return False
+        snapshot = db.scalar(f"SELECT snapshot FROM {RESTORE_KEEP_TABLE}")
+        machine_keys.restore_security_snapshot(snapshot, db)
+        if db.scalar("SELECT to_regclass(%s)", (AUDIT_KEEP_TABLE,)):
+            _restore_audit(db)
+        with db.tx() as conn:
+            conn.execute("INSERT INTO audit_log(actor,action,summary,detail) VALUES (%s,%s,%s,%s)",
+                         ("system", "backup.machine_keys_restore_recovered",
+                          "Actuele machine-sleutels bewaard na onderbroken gegevensherstel.",
+                          jsonb({"machine_keys_kept": len(snapshot["machine_keys"])})))
+            conn.execute(f"DROP TABLE {RESTORE_KEEP_TABLE}")
+        return True
+    except Exception as exc:
+        LOGGER.error("Herstel van machine-sleutels blijft open: %s", type(exc).__name__)
+        return False
+
+
+def _restore_audit(db: Database) -> int:
+    with db.tx() as conn:
+        conn.execute("LOCK TABLE audit_log IN SHARE ROW EXCLUSIVE MODE")
+        kept = conn.execute(f"INSERT INTO audit_log(id,ts,actor,action,target,summary,detail,change_id) "
+                            f"SELECT id,ts,actor,action,target,summary,detail,change_id FROM {AUDIT_KEEP_TABLE} "
+                            "ON CONFLICT (id) DO NOTHING").rowcount
+        conn.execute("SELECT setval(pg_get_serial_sequence('audit_log','id'), (SELECT max(id) FROM audit_log))")
+        conn.execute(f"DROP TABLE {AUDIT_KEEP_TABLE}")
+        return kept
+
+
+def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[dict[str, Any]]],
+                    restore_fds: tuple[int, ...]) -> dict:
     db = get_db()
     row = db.fetchone("SELECT * FROM backups WHERE id=%s", (backup_id,))
     if row is None:
@@ -278,6 +324,11 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
     backups_rows = db.fetchall("SELECT * FROM backups")
     kept_state = {r["key"]: r["value"] for r in db.fetchall(
         "SELECT key, value FROM system_state WHERE key = ANY(%s)", (list(KEEP_STATE),))}
+    # Deze gewone, gelogde tabel staat buiten de dump en blijft ook na procesdood bestaan.
+    with db.tx() as conn:
+        conn.execute("SET LOCAL synchronous_commit=on")
+        conn.execute(f"CREATE TABLE {RESTORE_KEEP_TABLE} (snapshot jsonb NOT NULL)")
+        conn.execute(f"INSERT INTO {RESTORE_KEEP_TABLE}(snapshot) VALUES (%s)", (jsonb(machine_state),))
     # the audit trail is append-only evidence: entries written after the dump must survive the restore. Copied
     # server-side into a table that is not part of any dump (``--exclude-table``), so --clean leaves it alone.
     db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")
@@ -299,7 +350,9 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
             raise BackupError(f"Herstel mislukt: schema niet terug te zetten naar versie {dump_v} "
                               f"({redact(str(exc))[:300]}); de veiligheidsback-up {pre['file']} bevat de huidige "
                               "stand") from exc
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=1800, check=False)  # noqa: S603
+    # Het kind houdt de upgradesessie open als het API-proces tijdens pg_restore wegvalt.
+    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=1800, check=False,  # noqa: S603
+                          pass_fds=restore_fds)
     db.pool.check()  # drop pooled connections that the restore may have invalidated
     if proc.returncode != 0:
         if downgraded:
@@ -326,12 +379,7 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
                    (b["id"], b["file"], b["kind"], b["size_bytes"], b["sha256"], b["includes_secrets"],
                     b["schema_version"], b["created_at"]))
     db.execute("SELECT setval(pg_get_serial_sequence('backups','id'), (SELECT max(id) FROM backups))")
-    audit_kept = db.execute(
-        f"INSERT INTO audit_log(id,ts,actor,action,target,summary,detail,change_id) "  # constant table name
-        f"SELECT id,ts,actor,action,target,summary,detail,change_id FROM {AUDIT_KEEP_TABLE} "
-        "ON CONFLICT (id) DO NOTHING")
-    db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")
-    db.execute("SELECT setval(pg_get_serial_sequence('audit_log','id'), (SELECT max(id) FROM audit_log))")
+    audit_kept = _restore_audit(db)
     # jobs that were queued/running in the dump belong to the past (e.g. the backup job that produced this very
     # dump): never re-run them after a restore
     cancelled = db.execute(
@@ -342,8 +390,7 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
         db.execute("INSERT INTO secrets(name,nonce,ciphertext,updated_at) VALUES (%s,%s,%s,%s) "
                    "ON CONFLICT (name) DO NOTHING", (sec["name"], sec["nonce"], sec["ciphertext"], sec["updated_at"]))
     _keep_state(kept_state, db)
-    from mso.machine_keys import restore_security_snapshot
-    restore_security_snapshot(machine_state, db)
+    machine_keys.restore_security_snapshot(machine_state, db)
     settled = _settle_applying(row["file"], db)
     resync = resync_after_restore(db)
     audit(actor, "backup.restored", f"Back-up {row['file']} hersteld",

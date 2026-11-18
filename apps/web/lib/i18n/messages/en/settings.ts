@@ -55,6 +55,7 @@ export const messages = {
   "machineKeys.error.scopeRequired": "Choose at least one permission (scope).",
   "machineKeys.error.unknownScope": "Unknown permission (scope). Allowed: read, changes:approve.",
   "machineKeys.error.duplicate": "A machine key with this name already exists. Choose another name.",
+  "machineKeys.error.restorePending": "Finish restoring the backup first. Then you can create and revoke machine keys again.",
   "machineKeys.error.rateLimited": "Too many failed attempts. Wait a while and try again.",
   "machineKeys.error.retryAt": "You can retry from {time}.",
   "machineKeys.error.forbidden": "Only administrators can manage machine keys.",

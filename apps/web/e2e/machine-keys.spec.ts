@@ -12,7 +12,7 @@ test("machine-sleutels: scopes, eenmalige weergave, intrekken en toegankelijkhei
   expect(login.status()).toBe(200);
   type Key = { id: string; name: string; scopes: string[]; last_four: string; created_at: string; last_used_at: null; revoked_at: string | null };
   let items: Key[] = [];
-  let failFetch = false;
+  let listMode: "available" | "offline" | "restore" = "available";
   let listRequests = 0;
   const writes: unknown[] = [];
   const fixtureName = "Browserfixture".padEnd(80, "x");
@@ -22,7 +22,13 @@ test("machine-sleutels: scopes, eenmalige weergave, intrekken en toegankelijkhei
     const url = new URL(request.url());
     if (request.method() === "GET") {
       listRequests += 1;
-      await route.fulfill({ status: failFetch ? 502 : 200, json: failFetch ? { detail: "Testverbinding onderbroken", code: "upstream_unreachable" } : { items } });
+      if (listMode === "offline") {
+        await route.fulfill({ status: 502, json: { detail: "Testverbinding onderbroken", code: "upstream_unreachable" } });
+      } else if (listMode === "restore") {
+        await route.fulfill({ status: 409, json: { code: "machine_key_restore_pending", detail: "Machine-sleutels zijn tijdelijk gesloten zolang het back-upherstel niet is afgerond." } });
+      } else {
+        await route.fulfill({ json: { items } });
+      }
     } else if (url.pathname.endsWith("/revoke")) {
       expect(request.headers()["idempotency-key"]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
       items = items.map((item) => ({ ...item, revoked_at: "2026-11-18T12:00:00Z" }));
@@ -37,6 +43,15 @@ test("machine-sleutels: scopes, eenmalige weergave, intrekken en toegankelijkhei
   await page.goto("/instellingen?tab=gebruikers#machine-sleutels");
   const card = page.locator("#machine-sleutels");
   await expect(card.getByText("Nog geen machine-sleutels", { exact: true })).toBeVisible();
+  const usersTab = page.getByRole("tab", { name: "Gebruikers" });
+  const connectionsTab = page.getByRole("tab", { name: "Verbindingen" });
+  await usersTab.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(connectionsTab).toBeFocused();
+  await expect(connectionsTab).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("End");
+  await expect(usersTab).toBeFocused();
+  await expect(usersTab).toHaveAttribute("aria-selected", "true");
   await card.getByRole("button", { name: "Nieuwe machine-sleutel" }).click();
   const dialog = page.getByRole("dialog");
   const name = dialog.getByLabel("Naam (verplicht)");
@@ -140,6 +155,9 @@ test("machine-sleutels: scopes, eenmalige weergave, intrekken en toegankelijkhei
     for (const width of [320, 360, 390, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      const table = card.getByRole("table", { name: "Machine-sleutels en hun rechten" });
+      await expect(table.getByRole("columnheader")).toHaveCount(4);
+      await expect(table.getByRole("cell")).toHaveCount(4);
       for (const code of await card.locator("tbody code").all()) {
         expect(await code.evaluate((element) => {
           const range = document.createRange(); range.selectNodeContents(element);
@@ -150,11 +168,18 @@ test("machine-sleutels: scopes, eenmalige weergave, intrekken en toegankelijkhei
     await checkAxe();
   }
   await page.setViewportSize(testInfo.project.name.startsWith("mobile") ? { width: 390, height: 844 } : { width: 1440, height: 900 });
-  failFetch = true;
-  await card.getByRole("button", { name: "Verversen", exact: true }).click();
+  listMode = "offline";
+  const refresh = card.getByRole("button", { name: "Verversen", exact: true });
+  await refresh.click();
   await expect(card.getByText(/Verouderd\. Laatst bekend/)).toBeVisible();
+  await expect(refresh).toBeFocused();
   await expect(card.getByRole("button", { name: "Nieuwe machine-sleutel" })).toBeDisabled();
-  failFetch = false;
+  listMode = "restore";
+  await refresh.click();
+  await expect(card.getByText(/Rond eerst het back-upherstel af/)).toBeVisible();
+  await expect(card.getByText(fixtureName, { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Nieuwe machine-sleutel" })).toBeDisabled();
+  listMode = "available";
   await card.getByRole("button", { name: "Verversen", exact: true }).click();
   await expect(card.getByRole("button", { name: `Intrekken: ${fixtureName}` })).toBeEnabled();
   await card.getByRole("button", { name: `Intrekken: ${fixtureName}` }).click();
@@ -183,7 +208,7 @@ test("machine-sleutels: invoer behouden, wachttijd en laat antwoord", async ({ p
     username: process.env.MSO_E2E_USER, password: process.env.MSO_E2E_PASSWORD,
   } });
   expect(login.status()).toBe(200);
-  let mode: "duplicate" | "limited" | "late" | "success" = "duplicate";
+  let mode: "duplicate" | "restore" | "limited" | "late" | "success" = "duplicate";
   let items: unknown[] = [];
   let count = 0;
   let release: (() => void) | undefined;
@@ -197,6 +222,9 @@ test("machine-sleutels: invoer behouden, wachttijd en laat antwoord", async ({ p
     writes.push(route.request().postDataJSON());
     if (mode === "duplicate") {
       await route.fulfill({ status: 409, json: { code: "duplicate_name", detail: "Er bestaat al een machine-sleutel met deze naam. Kies een andere naam." } }); return;
+    }
+    if (mode === "restore") {
+      await route.fulfill({ status: 409, json: { code: "machine_key_restore_pending", detail: "Machine-sleutels zijn tijdelijk gesloten zolang het back-upherstel niet is afgerond." } }); return;
     }
     if (mode === "limited") {
       await route.fulfill({ status: 429, headers: { "Retry-After": "2" }, json: { code: "rate_limited", detail: "Te veel mislukte pogingen. Wacht even en probeer het opnieuw." } }); return;
@@ -221,13 +249,18 @@ test("machine-sleutels: invoer behouden, wachttijd en laat antwoord", async ({ p
   await expect(dialog.getByRole("alert")).toBeFocused();
   await expect(input).toHaveValue("Behouden invoer");
   await expect(dialog.getByRole("switch", { name: "Alleen lezen" })).toHaveAttribute("aria-checked", "true");
+  mode = "restore";
+  await submit.click();
+  await expect(dialog.getByRole("alert")).toContainText("Rond eerst het back-upherstel af.");
+  await expect(dialog.getByRole("alert")).toBeFocused();
+  await expect(input).toHaveValue("Behouden invoer");
   mode = "limited";
   await submit.click();
   await expect(dialog.getByRole("alert")).toContainText("Te veel mislukte pogingen");
   await expect(submit).toBeDisabled();
-  await expect(dialog.getByText(/Opnieuw proberen kan vanaf/)).toBeVisible();
+  await expect(dialog.getByText(/Opnieuw proberen kan vanaf \d{2}:\d{2}:\d{2}/)).toBeInViewport();
   await expect(submit).toBeEnabled({ timeout: 5_000 });
-  expect(count).toBe(2);
+  expect(count).toBe(3);
   mode = "late";
   await submit.click();
   await expect.poll(() => Boolean(release)).toBe(true);

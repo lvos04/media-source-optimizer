@@ -95,6 +95,7 @@ export const messages = {
   "machineKeys.error.scopeRequired": "Kies minstens één recht (scope).",
   "machineKeys.error.unknownScope": "Onbekend recht (scope). Toegestaan: read, changes:approve.",
   "machineKeys.error.duplicate": "Er bestaat al een machine-sleutel met deze naam. Kies een andere naam.",
+  "machineKeys.error.restorePending": "Rond eerst het back-upherstel af. Daarna kun je weer machine-sleutels aanmaken en intrekken.",
   "machineKeys.error.rateLimited": "Te veel mislukte pogingen. Wacht even en probeer het opnieuw.",
   "machineKeys.error.retryAt": "Opnieuw proberen kan vanaf {time}.",
   "machineKeys.error.forbidden": "Alleen beheerders kunnen machine-sleutels beheren.",

@@ -328,3 +328,23 @@ node docs/screenshots/peil/review/extra.mjs             # 200 %-zoom, forced col
 python3 docs/screenshots/peil/review/verklein.py        # PNG's naar 256 kleuren
 make down
 ```
+
+## 11. S-P3-220 — Machine-sleutels in Instellingen (18 november 2026)
+
+**Getoetste basis:** `71a20ebddc07e0fa99d9bbfda6373d527b02b0bc`. Het ontwerp staat in [Machine-sleutels: ontwerp vóór de bouw](MACHINE_SLEUTELS_ONTWERP.md), vooral §6–7. De review draaide de MSO-webapp en kern lokaal in een eigen E2E-stack. De browser onderschepte alleen de sleutelverzoeken voor de afdrukbare voorbeeldtoestanden. De aparte kerntest voor open herstel draait tegen een tijdelijke database en verifieert HTTP 409 voor ophalen, aanmaken en intrekken.
+
+De kaart staat onder Gebruikers op de bestaande ankerlink. Kaart, formulieren, dialoog, waarschuwingen, statussen, knoppen en de responsieve lijst volgen Peil 1.1.1. Vergeleken met het Peil-voorbeeld Instellingen → Gebruikers en toegang op 390 en 1440 px. De mobiele kaart toont veldnamen per rij, de desktopversie toont een vierkolomstabel. Actief en Ingetrokken gebruiken neutrale labels. Onbekend en Verouderd blijven herkenbaar door het woord, de vorm en de toelichting.
+
+| Meting | Uitkomst |
+| --- | --- |
+| Afdrukken | 320, 360, 390, 768, 1024 en 1440 px, licht en donker. Getoetst met de E2E-fixtures en aanvullende browserantwoorden voor laden, lang laden, leeg, ophaalfout, invoerfouten, 409 bij herstel, 429, lopende aanmaak, eenmalige weergave, kopiëren, lijst, verversen, verouderd, offline, intrekken en verboden. Samen 424 schermafdrukken. Ook tekstafstand met DejaVu Sans, gevoeligheid voor beweging, 200% reflow met 640 CSS-px en geforceerde kleuren in Chromium. |
+| Reflow en doelen | Geen horizontale documentoverloop in de normale en aangepaste tekstafstandproeven. Bedieningsdoelen in de kaart en dialogen meten minimaal 44 × 44 px in de 340 toestandsmetingen. Lange namen en scopecodes blijven zichtbaar. |
+| Contrast | Peil-tekstgrens 4,5:1 gehaald, ook voor de tijdelijk geblokkeerde verversknop (4,73:1 licht en 5,23:1 donker). Randen van beschikbare bediening halen 5,89:1 licht en 5,67:1 donker. De focusring haalt 3:1. De waarden en vormgeving zijn in beide thema’s en de schakelaars in geforceerde kleuren gecontroleerd. |
+| Axe en semantiek | Getoetst met de WCAG 2.2 AA-tags uit Peil. Nul overtredingen in Machine-sleutels bij 204 volledige paginascans. Op alle breedtes vier kolomkoppen in de toegankelijkheidsboom, ook in kaartvorm. De statusmeldingen hebben een passende rol. Bij 320, 360 en 390 px signaleert de volledige paginascan de bestaande knop Wachtwoord instellen in de aangrenzende kaart Gebruikers (`target-size`). |
+| Toetsenbord | Tab en Shift+Tab langs naam, beide schakelaars en dialoogacties op 390 en 1440 px. Onmiddellijke ring van 3 px, geen bedekte focus in de gemeten stappen. Pijlen, Home en End verplaatsen selectie én focus. Intrekken begint op Annuleren. Bij geslaagde intrekking gaat focus naar de kaartkop. |
+| Eenmalige waarde | Kopiëren naar het klembord en terugval op tekstselectie gemeten. Na Escape, sluiten, verversen en wegnavigeren verdwijnt de waarde. De controles op URL en de beide browseropslagen vinden de fixturewaarde niet. Een laat antwoord opent het formulier niet opnieuw. |
+| Teksten | 429 toont het tijdstip inclusief seconden naast de fout, ook op 320 px. Na de wachttijd wordt niets opnieuw verzonden totdat de beheerder zelf handelt. Bij open herstel legt de 409 uit dat herstel eerst moet worden afgerond. De NL-catalogus en de Engelse overdrachtscatalogus bevatten dezelfde nieuwe vertaalsleutel. |
+
+**Hersteld:** toegankelijke tabelkoppen en veldnamen bij de gestapelde rijen, omlopende rechtlabels, jaartal in de datumvelden, focus bij verversen en tabwissel, foutdoelen van 44 px, foutfocus bij intrekken, zichtbare randen bij geforceerde kleuren en de herstel- en wachttijdteksten. Waar de lijst vooraf was geladen, blijft de laatste bekende inhoud leesbaar bij een 409 en vermeldt de kaart het open herstel.
+
+**Open:** de aangrenzende gebruikerskaart op 320, 360 en 390 px en een afzonderlijke proef met een echte schermlezer en de hoogcontrastinstelling van het besturingssysteem. De browsermetingen gebruiken de toegankelijkheidsboom en emulatie. Het integrale gedrag met een echte Hub of NAS blijft NIET GEVALIDEERD.

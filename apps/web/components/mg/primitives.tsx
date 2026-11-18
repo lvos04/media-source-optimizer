@@ -232,18 +232,18 @@ const TAB_CLASS = cn(
 export function Tabs<T extends string>({ items, value, onSelect, label }: {
   items: Array<{ value: T; label: ReactNode; count?: number | string; href?: string }>; value: T; onSelect?: (v: T) => void; label: string;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
   const onKey = (e: KeyboardEvent) => {
     if (!onSelect || !["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
     e.preventDefault();
     const idx = items.findIndex((i) => i.value === value);
     const nextIdx = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (idx + (e.key === "ArrowRight" ? 1 : items.length - 1)) % items.length;
+    const nextTab = e.currentTarget.children.item(nextIdx);
+    if (nextTab instanceof HTMLElement) nextTab.focus();
     onSelect(items[nextIdx].value);
-    window.setTimeout(() => ref.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus(), 0);
   };
   const count = (c?: number | string) => (c !== undefined ? <span className="cijfers rounded-full bg-muted px-2 text-sm font-normal text-foreground">{c}</span> : null);
   return (
-    <div className="tabs flex flex-wrap gap-1 border-b border-border" role={onSelect ? "tablist" : undefined} aria-label={label} ref={ref} onKeyDown={onKey}>
+    <div className="tabs flex flex-wrap gap-1 border-b border-border" role={onSelect ? "tablist" : undefined} aria-label={label} onKeyDown={onKey}>
       {items.map((item) =>
         item.href ? (
           <Link key={item.value} href={item.href} className={TAB_CLASS} aria-current={item.value === value ? "page" : undefined}>

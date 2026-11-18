@@ -141,13 +141,13 @@
  },
  {
   "id": "C1.3-MSO-05",
-  "status": "Niet gestart",
-  "validatie": "Niet getest",
-  "bewijs": "docs/platform-v2/CONTRACT_1.3_CONFORMITEIT.md §7; docs/platform-v2/DELTA_MATRIX.md §12",
-  "blokkade": "Moment P3 volgens CONTRACT_1.3_CONFORMITEIT.md §7: Terugkeerpad na inloggen volgens §4.1.",
-  "opmerking": "Niets gebouwd.",
+  "status": "Bezig",
+  "validatie": "Unit-getest",
+  "bewijs": "apps/web/tests/unit/safe-next.test.ts: toegestane en geweigerde terugkeerpaden volgens contract §4.1.",
+  "blokkade": "Navigatie in browser en proef op echte omgeving niet gecontroleerd.",
+  "opmerking": "Terugkeerpad na inloggen wordt begrensd en gecontroleerd; loginpaden worden geweigerd.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-18"
  },
  {
   "id": "C1.3-MSO-06",

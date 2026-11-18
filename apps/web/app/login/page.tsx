@@ -10,13 +10,10 @@ import { AuthFrame } from "@/components/shell/auth-frame";
 import { api, ApiError, errorMessage, setCsrfToken } from "@/lib/api/client";
 import type { LoginResult, SetupStatus } from "@/lib/api/contracts";
 import { useI18n } from "@/lib/i18n";
+import { safeNext } from "@/lib/safe-next";
 
 export default function LoginPage() {
   return <AuthFrame><Suspense><LoginForm /></Suspense></AuthFrame>;
-}
-
-function safeNext(next: string | null): string {
-  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login") ? next : "/";
 }
 
 function LoginForm() {

@@ -14,7 +14,8 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
  9  no secret (admin password, connector key) in the container log
 10  upgrade: database back to the 1.5.0 schema (migrate --down 501), restart → a ``pre-upgrade`` backup is made
     before the migrations, every migration is applied again, data and login intact
-11  readiness en connectorcontract via de publieke webpoort
+11  bouwgegevens uit de alles-in-één-image
+12  readiness en connectorcontract via de publieke webpoort
 """
 
 from __future__ import annotations
@@ -197,7 +198,7 @@ def main() -> int:
         finally:
             sh("docker", "exec", NAME, "mv", hidden_key, key_file)
         record(
-            "11 connector en readiness via webpoort",
+            "12 connector en readiness via webpoort",
             connector_response(anonymous, 401, "unauthorized")
             and connector_response(missing, 404, "not_found")
             and connector_response(unavailable, 501, "capability_unavailable")

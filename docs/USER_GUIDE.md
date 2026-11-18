@@ -528,7 +528,8 @@ die na de snapshot zijn ingetrokken.
 
 Gemeten met de ongewijzigde basiscode `acaf0b34a4162f3bb959a1dfc243f19585ce98cb`
 op een eigen gevulde database met schema 0608: de ingangen `migrate`, `api` en `worker`
-weigerden alle drie met exitcode 79; alle tabelbytes bleven gelijk. De oude auth-functie
+weigerden alle drie met exitcode 79. De gesorteerde rij-inhoud van elke tabel was vóór
+en na de weigeringen gelijk. De oude auth-functie
 herkende een losse machineheader niet en gaf geen principal. Met alleen de vorige
 code kan deze nieuwe database dus niet starten en werkt een machine-sleutel niet.
 Herhaalbaar met `scripts/machine-key-basisproef.py --basis <uitgepakte-basismap/apps/core>`.

@@ -139,6 +139,15 @@ SOURCE_MUTATIONS = {
         '            row = ',
         '            row = ',
     ),
+    "sessiematrix_antwoordinhoud": (
+        "test_machine_key_sessions.py::test_existing_http_matrix_against_base", "api/foundation.py",
+        '        "paused": state.paused(),', '        "paused": not state.paused(),',
+    ),
+    "sessiematrix_auditdelta": (
+        "test_machine_key_sessions.py::test_existing_http_matrix_against_base", "api/foundation.py",
+        '    audit(p.actor, "auth.logout", "Uitgelogd")',
+        '    if p.actor != "beheerder":\n        audit(p.actor, "auth.logout", "Uitgelogd")',
+    ),
 }
 
 

@@ -2,15 +2,28 @@
 
 import json
 import re
+import shutil
+from hashlib import sha256
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from mso import settings_registry
+from mso import retention, settings_registry
+from mso.config import get_settings
+from mso.features.newznab_server import keys as newznab_keys
 from mso.security import limiter
 from tests.conftest import USER_FIXTURE_PASSWORD, AuthedClient
 
 FIXTURES = Path(__file__).with_name("fixtures")
+ISO_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
+UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+EXPECTED_MATRIX_DIFFERENCES = {
+    # Migratie 0608 voegt machine-sleuteltabellen toe. Systeeminfo vermeldt de nieuwe schemaversie.
+    ("get", "/api/v1/system/info"): {
+        "base_version": 607,
+        "added_migration": {"version": 608, "name": "machine_keys", "applied_at": "<tijd>"},
+    },
+}
 
 
 def _signature(response):
@@ -28,8 +41,53 @@ def _assert_basis(name, outcomes):
         assert current == before[label], label
 
 
-def test_existing_http_matrix_against_base(admin, operator, viewer, client, app):
-    """Meet de status en het foutformaat van de 210 oorspronkelijke operaties per identiteit."""
+def _stable(value, key=""):
+    if isinstance(value, dict):
+        return {name: _stable(item, name) for name, item in value.items()}
+    if isinstance(value, list):
+        return [_stable(item, key) for item in value]
+    if key == "uptime_s" and type(value) is int:
+        return "<looptijd>"
+    if isinstance(value, str):
+        if key == "correlation_id" and re.fullmatch(r"[0-9a-f]{12}", value):
+            return "<trace-id>"
+        if ISO_TIME.fullmatch(value):
+            return "<tijd>"
+        if UUID.fullmatch(value):
+            return "<uuid>"
+        settings = get_settings()
+        return value.replace(str(settings.data_dir), "<appdata>").replace(str(settings.work_dir), "<work>")
+    return value
+
+
+def _fingerprint(value):
+    # Bewaar de volledige vergelijking zonder sleutels of lange antwoordcatalogi in de fixture.
+    return sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _matrix_body(response, operation, caller, installed_schema):
+    body = _stable(response.json() if response.headers.get("content-type", "").split(";")[0] == "application/json"
+                   else response.text)
+    if not response.is_success:
+        return body
+    if operation == ("get", "/api/v1/auth/me"):
+        assert body.get("csrf_token") == caller.csrf, "Sessie geeft niet haar eigen CSRF-token terug"
+        body["csrf_token"] = "<sessie-csrf>"
+    if operation == ("get", "/api/v1/settings"):
+        # De registratievolgorde hangt af van welke modules pytest al heeft geïmporteerd.
+        body["definitions"].sort(key=lambda definition: definition["key"])
+    difference = EXPECTED_MATRIX_DIFFERENCES.get(operation)
+    if difference and installed_schema != difference["base_version"]:
+        migration = difference["added_migration"]
+        assert body["schema_version"] == installed_schema == migration["version"]
+        assert body["migrations"][-1] == migration
+        body["schema_version"] = difference["base_version"]
+        body["migrations"].pop()
+    return body
+
+
+def test_existing_http_matrix_against_base(admin, operator, viewer, client, app, db, monkeypatch):
+    """Meet het HTTP-antwoord en de auditdelta per oorspronkelijke operatie en identiteit."""
     expected_operations = json.loads((FIXTURES / "native_operations_before_machine_keys.json").read_text())
     operations = [tuple(pair) for pair in expected_operations["operations"]]
     assert len(operations) == 210
@@ -37,6 +95,20 @@ def test_existing_http_matrix_against_base(admin, operator, viewer, client, app)
                                for method in methods}
     # Uitloggen sluit iedere sessie af en komt daarom als laatste.
     operations.sort(key=lambda pair: pair == ("post", "/api/v1/auth/logout"))
+    # Geef beide apps dezelfde omgevingsmetingen en een vaste synthetische Newznab-sleutel.
+    gib = 1024**3
+    disk_usage = type(shutil.disk_usage("."))
+    monkeypatch.setattr(shutil, "disk_usage", lambda _: disk_usage(100 * gib, 20 * gib, 80 * gib))
+    monkeypatch.setattr(retention, "database_usage", lambda _: {
+        "size_bytes": 12 * 1024**2, "tables": [{"name": "jobs", "bytes": 81920, "rows": 0}],
+    })
+    scalar = db.scalar
+    monkeypatch.setattr(db, "scalar", lambda query, *args, **kwargs:
+                        12 * 1024**2 if query == "SELECT pg_database_size(current_database())"
+                        else scalar(query, *args, **kwargs))
+    monkeypatch.setattr(newznab_keys, "_new_key", lambda: "0" * 32)
+    installed_schema = db.scalar("SELECT max(version) FROM schema_migrations")
+    last_id = db.scalar("SELECT coalesce(max(id),0) FROM audit_log")
     outcomes = {}
     for name, caller in [("anoniem", client), ("kijker", viewer), ("operator", operator), ("beheerder", admin)]:
         limiter.reset()
@@ -46,7 +118,17 @@ def test_existing_http_matrix_against_base(admin, operator, viewer, client, app)
                 response = caller.get(url)
             else:
                 response = caller.request(method, url, json={})
-            outcomes[f"{name} {method} {path}"] = _signature(response)
+            body = _matrix_body(response, (method, path), caller, installed_schema)
+            entries = db.fetchall(
+                "SELECT id,to_jsonb(a) - 'id' AS entry FROM audit_log a WHERE id>%s ORDER BY id", (last_id,),
+            )
+            if entries:
+                last_id = entries[-1]["id"]
+            outcomes[f"{name} {method} {path}"] = {
+                "http": _signature(response),
+                "body": _fingerprint(body),
+                "audit": _fingerprint(_stable([row["entry"] for row in entries])),
+            }
     _assert_basis("matrix", outcomes)
 
 

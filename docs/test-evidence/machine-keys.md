@@ -11,8 +11,20 @@ Basis: `acaf0b34a4162f3bb959a1dfc243f19585ce98cb`; kern `8b44a814e64a70ea0b69ccf
 De fixtures in `apps/core/tests/fixtures` zijn vastgelegd vanuit de uitgepakte basis
 `acaf0b34a4162f3bb959a1dfc243f19585ce98cb` met dezelfde testclients en scenario’s.
 `test_machine_key_sessions.py` vergelijkt 210 bestaande operaties voor vier identiteiten.
-De matrix gebruikt geldige CSRF bij sessies en meet status, inhoudstype, foutcode en foutvelden
-met minimale invoer. Afzonderlijke proeven gebruiken geldige invoer bij bestaande aanmeldingen
+De matrix gebruikt geldige CSRF bij sessies en minimale invoer. Elk van de 840 meetpunten
+vergelijkt status, inhoudstype, foutcode, foutvelden, de volledige genormaliseerde antwoordinhoud
+en de auditdelta in volgorde van toevoeging. Inhoud en audit worden elk vergeleken met hun
+SHA-256-vingerafdruk in de basisfixture. De proef normaliseert tijden, willekeurige UUID's,
+trace-ID's en testmappaden en controleert het teruggegeven CSRF-token tegen de eigen sessie.
+De instellingsdefinities worden op sleutel geordend omdat de registratievolgorde van de
+importvolgorde in pytest afhangt.
+Beide apps krijgen dezelfde schijf- en databasecapaciteitsmetingen en dezelfde synthetische
+Newznab-sleutelinvoer.
+
+`EXPECTED_MATRIX_DIFFERENCES` legt het verwachte verschil in `GET /api/v1/system/info` vast.
+Migratie 0608 voegt de machine-sleuteltabellen toe. Op schema 0608 vereist de test daarom die
+schemaversie en precies de nieuwe migratievermelding. De overige inhoud en de auditdelta
+worden met de basis vergeleken. Afzonderlijke proeven gebruiken geldige invoer bij bestaande aanmeldingen
 en geslaagde schrijfhandelingen van kijker, operator en beheerder. Die vergelijken de sessie-,
 gebruikers- en systeemstand en de auditregels per handeling. De publieke proeven vergelijken
 `healthz`, publieke routes en de menselijke en algemene begrenzing. `test_machine_key_feeds.py`
@@ -31,6 +43,10 @@ API-grenzen: beheerdersrol, opmaak van bestaande fouten, routecontrole, terugzet
 achterwege gelaten auditregels en behoud van de bytes van alle bestaande tabellen bij
 migratie 0608. De machinegrens voor schrijfoperaties wordt daarnaast bewaakt door de
 negatieve OpenAPI-matrix in `test_machine_keys.py`.
+
+De onafhankelijke review controleerde eindcommit `603906615c79d84bc27365b5d27222762f916258`
+met acht geslaagde CI-jobs. Deze run gaat vooraf aan de uitbreiding van de sessiematrix.
+[CI-run 44252875848](https://github.com/lvos04/media-source-optimizer/actions/runs/44252875848)
 
 ## Bouwronde op commit a3429c9
 

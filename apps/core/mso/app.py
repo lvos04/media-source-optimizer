@@ -110,17 +110,25 @@ class GuardMiddleware(BaseHTTPMiddleware):
     """Correlation id, security headers and per-client API rate limit."""
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
+        from mso.machine_keys import has_machine_header
+
         request.state.correlation_id = request.headers.get("X-Correlation-Id", "")[:32] or uuid.uuid4().hex[:12]
         path = request.url.path
-        if path.startswith("/api/") and path not in ("/api/v1/auth/login", "/api/v1/setup/admin"):
-            key = request.cookies.get("mso_session") or (request.client.host if request.client else "?")
+        machine = has_machine_header(request)
+        if machine or path.startswith("/api/") and path not in ("/api/v1/auth/login", "/api/v1/setup/admin"):
+            remote = request.client.host if request.client else "?"
+            key = remote if machine else request.cookies.get("mso_session") or remote
             try:
                 per_min = int(settings_registry.get("security.api_rate_per_min"))
             except Exception:
                 per_min = 600
             ok, wait = limiter.hit("api", key, per_min, 60)
             if not ok:
-                return _error(429, f"Te veel verzoeken; wacht {int(wait) + 1} s", "rate_limited", request)
+                seconds = int(wait) + 1
+                response = _error(429, f"Te veel verzoeken; wacht {seconds} s", "rate_limited", request)
+                if path == "/api/v1/machine-keys" or path.startswith("/api/v1/machine-keys/"):
+                    response.headers["Retry-After"] = str(seconds)
+                return response
         response = await call_next(request)
         response.headers["X-Correlation-Id"] = request.state.correlation_id
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -147,9 +155,9 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
         app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
                            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
                            allow_headers=["Content-Type", "X-CSRF-Token"])
-    app.add_middleware(GuardMiddleware)
     from mso.machine_keys import MachineKeyMiddleware
     app.add_middleware(MachineKeyMiddleware, routes=app.router.routes)
+    app.add_middleware(GuardMiddleware)
 
     @app.exception_handler(HTTPException)
     async def http_exc(request: Request, exc: HTTPException) -> JSONResponse:

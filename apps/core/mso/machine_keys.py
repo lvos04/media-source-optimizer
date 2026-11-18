@@ -28,7 +28,7 @@ from starlette.routing import Match
 from mso.audit import audit
 from mso.auth import Principal, current_principal, token_hash
 from mso.db import Database, get_db, jsonb
-from mso.security import limiter
+from mso.security import redact
 
 SCOPES = frozenset({"read", "changes:approve"})
 IDEMPOTENCY_EXCEPTIONS = {
@@ -37,6 +37,7 @@ IDEMPOTENCY_EXCEPTIONS = {
 KEY_RE = re.compile(r"mso_mk_([0-9a-f]{32})_([A-Za-z0-9_-]{43})", re.ASCII)
 PUBLIC_FIELDS = ("id", "name", "scopes", "created_at", "last_used_at", "revoked_at", "last_four")
 ADMIN_LOCK = 727008
+FAILED_AUTH_LOCK = 727009
 RESTORE_KEEP_TABLE = "mso_restore_machine_keep"
 RESTORE_PENDING = "Machine-sleutels zijn tijdelijk gesloten zolang het back-upherstel niet is afgerond."
 
@@ -178,44 +179,56 @@ def public(row: dict[str, Any]) -> dict[str, Any]:
 
 def _failed(request: HTTPConnection) -> None:
     from mso import settings_registry
+
     remote = request.client.host if request.client else "?"
     limit = int(settings_registry.get("security.login_rate_per_min"))
-    # De bestaande inlogbucket blijft gedeeld binnen het API-proces. De extra
-    # databaseteller handhaaft dezelfde grens ook tussen API en worker/processen.
-    allowed, wait = limiter.hit("login-ip", remote, limit, 60)
-    public_id = re.match(r"mso_mk_([0-9a-f]{32})_", request.headers.get("x-api-key", ""))
-    identity = "machine:" + (public_id[1] if public_id else "unknown")
-    allowed_id, wait_id = limiter.hit("login-user", identity, limit, 60)
-    buckets = ["ip:" + hashlib.sha256(remote.encode()).hexdigest(),
-               "key:" + hashlib.sha256(identity.encode()).hexdigest()]
-    attempts, shared_wait = 0, 0.0
+    values = request.headers.getlist("x-api-key")
+    match = re.match(r"mso_mk_([0-9a-f]{32})_", values[0]) if len(values) == 1 else None
+    key_id = match[1] if match else None
+    source_hash = hashlib.sha256(remote.encode()).hexdigest()
+    identity_hash = hashlib.sha256(("machine:" + (key_id or "unknown")).encode()).hexdigest()
+    buckets = ["ip:" + source_hash, "key:" + identity_hash]
+    audit_bucket = "audit:" + source_hash
     with get_db().tx() as conn:
-        conn.execute("DELETE FROM machine_auth_limits WHERE started_at < now() - interval '60 seconds'")
-        for bucket in buckets:
-            row = conn.execute(
-                "INSERT INTO machine_auth_limits(bucket,started_at,attempts) VALUES (%s,now(),1) "
-                "ON CONFLICT (bucket) DO UPDATE SET attempts=machine_auth_limits.attempts+1 "
-                "RETURNING attempts, extract(epoch FROM started_at+interval '60 seconds'-now()) AS wait", (bucket,)
-            ).fetchone()
-            attempts = max(attempts, row["attempts"])
-            shared_wait = max(shared_wait, float(row["wait"]))
-    if not allowed or not allowed_id or attempts > limit:
-        audit("machine", "machine_keys.rate_limited", "Machine-aanmelding tijdelijk begrensd.")
+        _require_machine_auth_open(conn)
+        # Eén korte transactie voor tellers en audit, ook wanneer er meerdere API-processen draaien.
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (FAILED_AUTH_LOCK,))
+        current = {row["bucket"]: row for row in conn.execute(
+            "SELECT bucket, attempts, extract(epoch FROM started_at+interval '60 seconds'-now()) AS wait "
+            "FROM machine_auth_limits WHERE bucket=ANY(%s) AND started_at > now() - interval '60 seconds'",
+            ([*buckets, audit_bucket],))}
+        wait = max((float(current[b]["wait"]) for b in buckets if b in current and current[b]["attempts"] >= limit),
+                   default=0.0)
+        if not wait or audit_bucket not in current:
+            conn.execute("DELETE FROM machine_auth_limits WHERE started_at <= now() - interval '60 seconds'")
+            for bucket in ([audit_bucket] if wait else buckets):
+                conn.execute(
+                    "INSERT INTO machine_auth_limits(bucket,started_at,attempts) VALUES (%s,now(),1) "
+                    "ON CONFLICT (bucket) DO UPDATE SET attempts=machine_auth_limits.attempts+1", (bucket,))
+            action, summary = (("machine_keys.rate_limited", "Machine-aanmelding tijdelijk begrensd.") if wait else
+                               ("machine_keys.auth_failed", "Aanmelden met machine-sleutel geweigerd."))
+            conn.execute("INSERT INTO audit_log(actor,action,target,summary,detail) VALUES (%s,%s,%s,%s,%s)",
+                         ("machine", action, str(uuid.UUID(key_id)) if key_id else None, summary,
+                          jsonb({"remote": redact(remote)})))
+    if wait:
         raise HTTPException(429, "Te veel mislukte pogingen. Wacht even en probeer het opnieuw.",
-                            headers={"Retry-After": str(max(1, math.ceil(max(wait, wait_id, shared_wait))))})
-    audit("machine", "machine_keys.auth_failed", "Aanmelden met machine-sleutel geweigerd.")
+                            headers={"Retry-After": str(max(1, math.ceil(wait)))})
     raise HTTPException(401, "Ongeldige of ingetrokken machine-sleutel")
+
+
+def _require_machine_auth_open(conn: psycopg.Connection) -> None:
+    available = conn.execute("SELECT pg_try_advisory_xact_lock_shared(%s) AS available", (ADMIN_LOCK,)).fetchone()
+    if restore_pending(conn):
+        raise MachineKeyError(403, "machine_key_restore_pending", RESTORE_PENDING)
+    if not available["available"]:
+        raise HTTPException(403, "Machine-aanmelding is tijdelijk gesloten tijdens sleutelbeheer of herstel")
 
 
 def _read_key(key_id: str | uuid.UUID | None) -> dict[str, Any] | None:
     # Een herstel kan tussentijds oudere autorisatierijen terugzetten. Lezen
     # wacht nooit op dat herstel en gebruikt die tijdelijke toestand niet.
     with get_db().tx() as conn:
-        available = conn.execute("SELECT pg_try_advisory_xact_lock_shared(%s) AS available", (ADMIN_LOCK,)).fetchone()
-        if restore_pending(conn):
-            raise MachineKeyError(403, "machine_key_restore_pending", RESTORE_PENDING)
-        if not available["available"]:
-            raise HTTPException(403, "Machine-aanmelding is tijdelijk gesloten tijdens sleutelbeheer of herstel")
+        _require_machine_auth_open(conn)
         if key_id is None:
             return None
         return conn.execute("SELECT id,key_hash,scopes,revoked_at FROM machine_keys WHERE id=%s", (key_id,)).fetchone()

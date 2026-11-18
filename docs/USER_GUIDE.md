@@ -472,6 +472,12 @@ machines: onder meer kosten/diensten (automatische import), Newznab-endpointinfo
 (cache/gebruik), MediaGuard-status en individuele diagnose (verversen/probe), SAB-servers
 (status verversen) en categoriediagnose (optionele refresh). Hun sessiegedrag blijft bestaan.
 
+Mislukte machine-aanmeldingen hebben per bronadres en sleutel-ID dezelfde grenswaarde
+als menselijke aanmeldingen, met eigen tellers. Een geldige machine-sleutel kan blijven
+lezen zolang alleen mislukte pogingen van zijn bron zijn begrensd. De algemene API-grens
+blijft gelden. Het auditlog vermeldt het bronadres en, als het uit de kop valt te lezen,
+het publieke sleutel-ID. Per bronadres wordt hooguit één overschrijding per minuut gelogd.
+
 Beheer-API, uitsluitend met beheerderssessie en bij schrijven de bestaande CSRF-kop:
 
 - `POST /api/v1/machine-keys`: naam en expliciete lijst `scopes`; antwoord `item` en eenmalig `key`.

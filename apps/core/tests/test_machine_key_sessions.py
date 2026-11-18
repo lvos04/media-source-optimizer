@@ -3,6 +3,8 @@
 import json
 import re
 import shutil
+import time
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
@@ -90,6 +92,8 @@ def _matrix_body(response, operation, caller, installed_schema):
 
 def test_existing_http_matrix_against_base(admin, operator, viewer, client, app, db, monkeypatch):
     """Meet het HTTP-antwoord en de auditdelta per oorspronkelijke operatie en identiteit."""
+    from mso.features.torrent import api as torrent_api
+
     expected_operations = json.loads((FIXTURES / "native_operations_before_machine_keys.json").read_text())
     operations = [tuple(pair) for pair in expected_operations["operations"]]
     assert len(operations) == 210
@@ -97,6 +101,17 @@ def test_existing_http_matrix_against_base(admin, operator, viewer, client, app,
                                for method in methods}
     # Uitloggen sluit iedere sessie af en komt daarom als laatste.
     operations.sort(key=lambda pair: pair == ("post", "/api/v1/auth/logout"))
+    # Een trage runner kan tussen identiteiten een taakslot passeren.
+    now = datetime.now(UTC)
+
+    class MatrixDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz) if tz is not None else now.replace(tzinfo=None)
+
+    monkeypatch.setattr(torrent_api, "datetime", MatrixDateTime)
+    monkeypatch.setattr(time, "time", now.timestamp)
+
     # Geef beide apps dezelfde omgevingsmetingen en een vaste synthetische Newznab-sleutel.
     gib = 1024**3
     disk_usage = type(shutil.disk_usage("."))

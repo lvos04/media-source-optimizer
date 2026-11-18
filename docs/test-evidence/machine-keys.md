@@ -19,7 +19,8 @@ trace-ID's en testmappaden en controleert het teruggegeven CSRF-token tegen de e
 De instellingsdefinities en connectoren worden op sleutel en ID geordend omdat hun
 registratievolgorde van de importvolgorde in pytest afhangt.
 Beide apps krijgen dezelfde schijf- en databasecapaciteitsmetingen en dezelfde synthetische
-Newznab-sleutelinvoer.
+Newznab-sleutelinvoer. Alle identiteiten binnen één meting gebruiken dezelfde kloktijd
+voor de taakplanning, zodat ze bij dezelfde aanvraag hetzelfde tijdvak en taak-ID krijgen.
 
 `EXPECTED_MATRIX_DIFFERENCES` legt het verwachte verschil in `GET /api/v1/system/info` vast.
 Migratie 0608 voegt de machine-sleuteltabellen toe. Op schema 0608 vereist de test daarom die

@@ -6,7 +6,7 @@ export const messages = {
   "system.buildTime": "Bouwtijd",
   "system.channel": "Kanaal",
   "system.buildSource": "Buildgegevens uit de core-image",
-  "system.buildUnknownReason": "Voor onbekende waarden ontbreekt het buildargument.",
+  "system.buildUnknownReason": "Bij onbekende waarden ontbreekt het buildargument of is het ongeldig.",
   "system.channelDevelopment": "Ontwikkeling",
   "system.channelRelease": "Release",
   "system.schema": "Schemaversie",

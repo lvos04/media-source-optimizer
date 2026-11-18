@@ -96,7 +96,7 @@ test("Systeem toont de buildgegevens uit de core-image", async ({ page }) => {
   await page.goto("/systeem");
   const card = page.getByRole("region", { name: "MSO-core" });
   await expect(card.getByText("Buildgegevens uit de core-image")).toBeVisible();
-  const unknownReason = card.getByText("Voor onbekende waarden ontbreekt het buildargument.");
+  const unknownReason = card.getByText("Bij onbekende waarden ontbreekt het buildargument of is het ongeldig.");
   if (fields.some(({ value }) => !value?.trim() || value.trim() === "onbekend")) {
     await expect(unknownReason).toBeVisible();
   } else {
@@ -109,9 +109,13 @@ test("Systeem toont de buildgegevens uit de core-image", async ({ page }) => {
     const cell = card.locator(`dt:text-is("${label}") + dd`);
     if (expected === "onbekend") {
       await expect(cell.locator('[data-status="unknown"]')).toHaveText("Onbekend");
+      await expect(cell.locator("time")).toHaveCount(0);
     } else if (name === "build_time") {
+      const display = new Date(expected).toLocaleString("nl-NL", {
+        dateStyle: "medium", timeStyle: "medium", timeZone: "UTC",
+      });
       await expect(cell.locator("time")).toHaveAttribute("datetime", expected);
-      await expect(cell).toHaveText(expected);
+      await expect(cell).toHaveText(`${display} UTC`);
     } else if (name === "channel") {
       const labels = new Map([["development", "Ontwikkeling"], ["release", "Release"]]);
       await expect(cell).toHaveText(labels.get(expected) ?? expected);
@@ -122,6 +126,47 @@ test("Systeem toont de buildgegevens uit de core-image", async ({ page }) => {
 });
 
 for (const theme of ["dark", "light"] as const) {
+  test(`Back-up maken heeft zichtbare toetsenbordfocus · ${theme}`, async ({ page }) => {
+    test.skip(!USER, "MSO_E2E_USER niet gezet");
+    await page.addInitScript((value) => localStorage.setItem("mso.theme", value), theme);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await login(page);
+    await page.goto("/systeem");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+
+    const button = page.getByTestId("backup-create");
+    await expect(button).toBeEnabled();
+    for (let stap = 0; stap < 80 && !(await button.evaluate((el) => el.matches(":focus-visible"))); stap += 1) {
+      await page.keyboard.press("Tab");
+    }
+    await expect(button).toBeFocused();
+
+    const focus = await button.evaluate((el) => {
+      const style = getComputedStyle(el);
+      const surface = el.closest("section")!;
+      const canvas = document.createElement("canvas").getContext("2d")!;
+      const luminance = (color: string) => {
+        canvas.clearRect(0, 0, 1, 1);
+        canvas.fillStyle = color;
+        canvas.fillRect(0, 0, 1, 1);
+        return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3)
+          .map((value) => value / 255)
+          .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+          .reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
+      };
+      const ring = luminance(style.outlineColor);
+      const background = luminance(getComputedStyle(surface).backgroundColor);
+      return {
+        width: style.outlineStyle === "none" ? 0 : parseFloat(style.outlineWidth),
+        transition: style.transitionProperty,
+        contrast: (Math.max(ring, background) + 0.05) / (Math.min(ring, background) + 0.05),
+      };
+    });
+    expect.soft(focus.width).toBeGreaterThanOrEqual(3);
+    expect.soft(focus.contrast).toBeGreaterThanOrEqual(3);
+    expect.soft(focus.transition).toBe("none");
+  });
+
   for (const s of SCREENS) {
     test(`${s.slug} · ${theme}`, async ({ page }, info) => {
       test.skip(!USER, "MSO_E2E_USER niet gezet");

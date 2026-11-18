@@ -27,6 +27,16 @@ const BUILD_FIELDS = [
   ["build_time", "system.buildTime"],
   ["channel", "system.channel"],
 ] as const;
+const BUILD_TIME_FORMAT = new Intl.DateTimeFormat("nl-NL", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+  timeZone: "UTC",
+});
 
 export default function SystemPage() {
   const { t, dateTime, duration, num } = useI18n();
@@ -44,7 +54,11 @@ export default function SystemPage() {
         <Card className="span-4" title={t("system.core")} icon={HeartPulse}>
           <ResourceView resource={info} endpoint="GET /api/v1/system/info" compact>
             {(v) => {
-              const build = BUILD_FIELDS.map(([field, label]) => [field, label, v[field]?.trim() || "onbekend"] as const);
+              const buildTime = Date.parse(v.build_time ?? "");
+              const build = BUILD_FIELDS.map(([field, label]) => {
+                const value = field === "build_time" && Number.isNaN(buildTime) ? "onbekend" : v[field]?.trim();
+                return [field, label, value || "onbekend"] as const;
+              });
               return (
                 <>
                   <p className="mb-2 text-sm text-muted-foreground">{t("system.buildSource")}</p>
@@ -56,7 +70,7 @@ export default function SystemPage() {
                           {value === "onbekend" ? (
                             <StatusChip tone="unknown">{t("status.unknown")}</StatusChip>
                           ) : field === "build_time" ? (
-                            <time dateTime={value}>{value}</time>
+                            <time dateTime={value}>{BUILD_TIME_FORMAT.format(buildTime)} UTC</time>
                           ) : field === "channel" ? (
                             channelLabels.get(value) ?? value
                           ) : (
@@ -172,7 +186,7 @@ function BackupsCard() {
 
   return (
     <Card className="span-6" title={t("system.backups")} icon={DatabaseBackup} flush
-      actions={<Button size="sm" variant="primary" disabled={!admin} title={!admin ? t("system.restoreAdminOnly") : undefined} pending={pending === "backup" || creating !== null} onClick={() => void create()} data-testid="backup-create">{t("system.backupNow")}</Button>}>
+      actions={<Button size="sm" variant="primary" disabled={!admin} title={!admin ? t("system.restoreAdminOnly") : undefined} pending={pending === "backup" || creating !== null} onClick={() => void create()} data-testid="backup-create" className="focus-visible:outline-ring focus-visible:transition-none">{t("system.backupNow")}</Button>}>
       <div className="card-body stack-sm" style={{ borderBottom: "1px solid var(--mg-border-soft)" }}>
         <label className="row t-2">
           <Switch checked={includeSecrets} onChange={setIncludeSecrets} label={t("system.backupIncludeSecrets")} disabled={!admin} />{t("system.backupIncludeSecrets")}

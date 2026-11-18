@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 VERSION = "1.6.0"
+BUILD_TIME_UTC = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|\+00:00)")
 
 
 def _bool(name: str, default: bool = False) -> bool:
@@ -22,6 +25,17 @@ def _list(name: str) -> list[str]:
 
 def _build_value(name: str) -> str:
     return os.environ.get(name, "").strip() or "onbekend"
+
+
+def _build_time() -> str:
+    value = _build_value("MSO_BUILD_TIME")
+    if not BUILD_TIME_UTC.fullmatch(value):
+        return "onbekend"
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return "onbekend"
+    return value
 
 
 def _database_url() -> str:
@@ -48,7 +62,7 @@ class BuildMetadata:
 
     version: str = field(default_factory=lambda: _build_value("MSO_BUILD_VERSION"))
     git_sha: str = field(default_factory=lambda: _build_value("MSO_BUILD_GIT_SHA"))
-    build_time: str = field(default_factory=lambda: _build_value("MSO_BUILD_TIME"))
+    build_time: str = field(default_factory=_build_time)
     channel: str = field(default_factory=lambda: _build_value("MSO_BUILD_CHANNEL"))
 
 

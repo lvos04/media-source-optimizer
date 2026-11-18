@@ -406,11 +406,12 @@ echte `table`, < 768 als kaartenlijst (ResponsieveLijst C-34); nooit horizontale
 | **Offline** | VerbindingsBanner / Foutpaneel | "MSO-core is niet bereikbaar" (bestaande tekst) + Opnieuw proberen; `wifi-off` op `unknown`-vlak (nu amber) | — |
 
 De kaart **MSO-core** op Systeem toont de buildgegevens uit de core-image in het bestaande definitieraster.
-De vier regels zijn Versie, Commit, Bouwtijd en Kanaal. De volledige commit mag omlopen. Bouwtijd staat in UTC,
-naast de afzonderlijke looptijd van de app en de datums in het migratieoverzicht. Een ontbrekende waarde krijgt
-per regel de gestippelde Peil-statuspil **Onbekend**. De uitleg over ontbrekende buildargumenten staat onder
-de lijst zodra een waarde onbekend is. Een buildkanaal
-beschrijft de herkomst van de image en draagt geen acceptatiestatus.
+De vier regels zijn Versie, Commit, Bouwtijd en Kanaal. De volledige commit mag omlopen. Bouwtijd staat in
+Nederlandse notatie met UTC, naast de afzonderlijke looptijd van de app en de datums in het migratieoverzicht.
+De machineleesbare bouwtijd behoudt de oorspronkelijke UTC-waarde. Een ontbrekende buildwaarde of een ongeldige
+bouwtijd krijgt de gestippelde Peil-statuspil **Onbekend** met uitleg onder de lijst. Een buildkanaal
+beschrijft de herkomst van de image en draagt geen acceptatiestatus. **Back-up maken** toont de Peil-focusring
+onmiddellijk bij toetsenbordfocus, met minimaal 3:1 contrast in beide thema's.
 
 ### 6.7 Microcopy (NL, ux-copy)
 

@@ -603,10 +603,11 @@ def test_health_and_info(admin: Any) -> None:
 
 @pytest.mark.parametrize("build", [
     ("1.2.3", "abc123", "2026-01-02T03:04:05Z", "development"),
+    ("1.2.3", "abc123", " 2026-01-02T03:04:05.123+00:00 ", "release"),
     (None, None, None, None),
     ("", "  ", "", "  "),
     ("1.2.3", None, "2026-01-02T03:04:05Z", ""),
-], ids=["ingevuld", "ontbreekt", "leeg", "gedeeltelijk"])
+], ids=["ingevuld", "utc-offset", "ontbreekt", "leeg", "gedeeltelijk"])
 def test_system_info_build_metadata(viewer, client, monkeypatch, build) -> None:
     variables = ("MSO_BUILD_VERSION", "MSO_BUILD_GIT_SHA", "MSO_BUILD_TIME", "MSO_BUILD_CHANNEL")
     for env, value in zip(variables, build, strict=True):
@@ -625,6 +626,22 @@ def test_system_info_build_metadata(viewer, client, monkeypatch, build) -> None:
     assert {name: info[name] for name in fields} == {
         name: (value or "").strip() or "onbekend" for name, value in zip(fields, build, strict=True)
     }
+
+
+@pytest.mark.parametrize("build_time", [
+    "geen-datum",
+    "2026-02-30T03:04:05Z",
+    "2026-01-02",
+    "2026-01-02T03:04:05",
+    "2026-01-02T03:04:05+01:00",
+])
+def test_system_info_weigert_ongeldige_bouwtijd(viewer, monkeypatch, build_time) -> None:
+    monkeypatch.setenv("MSO_BUILD_TIME", build_time)
+    monkeypatch.setattr(config, "_settings", replace(config.get_settings(), build=config.BuildMetadata()))
+
+    response = viewer.get("/api/v1/system/info")
+    assert response.status_code == 200
+    assert response.json()["build_time"] == "onbekend"
 
 
 def test_healthz_unauthenticated(client: TestClient) -> None:

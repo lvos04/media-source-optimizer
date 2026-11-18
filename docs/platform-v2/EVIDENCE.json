@@ -81,13 +81,13 @@
  },
  {
   "id": "B05-009",
-  "status": "Niet gestart",
-  "validatie": "NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "code-HEAD 018b119 (= tag v1.6.0); pytest 789/789 + ruff schoon in deze sessie (INVENTARIS.md §15); DELTA_MATRIX.md §1 B05-009 en §6 (routekaart Hub-adapter); ADR-0002; changes.py:126-143, :211-231; apps/web/app/(app)/automatisering/page.tsx:32-33 (deeplinks); bestaand mechanisme Sim-getest: tests/test_change_safety.py::test_apply_and_rollback_refuse_while_another_holds_the_change, ::test_status_transitions_are_guarded; migrations/0605_v160_change_safety.sql:12-13 (unieke open dedupe_key); tweede lezing: DELTA_MATRIX.md §11 (W4, P7, P8, P13)",
-  "blokkade": "Contract 1.3 §2.3 regel 2: geen enrollment in v1 voor bestaande apps (vervangt de eerdere afhankelijkheid van /api/v1/services/enroll en JWKS; 1.2-punt MS1, ADR-0009 punt 6). Nog te bouwen in P3: P3-06 machine-sleutel met scopes (read; later changes:approve met expected_preview_hash + Idempotency-Key), aangemaakt in de MSO-UI en ingevoerd in de Hub-UI; P3-07 /connector/v1/* + /readyz volgens 1.3 (foutcatalogus, Idempotency-Key met uitzonderingslijst, health = slechtste check, max_age; C1.3-MSO-04); P3-08 preview_hash, vervaltermijn op Hub-goedkeuring, race-test met twee HTTP-clients.",
-  "opmerking": "Connectorlaag ontbreekt; het bestaande change-set-mechanisme (atomaire statusovergang + advisory lock) is Sim-getest en wordt hergebruikt. De Hub keurt goed via MSO-change-sets; geen eigen schrijfpad van de Hub naar SAB/qBit/Prowlarr; 'force' nooit via de connector.",
+  "status": "Bezig",
+  "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "Kerncommit 8b44a81; webcommit 88a76c7. S-P3-220: apps/core/tests/test_machine_keys.py: scopegrens, schrijfmatrix uit OpenAPI, intrekking, rolvrij, geheimopslag, corrupte scopes, gedeelde begrenzing, migratie, herstel zonder heractivering en basis-authvergelijking over 210 bestaande operaties voor vier identiteiten; scripts/test-machine-key-mutaties.py: achttien gerichte mutaties rood bevestigd; scripts/machine-key-basisproef.py: basis weigert schema 0608 met exitcode 79 zonder tabelwijziging. Volledige lokale core-suite: 1051 tests, nul overgeslagen. Eindpoort en beperkingen: docs/test-evidence/machine-keys.md; volledige web-e2e 118 tests, nul overgeslagen, inclusief apps/web/e2e/machine-keys.spec.ts; echte lokale proxy/API/databaseketen maken/lezen/weigeren/intrekken, uitsluitend eigen simulators. CI op de eindcommit wordt in het ketenrapport gekoppeld.",
+  "blokkade": "S-P3-230 (connectorroutes), S-P3-240 (gebonden goedkeuren/toepassen) en de Hub-adapter ontbreken nog. Invoeren in de echte Hub: NIET GEVALIDEERD (echte NAS). De integrale gelijktijdige Hub/MSO-goedkeuring is nog niet gebouwd of getest.",
+  "opmerking": "Machine-sleutel met scope read; changes:approve opent in deze stap geen route. Geen gebruikersrol of enrollment. Alleen het MSO-onderdeel is lokaal getoetst; MSO werkt zelfstandig zonder Hub.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-18"
  },
  {
   "id": "B05-010",
@@ -131,13 +131,13 @@
  },
  {
   "id": "C1.3-MSO-04",
-  "status": "Niet gestart",
-  "validatie": "Niet getest",
-  "bewijs": "docs/platform-v2/CONTRACT_1.3_CONFORMITEIT.md §7; docs/platform-v2/DELTA_MATRIX.md §12",
-  "blokkade": "Moment P3 volgens CONTRACT_1.3_CONFORMITEIT.md §7: Connectorlaag P3-07 volgens 1.3 (foutcatalogus, Idempotency-Key met uitzonderingslijst, health-regels, max_age, change sets via de eigenaar-connector); P3-06 = machine-sleutel met scopes, geen enrollment.",
-  "opmerking": "DELTA_MATRIX §12 legt de correctie vast (MS1); niets gebouwd of gesimuleerd.",
+  "status": "Bezig",
+  "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "Kerncommit 8b44a81; webcommit 88a76c7. S-P3-220 bouwt de authenticatievoorwaarde: apps/core/tests/test_machine_keys.py en docs/openapi/media-source-optimizer.openapi.json. Connectorroutes zijn hiermee nog niet geleverd. Lokale eindpoort en afbakening: docs/test-evidence/machine-keys.md.",
+  "blokkade": "Nog te bouwen: S-P3-230 en S-P3-240 en de Hub-kant. Integrale koppeling: NIET GEVALIDEERD (echte NAS).",
+  "opmerking": "Alleen de machine-authenticatievoorwaarde is gebouwd en lokaal getoetst; geen conformiteitsclaim voor de volledige connectorlaag.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-10"
+  "bijgewerkt": "2026-11-18"
  },
  {
   "id": "C1.3-MSO-05",
@@ -178,5 +178,15 @@
   "opmerking": "Gevonden en gerepareerd: (1) Hub-adres liet een niet-ASCII-teken door dat lower() naar ASCII omzet (Kelvin-teken); (2) README en TRUENAS_CUSTOM_APP.md noemden Install via YAML als alternatief en gaven een terugdraaiprocedure met sudo docker exec, tegen de vaste keuze 'alleen standaard Custom App, geen YAML, geen terminal' (contract §2.3 regel 4); (3) geen test die de OpenAPI-export met de API vergelijkt; (4) ADR-0002/ADR-0004 verwezen niet naar ADR-0009 (geen enrollment in v1). Niet gewijzigd: connectors, MediaGuard-routes, jobs, migraties, databaseschema en OpenAPI (HARDE EIS). Gereed/Geslaagd wordt hier nooit gezet. Aanvulling 2026-11-12 (S-P2-890, besluit gebruiker 2026-11-11, STAPPEN_P2.md 3.2 punt 3b): naast de test op de echte NAS, hardware of met een account rest nog bouwwerk, dus geen NAS-aantekening. Nieuwste gepubliceerde image is ghcr.io/lvos04/media-source-optimizer:1.6.0 (tag v1.6.0 = 018b119; GHCR-tags gemeten 2026-11-12: 1.1.0 t/m 1.6.0); de reviewcommits (o.a. 329af38) zitten in geen tag. Het open P3-werk uit blokkade staat in: C1.3-MSO-03 = S-P3-250, C1.3-MSO-04 = S-P3-240, C1.3-MSO-05 = S-P3-215, C1.3-MSO-06 en P3-05/P3-13 = S-P3-290, P3-04 = S-P3-255 (alle media-source-optimizer; C1.3-MSO-03 t/m -06 staan in deze EVIDENCE op 'Niet gestart'; de controles 'Al gedaan?' van S-P3-240, -250, -255 en -290 gaven op 2026-11-12 nog niet gebouwd).",
   "repo": "media-source-optimizer",
   "bijgewerkt": "2026-11-12"
+ },
+ {
+  "id": "EX16",
+  "status": "Bezig",
+  "validatie": "Sim-geslaagd; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "Kerncommit 8b44a81; webcommit 88a76c7. Alleen MSO-deel S-P3-220: apps/core/tests/test_machine_keys.py test_create_read_revoke, test_no_implicit_read, test_all_writes_denied, test_alias_public_and_websocket_denied en test_sessions_all_routes_match_pre_machine_auth; achttien mutatieproeven via scripts/test-machine-key-mutaties.py. HTTP-testclient met eigen PostgreSQL-testdatabase; geen echte diensten. Aanvullend: werkelijke lokale proxy/API/databaseketen met 200 bij lezen, 403 bij schrijven en 401 na intrekken; docs/test-evidence/machine-keys.md.",
+  "blokkade": "Overige diensten en de integrale Hub-keten vallen buiten deze proef; S-P3-230/240 en de Hub-kant ontbreken nog. NIET GEVALIDEERD (echte NAS).",
+  "opmerking": "Uitsluitend het werkelijk uitgevoerde MSO-onderdeel; geen integrale EX16-acceptatie en geen NAS-acceptatie.",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-18"
  }
 ]

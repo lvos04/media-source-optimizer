@@ -94,8 +94,9 @@ def delete_session(db: Database, token: str) -> None:
 
 
 def principal_from_request(request: Request) -> Principal | None:
-    if "x-api-key" in request.headers:
-        from mso.machine_keys import authenticate, authorize
+    from mso.machine_keys import authenticate, authorize, has_machine_header
+
+    if has_machine_header(request):
         principal = authenticate(request)
         authorize(request, principal)
         return principal

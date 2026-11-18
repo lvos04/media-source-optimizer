@@ -39,6 +39,13 @@ PUBLIC_FIELDS = ("id", "name", "scopes", "created_at", "last_used_at", "revoked_
 ADMIN_LOCK = 727008
 
 
+def has_machine_header(request: HTTPConnection) -> bool:
+    values = request.headers.getlist("x-api-key")
+    if request.url.path.startswith(("/newznab/", "/torznab/")):
+        return any(value.startswith("mso_mk_") for value in values)
+    return bool(values)
+
+
 @contextmanager
 def administration_lock(db: Database) -> Iterator[None]:
     """Herstel en sleutelbeheer delen één slot; gewone leesverzoeken nemen dit nooit."""
@@ -285,10 +292,13 @@ class MachineKeyMiddleware:
                 return await original_receive()
 
             receive = replay
-        if scope["type"] not in {"http", "websocket"} or "x-api-key" not in Headers(scope=scope):
+        if scope["type"] not in {"http", "websocket"}:
             await self.app(scope, receive, send)
             return
         connection = HTTPConnection(scope)
+        if not has_machine_header(connection):
+            await self.app(scope, receive, send)
+            return
 
         async def reject(exc: HTTPException) -> None:
             if scope["type"] == "websocket":

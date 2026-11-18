@@ -1,0 +1,199 @@
+{
+  "login": [
+    200,
+    null
+  ],
+  "machine_audit": 0,
+  "newznab/caps/beide": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/caps/foute_kop": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/caps/foute_query": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/caps/geen": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/caps/kop": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/caps/kop_geldig": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/caps/query": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/caps/query_geldig": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "newznab/search/beide": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ],
+  "newznab/search/foute_kop": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "newznab/search/foute_query": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "newznab/search/geen": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "newznab/search/kop": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ],
+  "newznab/search/kop_geldig": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "newznab/search/query": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ],
+  "newznab/search/query_geldig": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ],
+  "torznab/caps/beide": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/caps/foute_kop": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/caps/foute_query": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/caps/geen": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/caps/kop": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/caps/kop_geldig": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/caps/query": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/caps/query_geldig": [
+    200,
+    "application/xml",
+    "caps",
+    null
+  ],
+  "torznab/search/beide": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ],
+  "torznab/search/foute_kop": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "torznab/search/foute_query": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "torznab/search/geen": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "torznab/search/kop": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ],
+  "torznab/search/kop_geldig": [
+    200,
+    "application/xml",
+    "error",
+    "100"
+  ],
+  "torznab/search/query": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ],
+  "torznab/search/query_geldig": [
+    200,
+    "application/xml",
+    "rss",
+    null
+  ]
+}

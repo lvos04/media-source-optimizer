@@ -94,9 +94,11 @@ def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Databas
 
 
 def _error(status: int, detail: Any, code: str, request: Request) -> JSONResponse:
+    from mso.machine_keys import has_machine_header
+
     cid = getattr(request.state, "correlation_id", None) or uuid.uuid4().hex[:12]
     body = {"detail": detail, "code": code, "correlation_id": cid}
-    if "x-api-key" in request.headers or request.url.path.startswith("/api/v1/machine-keys"):
+    if has_machine_header(request) or request.url.path.startswith("/api/v1/machine-keys"):
         body.update(message=detail, details={"reason": code} if status in {401, 403} else {},
                     trace_id=str(uuid.uuid4()))
     return JSONResponse(body, status_code=status,

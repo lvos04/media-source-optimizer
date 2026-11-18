@@ -33,6 +33,7 @@ os.environ.setdefault("MSO_TESTING", "1")
 
 BASE_URL = os.environ.get("MSO_TEST_DATABASE_URL", "postgresql://mso@127.0.0.1:55432/postgres")
 KEEP_TABLES = {"schema_migrations", "system_state", "ai_model_prices"}
+USER_FIXTURE_PASSWORD = "Wachtwoord123"  # gitleaks:allow — synthetische inlogfixture voor wegwerpdatabases
 
 
 @pytest.fixture()
@@ -118,7 +119,7 @@ class AuthedClient(TestClient):
         return super().request(method, url, headers=headers, **kw)
 
 
-def make_user(app: Any, username: str, role: str, password: str = "Wachtwoord123") -> AuthedClient:
+def make_user(app: Any, username: str, role: str, password: str = USER_FIXTURE_PASSWORD) -> AuthedClient:
     from mso.auth import hash_password
     from mso.db import get_db
     get_db().execute("INSERT INTO users(username,password_hash,role) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",

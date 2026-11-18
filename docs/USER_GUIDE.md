@@ -451,10 +451,13 @@ getoonde waarde in de kluis van de koppeling; MSO bewaart alleen de SHA-256-hash
 vier tekens en beheergegevens. Een verloren waarde kan niet opnieuw worden getoond:
 maak zo nodig een nieuwe sleutel en trek de oude in.
 
-De koppeling stuurt de sleutel uitsluitend in `X-Api-Key`. Een aanwezige sleutelheader
-heeft voorrang op een sessiecookie; een ongeldige of ingetrokken sleutel geeft 401, ook
-met een geldige sessie. Een geldige sleutel op een niet uitdrukkelijk geopende route
-geeft 403, inclusief onbekende routes, websockets, publieke routes en routealiassen.
+De koppeling stuurt de sleutel uitsluitend in `X-Api-Key`. Op `/newznab/*` en
+`/torznab/*` verwerkt de feed zelf waarden zonder het voorvoegsel `mso_mk_`
+volgens de bestaande consumentencontrole. Zodra MSO de kop als machine-aanmelding
+behandelt, krijgt die voorrang op een sessiecookie. Een ongeldige of ingetrokken
+machine-sleutel geeft 401, ook met een geldige sessie. Een geldige sleutel op een niet
+uitdrukkelijk geopende route geeft 403, inclusief onbekende routes, websockets,
+publieke routes en routealiassen.
 `read` opent uitsluitend de gecontroleerde GET-routes in
 `apps/core/mso/machine_keys.py`, constante `READ_ROUTES`; de OpenAPI-export markeert ze
 met `x-machine-scopes`. `changes:approve` is kiesbaar maar opent nu geen routes.

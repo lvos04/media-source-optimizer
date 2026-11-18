@@ -35,6 +35,7 @@ export interface SystemHealth { status: HealthStatus; components: Array<{ name: 
 /** `GET /system/info` */
 export interface SystemInfo {
   version: string; schema_version: number | string; uptime_s: number;
+  git_sha?: string; build_time?: string; channel?: string;
   migrations: Array<{ version: number | string; name: string; applied_at: string | null }>;
 }
 

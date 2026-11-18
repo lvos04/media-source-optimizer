@@ -2276,6 +2276,97 @@
     "title": "SetupComplete",
     "type": "object"
    },
+   "SystemInfo": {
+    "properties": {
+     "build_time": {
+      "description": "Bouwtijd in UTC (ISO 8601), of 'onbekend'.",
+      "title": "Build Time",
+      "type": "string"
+     },
+     "channel": {
+      "description": "Buildkanaal, of 'onbekend'.",
+      "title": "Channel",
+      "type": "string"
+     },
+     "git_sha": {
+      "description": "Git-commit uit de imagebuild, of 'onbekend'.",
+      "title": "Git Sha",
+      "type": "string"
+     },
+     "migrations": {
+      "items": {
+       "$ref": "#/components/schemas/SystemMigration"
+      },
+      "title": "Migrations",
+      "type": "array"
+     },
+     "mode": {
+      "title": "Mode",
+      "type": "string"
+     },
+     "paused": {
+      "title": "Paused",
+      "type": "boolean"
+     },
+     "schema_version": {
+      "title": "Schema Version",
+      "type": "integer"
+     },
+     "uptime_s": {
+      "title": "Uptime S",
+      "type": "integer"
+     },
+     "version": {
+      "description": "Versie uit de imagebuild, of 'onbekend'.",
+      "title": "Version",
+      "type": "string"
+     }
+    },
+    "required": [
+     "version",
+     "git_sha",
+     "build_time",
+     "channel",
+     "schema_version",
+     "migrations",
+     "uptime_s",
+     "mode",
+     "paused"
+    ],
+    "title": "SystemInfo",
+    "type": "object"
+   },
+   "SystemMigration": {
+    "properties": {
+     "applied_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Applied At"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "version": {
+      "title": "Version",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "version",
+     "name",
+     "applied_at"
+    ],
+    "title": "SystemMigration",
+    "type": "object"
+   },
    "TogglesBody": {
     "properties": {
      "areas": {
@@ -8835,9 +8926,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "title": "Response Info Api V1 System Info Get",
-         "type": "object"
+         "$ref": "#/components/schemas/SystemInfo"
         }
        }
       },

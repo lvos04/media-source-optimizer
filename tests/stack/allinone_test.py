@@ -170,6 +170,18 @@ def main() -> int:
             f"admin {r.status_code}; zonder CSRF {no_csrf}; SABnzbd-test {test.get('status')} v{test.get('version')}",
         )
 
+        info = c.get("/api/v1/system/info")
+        expected = {
+            "version": os.environ.get("MSO_BUILD_VERSION", "").strip() or "onbekend",
+            "git_sha": os.environ.get("MSO_BUILD_GIT_SHA", "").strip() or "onbekend",
+            "build_time": os.environ.get("MSO_BUILD_TIME", "").strip() or "onbekend",
+            "channel": os.environ.get("MSO_BUILD_CHANNEL", "").strip() or "onbekend",
+        }
+        metadata = info.json()
+        matches = [field for field, value in expected.items() if metadata.get(field) == value]
+        record("11 buildgegevens uit de alles-in-één-image", info.status_code == 200 and len(matches) == len(expected),
+               f"HTTP {info.status_code}; overeenkomende velden: {', '.join(matches)}")
+
         # 3
         job = c.post("/api/v1/backups", headers={"X-CSRF-Token": csrf}, json={"include_secrets": False}).json()
         status = "?"
@@ -279,7 +291,7 @@ def main() -> int:
         sh("docker", "run", "--rm", "-v", f"{tmp}:/t", "--entrypoint", "sh", IMAGE, "-c", "rm -rf /t/*", check=False)
 
     ok = all(r[1] for r in RESULTS)
-    out = Path(__file__).parent / "results"
+    out = Path(os.environ.get("MSO_STACK_RESULTS_ROOT", Path(__file__).parent / "results"))
     out.mkdir(exist_ok=True)
     lines = [
         "# All-in-one image — testrapport",

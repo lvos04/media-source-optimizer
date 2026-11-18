@@ -20,6 +20,10 @@ def _list(name: str) -> list[str]:
     return [p.strip() for p in os.environ.get(name, "").split(",") if p.strip()]
 
 
+def _build_value(name: str) -> str:
+    return os.environ.get(name, "").strip() or "onbekend"
+
+
 def _database_url() -> str:
     """MSO_DATABASE_URL, or assembled from MSO_DB_* with the password read from MSO_DB_PASSWORD_FILE
     (TrueNAS: the init container generates that file on APPDATA; the password never lives in YAML)."""
@@ -36,6 +40,16 @@ def _database_url() -> str:
         name = os.environ.get("MSO_DB_NAME", "mso")
         return f"postgresql://{user}:{pw}@{host}:{port}/{name}"
     return "postgresql://mso@127.0.0.1:55432/mso"
+
+
+@dataclass(frozen=True)
+class BuildMetadata:
+    """Herkomstgegevens die tijdens de imagebuild worden ingevuld."""
+
+    version: str = field(default_factory=lambda: _build_value("MSO_BUILD_VERSION"))
+    git_sha: str = field(default_factory=lambda: _build_value("MSO_BUILD_GIT_SHA"))
+    build_time: str = field(default_factory=lambda: _build_value("MSO_BUILD_TIME"))
+    channel: str = field(default_factory=lambda: _build_value("MSO_BUILD_CHANNEL"))
 
 
 @dataclass
@@ -62,6 +76,7 @@ class Settings:
     worker_poll_s: float = field(default_factory=lambda: float(os.environ.get("MSO_WORKER_POLL_S", "2")))
     disk_reserve_gb: float = field(default_factory=lambda: float(os.environ.get("MSO_DISK_RESERVE_GB", "2")))
     testing: bool = field(default_factory=lambda: _bool("MSO_TESTING"))
+    build: BuildMetadata = field(default_factory=BuildMetadata)
 
     @property
     def secret_key_file(self) -> Path:

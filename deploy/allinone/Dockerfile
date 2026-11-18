@@ -51,11 +51,9 @@ RUN --mount=type=secret,id=ca_bundle,required=false \
 
 # ---------------------------------------------------------------- runtime
 FROM ${PYTHON_IMAGE}
-ARG VERSION=1.6.0
 LABEL org.opencontainers.image.title="media-source-optimizer" \
       org.opencontainers.image.description="Media Source Optimizer — alles-in-één (database, API, worker, web)" \
-      org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer" \
-      org.opencontainers.image.version="${VERSION}"
+      org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer"
 COPY --from=pg /out/pg/lib /usr/lib/postgresql/16
 COPY --from=pg /out/pg/share /usr/share/postgresql/16
 COPY --from=pg /out/lib /opt/pglibs
@@ -77,6 +75,15 @@ RUN set -eu; \
     python -c "import mso.app, psycopg, uvicorn, cryptography"
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     MSO_DATA_DIR=/appdata MSO_PORT=38081 TZ=Europe/Amsterdam
+ARG VERSION
+ARG GIT_SHA
+ARG BUILD_TIME
+ARG CHANNEL
+ENV MSO_BUILD_VERSION=${VERSION} MSO_BUILD_GIT_SHA=${GIT_SHA} MSO_BUILD_TIME=${BUILD_TIME} MSO_BUILD_CHANNEL=${CHANNEL}
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      io.github.lvos04.media-source-optimizer.channel="${CHANNEL}"
 VOLUME ["/appdata"]
 EXPOSE 38081
 HEALTHCHECK --interval=30s --timeout=8s --start-period=90s --retries=3 \

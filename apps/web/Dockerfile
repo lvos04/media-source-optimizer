@@ -35,6 +35,14 @@ RUN groupadd -g ${GID} mso && useradd -u ${UID} -g ${GID} -M -s /usr/sbin/nologi
        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 WORKDIR /app
 COPY --from=build --chown=root:root /src/.next/standalone ./
+ARG VERSION
+ARG GIT_SHA
+ARG BUILD_TIME
+ARG CHANNEL
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      io.github.lvos04.media-source-optimizer.channel="${CHANNEL}"
 USER ${UID}:${GID}
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

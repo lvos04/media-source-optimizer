@@ -2,7 +2,7 @@
 "use client";
 
 import { Ban, DatabaseBackup, HeartPulse, ListChecks, RotateCcw, Stethoscope } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
@@ -21,11 +21,21 @@ import { BARE_STATUS_WORDS, healthLabel, healthTone, jobIcon, jobKindLabel, jobL
 
 const JOB_FILTERS = ["", "queued", "running", "done", "failed", "cancelled"] as const;
 type JobFilter = (typeof JOB_FILTERS)[number];
+const BUILD_FIELDS = [
+  ["version", "system.version"],
+  ["git_sha", "system.gitSha"],
+  ["build_time", "system.buildTime"],
+  ["channel", "system.channel"],
+] as const;
 
 export default function SystemPage() {
   const { t, dateTime, duration, num } = useI18n();
   const { health, healthError, reloadHealth } = useShell();
   const info = useResource<SystemInfo>("/system/info");
+  const channelLabels = new Map([
+    ["development", t("system.channelDevelopment")],
+    ["release", t("system.channelRelease")],
+  ]);
 
   return (
     <>
@@ -33,13 +43,37 @@ export default function SystemPage() {
       <div className="grid">
         <Card className="span-4" title={t("system.core")} icon={HeartPulse}>
           <ResourceView resource={info} endpoint="GET /api/v1/system/info" compact>
-            {(v) => (
-              <dl className="kv">
-                <dt>{t("system.version")}</dt><dd className="mono">{v.version}</dd>
-                <dt>{t("system.schema")}</dt><dd className="mono">{String(v.schema_version)}</dd>
-                <dt>{t("system.uptime")}</dt><dd>{duration(v.uptime_s)}</dd>
-              </dl>
-            )}
+            {(v) => {
+              const build = BUILD_FIELDS.map(([field, label]) => [field, label, v[field]?.trim() || "onbekend"] as const);
+              return (
+                <>
+                  <p className="mb-2 text-sm text-muted-foreground">{t("system.buildSource")}</p>
+                  <dl className="kv">
+                    {build.map(([field, label, value]) => (
+                      <Fragment key={field}>
+                        <dt>{t(label)}</dt>
+                        <dd>
+                          {value === "onbekend" ? (
+                            <StatusChip tone="unknown">{t("status.unknown")}</StatusChip>
+                          ) : field === "build_time" ? (
+                            <time dateTime={value}>{value}</time>
+                          ) : field === "channel" ? (
+                            channelLabels.get(value) ?? value
+                          ) : (
+                            <span className="mono">{value}</span>
+                          )}
+                        </dd>
+                      </Fragment>
+                    ))}
+                    <dt>{t("system.schema")}</dt><dd className="mono">{String(v.schema_version)}</dd>
+                    <dt>{t("system.uptime")}</dt><dd>{duration(v.uptime_s)}</dd>
+                  </dl>
+                  {build.some(([, , value]) => value === "onbekend") && (
+                    <p className="mt-2 text-sm text-muted-foreground">{t("system.buildUnknownReason")}</p>
+                  )}
+                </>
+              );
+            }}
           </ResourceView>
         </Card>
         <Card className="span-8" title={t("system.health")} icon={Stethoscope} flush actions={<Button size="sm" onClick={() => void reloadHealth()}>{t("action.reload")}</Button>}>

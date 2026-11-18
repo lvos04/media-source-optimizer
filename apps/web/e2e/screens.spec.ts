@@ -22,7 +22,9 @@ import { expect, test, type Page } from "@playwright/test";
  */
 const USER = process.env.MSO_E2E_USER ?? "";
 const PASSWORD = process.env.MSO_E2E_PASSWORD ?? "";
-const SHOT_DIR = path.resolve(__dirname, "../../../docs/screenshots");
+const SHOT_DIR = process.env.MSO_STACK_RESULTS_ROOT
+  ? path.join(process.env.MSO_STACK_RESULTS_ROOT, "screenshots")
+  : path.resolve(__dirname, "../../../docs/screenshots");
 
 const SCREENS: Array<{ route: string; slug: string; title: RegExp }> = [
   { route: "/", slug: "overzicht", title: /Overzicht/ },
@@ -77,6 +79,46 @@ test("setup-scherm verschijnt niet meer en login werkt via formulier", async ({ 
   await page.getByRole("button", { name: "Inloggen" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+});
+
+test("Systeem toont de buildgegevens uit de core-image", async ({ page }) => {
+  test.skip(!USER, "MSO_E2E_USER niet gezet");
+  const fields = [
+    { name: "version", label: "Versie", value: process.env.MSO_BUILD_VERSION },
+    { name: "git_sha", label: "Commit", value: process.env.MSO_BUILD_GIT_SHA },
+    { name: "build_time", label: "Bouwtijd", value: process.env.MSO_BUILD_TIME },
+    { name: "channel", label: "Kanaal", value: process.env.MSO_BUILD_CHANNEL },
+  ];
+  await login(page);
+  const response = await page.request.get("/api/v1/system/info");
+  expect(response.ok()).toBe(true);
+  const body = await response.json();
+  await page.goto("/systeem");
+  const card = page.getByRole("region", { name: "MSO-core" });
+  await expect(card.getByText("Buildgegevens uit de core-image")).toBeVisible();
+  const unknownReason = card.getByText("Voor onbekende waarden ontbreekt het buildargument.");
+  if (fields.some(({ value }) => !value?.trim() || value.trim() === "onbekend")) {
+    await expect(unknownReason).toBeVisible();
+  } else {
+    await expect(unknownReason).toHaveCount(0);
+  }
+
+  for (const { name, label, value } of fields) {
+    const expected = value?.trim() || "onbekend";
+    expect(body[name], name).toBe(expected);
+    const cell = card.locator(`dt:text-is("${label}") + dd`);
+    if (expected === "onbekend") {
+      await expect(cell.locator('[data-status="unknown"]')).toHaveText("Onbekend");
+    } else if (name === "build_time") {
+      await expect(cell.locator("time")).toHaveAttribute("datetime", expected);
+      await expect(cell).toHaveText(expected);
+    } else if (name === "channel") {
+      const labels = new Map([["development", "Ontwikkeling"], ["release", "Release"]]);
+      await expect(cell).toHaveText(labels.get(expected) ?? expected);
+    } else {
+      await expect(cell).toHaveText(expected);
+    }
+  }
 });
 
 for (const theme of ["dark", "light"] as const) {

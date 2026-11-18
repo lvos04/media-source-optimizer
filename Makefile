@@ -40,10 +40,16 @@ e2e:
 	    MSO_E2E_PASSWORD="$$MSO_STACK_ADMIN_PW" MSO_E2E_STRICT=1 MSO_E2E_MIN_TESTS=$(E2E_MIN_TESTS) \
 	    npx playwright test ); rc=$$?; \
 	else echo "!! stack-voorbereiding voor e2e mislukt (rc $$rc) — Playwright niet gestart" >&2; fi; \
-	$(MAKE) down; exit $$rc
+	$(MAKE) down; clean_rc=$$?; \
+	if [[ $$rc -eq 0 ]]; then rc=$$clean_rc; fi; exit $$rc
 
 down:
-	-docker compose -p msostack down -v --remove-orphans
-	-docker run --rm --user 0:0 --network none -v $(CURDIR)/tests/stack/.data:/d --entrypoint /bin/sh \
-	  media-source-optimizer-core:stack -c 'rm -rf /d/appdata /d/work'
-	-rm -rf tests/stack/.data
+	data="$${MSO_STACK_DATA_DIR:-$(CURDIR)/tests/stack/.data}"; \
+	APPDATA="$$data/appdata" WORK="$$data/work" \
+	  docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml down -v --remove-orphans
+	data="$${MSO_STACK_DATA_DIR:-$(CURDIR)/tests/stack/.data}"; \
+	if [[ -d "$$data" ]]; then \
+	  docker run --rm --user 0:0 --network none -v "$$data:/d" --entrypoint /bin/sh \
+	    "media-source-optimizer-core:$${MSO_STACK_IMAGE_TAG:-stack}" -c 'rm -rf /d/appdata /d/work' && \
+	  rmdir "$$data"; \
+	fi

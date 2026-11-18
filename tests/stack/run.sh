@@ -4,6 +4,8 @@
 #   tests/stack/run.sh                 build images, start stack, run smoke test, tear down
 #   MSO_STACK_KEEP=1 tests/stack/run.sh   leave the stack running afterwards (http://127.0.0.1:48081)
 #   MSO_STACK_NO_BUILD=1 …             reuse existing :stack images
+#   MSO_STACK_IMAGE_TAG                optionele tag voor de drie lokale testimages (standaard stack)
+#   MSO_STACK_DATA_DIR / MSO_STACK_RESULTS_ROOT  optionele mappen voor testdata en bewijs
 #   MSO_STACK_NO_WEB=1 …               run without the web container (API direct)
 #   MSO_STACK_UP_ONLY=1 …              only start a fresh stack and wait until healthy (implies KEEP; for Playwright)
 #   MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 …   as UP_ONLY, then prepare it for the full Playwright suite
@@ -19,17 +21,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 HERE="$ROOT/tests/stack"
-RESULTS="$HERE/results"
+RESULTS="${MSO_STACK_RESULTS_ROOT:-$HERE/results}"
 # a stack started only for Playwright keeps its logs apart, so the smoke report is not overwritten
-[[ -n "${MSO_STACK_UP_ONLY:-}" ]] && RESULTS="$HERE/results/e2e-stack"
-DATA="$HERE/.data"
+[[ -n "${MSO_STACK_UP_ONLY:-}" ]] && RESULTS="$RESULTS/e2e-stack"
+DATA="${MSO_STACK_DATA_DIR:-$HERE/.data}"
 PY="${MSO_STACK_PYTHON:-$ROOT/.venv/bin/python}"
 [[ -x "$PY" ]] || PY="$(command -v python3)"
 
-export MSO_IMAGE_TAG=stack
-export MSO_CORE_IMAGE="media-source-optimizer-core:stack"
-export MSO_WEB_IMAGE="media-source-optimizer-web:stack"
-export MSO_MOCKS_IMAGE="mso-mocks:stack"
+export MSO_IMAGE_TAG="${MSO_STACK_IMAGE_TAG:-stack}"
+export MSO_CORE_IMAGE="media-source-optimizer-core:$MSO_IMAGE_TAG"
+export MSO_WEB_IMAGE="media-source-optimizer-web:$MSO_IMAGE_TAG"
+export MSO_MOCKS_IMAGE="mso-mocks:$MSO_IMAGE_TAG"
 export MSO_POSTGRES_IMAGE="${MSO_POSTGRES_IMAGE:-mirror.gcr.io/library/postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab}"
 export APPDATA="$DATA/appdata" WORK="$DATA/work"
 export MSO_WEB_BIND=127.0.0.1 MSO_WEB_PORT="${MSO_STACK_WEB_PORT:-48081}" MSO_STACK_API_PORT="${MSO_STACK_API_PORT:-38200}"
@@ -51,7 +53,6 @@ wipe_data() {  # files are owned by 568 → remove from inside a container
     docker run --rm --user 0:0 --network none -v "$DATA":/d --entrypoint /bin/sh "$MSO_CORE_IMAGE" \
       -c 'rm -rf /d/appdata /d/work' >/dev/null 2>&1 || rm -rf "$DATA"/appdata "$DATA"/work
   fi
-  mkdir -p "$APPDATA" "$WORK"
 }
 
 if [[ -z "${MSO_STACK_NO_BUILD:-}" ]]; then
@@ -65,7 +66,10 @@ if [[ -z "${MSO_STACK_NO_WEB:-}" ]] && ! docker image inspect "$MSO_WEB_IMAGE" >
   MSO_STACK_NO_WEB=1
 fi
 
-rm -rf "$RESULTS"; mkdir -p "$RESULTS/logs"
+if [[ -z "${MSO_STACK_RESULTS_ROOT:-}" ]]; then
+  rm -rf "$RESULTS"
+fi
+mkdir -p "$RESULTS/logs"
 MOCKS=$(MSO_STACK_MOCKS_OUT="$RESULTS/compose.mocks.yaml" "$PY" "$HERE/gen_mocks.py")
 echo "mocks: $MOCKS"
 COMPOSE="docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml -f $RESULTS/compose.mocks.yaml"
@@ -90,7 +94,7 @@ cleanup() {
   done
   if [[ -z "${MSO_STACK_KEEP:-}" ]]; then
     $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
-    wipe_data; rm -rf "$DATA"
+    wipe_data; rmdir "$DATA"
   else
     echo "stack blijft draaien: $MSO_STACK_BASE  (opruimen: $COMPOSE down -v)"
   fi
@@ -99,6 +103,7 @@ trap cleanup EXIT
 
 $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
 wipe_data
+mkdir -p "$APPDATA" "$WORK"
 $COMPOSE config -q
 start=$SECONDS
 # shellcheck disable=SC2086

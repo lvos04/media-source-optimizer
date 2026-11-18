@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from mso import retention, settings_registry
-from mso.config import get_settings
+from mso.config import BuildMetadata, get_settings
 from mso.features.newznab_server import keys as newznab_keys
 from mso.security import limiter
 from tests.conftest import USER_FIXTURE_PASSWORD, AuthedClient
@@ -20,10 +20,13 @@ FIXTURES = Path(__file__).with_name("fixtures")
 ISO_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 EXPECTED_MATRIX_DIFFERENCES = {
-    # Migratie 0608 voegt machine-sleuteltabellen toe. Systeeminfo vermeldt de nieuwe schemaversie.
     ("get", "/api/v1/system/info"): {
+        # Migratie 0608 voegt machine-sleuteltabellen toe.
         "base_version": 607,
         "added_migration": {"version": 608, "name": "machine_keys", "applied_at": "<tijd>"},
+        # S-P3-210 voegt imageherkomst toe. Zonder buildargumenten is ook de versie onbekend.
+        "base_software_version": "1.6.0",
+        "build_fields": ("git_sha", "build_time", "channel"),
     },
 }
 
@@ -81,12 +84,17 @@ def _matrix_body(response, operation, caller, installed_schema):
     if operation == ("get", "/api/v1/connectors"):
         body.sort(key=lambda connector: connector["id"])
     difference = EXPECTED_MATRIX_DIFFERENCES.get(operation)
-    if difference and installed_schema != difference["base_version"]:
-        migration = difference["added_migration"]
-        assert body["schema_version"] == installed_schema == migration["version"]
-        assert body["migrations"][-1] == migration
-        body["schema_version"] = difference["base_version"]
-        body["migrations"].pop()
+    if difference:
+        assert body["version"] == "onbekend"
+        body["version"] = difference["base_software_version"]
+        for field in difference["build_fields"]:
+            assert body.pop(field) == "onbekend"
+        if installed_schema != difference["base_version"]:
+            migration = difference["added_migration"]
+            assert body["schema_version"] == installed_schema == migration["version"]
+            assert body["migrations"][-1] == migration
+            body["schema_version"] = difference["base_version"]
+            body["migrations"].pop()
     return body
 
 
@@ -111,6 +119,7 @@ def test_existing_http_matrix_against_base(admin, operator, viewer, client, app,
 
     monkeypatch.setattr(torrent_api, "datetime", MatrixDateTime)
     monkeypatch.setattr(time, "time", now.timestamp)
+    monkeypatch.setattr(get_settings(), "build", BuildMetadata("onbekend", "onbekend", "onbekend", "onbekend"))
 
     # Geef beide apps dezelfde omgevingsmetingen en een vaste synthetische Newznab-sleutel.
     gib = 1024**3

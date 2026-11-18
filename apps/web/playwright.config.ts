@@ -1,5 +1,6 @@
 // Derived from MediaGuard Ultimate (lvos04/media-guard-ultimate@e92c2acc) apps/web/playwright.config.ts — internally versioned copy, see PROVENANCE.md
 import { existsSync } from "node:fs";
+import path from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
 
@@ -22,7 +23,7 @@ export default defineConfig({
   timeout: 45_000,
   // strict-reporter: with MSO_E2E_STRICT=1 (make e2e, CI) every skipped test fails the run
   reporter: [["list"], ["./e2e/strict-reporter.ts"]],
-  outputDir: "./e2e/.results",
+  outputDir: process.env.MSO_STACK_RESULTS_ROOT ? path.join(process.env.MSO_STACK_RESULTS_ROOT, "playwright") : "./e2e/.results",
   use: { baseURL, trace: "retain-on-failure", locale: "nl-NL" },
   projects: [
     { name: "desktop-1440", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },

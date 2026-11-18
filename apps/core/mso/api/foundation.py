@@ -4,6 +4,7 @@ connectors, backups."""
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -383,19 +384,39 @@ def health(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     return {"status": overall, "components": comps}
 
 
+class SystemMigration(BaseModel):
+    version: int
+    name: str
+    applied_at: datetime | None
+
+
+class SystemInfo(BaseModel):
+    version: str = Field(description="Versie uit de imagebuild, of 'onbekend'.")
+    git_sha: str = Field(description="Git-commit uit de imagebuild, of 'onbekend'.")
+    build_time: str = Field(description="Bouwtijd in UTC (ISO 8601), of 'onbekend'.")
+    channel: str = Field(description="Buildkanaal, of 'onbekend'.")
+    schema_version: int
+    migrations: list[SystemMigration]
+    uptime_s: int
+    mode: str
+    paused: bool
+
+
 @router.get("/system/info")
-def info(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
+def info(_: Principal = Depends(require("viewer"))) -> SystemInfo:
     db = get_db()
-    return {
-        "version": VERSION,
-        "schema_version": schema_version(db),
-        "migrations": [
-            {"version": m["version"], "name": m["name"], "applied_at": m["applied_at"]} for m in applied_migrations(db)
-        ],
-        "uptime_s": int(time.time() - STARTED),
-        "mode": state.mode(),
-        "paused": state.paused(),
-    }
+    build = get_settings().build
+    return SystemInfo(
+        version=build.version,
+        git_sha=build.git_sha,
+        build_time=build.build_time,
+        channel=build.channel,
+        schema_version=schema_version(db),
+        migrations=[SystemMigration.model_validate(m) for m in applied_migrations(db)],
+        uptime_s=int(time.time() - STARTED),
+        mode=state.mode(),
+        paused=state.paused(),
+    )
 
 
 # ------------------------------------------------------------------ audit

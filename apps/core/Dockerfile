@@ -40,8 +40,7 @@ FROM ${PYTHON_IMAGE}
 ARG UID=568
 ARG GID=568
 LABEL org.opencontainers.image.title="media-source-optimizer-core" \
-      org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer" \
-      org.opencontainers.image.version="1.6.0"
+      org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer"
 COPY --from=pgclient /out/ /opt/pgclient/
 COPY --from=build /install /usr/local
 COPY docker/entrypoint.sh /usr/local/bin/mso-entrypoint
@@ -63,6 +62,15 @@ RUN set -eu; \
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/tmp \
     MSO_DATA_DIR=/appdata MSO_WORK_DIR=/work \
     MSO_DB_HOST=postgres MSO_DB_PORT=5432 MSO_DB_NAME=mso MSO_DB_USER=mso
+ARG VERSION
+ARG GIT_SHA
+ARG BUILD_TIME
+ARG CHANNEL
+ENV MSO_BUILD_VERSION=${VERSION} MSO_BUILD_GIT_SHA=${GIT_SHA} MSO_BUILD_TIME=${BUILD_TIME} MSO_BUILD_CHANNEL=${CHANNEL}
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      io.github.lvos04.media-source-optimizer.channel="${CHANNEL}"
 USER ${UID}:${GID}
 EXPOSE 8200
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["mso-healthcheck"]

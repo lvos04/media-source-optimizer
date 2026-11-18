@@ -146,10 +146,30 @@ jobs:
             echo "tags=${{ matrix.name }}:ci" >> "$GITHUB_OUTPUT"
             echo "push=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Buildgegevens
+        id: build
+        if: matrix.name != 'mso-mocks'
+        env:
+          PUBLISH: ${{ steps.tags.outputs.push }}
+          IMAGE_TAG: ${{ steps.tags.outputs.tags }}
+        run: |
+          version="$(< release/VERSION)"
+          channel=development
+          if [[ "$PUBLISH" == true ]]; then
+            version="${IMAGE_TAG##*:}"
+            channel=release
+          fi
+          {
+            echo 'args<<EOF'
+            printf 'VERSION=%s\nGIT_SHA=%s\nBUILD_TIME=%s\nCHANNEL=%s\n' \
+              "$version" "$GITHUB_SHA" "$(date -u +%FT%TZ)" "$channel"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6.18.0
         with:
           context: ${{ matrix.context }}
           tags: ${{ steps.tags.outputs.tags }}
+          build-args: ${{ steps.build.outputs.args }}
           push: ${{ steps.tags.outputs.push }}
           provenance: false
           cache-from: type=gha,scope=${{ matrix.name }}
@@ -167,14 +187,20 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Build all-in-one image + test mocks (local only, never pushed)
         run: |
-          docker build -f deploy/allinone/Dockerfile -t media-source-optimizer:local .
+          MSO_BUILD_VERSION="$(< release/VERSION)"
+          MSO_BUILD_TIME="$(date -u +%FT%TZ)"
+          export MSO_BUILD_VERSION MSO_BUILD_TIME MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL=development
+          printf '%s\n' "MSO_BUILD_VERSION=$MSO_BUILD_VERSION" "MSO_BUILD_GIT_SHA=$MSO_BUILD_GIT_SHA" \
+            "MSO_BUILD_TIME=$MSO_BUILD_TIME" "MSO_BUILD_CHANNEL=$MSO_BUILD_CHANNEL" >> "$GITHUB_ENV"
+          scripts/build-images.sh allinone
           docker build -t mso-mocks:stack apps/mocks
       - name: End-to-end test of the all-in-one image (empty /appdata as root, user 568, restart, kill, backup/restore, upgrade)
         run: |
           python -m venv /tmp/aio-venv && /tmp/aio-venv/bin/pip install -q httpx==0.28.1
           # root only on the CI runner so the test can chown a folder to 568 and look inside the 0700 database folder
           # (as release.yaml); the image itself drops to 568
-          sudo /tmp/aio-venv/bin/python tests/stack/allinone_test.py media-source-optimizer:local
+          sudo --preserve-env=MSO_BUILD_VERSION,MSO_BUILD_GIT_SHA,MSO_BUILD_TIME,MSO_BUILD_CHANNEL \
+            /tmp/aio-venv/bin/python tests/stack/allinone_test.py media-source-optimizer:local
       - name: Job summary
         if: always()
         run: cat tests/stack/results/allinone-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -203,7 +229,11 @@ jobs:
           MSO_STACK_PYTHON: python
           # docker.io is reachable on GitHub runners; the mirror digest is identical
           MSO_POSTGRES_IMAGE: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
-        run: tests/stack/run.sh
+        run: |
+          MSO_BUILD_VERSION="$(< release/VERSION)"
+          MSO_BUILD_TIME="$(date -u +%FT%TZ)"
+          export MSO_BUILD_VERSION MSO_BUILD_TIME MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL=development
+          tests/stack/run.sh
       - name: Job summary
         if: always()
         run: cat tests/stack/results/smoke-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -235,7 +265,11 @@ jobs:
         env:
           MSO_STACK_PYTHON: python
           MSO_POSTGRES_IMAGE: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
-        run: make e2e PY=python
+        run: |
+          MSO_BUILD_VERSION="$(< release/VERSION)"
+          MSO_BUILD_TIME="$(date -u +%FT%TZ)"
+          export MSO_BUILD_VERSION MSO_BUILD_TIME MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL=development
+          make e2e PY=python
       - uses: actions/upload-artifact@v4.6.2
         if: always()
         with:

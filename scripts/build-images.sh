@@ -5,6 +5,7 @@
 #
 # Environment:
 #   MSO_IMAGE_TAG   tag for the images (default: local) → media-source-optimizer-{core,web}:<tag>, mso-mocks:<tag>
+#   MSO_BUILD_VERSION, MSO_BUILD_GIT_SHA, MSO_BUILD_TIME, MSO_BUILD_CHANNEL  optionele herkomstgegevens
 #   MSO_BUILD_CA    CA bundle for a TLS-inspecting proxy; passed as BuildKit secret (never stored in a layer)
 #   HTTPS_PROXY     when set, builds run with --network=host and receive the proxy as build-arg
 set -euo pipefail
@@ -25,7 +26,17 @@ fi
 build() {  # name context
   echo "==> docker build $1:$TAG ($2)"
   local start=$SECONDS
-  DOCKER_BUILDKIT=1 docker build "${args[@]}" -t "$1:$TAG" "$2"
+  local -a metadata=()
+  local binding variable
+  if [[ "$1" != mso-mocks ]]; then
+    for binding in VERSION:MSO_BUILD_VERSION GIT_SHA:MSO_BUILD_GIT_SHA BUILD_TIME:MSO_BUILD_TIME CHANNEL:MSO_BUILD_CHANNEL; do
+      variable=${binding#*:}
+      if [[ -n "${!variable:-}" ]]; then
+        metadata+=(--build-arg "${binding%:*}=${!variable}")
+      fi
+    done
+  fi
+  DOCKER_BUILDKIT=1 docker build "${args[@]}" "${metadata[@]}" -t "$1:$TAG" "$2"
   echo "==> $1:$TAG klaar in $((SECONDS - start)) s, $(docker image inspect "$1:$TAG" --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1e6}')"
 }
 

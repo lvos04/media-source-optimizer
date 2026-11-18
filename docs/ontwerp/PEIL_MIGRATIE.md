@@ -405,6 +405,13 @@ echte `table`, < 768 als kaartenlijst (ResponsieveLijst C-34); nooit horizontale
 | **Niet gevonden / geen toegang** | Foutpaneel paginaniveau | h1 + uitleg + "Naar Overzicht" | `not-found` testid |
 | **Offline** | VerbindingsBanner / Foutpaneel | "MSO-core is niet bereikbaar" (bestaande tekst) + Opnieuw proberen; `wifi-off` op `unknown`-vlak (nu amber) | — |
 
+De kaart **MSO-core** op Systeem toont de buildgegevens uit de core-image in het bestaande definitieraster.
+De vier regels zijn Versie, Commit, Bouwtijd en Kanaal. De volledige commit mag omlopen. Bouwtijd staat in UTC,
+naast de afzonderlijke looptijd van de app en de datums in het migratieoverzicht. Een ontbrekende waarde krijgt
+per regel de gestippelde Peil-statuspil **Onbekend**. De uitleg over ontbrekende buildargumenten staat onder
+de lijst zodra een waarde onbekend is. Een buildkanaal
+beschrijft de herkomst van de image en draagt geen acceptatiestatus.
+
 ### 6.7 Microcopy (NL, ux-copy)
 
 Domeinteksten blijven. Alleen deze woorden veranderen (vaste woordenlijst ONTWERPTAAL §11.1):

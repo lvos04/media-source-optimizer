@@ -1,8 +1,24 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
+
+// De schermmatrix gebruikt één bron en één gebruiker. Houd tussen schermen ruimte
+// onder de standaardgrens van 600/min, ook als een snelle browser veel pagina's opent.
+const test = base.extend({
+  page: async ({ page }, runTest) => {
+    const start = performance.now();
+    let apiRequests = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.startsWith("/api/")) apiRequests++;
+    });
+    await runTest(page);
+    const rest = apiRequests * (60_000 / 400) - (performance.now() - start);
+    if (rest > 0) await delay(rest);
+  },
+});
 
 /**
  * Full-app browser test against a running stack with mocks. `make e2e` (repo root) starts a fresh stack, prepares it

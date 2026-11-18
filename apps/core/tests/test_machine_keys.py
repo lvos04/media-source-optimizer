@@ -289,17 +289,24 @@ def test_opened_reads_only_update_usage_time(admin, client, db, database_bytes):
     assert db.scalar("SELECT last_used_at FROM machine_keys WHERE id=%s", (made["item"]["id"],)) is not None
 
 
-def test_secret_never_returned_or_logged(admin, client, db, caplog, database_bytes):
+@pytest.mark.parametrize("underscore", [4, 23, 39, 42])
+def test_secret_never_returned_or_logged(admin, client, db, caplog, database_bytes, monkeypatch, underscore):
     import base64
     from urllib.parse import quote
+
+    from mso import machine_keys
+
+    deterministic = "A" * underscore + "_" + "B" * (42 - underscore)
+    monkeypatch.setattr(machine_keys.secrets, "token_urlsafe", lambda _: deterministic)
     made = create(admin)
-    secret = made["key"]
+    key = made["key"]
+    secret = machine_keys.KEY_RE.fullmatch(key).group(2)
     listed = admin.get("/api/v1/machine-keys").json()
     assert listed["items"][0]["last_four"] == secret[-4:]
     assert set(listed["items"][0]) == {"id", "name", "scopes", "created_at", "last_used_at", "revoked_at", "last_four"}
-    client.post("/api/v1/users", headers={"X-Api-Key": secret}, json={})
+    client.post("/api/v1/users", headers={"X-Api-Key": key}, json={})
     snapshot = json.dumps({k: v.decode() for k, v in database_bytes(db).items()})
-    for value in [secret, quote(secret), base64.b64encode(secret.encode()).decode(), secret.split("_")[-1]]:
+    for value in [key, quote(key), base64.b64encode(key.encode()).decode(), secret]:
         assert value not in snapshot + json.dumps(listed) + caplog.text
 
 

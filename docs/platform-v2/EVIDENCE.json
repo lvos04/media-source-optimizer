@@ -143,7 +143,7 @@
   "id": "C1.3-MSO-05",
   "status": "Bezig",
   "validatie": "Unit-getest",
-  "bewijs": "apps/web/tests/unit/safe-next.test.ts toetst contract §4.1, genormaliseerde loginpaden, dubbele slashes en een backslash midden in het pad.",
+  "bewijs": "apps/web/tests/unit/safe-next.test.ts toetst contract §4.1, genormaliseerde loginpaden, dubbele slashes en een backslash midden in het pad. Testcommit 69fbe08a3b7b0c17da0a472b1c764c9340ba0676, GitHub Actions-run 44386631450 (web).",
   "blokkade": "Een gerichte browserproef voor het laden van de bestemmingspagina en een proef op een echte omgeving staan open.",
   "opmerking": "De lokale formulierproef vangt de Next-routeractie na gesimuleerde aanmelding af. Toegestane paden behouden hun query en fragment.",
   "repo": "media-source-optimizer",

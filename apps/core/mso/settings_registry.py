@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from fastapi import HTTPException
 
@@ -38,6 +40,9 @@ REGISTRY: dict[str, SettingDef] = {}
 # Extra validation for string settings with a format (key → function(def, value) → normalised value, raises 422).
 # Kept outside SettingDef so the /settings definitions response keeps exactly the same shape.
 VALIDATORS: dict[str, Callable[[SettingDef, str], str]] = {}
+API_RATE_SETTING = "security.api_rate_per_min"
+_api_rates: WeakKeyDictionary[Database, int] = WeakKeyDictionary()
+_api_rate_lock = threading.Lock()
 
 
 def define(key: str, label: str, type: str, default: Any, **kw: Any) -> SettingDef:
@@ -94,6 +99,19 @@ def get(key: str, db: Database | None = None) -> Any:
     return d.default if row is None else row["value"]
 
 
+def refresh_api_rate_limit(db: Database) -> None:
+    """Zet de geldende grens in het API-proces, zodat de machinepoort geen database nodig heeft."""
+    with _api_rate_lock:
+        try:
+            _api_rates[db] = int(get(API_RATE_SETTING, db))
+        except Exception:
+            return  # Houd de laatst gelezen grens aan bij een tijdelijke databasefout.
+
+
+def machine_api_rate_limit(db: Database) -> int:
+    return _api_rates.get(db, int(REGISTRY[API_RATE_SETTING].default))
+
+
 def all_values(db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
     stored = {r["key"]: r["value"] for r in db.fetchall("SELECT key, value FROM settings")}
@@ -122,6 +140,8 @@ def put(values: dict[str, Any], actor: str, db: Database | None = None) -> dict[
                 "updated_by=EXCLUDED.updated_by",
                 (key, jsonb(new), actor),
             )
+    if API_RATE_SETTING in values:
+        refresh_api_rate_limit(db)
     return changes
 
 
@@ -271,7 +291,7 @@ define(
     help="Per IP-adres en per gebruikersnaam.",
 )
 define(
-    "security.api_rate_per_min",
+    API_RATE_SETTING,
     "API-verzoeken per minuut per gebruiker",
     "int",
     600,

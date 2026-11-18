@@ -13,6 +13,7 @@ def test_machine_failures_do_not_block_human_or_valid_machine_key(admin, app, db
     key = made["key"]
     public_id, secret = machine_keys.KEY_RE.fullmatch(key).groups()
     wrong = key[:-1] + ("a" if key[-1] != "a" else "b")
+    rejected_secret = machine_keys.KEY_RE.fullmatch(wrong).group(2)
     source = "gedeelde-testbron"
     caller = TestClient(app, client=(source, 1))
     settings_registry.put({"security.login_rate_per_min": 10}, "test")
@@ -31,7 +32,7 @@ def test_machine_failures_do_not_block_human_or_valid_machine_key(admin, app, db
                          "('machine_keys.auth_failed','machine_keys.rate_limited') ORDER BY id")
     assert [row["action"] for row in audits] == ["machine_keys.auth_failed"] * 10 + ["machine_keys.rate_limited"]
     assert all(row["detail"]["remote"] == source and row["target"].replace("-", "") == public_id for row in audits)
-    assert all("secret" not in row["detail"] and secret not in str(row) for row in audits)
+    assert all(secret not in str(row) and rejected_secret not in str(row) for row in audits)
 
     allowed = caller.get("/api/v1/overview", headers={"X-Api-Key": key})
     assert allowed.status_code == 200
@@ -49,10 +50,12 @@ def test_general_machine_rate_limit_precedes_authentication(admin, app, db, monk
         assert limiter.hit("api", source, limit, 60)[0]
 
     def unexpected(*args):
-        raise AssertionError("Machine-authenticatie bereikt vóór de algemene aanvraaggrens")
+        raise AssertionError("Databasewerk bereikt vóór de algemene aanvraaggrens")
 
-    monkeypatch.setattr(machine_keys, "authenticate", unexpected)
-    rejected = caller.get("/api/v1/overview", headers={"X-Api-Key": made["key"]})
+    with monkeypatch.context() as patch:
+        patch.setattr(machine_keys, "authenticate", unexpected)
+        patch.setattr(db, "tx", unexpected)
+        rejected = caller.get("/api/v1/overview", headers={"X-Api-Key": made["key"]})
     assert rejected.status_code == 429
     assert "Retry-After" not in rejected.headers
     assert not db.scalar("SELECT count(*) FROM machine_auth_limits")
@@ -67,3 +70,20 @@ def test_management_general_limit_returns_retry_after(admin):
     assert listed.status_code == 429 and int(listed.headers["Retry-After"]) >= 1
     existing = admin.get("/api/v1/settings")
     assert existing.status_code == 429 and "Retry-After" not in existing.headers
+
+
+def test_general_machine_rate_limit_follows_setting_and_restore(admin, app):
+    from mso import backups
+
+    made = create(admin)
+    key = {"X-Api-Key": made["key"]}
+    source = "bron-api-back-up"
+    caller = TestClient(app, client=(source, 1))
+    settings_registry.put({"security.api_rate_per_min": 60}, "test")
+    backup = backups.create_backup(actor="test")
+    settings_registry.put({"security.api_rate_per_min": 120}, "test")
+    for _ in range(60):
+        assert limiter.hit("api", source, 120, 60)[0]
+    assert caller.get("/api/v1/overview", headers=key).status_code == 200
+    backups.restore_backup(backup["id"], "test")
+    assert caller.get("/api/v1/overview", headers=key).status_code == 429

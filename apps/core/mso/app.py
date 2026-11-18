@@ -87,6 +87,7 @@ def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Databas
             set_vault(Vault(db))
             load_modules()
             connectors.ensure_rows()
+            settings_registry.refresh_api_rate_limit(db)
     except Exception:
         if own_db:
             db.close()
@@ -118,10 +119,13 @@ class GuardMiddleware(BaseHTTPMiddleware):
         if machine or path.startswith("/api/") and path not in ("/api/v1/auth/login", "/api/v1/setup/admin"):
             remote = request.client.host if request.client else "?"
             key = remote if machine else request.cookies.get("mso_session") or remote
-            try:
-                per_min = int(settings_registry.get("security.api_rate_per_min"))
-            except Exception:
-                per_min = 600
+            if machine:
+                per_min = settings_registry.machine_api_rate_limit(get_db())
+            else:
+                try:
+                    per_min = int(settings_registry.get(settings_registry.API_RATE_SETTING))
+                except Exception:
+                    per_min = 600
             ok, wait = limiter.hit("api", key, per_min, 60)
             if not ok:
                 seconds = int(wait) + 1

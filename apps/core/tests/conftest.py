@@ -77,6 +77,7 @@ def runtime(database_url: str, tmp_path_factory: pytest.TempPathFactory) -> Iter
 
 
 def _truncate() -> None:
+    from mso import settings_registry
     from mso.db import get_db
     db = get_db()
     tables = [r["tablename"] for r in db.fetchall("SELECT tablename FROM pg_tables WHERE schemaname='public'")]
@@ -88,6 +89,7 @@ def _truncate() -> None:
     db.execute("DELETE FROM system_state WHERE key NOT IN ('mode','paused','setup_completed')")
     from mso.connectors import base as connectors
     connectors.ensure_rows()
+    settings_registry.refresh_api_rate_limit(db)
 
 
 @pytest.fixture()

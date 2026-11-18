@@ -60,6 +60,7 @@ from mso.db import (
 )
 from mso.security import redact
 from mso.settings_registry import get as setting
+from mso.settings_registry import refresh_api_rate_limit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -260,6 +261,8 @@ def restore_backup(backup_id: int, actor: str) -> dict:
         except BaseException:
             _recover_machine_keys(db)
             raise
+        finally:
+            refresh_api_rate_limit(db)
 
 
 def recover_machine_keys_on_start(db: Database) -> None:

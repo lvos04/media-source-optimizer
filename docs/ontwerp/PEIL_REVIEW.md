@@ -348,3 +348,24 @@ De kaart staat onder Gebruikers op de bestaande ankerlink. Kaart, formulieren, d
 **Hersteld:** toegankelijke tabelkoppen en veldnamen bij de gestapelde rijen, omlopende rechtlabels, jaartal in de datumvelden, focus bij verversen en tabwissel, foutdoelen van 44 px, foutfocus bij intrekken, zichtbare randen bij geforceerde kleuren en de herstel- en wachttijdteksten. Waar de lijst vooraf was geladen, blijft de laatste bekende inhoud leesbaar bij een 409 en vermeldt de kaart het open herstel.
 
 **Open:** de aangrenzende gebruikerskaart op 320, 360 en 390 px en een afzonderlijke proef met een echte schermlezer en de hoogcontrastinstelling van het besturingssysteem. De browsermetingen gebruiken de toegankelijkheidsboom en emulatie. Het integrale gedrag met een echte Hub of NAS blijft NIET GEVALIDEERD.
+
+## S-P3-210 — Herreview van bouwtijd en toetsenbordfocus (18 november 2026)
+
+Beoordeelde commit `f68c57e3c032a7501e76f3042b3914cb6f29847a` op `ccr-c133d7a0-kuz1cv`. De beoordeling volgt Peil 1.1.1, contract §13 en de ontwerpaanvulling in `PEIL_MIGRATIE.md` §6.6. De regisseur heeft het overslaan van de voorafgaande A-ONTWERP-stap aanvaard als afwijking van de werkvolgorde. De herreview toetst de ontwerpaanvulling inhoudelijk.
+
+### Ontwerp en herstel
+
+- **MSO-core.** De definitielijst houdt de vier gegevens bij elkaar. Bouwtijd, looptijd en migratiedatums hebben afzonderlijke labels. Als de bouwtijd bekend is, zet de kaart de Nederlandse UTC-notatie in een `time`-element dat de exacte API-waarde in `datetime` behoudt. Het herkomstlabel staat bovenaan. Het kanaal geeft de buildherkomst weer.
+- **Ontbrekende of ongeldige waarden.** De kaart gebruikt de bestaande Peil-statuspil met vraagteken, gestippelde rand en het woord **Onbekend**. De toelichting onder de lijst geeft de reden. De kernproef controleerde vijf combinaties met ingevulde, lege of ontbrekende waarden en vijf ongeldige bouwtijden via `GET /api/v1/system/info`. Ongeldige bouwtijd geeft `onbekend`. De exportproef controleerde de OpenAPI-export zonder hem te herschrijven.
+- **Back-up maken.** De knop houdt het bestaande Peil-knoprecept. De extra focusklassen gebruiken het Peil-ringtoken en maken de ring direct zichtbaar. De focuswijziging blijft beperkt tot deze knop. De bestaande zichtbare schermonderdelen blijven in hetzelfde raster.
+- **Referentie.** In de Peil-prototypes `appdetail.html` en `server-metrieken.html` en de bijbehorende voorbeeldbeelden komen dezelfde patronen terug voor brongebonden gegevens, omlopende identificatiecodes en de neutrale onbekendstatus. De toevoeging in §6.6 past bij de kaart en de taakomschrijving.
+
+De gerichte kern- en bewijsproef draaide 41 tests. De webcontroles omvatten Peil-drift, TypeScript, lint, 120 unittests en de productiebuild. De gepinde contractkopie is bytegelijk aan de bron. De online vergelijking meldt een inhoudsverschil met de actuele contractbron binnen versie 1.3. CI-run [44334533565](https://github.com/lvos04/media-source-optimizer/actions/runs/44334533565) is op de beoordeelde commit groen in poging 2.
+
+### Bewijs uit CI en grenzen van de lokale controle
+
+CI-job 134919256610 op deze commit voert twee controles voor de buildgegevens en vier toetsenbordfocusproeven uit. De focusproeven dekken 390 en 1440 px, beide thema’s en de normale bewegingsinstelling. De tests eisen een focusring van minstens 3 px, een contrastverhouding van minstens 3:1 en een onmiddellijke overgang naar de focusstijl. De CI-controles voor Systeem meten axe op 320, 768 en 1024 px in licht en op 390 en 1440 px in beide thema’s. De strikte suite meldt 124 tests zonder overslagen.
+
+De schermafdrukken in de voorgaande review horen bij de bouwcommit en de toenmalige herstelkopie. De herreview gebruikt die oudere resultaten als referentie. Het gedeelde stackslot bleef bezet en er zijn geen nieuwe lokale schermafdrukken of metingen gemaakt. De volledige lokale matrix met contrast, focusbedekking, tekstafstand, aanraakdoelen en overloop op de herstelcommit staat open. De afzonderlijke ontwerpkritiek- en toegankelijkheidscontroles waren in deze sessie niet beschikbaar.
+
+Het ketendossier `peil-review-s-p3-210` bevat de metingen van de bouwcommit `ec6d7733a30d7de82628e044d863eaecd1a04050` en de toenmalige herstelkopie. `metingen-herstel.json` bevat de 12 focusmetingen van die herstelkopie. `RAPPORT-A-HERSTEL-2.md` legt de meetdekking per geteste commit vast.

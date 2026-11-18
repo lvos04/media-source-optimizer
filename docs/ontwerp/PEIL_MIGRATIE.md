@@ -408,7 +408,7 @@ echte `table`, < 768 als kaartenlijst (ResponsieveLijst C-34); nooit horizontale
 De kaart **MSO-core** op Systeem toont de buildgegevens uit de core-image in het bestaande definitieraster.
 De vier regels zijn Versie, Commit, Bouwtijd en Kanaal. De volledige commit mag omlopen. Bouwtijd staat in
 Nederlandse notatie met UTC, naast de afzonderlijke looptijd van de app en de datums in het migratieoverzicht.
-De machineleesbare bouwtijd behoudt de oorspronkelijke UTC-waarde. Een ontbrekende buildwaarde of een ongeldige
+De machineleesbare bouwtijd gebruikt de UTC-notatie met `Z` uit de API. Een ontbrekende buildwaarde of een ongeldige
 bouwtijd krijgt de gestippelde Peil-statuspil **Onbekend** met uitleg onder de lijst. Een buildkanaal
 beschrijft de herkomst van de image en draagt geen acceptatiestatus. **Back-up maken** toont de Peil-focusring
 onmiddellijk bij toetsenbordfocus, met minimaal 3:1 contrast in beide thema's.

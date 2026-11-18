@@ -393,7 +393,7 @@ class SystemMigration(BaseModel):
 class SystemInfo(BaseModel):
     version: str = Field(description="Versie uit de imagebuild, of 'onbekend'.")
     git_sha: str = Field(description="Git-commit uit de imagebuild, of 'onbekend'.")
-    build_time: str = Field(description="Bouwtijd in UTC (ISO 8601), of 'onbekend'.")
+    build_time: str = Field(description="Bouwtijd in ISO 8601 UTC met suffix Z, of 'onbekend'.")
     channel: str = Field(description="Buildkanaal, of 'onbekend'.")
     schema_version: int
     migrations: list[SystemMigration]

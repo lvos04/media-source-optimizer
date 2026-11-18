@@ -35,6 +35,8 @@ def _build_time() -> str:
         datetime.fromisoformat(value)
     except ValueError:
         return "onbekend"
+    if value.endswith("+00:00"):
+        return value.removesuffix("+00:00") + "Z"
     return value
 
 

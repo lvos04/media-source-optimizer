@@ -2279,7 +2279,7 @@
    "SystemInfo": {
     "properties": {
      "build_time": {
-      "description": "Bouwtijd in UTC (ISO 8601), of 'onbekend'.",
+      "description": "Bouwtijd in ISO 8601 UTC met suffix Z, of 'onbekend'.",
       "title": "Build Time",
       "type": "string"
      },

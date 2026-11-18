@@ -601,14 +601,14 @@ def test_health_and_info(admin: Any) -> None:
     assert info["schema_version"] >= 1
 
 
-@pytest.mark.parametrize("build", [
-    ("1.2.3", "abc123", "2026-01-02T03:04:05Z", "development"),
-    ("1.2.3", "abc123", " 2026-01-02T03:04:05.123+00:00 ", "release"),
-    (None, None, None, None),
-    ("", "  ", "", "  "),
-    ("1.2.3", None, "2026-01-02T03:04:05Z", ""),
+@pytest.mark.parametrize(("build", "expected_build_time"), [
+    (("1.2.3", "abc123", "2026-01-02T03:04:05Z", "development"), "2026-01-02T03:04:05Z"),
+    (("1.2.3", "abc123", " 2026-01-02T03:04:05.123+00:00 ", "release"), "2026-01-02T03:04:05.123Z"),
+    ((None, None, None, None), "onbekend"),
+    (("", "  ", "", "  "), "onbekend"),
+    (("1.2.3", None, "2026-01-02T03:04:05Z", ""), "2026-01-02T03:04:05Z"),
 ], ids=["ingevuld", "utc-offset", "ontbreekt", "leeg", "gedeeltelijk"])
-def test_system_info_build_metadata(viewer, client, monkeypatch, build) -> None:
+def test_system_info_build_metadata(viewer, client, monkeypatch, build, expected_build_time) -> None:
     variables = ("MSO_BUILD_VERSION", "MSO_BUILD_GIT_SHA", "MSO_BUILD_TIME", "MSO_BUILD_CHANNEL")
     for env, value in zip(variables, build, strict=True):
         if value is None:
@@ -622,10 +622,11 @@ def test_system_info_build_metadata(viewer, client, monkeypatch, build) -> None:
     response = viewer.get("/api/v1/system/info")
     assert response.status_code == 200
     info = response.json()
-    fields = ("version", "git_sha", "build_time", "channel")
-    assert {name: info[name] for name in fields} == {
-        name: (value or "").strip() or "onbekend" for name, value in zip(fields, build, strict=True)
-    }
+    version, git_sha, _, channel = build
+    assert info["version"] == ((version or "").strip() or "onbekend")
+    assert info["git_sha"] == ((git_sha or "").strip() or "onbekend")
+    assert info["build_time"] == expected_build_time
+    assert info["channel"] == ((channel or "").strip() or "onbekend")
 
 
 @pytest.mark.parametrize("build_time", [

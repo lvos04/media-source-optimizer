@@ -155,11 +155,15 @@ def test_api_error_and_refusal_fall_back(admin: Any, operator: Any, db: Any, no_
     assert KEY not in json.dumps(db.fetchall("SELECT error FROM ai_usage"))
 
 
-def test_unknown_model_without_price_is_refused(admin: Any, operator: Any, no_network: Any) -> None:
+def test_unknown_model_without_price_is_refused(
+    admin: Any, operator: Any, no_network: Any, db: Any, request: pytest.FixtureRequest,
+) -> None:
     _enable(admin)
     admin.put("/api/v1/ai/config", json={"model": "claude-nieuw-9"})
     st = admin.get("/api/v1/ai/status").json()
     assert st["active"] is False and "prijs" in st["reason"]
+    # De prijstabel behoudt de migratie-invoer tussen tests. Verwijder deze extra testrij na afloop.
+    request.addfinalizer(lambda: db.execute("DELETE FROM ai_model_prices WHERE model=%s", (st["model"],)))
     assert (
         admin.put(
             "/api/v1/ai/prices/claude-nieuw-9",

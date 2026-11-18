@@ -474,8 +474,11 @@ machines: onder meer kosten/diensten (automatische import), Newznab-endpointinfo
 
 Mislukte machine-aanmeldingen hebben per bronadres en sleutel-ID dezelfde grenswaarde
 als menselijke aanmeldingen, met eigen tellers. Een geldige machine-sleutel kan blijven
-lezen zolang alleen mislukte pogingen van zijn bron zijn begrensd. De algemene API-grens
-blijft gelden. Het auditlog vermeldt het bronadres en, als het uit de kop valt te lezen,
+lezen zolang alleen mislukte pogingen van zijn bron zijn begrensd. Machineverzoeken
+delen de algemene API-grens per bronadres met anonieme verzoeken. Een koppeling die
+de wachttijd negeert en die grens bereikt, kan daardoor ook een geldige sleutel vanaf
+hetzelfde adres tijdelijk laten begrenzen. Zet de foute koppeling uit of trek haar
+sleutel in. Het auditlog vermeldt het bronadres en, als het uit de kop valt te lezen,
 het publieke sleutel-ID. Per bronadres wordt hooguit één overschrijding per minuut gelogd.
 
 Beheer-API, uitsluitend met beheerderssessie en bij schrijven de bestaande CSRF-kop:
@@ -502,8 +505,8 @@ bewust een nieuw geheim en valt onder de bestaande uitzondering van contract §5
 De statische routetest bewaakt de uitzondering en verplichte idempotentie op alle
 nieuwe mutaties; bestaande native routes behouden hun contract.
 
-De begrenzing van machine-aanmeldingen en alle 429-antwoorden op de sleutelbeheerroutes
-geven `Retry-After` mee. Een koppeling wacht die duur af. Het auditlog vermeldt
+Alle 429-antwoorden op machineverzoeken en op de sleutelbeheerroutes geven
+`Retry-After` mee. Een koppeling wacht die duur af. Het auditlog vermeldt
 sleutelbeheer zonder geheime waarde of hash. Laatst gebruikt is best-efforttelemetrie: een
 bezette rij/pool of schrijffout mag het lezen niet laten mislukken. Vóór het antwoord
 begint wordt intrekking opnieuw gecontroleerd; een eerder ingetrokken sleutel krijgt

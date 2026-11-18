@@ -120,6 +120,25 @@ SOURCE_MUTATIONS = {
         "test_machine_keys.py::test_migration_roundtrip_preserves_existing_tables", "migrations/0608_machine_keys.sql",
         "-- migrate:up", "-- migrate:up\nUPDATE audit_log SET summary='overschreven';",
     ),
+    "N2_bewaartabel_in_dump": (
+        "test_machine_key_restore.py::test_restore_keep_tables_stay_out_of_dumps", "backups.py",
+        'f"--exclude-table={AUDIT_KEEP_TABLE}", f"--exclude-table={RESTORE_KEEP_TABLE}", "-f"',
+        'f"--exclude-table={AUDIT_KEEP_TABLE}", "-f"',
+    ),
+    "N4_intrekken_tijdens_open_herstel": (
+        "test_machine_key_restore.py::test_open_restore_blocks_key_management", "machine_keys.py",
+        '        if restore_pending(conn):\n'
+        '            raise MachineKeyError(409, "machine_key_restore_pending", RESTORE_PENDING)\n'
+        '        old = ',
+        '        old = ',
+    ),
+    "N5_aanmaken_tijdens_open_herstel": (
+        "test_machine_key_restore.py::test_open_restore_blocks_key_management", "machine_keys.py",
+        '            if restore_pending(conn):\n'
+        '                raise MachineKeyError(409, "machine_key_restore_pending", RESTORE_PENDING)\n'
+        '            row = ',
+        '            row = ',
+    ),
 }
 
 

@@ -130,7 +130,7 @@ class GuardMiddleware(BaseHTTPMiddleware):
             if not ok:
                 seconds = int(wait) + 1
                 response = _error(429, f"Te veel verzoeken; wacht {seconds} s", "rate_limited", request)
-                if path == "/api/v1/machine-keys" or path.startswith("/api/v1/machine-keys/"):
+                if machine or path == "/api/v1/machine-keys" or path.startswith("/api/v1/machine-keys/"):
                     response.headers["Retry-After"] = str(seconds)
                 return response
         response = await call_next(request)

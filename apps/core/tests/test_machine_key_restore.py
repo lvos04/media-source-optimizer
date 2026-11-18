@@ -44,6 +44,16 @@ except KeyboardInterrupt:
 """
 
 
+def _interrupt_restore(db, backup_id, interruption="procesdood", exitcode=86):
+    settings = get_settings()
+    result = subprocess.run(
+        [sys.executable, "-c", RESTORE_PROCESS, db.url, str(settings.data_dir), str(settings.work_dir),
+         str(backup_id), interruption], capture_output=True, timeout=90, check=False,
+    )
+    assert result.returncode == exitcode
+    db.pool.check()
+
+
 @pytest.mark.parametrize("interruption,exitcode", [("procesdood", 86), ("signaal", 87)])
 def test_interrupted_restore_keeps_current_permissions(admin, client, db, interruption, exitcode):
     revoked = create(admin)
@@ -53,13 +63,7 @@ def test_interrupted_restore_keeps_current_permissions(admin, client, db, interr
     db.execute("UPDATE machine_keys SET scopes=%s WHERE id=%s",
                (jsonb(["changes:approve"]), changed["item"]["id"]))
     before = security_snapshot(db)
-    settings = get_settings()
-    result = subprocess.run(
-        [sys.executable, "-c", RESTORE_PROCESS, db.url, str(settings.data_dir), str(settings.work_dir),
-         str(backup["id"]), interruption], capture_output=True, timeout=90, check=False,
-    )
-    assert result.returncode == exitcode
-    db.pool.check()
+    _interrupt_restore(db, backup["id"], interruption, exitcode)
     if interruption == "procesdood":
         closed = client.get("/api/v1/overview", headers={"X-Api-Key": revoked["key"]})
         assert closed.status_code == 403
@@ -72,6 +76,58 @@ def test_interrupted_restore_keeps_current_permissions(admin, client, db, interr
     assert client.get("/api/v1/overview", headers={"X-Api-Key": revoked["key"]}).status_code == 401
     assert client.get("/api/v1/overview", headers={"X-Api-Key": changed["key"]}).status_code == 403
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='backup.machine_keys_restore_recovered'") == 1
+
+
+@pytest.mark.parametrize("schema", [607, 608], ids=["pre-upgrade", "gewone-back-up"])
+def test_restore_keep_tables_stay_out_of_dumps(admin, db, schema):
+    if schema == 607:
+        assert migrate_down(db, 607) == [608]
+    original = backups.create_backup(actor="test")
+    if schema == 607:
+        assert migrate_up(db) == [608]
+    create(admin)
+
+    _interrupt_restore(db, original["id"])
+    keep_tables = ("mso_restore_machine_keep", "mso_restore_audit_keep")
+    assert all(db.scalar("SELECT to_regclass(%s)", (table,)) for table in keep_tables)
+    if schema == 608:
+        dump = backups.create_backup(kind="auto", actor="test")
+    init_runtime(db)
+    if schema == 607:
+        [dump] = db.fetchall("SELECT file FROM backups WHERE kind='pre-upgrade' AND schema_version=607")
+
+    path = get_settings().backup_dir / dump["file"]
+    listing = subprocess.run([backups._bin("pg_restore"), "--list", str(path)],
+                             capture_output=True, text=True, timeout=120, check=True).stdout.split()
+    assert "schema_migrations" in listing
+    for table in keep_tables:
+        assert table not in listing
+
+
+def test_open_restore_blocks_key_management(admin, client, db):
+    active = create(admin)
+    revoked = create(admin, name="Al ingetrokken")
+    backup = backups.create_backup(actor="test")
+    assert revoke(admin, revoked["item"]["id"]).status_code == 200
+
+    _interrupt_restore(db, backup["id"])
+    login = admin.post("/api/v1/auth/login", json={"username": "beheerder", "password": USER_FIXTURE_PASSWORD})
+    assert login.status_code == 200
+    admin.csrf = login.json()["csrf_token"]
+    listed = admin.get("/api/v1/machine-keys")
+    created = admin.post("/api/v1/machine-keys", json={"name": "Nieuwe koppeling", "scopes": ["read"]})
+    denied = revoke(admin, active["item"]["id"])
+    init_runtime(db)
+
+    for response in (listed, created, denied):
+        assert response.status_code == 409
+        assert response.json()["code"] == "machine_key_restore_pending"
+    assert client.get("/api/v1/overview", headers={"X-Api-Key": revoked["key"]}).status_code == 401
+    assert client.get("/api/v1/overview", headers={"X-Api-Key": active["key"]}).status_code == 200
+
+    assert revoke(admin, active["item"]["id"]).status_code == 200
+    init_runtime(db)
+    assert client.get("/api/v1/overview", headers={"X-Api-Key": active["key"]}).status_code == 401
 
 
 def test_migration_failure_retains_keys_from_current_schema(admin, client, db, monkeypatch):

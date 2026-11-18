@@ -1,8 +1,10 @@
 """Menselijke aanmelding, machine-pogingen en de algemene API-grens werken onafhankelijk."""
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
-from mso import machine_keys, settings_registry
+from mso import machine_keys, security, settings_registry
 from mso.security import limiter
 from tests.conftest import USER_FIXTURE_PASSWORD
 from tests.test_machine_keys import create
@@ -46,6 +48,7 @@ def test_general_machine_rate_limit_precedes_authentication(admin, app, db, monk
     caller = TestClient(app, client=(source, 1))
     limit = 60
     settings_registry.put({"security.api_rate_per_min": limit}, "test")
+    monkeypatch.setattr(security, "time", SimpleNamespace(monotonic=lambda: 100.0))
     for _ in range(limit):
         assert limiter.hit("api", source, limit, 60)[0]
 
@@ -57,8 +60,16 @@ def test_general_machine_rate_limit_precedes_authentication(admin, app, db, monk
         patch.setattr(db, "tx", unexpected)
         rejected = caller.get("/api/v1/overview", headers={"X-Api-Key": made["key"]})
     assert rejected.status_code == 429
-    assert "Retry-After" not in rejected.headers
+    assert rejected.headers["Retry-After"] == "61"
+    assert rejected.json()["detail"] == "Te veel verzoeken; wacht 61 s"
     assert not db.scalar("SELECT count(*) FROM machine_auth_limits")
+
+    existing = caller.get("/api/v1/overview", headers={"X-Correlation-Id": "proef-aanvraaggrens"})
+    assert existing.status_code == 429
+    assert "Retry-After" not in existing.headers
+    assert existing.content == (
+        b'{"detail":"Te veel verzoeken; wacht 61 s","code":"rate_limited","correlation_id":"proef-aanvraaggrens"}'
+    )
 
 
 def test_management_general_limit_returns_retry_after(admin):

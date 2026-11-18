@@ -115,3 +115,15 @@ def test_failed_restore_immediately_preserves_current_keys(admin, client, db, mo
 
     assert security_snapshot(db) == before
     assert client.get("/api/v1/overview", headers={"X-Api-Key": key["key"]}).status_code == 401
+
+
+def test_restore_audit_counts_discarded_and_retained_keys(admin, client, db):
+    expired = create(admin, name="Alleen in de back-up")
+    backup = backups.create_backup(actor="test")
+    db.execute("DELETE FROM machine_keys WHERE id=%s", (expired["item"]["id"],))
+    backups.restore_backup(backup["id"], "test")
+    assert db.scalar("SELECT count(*) FROM machine_keys") == 0
+    assert client.get("/api/v1/overview", headers={"X-Api-Key": expired["key"]}).status_code == 401
+    detail = db.scalar("SELECT detail FROM audit_log WHERE action='backup.restored'")
+    assert detail["machine_keys_discarded"] == 1
+    assert detail["machine_keys_kept"] == 0

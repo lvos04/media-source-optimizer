@@ -390,6 +390,10 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
         db.execute("INSERT INTO secrets(name,nonce,ciphertext,updated_at) VALUES (%s,%s,%s,%s) "
                    "ON CONFLICT (name) DO NOTHING", (sec["name"], sec["nonce"], sec["ciphertext"], sec["updated_at"]))
     _keep_state(kept_state, db)
+    kept_keys = [key["id"] for key in machine_state["machine_keys"]]
+    discarded_keys = 0
+    if db.scalar("SELECT to_regclass('machine_keys')"):
+        discarded_keys = db.scalar("SELECT count(*) FROM machine_keys WHERE NOT (id=ANY(%s::uuid[]))", (kept_keys,))
     machine_keys.restore_security_snapshot(machine_state, db)
     settled = _settle_applying(row["file"], db)
     resync = resync_after_restore(db)
@@ -397,7 +401,8 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
           detail={"pre_restore_backup": pre["file"], "jobs_cancelled": cancelled,
                   "audit_entries_kept": audit_kept, "resync": resync, "schema": {"dump": dump_v, "current": cur_v},
                   "migrations_down": downgraded, "migrations_up": upgraded, "kept_state": kept_state,
-                  "applying_settled": settled})
+                  "applying_settled": settled, "machine_keys_kept": len(kept_keys),
+                  "machine_keys_discarded": discarded_keys})
     return {"restored": row["file"], "pre_restore_backup": pre["file"], "resync": resync,
             "schema_version": schema_version(db), "applying_settled": settled}
 

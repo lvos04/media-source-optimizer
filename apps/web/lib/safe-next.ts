@@ -5,16 +5,32 @@ export function safeNext(next: string | null): string {
     !/^\/(?![/\\])/.test(next) ||
     /[^!-~]/.test(next) ||
     next.includes("://") ||
-    next.includes("\\") ||
-    next.startsWith("/login")
+    next.includes("\\")
   ) {
     return "/";
   }
 
-  const [rawPath] = next.split(/[?#]/, 1);
-  const { pathname } = new URL(next, "https://mso.invalid");
-  if (rawPath.includes("//") || pathname.includes("//") || pathname.startsWith("/login")) {
+  let [pathname] = next.split(/[?#]/, 1);
+  const target = new URL("https://mso.invalid");
+  try {
+    while (true) {
+      target.pathname = pathname;
+      if (
+        pathname.includes("\\") ||
+        pathname.includes("//") ||
+        target.pathname.includes("//") ||
+        /^\/login/i.test(pathname) ||
+        /^\/login/i.test(target.pathname)
+      ) {
+        return "/";
+      }
+      // Controleer elke gedecodeerde padnaam. Behoud het oorspronkelijke terugkeerpad bij succes.
+      if (!pathname.includes("%")) {
+        return next;
+      }
+      pathname = decodeURIComponent(pathname);
+    }
+  } catch {
     return "/";
   }
-  return next;
 }

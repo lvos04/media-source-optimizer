@@ -143,9 +143,9 @@
   "id": "C1.3-MSO-05",
   "status": "Bezig",
   "validatie": "Unit-getest",
-  "bewijs": "apps/web/tests/unit/safe-next.test.ts: toegestane en geweigerde terugkeerpaden volgens contract §4.1.",
-  "blokkade": "Navigatie in browser en proef op echte omgeving niet gecontroleerd.",
-  "opmerking": "Terugkeerpad na inloggen wordt begrensd en gecontroleerd; loginpaden worden geweigerd.",
+  "bewijs": "apps/web/tests/unit/safe-next.test.ts toetst contract §4.1, genormaliseerde loginpaden, dubbele slashes en een backslash midden in het pad.",
+  "blokkade": "Een gerichte browserproef voor het laden van de bestemmingspagina en een proef op een echte omgeving staan open.",
+  "opmerking": "De lokale formulierproef vangt de Next-routeractie na gesimuleerde aanmelding af. Toegestane paden behouden hun query en fragment.",
   "repo": "media-source-optimizer",
   "bijgewerkt": "2026-11-18"
  },

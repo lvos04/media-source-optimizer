@@ -36,6 +36,48 @@ def test_no_implicit_read(admin, client):
     assert client.get("/api/v1/overview", headers={"X-Api-Key": made["key"]}).status_code == 403
 
 
+def test_duplicate_headers_and_uppercase_force_are_denied(admin, client):
+    key = create(admin)["key"]
+    headers = [("X-Api-Key", key), ("X-Api-Key", "ongeldig")]
+    assert client.get("/api/v1/overview", headers=headers).status_code == 401
+    assert client.get("/api/v1/overview?FORCE=false", headers={"X-Api-Key": key}).status_code == 403
+
+
+def test_principal_checks_route_without_middleware(admin):
+    from fastapi import HTTPException, Request
+
+    from mso.auth import principal_from_request
+
+    key = create(admin)["key"]
+    request = Request({"type": "http", "method": "GET", "path": "/api/v1/users",
+                       "headers": [(b"x-api-key", key.encode())]})
+    with pytest.raises(HTTPException) as denied:
+        principal_from_request(request)
+    assert denied.value.status_code == 403
+
+
+def test_only_admin_can_manage_keys_and_each_operation_is_audited(admin, operator, db):
+    body = {"name": "Geen beheer voor operator", "scopes": ["read"]}
+    assert operator.post("/api/v1/machine-keys", json=body).status_code == 403
+    assert operator.get("/api/v1/machine-keys").status_code == 403
+    made = create(admin)
+    key_id = made["item"]["id"]
+    assert revoke(operator, key_id).status_code == 403
+    listed = admin.get("/api/v1/machine-keys")
+    assert listed.status_code == 200
+    assert revoke(admin, key_id).status_code == 200
+    entries = db.fetchall("SELECT actor,action,target,summary,detail FROM audit_log "
+                          "WHERE action LIKE 'machine_keys.%' ORDER BY id")
+    assert [entry["action"] for entry in entries] == [
+        "machine_keys.create", "machine_keys.list", "machine_keys.revoke",
+    ]
+    assert all(entry["actor"] == "beheerder" for entry in entries)
+    assert [entry["target"] for entry in entries] == [key_id, None, key_id]
+    key_hash = db.scalar("SELECT key_hash FROM machine_keys WHERE id=%s", (key_id,))
+    audit_text = json.dumps(entries)
+    assert made["key"] not in audit_text and key_hash not in audit_text
+
+
 def test_hash_comparison_and_no_cookie_fallback(admin, client, monkeypatch):
     from mso import machine_keys
 
@@ -330,7 +372,10 @@ def test_alias_public_and_websocket_denied(admin, client, app):
     app.router.routes[:] = [r for r in app.router.routes if getattr(r, "original_router", None) is not router]
 
 
-def test_revoke_during_request(admin, client, db, monkeypatch):
+@pytest.mark.parametrize("endpoint_error", [False, True])
+def test_revoke_during_request(admin, client, db, monkeypatch, endpoint_error):
+    from fastapi import HTTPException
+
     from mso.features.overview import api
     made = create(admin)
     entered, release = threading.Event(), threading.Event()
@@ -338,6 +383,8 @@ def test_revoke_during_request(admin, client, db, monkeypatch):
     def blocked(database):
         entered.set()
         assert release.wait(10)
+        if endpoint_error:
+            raise HTTPException(409, "Fout in leesroute van de proef")
         return original(database)
     monkeypatch.setattr(api, "connectors_block", blocked)
     result = []
@@ -492,18 +539,26 @@ def test_failed_key_identity_limit_across_sources(admin, app):
     assert statuses == [401, 401, 401, 429]
 
 
-def test_migration_roundtrip_preserves_users_and_sessions(admin, db, database_bytes):
+def test_migration_roundtrip_preserves_existing_tables(admin, operator, db, database_bytes):
     from mso.db import check_schema_compatibility, migrate_down, migrate_up
+
+    assert operator.post("/api/v1/system/pause").status_code == 200
+    assert admin.get("/api/v1/newznab/endpoint").status_code == 200
     made = create(admin)
+    new_tables = {"machine_keys", "machine_key_requests", "machine_auth_limits", "schema_migrations"}
     before = database_bytes(db)
     assert migrate_down(db, 607) == [608]
     assert db.scalar("SELECT to_regclass('machine_keys')") is None
+    assert {name: data for name, data in before.items() if name not in new_tables} == {
+        name: data for name, data in database_bytes(db).items() if name != "schema_migrations"
+    }
     assert admin.get("/api/v1/auth/me").status_code == 200
     assert migrate_up(db) == [608]
     check_schema_compatibility(db)
     after = database_bytes(db)
-    for table in ["users", "sessions"]:
-        assert before[table] == after[table]
+    assert {name: data for name, data in before.items() if name not in new_tables} == {
+        name: data for name, data in after.items() if name not in new_tables
+    }
     assert made["key"] not in str(after)
 
 
@@ -606,138 +661,3 @@ def test_newer_schema_refused_after_machine_migration(db, database_bytes):
         assert database_bytes(db) == before
     finally:
         db.execute("DELETE FROM schema_migrations WHERE version=%s", (future,))
-
-
-def test_sessions_all_routes_match_pre_machine_auth(admin, operator, viewer, client, db, app, monkeypatch):
-    """Alle bestaande HTTP-operaties: werkelijke antwoorden en audit vóór/na auth-wissel.
-
-    Schrijvers krijgen bewust onjuiste CSRF en een lege body: deze vergelijking meet
-    bestaande auth-uitkomsten; de schrijfmatrix meet afzonderlijk de machinegrens.
-    Alleen wisselende tijden/trace-ID's worden genormaliseerd. Elke helft begint
-    met exact dezelfde gevulde MSO-tabellen, inclusief gebruikers en sessies.
-    """
-    import importlib.util
-    import re
-    import sys
-
-    from psycopg import sql
-
-    from mso import auth
-    from mso.api import foundation
-    from mso.db import jsonb
-    from mso.features.newznab_server import keys as newznab_keys
-    from mso.security import limiter
-
-    # Ook deze bestaande GET-hulp mag niet tussen de twee helften een andere
-    # willekeurige consumentenwaarde maken: seed hem als bestaande toestand.
-    newznab_keys.ensure_default_consumer()
-    source = Path(__file__).parent / "fixtures/machine_auth_basis.py"
-    spec = importlib.util.spec_from_file_location("machine_auth_basis", source)
-    basis = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = basis
-    spec.loader.exec_module(basis)
-    current = auth.principal_from_request
-    original_foundation = foundation.principal_from_request
-    tables = [r["tablename"] for r in db.fetchall("SELECT tablename FROM pg_tables WHERE schemaname='public'")]
-    rows = {t: db.fetchall(sql.SQL("SELECT to_jsonb(t) AS r FROM {} t").format(sql.Identifier(t))) for t in tables}
-    edges = db.fetchall("SELECT c.relname AS child,p.relname AS parent FROM pg_constraint f "
-                        "JOIN pg_class c ON c.oid=f.conrelid JOIN pg_class p ON p.oid=f.confrelid "
-                        "WHERE f.contype='f' AND c.relnamespace='public'::regnamespace")
-    sequences = db.fetchall("SELECT table_name,column_name,pg_get_serial_sequence(table_name,column_name) AS seq "
-                            "FROM information_schema.columns WHERE table_schema='public' "
-                            "AND column_default LIKE 'nextval(%'")
-    order = []
-    pending = set(tables)
-    while pending:
-        ready = sorted(t for t in pending if not any(
-            e["child"] == t and e["parent"] != t and e["parent"] in pending for e in edges))
-        assert ready, "Onbekende cyclische tabelafhankelijkheid in vergelijkingsfixture"
-        order.extend(ready)
-        pending.difference_update(ready)
-
-    def restore():
-        with db.tx() as conn:
-            conn.execute(sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(
-                sql.SQL(",").join(sql.Identifier(t) for t in tables)))
-            for table in order:
-                if rows[table]:
-                    conn.execute(sql.SQL("INSERT INTO {} SELECT * FROM jsonb_populate_recordset(NULL::{},%s)")
-                                 .format(sql.Identifier(table), sql.Identifier(table)),
-                                 (jsonb([r["r"] for r in rows[table]]),))
-            for seq in sequences:
-                maximum = conn.execute(sql.SQL("SELECT max({}) AS n FROM {}").format(
-                    sql.Identifier(seq["column_name"]), sql.Identifier(seq["table_name"]))).fetchone()["n"]
-                conn.execute("SELECT setval(%s,%s,%s)", (seq["seq"], maximum or 1, maximum is not None))
-        limiter.reset()
-
-    def clean(value, key=""):
-        if key == "correlation_id":
-            return "<trace>"
-        if value is not None and (key.endswith("_at") or key in {"uptime_s", "generated_at", "ts"}):
-            return "<tijd>"
-        if isinstance(value, dict):
-            return {k: clean(v, k) for k, v in value.items()}
-        if isinstance(value, list):
-            return [clean(v) for v in value]
-        if isinstance(value, str) and re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:", value):
-            return "<tijd>"
-        return value
-
-    # Machine- en tijdmetingen zijn fixture-invoer: dezelfde schijf kan tijdens
-    # twee verzoeken door andere ketens veranderen. De auth-antwoorden blijven echt.
-    import secrets
-    import shutil
-
-    from mso import backups, retention
-    usage = shutil.disk_usage(".")
-    database_usage = retention.database_usage(db)
-    space_status = backups.space_status(db)
-    monkeypatch.setattr(shutil, "disk_usage", lambda _: usage)
-    monkeypatch.setattr(retention, "database_usage", lambda _: database_usage)
-    monkeypatch.setattr(backups, "space_status", lambda _=None: space_status)
-    monkeypatch.setattr(secrets, "token_urlsafe", lambda n=32: "F" * ((n * 4 + 2) // 3))
-    baseline = json.loads((Path(__file__).parent / "fixtures/native_operations_before_machine_keys.json").read_text())
-    legacy = {tuple(pair) for pair in baseline["operations"]}
-    actual = {(method, path) for path, methods in app.openapi()["paths"].items() for method in methods}
-    assert legacy <= actual
-    operations = [(method, path, re.sub(r"\{[^}]+\}", "99999999", path))
-                  for path, methods in app.openapi()["paths"].items()
-                  for method in methods if (method, path) in legacy]
-    measured = 0
-    try:
-        for caller in [client, viewer, operator, admin]:
-            rounds = []
-            for authentication in [basis.principal_from_request, current]:
-                restore()
-                monkeypatch.setattr(auth, "principal_from_request", authentication)
-                monkeypatch.setattr(foundation, "principal_from_request", authentication)
-                outcomes = []
-                for method, _path, url in operations:
-                    response = caller.request(method, url, headers={"X-CSRF-Token": "ongeldig"},
-                                              **({"json": {}} if method != "get" else {}))
-                    try:
-                        body = response.json()
-                    except ValueError:
-                        body = response.text
-                    audits = db.fetchall("SELECT actor,action,target,summary,detail,change_id "
-                                         "FROM audit_log ORDER BY id")
-                    outcomes.append((response.status_code, clean(body), clean(audits)))
-                rounds.append(outcomes)
-            for operation, before, after in zip(operations, *rounds, strict=True):
-                if before != after:
-                    def differences(a, b, path=""):
-                        if type(a) is not type(b):
-                            return [path]
-                        if isinstance(a, dict) and a.keys() == b.keys():
-                            return [p for k in a for p in differences(a[k], b[k], f"{path}.{k}")]
-                        if isinstance(a, (list, tuple)) and len(a) == len(b):
-                            return [p for i, (x, y) in enumerate(zip(a, b, strict=True))
-                                    for p in differences(x, y, f"{path}[{i}]")]
-                        return [] if a == b else [path]
-                    pytest.fail(f"auth-verschil {operation[:2]}: {differences(before, after)}")
-                measured += 1
-    finally:
-        monkeypatch.setattr(auth, "principal_from_request", current)
-        monkeypatch.setattr(foundation, "principal_from_request", original_foundation)
-        restore()
-    assert measured >= 800

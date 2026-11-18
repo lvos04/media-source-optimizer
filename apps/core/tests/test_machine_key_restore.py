@@ -97,3 +97,21 @@ def test_migration_failure_retains_keys_from_current_schema(admin, client, db, m
     assert security_snapshot(db) == before
     assert client.get("/api/v1/overview", headers={"X-Api-Key": active["key"]}).status_code == 200
     assert client.get("/api/v1/overview", headers={"X-Api-Key": revoked["key"]}).status_code == 401
+
+
+def test_failed_restore_immediately_preserves_current_keys(admin, client, db, monkeypatch):
+    key = create(admin)
+    backup = backups.create_backup(actor="test")
+    assert revoke(admin, key["item"]["id"]).status_code == 200
+    assert create(admin, name="Aangemaakt na de back-up")
+    before = security_snapshot(db)
+
+    def fail_after_restore(*args):
+        raise backups.BackupError("Herstelproef onderbroken")
+
+    monkeypatch.setattr(backups, "_keep_state", fail_after_restore)
+    with pytest.raises(backups.BackupError, match="Herstelproef onderbroken"):
+        backups.restore_backup(backup["id"], "test")
+
+    assert security_snapshot(db) == before
+    assert client.get("/api/v1/overview", headers={"X-Api-Key": key["key"]}).status_code == 401

@@ -1,0 +1,22 @@
+{
+  "/healthz": [200, "application/json", null, null],
+  "healthz.status": "ok",
+  "/api/docs": [200, "text/html", null, null],
+  "/api/openapi.json": [200, "application/json", null, null],
+  "/api/v1/setup/status": [200, "application/json", null, null],
+  "/onbekend": [404, "application/json", null, ["detail"]],
+  "menselijke poging 1": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 2": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 3": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 4": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 5": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 6": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 7": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 8": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 9": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 10": [[401, "application/json", "unauthorized", ["code", "correlation_id", "detail"]], null],
+  "menselijke poging 11": [[429, "application/json", "rate_limited", ["code", "correlation_id", "detail"]], null],
+  "opgeslagen pogingen": [{"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}, {"ok": false, "remote": "bron-grensproef", "username": "afwezig"}],
+  "audit": [{"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}, {"action": "auth.login_failed", "actor": "afwezig", "detail": {"known_user": false, "remote": "bron-grensproef"}}],
+  "algemene API-grens": [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [429, "application/json", "rate_limited", ["code", "correlation_id", "detail"]], null]
+}

@@ -190,6 +190,7 @@ def main() -> int:
         unavailable = c.post("/connector/v1/apply", headers={"X-CSRF-Token": csrf}, json={})
         oversized = httpx.post(f"{BASE}/connector/v1/apply", content=iter((b"x" * 1_048_576, b"x")), timeout=30)
         ready = httpx.get(f"{BASE}/readyz", timeout=30)
+        live = httpx.get(f"{BASE}/healthz", timeout=30)
         key_file = "/appdata/secrets/vault.key"
         hidden_key = key_file + ".readyz-test"
         sh("docker", "exec", NAME, "mv", key_file, hidden_key)
@@ -206,6 +207,7 @@ def main() -> int:
             and discovery.status_code == 200 and discovery.json()["capabilities"] == ["read"]
             and machine.status_code == 200 and machine.json()["permissions"] == ["read"]
             and ready.status_code == 200 and ready.json()["status"] == "ready"
+            and live.status_code == 200 and live.json()["status"] == "ok" and live.json()["version"]
             and unready.status_code == 503 and unready.json()["checks"]["vault"] is False,
             f"discover {anonymous.status_code}/{discovery.status_code}/{machine.status_code}; "
             f"onbekend {missing.status_code}; apply {unavailable.status_code}/{oversized.status_code}; "

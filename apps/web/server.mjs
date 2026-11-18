@@ -30,13 +30,16 @@ const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "p
 
 const CONNECTOR_PREFIX = "/connector/v1";
 const CORE_PREFIXES = ["/api/v1", "/newznab", "/torznab", CONNECTOR_PREFIX];
+const CORE_JSON_TIMEOUT_MS = 5000;
+// Ook een pagina van 200 event-enveloppen met elk 16 KiB payload past binnen deze grens.
+const MAX_CORE_JSON_BYTES = 4 * 1024 * 1024;
 
 function connectorPath(pathname) {
   return pathname === CONNECTOR_PREFIX || pathname.startsWith(`${CONNECTOR_PREFIX}/`);
 }
 
 function target(pathname) {
-  if (pathname === "/readyz") return { base: coreUrl, path: pathname };
+  if (pathname === "/readyz" || pathname === "/healthz") return { base: coreUrl, path: pathname };
   for (const prefix of CORE_PREFIXES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return { base: coreUrl, path: pathname };
   }
@@ -66,6 +69,24 @@ function forwardHeaders(req, base) {
 function proxy(req, res, dest) {
   const url = new URL(req.url ?? "/", "http://placeholder");
   const send = dest.base.protocol === "https:" ? httpsRequest : httpRequest;
+  const bounded = connectorPath(dest.path) || dest.path === "/readyz" || dest.path === "/healthz";
+  function unavailable() {
+    if (res.writableEnded || res.destroyed) return;
+    if (res.headersSent) return res.destroy();
+    const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+    if (bounded) {
+      if (dest.path === "/readyz") headers["x-correlation-id"] = randomUUID();
+      res.writeHead(503, { ...headers, "retry-after": "1" });
+      if (dest.path === "/readyz") res.end(JSON.stringify({ status: "not_ready", checks: { core: false } }));
+      else if (dest.path === "/healthz") res.end(JSON.stringify({ status: "down" }));
+      else res.end(JSON.stringify({
+        code: "dependency_unavailable", message: "MSO is tijdelijk onbereikbaar.", details: {}, trace_id: randomUUID(),
+      }));
+    } else {
+      res.writeHead(502, headers);
+      res.end(JSON.stringify({ detail: "Upstream service unreachable", code: "upstream_unreachable" }));
+    }
+  }
   const upstream = send({
     protocol: dest.base.protocol,
     hostname: dest.base.hostname,
@@ -73,8 +94,28 @@ function proxy(req, res, dest) {
     method: req.method,
     path: dest.path + url.search,
     headers: forwardHeaders(req, dest.base),
+    signal: bounded ? AbortSignal.timeout(CORE_JSON_TIMEOUT_MS) : undefined,
   }, (upstreamRes) => {
+    upstreamRes.on("error", unavailable);
     const headers = { ...upstreamRes.headers };
+    if (bounded) {
+      // Houd de status beschikbaar tot de volledige JSON binnen is, ook bij een onderbroken antwoord.
+      const chunks = [];
+      let bytes = 0;
+      upstreamRes.on("data", (chunk) => {
+        bytes += chunk.length;
+        if (bytes > MAX_CORE_JSON_BYTES) {
+          unavailable();
+          upstream.destroy();
+        } else chunks.push(chunk);
+      });
+      upstreamRes.on("end", () => {
+        if (res.writableEnded || res.destroyed) return;
+        res.writeHead(upstreamRes.statusCode ?? 502, headers);
+        res.end(Buffer.concat(chunks));
+      });
+      return;
+    }
     if (String(headers["content-type"] ?? "").startsWith("text/event-stream")) {
       headers["cache-control"] = "no-cache, no-transform";
       headers["x-accel-buffering"] = "no";
@@ -83,23 +124,8 @@ function proxy(req, res, dest) {
     res.flushHeaders?.();
     upstreamRes.pipe(res);
   });
-  upstream.setTimeout(0);
-  upstream.on("error", () => {
-    if (!res.headersSent) {
-      const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
-      if (connectorPath(dest.path) || dest.path === "/readyz") {
-        res.writeHead(503, { ...headers, "retry-after": "1" });
-        res.end(JSON.stringify(dest.path === "/readyz" ? { status: "not_ready", checks: { core: false } } : {
-          code: "dependency_unavailable", message: "MSO is tijdelijk onbereikbaar.", details: {}, trace_id: randomUUID(),
-        }));
-      } else {
-        res.writeHead(502, headers);
-        res.end(JSON.stringify({ detail: "Upstream service unreachable", code: "upstream_unreachable" }));
-      }
-    } else {
-      res.destroy();
-    }
-  });
+  if (!bounded) upstream.setTimeout(0);
+  upstream.on("error", unavailable);
   req.on("aborted", () => upstream.destroy());
   res.on("close", () => upstream.destroy());
   req.pipe(upstream);

@@ -1,0 +1,97 @@
+import { once } from "node:events";
+import { createServer, Server } from "node:http";
+import type { AddressInfo } from "node:net";
+
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+
+import config from "../../next.config";
+
+vi.mock("next", () => ({
+  default: () => ({
+    prepare: async () => {},
+    getRequestHandler: () => (_req: unknown, res: import("node:http").ServerResponse) => res.end("testpagina"),
+    getUpgradeHandler: () => () => {},
+  }),
+}));
+
+let gedrag: "gezond" | "stil" | "onvolledig" = "gezond";
+const core = createServer((req, res) => {
+  if (gedrag === "stil") return;
+  res.setHeader("content-type", "application/json");
+  if (gedrag === "onvolledig") res.write("{");
+  else res.end(JSON.stringify({ status: "ok", bron: req.url }));
+});
+let web: Server;
+let basis: string;
+
+function adres(server: Server) {
+  return `http://localhost:${(server.address() as AddressInfo).port}`;
+}
+
+async function sluit(server: Server) {
+  if (!server?.listening) return;
+  const klaar = once(server, "close");
+  server.close();
+  server.closeAllConnections();
+  await klaar;
+}
+
+beforeAll(async () => {
+  core.listen(0, "localhost");
+  await once(core, "listening");
+  vi.stubEnv("MSO_CORE_URL", adres(core));
+  vi.stubEnv("MSO_WEB_HOST", "localhost");
+  vi.stubEnv("PORT", "0");
+  const listen = vi.spyOn(Server.prototype, "listen");
+  try {
+    const modulePad = "../../server.mjs";
+    await import(modulePad);
+    web = listen.mock.instances[0] as Server;
+    if (!web.listening) await once(web, "listening");
+    basis = adres(web);
+  } finally {
+    listen.mockRestore();
+  }
+});
+
+afterAll(async () => {
+  await sluit(web);
+  await sluit(core);
+  vi.unstubAllEnvs();
+});
+
+it("geeft de JSON van de core door op de publieke livenessroute", async () => {
+  expect(await config.rewrites?.()).toContainEqual({ source: "/healthz", destination: expect.stringMatching(/\/healthz$/) });
+  const antwoord = await fetch(basis + "/healthz");
+  expect(antwoord.status).toBe(200);
+  expect(antwoord.headers.get("content-type")).toContain("application/json");
+  expect(await antwoord.json()).toEqual({ status: "ok", bron: "/healthz" });
+});
+
+it.each(["stil", "onvolledig"] as const)("geeft bij een %s antwoord tijdig 503 en Retry-After", async (mode) => {
+  gedrag = mode;
+  const routes = ["/readyz", "/connector/v1/discover"];
+  await Promise.all(routes.map(async (route) => {
+    const antwoord = await fetch(basis + route, {
+      headers: { "X-Correlation-Id": "meegegeven-kenmerk" }, signal: AbortSignal.timeout(8000),
+    });
+    expect(antwoord.status).toBe(503);
+    expect(Number(antwoord.headers.get("retry-after"))).toBeGreaterThan(0);
+    const body = await antwoord.json();
+    if (route === "/readyz") {
+      expect(body).toEqual({ status: "not_ready", checks: { core: false } });
+      expect(antwoord.headers.get("x-correlation-id")).toMatch(/^[0-9a-f-]{36}$/);
+    } else {
+      expect(Object.keys(body).sort()).toEqual(["code", "details", "message", "trace_id"]);
+      expect(body.code).toBe("dependency_unavailable");
+    }
+  }));
+}, 10000);
+
+it("geeft bij een gestopte core ook op liveness een JSON-storing", async () => {
+  await sluit(core);
+  const antwoord = await fetch(basis + "/healthz");
+  expect(antwoord.status).toBe(503);
+  expect(antwoord.headers.get("content-type")).toContain("application/json");
+  expect(await antwoord.json()).toMatchObject({ status: "down" });
+});

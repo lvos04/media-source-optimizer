@@ -10,6 +10,7 @@ import { ErrorState, ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ConnectorList } from "@/components/mso/connector-form";
 import { ModeSettingsCard } from "@/components/mso/mode-settings";
+import { MachineKeysCard } from "@/components/mso/machine-keys";
 import { api, ApiError, errorMessage } from "@/lib/api/client";
 import { itemsOf, ROLES, type Role, type SettingDef, type SettingsPayload, type UserRow } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -60,7 +61,7 @@ function SettingsView() {
       <div style={{ marginBottom: 16, overflowX: "auto" }}><Tabs label={t("settings.tabs")} value={tab} onSelect={select} items={items} /></div>
       {tab === SYSTEM ? <div style={{ marginBottom: 16 }}><ModeSettingsCard /></div> : null}
       {tab === CONNECTIONS ? <ConnectionsTab />
-        : tab === USERS ? <UsersTab />
+        : tab === USERS ? <><UsersTab /><AdminMachineKeys /></>
           : settings.loading ? <StateView kind="loading" />
             : settings.error && !settings.data ? <ErrorState error={settings.error} onRetry={() => void settings.reload()} endpoint="GET /api/v1/settings" />
               : settings.data ? (
@@ -68,6 +69,11 @@ function SettingsView() {
               ) : null}
     </>
   );
+}
+
+function AdminMachineKeys() {
+  const { can } = useSession();
+  return can("admin") ? <MachineKeysCard /> : null;
 }
 
 function ConnectionsTab() {

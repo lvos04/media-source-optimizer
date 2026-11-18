@@ -224,3 +224,27 @@ summary { min-height: var(--touch); padding-block: 0.625rem; cursor: pointer; }
   .nav-item[aria-current="page"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .bottomnav [aria-current="page"] { border-top: 3px solid Highlight; }
 }
+
+
+/* Machine-sleutels: onmiddellijke focus; betekenis blijft zichtbaar in systeemkleuren. */
+.machine-keys :is(button,input,select),
+.machine-key-dialog :is(button,input,select),
+.dialog:has(.machine-key-dialog) button { transition: none !important; }
+.machine-keys :is(td,code,strong), .machine-key-dialog { overflow-wrap: anywhere; }
+@container (min-width: 56rem) {
+  .machine-keys .table--stack { table-layout: fixed; }
+  .machine-keys th:nth-child(1) { width: 34%; }
+  .machine-keys th:nth-child(2) { width: 24%; }
+  .machine-keys th:nth-child(3) { width: 24%; }
+  .machine-keys th:nth-child(4) { width: 18%; }
+}
+@media (forced-colors: active) {
+  .machine-keys [role="switch"] > span,
+  .machine-key-dialog [role="switch"] > span { border-color: CanvasText !important; background: Canvas !important; }
+  .machine-keys [role="switch"] > span > span,
+  .machine-key-dialog [role="switch"] > span > span { background: CanvasText !important; }
+  .machine-keys :is(.chip,.tag,[data-status]), .machine-key-dialog :is(.chip,.tag) { border-color: CanvasText !important; }
+  .machine-keys :focus-visible, .dialog:has(.machine-key-dialog) :focus-visible {
+    outline-color: Highlight; transition: none !important;
+  }
+}

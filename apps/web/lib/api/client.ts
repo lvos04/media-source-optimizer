@@ -29,6 +29,7 @@ export class ApiError extends Error {
     public readonly detail: unknown = null,
     /** Machine-readable error code from the body (`code`), e.g. `connector_not_configured`. */
     public readonly code: string | null = null,
+    public readonly retryAfterSeconds: number | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -132,7 +133,10 @@ export async function coreRequest<T>(path: string, options: RequestOptions = {})
       ?? response.headers.get("x-correlation-id") ?? response.headers.get("x-request-id");
     // the proxy answers 502 {code:"upstream_unreachable"} when the core is down
     const kind = code === "upstream_unreachable" ? "offline" : kindFor(response.status, detail);
-    const error = new ApiError(kind, response.status, messageFrom(detail, response.statusText || String(response.status)), path, correlationId, detail, code);
+    const retry = response.headers.get("retry-after");
+    const retrySeconds = retry && /^\d+$/.test(retry) ? Number(retry) : retry ? Math.max(0, (Date.parse(retry) - Date.now()) / 1000) : null;
+    const error = new ApiError(kind, response.status, messageFrom(detail, response.statusText || String(response.status)), path, correlationId, detail, code,
+      retrySeconds !== null && Number.isFinite(retrySeconds) ? retrySeconds : null);
     if (kind === "unauthorized") unauthorizedListeners.forEach((l) => l(error));
     throw error;
   }

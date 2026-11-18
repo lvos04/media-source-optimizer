@@ -18,4 +18,9 @@ export const messages = {
   "logs.system": "systeem",
   "logs.shown.one": "{count} regel geladen",
   "logs.shown.other": "{count} regels geladen",
+  "logs.machineKeys.list": "Machine-sleutellijst bekeken.",
+  "logs.machineKeys.create": "Machine-sleutel aangemaakt.",
+  "logs.machineKeys.revoke": "Machine-sleutel ingetrokken.",
+  "logs.machineKeys.authFailed": "Aanmelden met machine-sleutel geweigerd.",
+  "logs.machineKeys.rateLimited": "Machine-aanmelding tijdelijk begrensd.",
 };

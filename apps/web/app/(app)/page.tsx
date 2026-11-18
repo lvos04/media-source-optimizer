@@ -284,7 +284,7 @@ function RecentAudit({ o }: { o: Overview }) {
       actions={<Link className="link-more" href="/logs">{t("overview.viewAll")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link>}>
       {o.recent_audit.length === 0 ? <StateView kind="empty" compact /> : (
         <Timeline items={o.recent_audit.map((a) => ({
-          title: localizeAuditSummary(a.summary) ?? a.action,
+          title: localizeAuditSummary(a.summary, a.action) ?? a.action,
           meta: <><span className="mono">{a.action}</span> · {a.actor} · {relative(a.ts)}</>,
           tone: a.action.includes("failed") ? "danger" : a.action.includes("applied") ? "success" : "neutral",
         }))} />

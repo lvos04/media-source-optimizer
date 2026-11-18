@@ -14,3 +14,15 @@
 /* "table" is een MSO/MediaGuard-klassennaam (.table, .table--stack), geen Tailwind-utility: niet genereren, anders
    wint display:table van de gestapelde tabel op de telefoon. */
 @source not inline("table");
+
+/* Focusbediening voor machine-sleutels blijft ook bij reduced motion exact
+   overgangsvrij. Belangrijke basisregels winnen vóór de legacy-laag. */
+@layer base {
+  .machine-keys :is(button, input, select),
+  .machine-key-dialog :is(button, input, select),
+  .dialog:has(.machine-key-dialog) button {
+    transition-property: none !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+}

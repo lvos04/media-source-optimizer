@@ -1,5 +1,14 @@
 // API types for Slice E: overview, costs, automation, AI advisor (backend: apps/core/mso/features/{overview,costs,automation,ai}).
 import type { ChangeSet, OperatingMode, Risk } from "@/lib/api/contracts";
+import { messages as auditMessages } from "@/lib/i18n/messages/nl/logs";
+
+export const MACHINE_AUDIT_KEYS = {
+  "machine_keys.list": "logs.machineKeys.list",
+  "machine_keys.create": "logs.machineKeys.create",
+  "machine_keys.revoke": "logs.machineKeys.revoke",
+  "machine_keys.auth_failed": "logs.machineKeys.authFailed",
+  "machine_keys.rate_limited": "logs.machineKeys.rateLimited",
+} as const;
 
 // ------------------------------------------------------------------ overview  GET /overview
 export interface Unavailable { available: boolean; reason?: string | null }
@@ -163,7 +172,10 @@ const AUDIT_STATUS_NL: Record<string, string> = {
   inconclusive: "Onbeslist", kept: "Behouden", rolled_back: "Teruggedraaid", degraded_pending: "Verslechterd (wacht op besluit)",
   discarded: "Verworpen", evaluating: "Wordt gemeten",
 };
-export function localizeAuditSummary(summary: string | null | undefined): string | null {
+export function localizeAuditSummary(summary: string | null | undefined, action?: string | null): string | null {
+  if (action && action in MACHINE_AUDIT_KEYS) {
+    return auditMessages[MACHINE_AUDIT_KEYS[action as keyof typeof MACHINE_AUDIT_KEYS]];
+  }
   if (!summary) return summary ?? null;
   return summary.replace(/(:\s*)([a-z_]+)(?=\s*(?:\(|$|[.,;]))/g, (m, sep: string, word: string) => (AUDIT_STATUS_NL[word] ? `${sep}${AUDIT_STATUS_NL[word]}` : m));
 }

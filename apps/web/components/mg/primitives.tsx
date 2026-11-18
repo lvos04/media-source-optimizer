@@ -184,9 +184,9 @@ export function LinkButton({ href, variant = "secondary", size, icon: Icon, chil
 }
 
 /** Switch (role=switch): 44 px hit area around a 2.75 × 1.5 rem track; off = outline, on = primary. */
-export function Switch({ checked, onChange, label, disabled, id }: { checked: boolean; onChange?: (v: boolean) => void; label: string; disabled?: boolean; id?: string }) {
+export function Switch({ checked, onChange, label, disabled, id, describedBy }: { checked: boolean; onChange?: (v: boolean) => void; label: string; disabled?: boolean; id?: string; describedBy?: string }) {
   return (
-    <button id={id} type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange?.(!checked)}
+    <button id={id} type="button" role="switch" aria-checked={checked} aria-label={label} aria-describedby={describedBy} disabled={disabled} onClick={() => onChange?.(!checked)}
       className="group focus-ring inline-flex min-h-touch min-w-touch shrink-0 cursor-pointer items-center justify-center rounded-full disabled:cursor-not-allowed">
       <span aria-hidden="true" className={cn(
         "relative inline-flex h-6 w-11 items-center rounded-full border-2 transition-colors",

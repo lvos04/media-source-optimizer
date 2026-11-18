@@ -61,7 +61,7 @@ function CategoryChips({ categories }: { categories: AutopilotCategory[] }) {
   return (
     <div className="row wrap" style={{ gap: 6, padding: "4px 16px 10px" }}>
       {shown.map((c) => (
-        <Link key={c.key} href={c.link} data-testid={`autopilot-cat-${c.key}`} title={c.examples[0] ? localizeAuditSummary(c.examples[0].summary) ?? undefined : undefined}>
+        <Link key={c.key} href={c.link} data-testid={`autopilot-cat-${c.key}`} title={c.examples[0] ? localizeAuditSummary(c.examples[0].summary, c.examples[0].action) ?? undefined : undefined}>
           <StatusChip tone={c.tone} icon={ICON[c.key] ?? Workflow}>{c.label}: {num(c.count)}</StatusChip>
         </Link>
       ))}
@@ -304,7 +304,7 @@ export function WeeklyDigest() {
                 {d.items.length ? (
                   <ul className="t-2" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55 }}>
                     {d.items.slice(0, 8).map((i) => (
-                      <li key={i.id}><Link href={i.link}>{localizeAuditSummary(i.summary)}</Link> <span className="t-3">· {dateTime(i.ts)}</span></li>
+                      <li key={i.id}><Link href={i.link}>{localizeAuditSummary(i.summary, i.action)}</Link> <span className="t-3">· {dateTime(i.ts)}</span></li>
                     ))}
                     {d.items.length > 8 ? <li className="t-3">{t("autopilot.moreItems", { count: num(d.items.length - 8) })}</li> : null}
                   </ul>

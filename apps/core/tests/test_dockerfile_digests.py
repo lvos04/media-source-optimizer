@@ -42,6 +42,44 @@ class DockerfileDigestTest(unittest.TestCase):
                 self.assertIn("Dockerfile:1: ARG BASE_IMAGE", result.stderr)
                 self.assertIn("Dockerfile:2: FROM $BASE_IMAGE", result.stderr)
 
+    def test_rejects_an_unpinned_second_image_argument(self):
+        for space in (" ", "\v"):
+            with self.subTest(space=space):
+                result = self.check_dockerfile(f"FROM scratch\nARG FORMAAT=spdx{space}HULP_IMAGE=voorbeeld:1.2.3\n")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("Dockerfile:2: ARG HULP_IMAGE", result.stderr)
+
+    def test_accepts_multiple_pinned_arguments_with_quoted_values(self):
+        result = self.check_dockerfile(
+            "# escape=`\n"
+            f'ARG OMSCHRIJVING="tekst met HULP_IMAGE=voorbeeld:1.2.3" BASIS_IMAGE="{PINNED_IMAGE}"\n'
+            f"ARG OMSCHRIJVING=tekst` HULP_IMAGE=voorbeeld:1.2.3 ANDERE_BASIS={PINNED_IMAGE}\n"
+            "FROM $BASIS_IMAGE AS eerste\n"
+            "FROM ${ANDERE_BASIS}\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_an_unpinned_argument_name_split_over_lines(self):
+        for escape in ("\\", "`"):
+            with self.subTest(escape=escape):
+                result = self.check_dockerfile(
+                    f"\ufeff# escape={escape}\nFROM scratch\n"
+                    f"ARG FORMAAT=spdx HULP_{escape}\n"
+                    "# commentaar tussen vervolgregels\n"
+                    "IMAGE=voorbeeld:1.2.3\n"
+                )
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("Dockerfile:3: ARG HULP_IMAGE", result.stderr)
+
+    def test_rejects_from_after_a_later_argument_removes_the_pin(self):
+        result = self.check_dockerfile(
+            f"ARG BASIS={PINNED_IMAGE}\n"
+            "ARG FORMAAT=spdx BASIS=voorbeeld:1.2.3\n"
+            "FROM $BASIS\n"
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("Dockerfile:3: FROM $BASIS", result.stderr)
+
     def test_rejects_from_using_an_argument_without_a_global_pin(self):
         result = self.check_dockerfile(f"FROM {PINNED_IMAGE}\nARG BASE={PINNED_IMAGE}\nFROM $BASE\n")
         self.assertEqual(result.returncode, 1, result.stderr)

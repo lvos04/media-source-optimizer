@@ -9,49 +9,82 @@ from collections.abc import Iterator
 from pathlib import Path
 
 PINNED_IMAGE = re.compile(r"[^@$\s]+@sha256:[0-9a-f]{64}")
+PARSER_DIRECTIVE = re.compile(r"#\s*(syntax|escape|check)\s*=\s*(\S.*)", re.IGNORECASE)
 
 
-def instructions(dockerfile: Path) -> Iterator[tuple[int, str]]:
+def instructions(dockerfile: Path) -> Iterator[tuple[int, str, str]]:
     """Voeg Dockerfile-vervolgregels samen, ook met een aangepaste escape."""
     escape = "\\"
-    pending = ""
+    directives = True
+    pending: str | None = None
     first_line = 0
-    for number, line in enumerate(dockerfile.read_text(encoding="utf-8-sig").splitlines(), 1):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            directive = re.fullmatch(r"#\s*escape\s*=\s*([`\\])", line, re.IGNORECASE)
-            if first_line == 0 and directive:
-                escape = directive[1]
+    source = dockerfile.read_bytes().decode("utf-8-sig")
+    for number, physical in enumerate(source.split("\n"), 1):
+        physical = physical.removesuffix("\r")
+        stripped = physical.strip()
+        if directives and (directive := PARSER_DIRECTIVE.fullmatch(stripped)):
+            if directive[1].lower() == "escape" and directive[2] in {"\\", "`"}:
+                escape = directive[2]
             continue
-        if not pending:
+        directives = False
+        if not stripped or stripped.startswith("#"):
+            continue
+        line = physical.rstrip(" \t")
+        if pending is None:
             first_line = number
-        if line.endswith(escape):
-            pending += line[:-1] + " "
+            pending = ""
+            line = line.lstrip()
+        if line.endswith(escape) and not line.endswith(escape * 2):
+            # Docker behoudt de inspringing en voegt zelf geen spatie toe.
+            pending += line[:-1]
             continue
-        yield first_line, pending + line
-        pending = ""
-    if pending:
-        yield first_line, pending.rstrip()
+        yield first_line, (pending + line).strip(), escape
+        pending = None
+    if pending and pending.strip():
+        yield first_line, pending.strip(), escape
+
+
+def arg_words(body: str, escape: str) -> Iterator[str]:
+    """Splits ARG zoals Docker, met behoud van aanhalingstekens en escapes."""
+    quote = ""
+    escaped = False
+    start = 0
+    for index, character in enumerate(body):
+        if escaped:
+            escaped = False
+        elif character == escape and quote != "'":
+            escaped = True
+        elif quote:
+            if character == quote:
+                quote = ""
+        elif character in "\"'":
+            quote = character
+        elif character.isspace():
+            if start < index:
+                yield body[start:index]
+            start = index + 1
+    if start < len(body):
+        yield body[start:]
 
 
 def check_dockerfile(dockerfile: Path) -> Iterator[str]:
     pinned_args: set[str] = set()
     stages: set[str] = set()
     in_stage = False
-    for number, line in instructions(dockerfile):
+    for number, line, escape in instructions(dockerfile):
         instruction, *parts = line.split(maxsplit=1)
         body = parts[0] if parts else ""
         instruction = instruction.upper()
         if instruction == "ARG":
-            name, _, value = body.partition("=")
-            name = name.strip()
-            pinned = PINNED_IMAGE.fullmatch(value.strip().strip("\"'")) is not None
-            if not in_stage:
-                pinned_args.discard(name)
-                if pinned:
-                    pinned_args.add(name)
-            if name.endswith("_IMAGE") and not pinned:
-                yield f"{dockerfile}:{number}: {line} mist een geldige @sha256-digest."
+            for argument in arg_words(body, escape):
+                name, _, value = argument.partition("=")
+                pinned = PINNED_IMAGE.fullmatch(value.strip("\"'")) is not None
+                if not in_stage:
+                    pinned_args.discard(name)
+                    if pinned:
+                        pinned_args.add(name)
+                if name.endswith("_IMAGE") and not pinned:
+                    yield f"{dockerfile}:{number}: ARG {name} mist een geldige @sha256-digest."
         if instruction != "FROM":
             continue
 

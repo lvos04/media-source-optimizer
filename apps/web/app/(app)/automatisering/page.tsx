@@ -48,7 +48,7 @@ export default function AutomationPage() {
   const [focusChange, setFocusChange] = useState<number | null>(null);
   const status = useResource<AutomationStatus>("/automation/status", undefined, 60_000);
   const { run, pending } = useAction();
-  const { mode, paused } = useMode();
+  const { mode, paused, error: modeError } = useMode();
   const { reload: reloadStatus } = status;
   // pause/resume or a mode switch anywhere (topbar, banner, Instellingen) → refresh the automation status
   useEffect(() => { void reloadStatus(); }, [mode, paused, reloadStatus]);
@@ -62,7 +62,8 @@ export default function AutomationPage() {
     window.history.replaceState(null, "", url.toString());
   };
   const s = status.data;
-  const allowed = mode !== null ? (mode === "manage" || mode === "autopilot") && !paused : !!s?.automation_allowed;
+  const allowed = mode !== null ? (mode === "manage" || mode === "autopilot") && !paused
+    : !modeError && !status.error && Boolean(s?.automation_allowed);
   const runAllowed = can("operator") && allowed;
   const runReason = !can("operator") ? t("automation.operatorOnly") : !allowed ? t("automation.runReason") : undefined;
 

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 
+import { StatusChip } from "@/components/mg/primitives";
 import type { WaitingInbox } from "@/lib/api/calm";
 import { useResource, type Resource } from "@/lib/api/hooks";
 import { HOLD_CHANGED_EVENT } from "@/lib/api/safety";
@@ -44,7 +45,7 @@ export function WaitingProvider({ children }: { children: ReactNode }) {
       window.removeEventListener(WAITING_CHANGED_EVENT, on);
     };
   }, [reload]);
-  useTitlePrefix(res.data?.decisions ?? 0);
+  useTitlePrefix(res.stale ? 0 : res.data?.decisions ?? 0);
   return <WaitingContext.Provider value={res}>{children}</WaitingContext.Provider>;
 }
 
@@ -79,6 +80,12 @@ export function WaitingPill() {
   const res = useWaiting();
   const n = res?.data?.decisions ?? 0;
   if (!n) return null;
+  if (res?.stale) return (
+    <Link className="focus-ring inline-flex min-h-touch items-center rounded-lg no-underline" href={WAITING_HREF}
+      aria-label={`${t("autopilot.waitTitle")} · ${t("status.unknown")}`}>
+      <StatusChip tone="unknown"><span className="sr-only lg:not-sr-only">{t("status.unknown")}</span></StatusChip>
+    </Link>
+  );
   const label = t("calm.pillLabel", { count: num(n) });
   const title = t("calm.pillTitle", { count: num(n) });
   return (
@@ -102,6 +109,7 @@ export function WaitingNavBadge() {
   const res = useWaiting();
   const n = res?.data?.decisions ?? 0;
   if (!n) return null;
+  if (res?.stale) return <StatusChip tone="unknown">{t("status.unknown")}</StatusChip>;
   // the count is read with the link text ("Automatisering 3 wacht op jou"); no aria-label on a plain span (axe)
   return (
     <span className="cijfers inline-grid h-6 min-w-6 place-items-center rounded-full bg-foreground px-1.5 text-sm font-bold text-background" title={t("calm.navBadge", { count: num(n) })} data-testid="nav-waiting-badge">

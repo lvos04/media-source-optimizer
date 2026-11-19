@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
+import { expectTabRoute } from "./tab-route";
+
 /**
  * Peil-testmatrix (ONTWERPTAAL §12, PEIL_MIGRATIE §10.2) against a stack prepared by `make e2e`. Runs only in the
  * desktop project (playwright.config.ts: the mobile project ignores this file) and sets its own viewports:
@@ -74,44 +76,8 @@ async function checkSystemAccessibility(page: Page, width: number): Promise<void
   expect(clipped, "geen afgekapte kaarttekst met vergrote tekstafstand").toEqual([]);
   await spacing.evaluate((el) => el.parentNode?.removeChild(el));
 
-  const tabLimit = 2 + await page.locator("a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]").count();
-  let backupFocused = false;
-  let finishedTabbing = false;
-  for (let i = 0; i < tabLimit; i++) {
-    await page.keyboard.press("Tab");
-    const stop = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (el === document.body) return { end: true } as const;
-      if (!el?.closest("main")) return null;
-      const box = el.getBoundingClientRect();
-      const style = getComputedStyle(el);
-      // Bij een hoge scrollregio kan het middelpunt buiten beeld liggen. Toets het deel binnen de viewport.
-      const left = Math.max(0, box.left);
-      const top = Math.max(0, box.top);
-      const width = Math.min(innerWidth, box.right) - left;
-      const height = Math.min(innerHeight, box.bottom) - top;
-      const fractions = [0.1, 0.5, 0.9];
-      const visible = width > 0 && height > 0 && fractions.some((y) => fractions.some((x) =>
-        el.contains(document.elementFromPoint(left + width * x, top + height * y))));
-      return {
-        end: false,
-        backup: el.getAttribute("data-testid") === "backup-create",
-        name: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim(),
-        ring: style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 3,
-        visible,
-      } as const;
-    });
-    if (stop?.end) {
-      finishedTabbing = true;
-      break;
-    }
-    if (!stop) continue;
-    expect(stop.ring, `Peil-ring bij ${stop.name}`).toBe(true);
-    expect(stop.visible, `focus onbedekt bij ${stop.name}`).toBe(true);
-    backupFocused ||= stop.backup;
-  }
-  expect(backupFocused, "toetsenbord bereikt de back-upknop op Systeem").toBe(true);
-  expect(finishedTabbing, "de volledige toetsenvolgorde is doorlopen").toBe(true);
+  const stops = await expectTabRoute(page);
+  expect(stops.some((stop) => stop.testId === "backup-create"), "toetsenbord bereikt de back-upknop op Systeem").toBe(true);
 }
 
 test.describe.configure({ mode: "default" });
@@ -190,29 +156,7 @@ for (const width of [360, 390, 768, 1440]) {
     test.skip(!USER, "MSO_E2E_USER niet gezet");
     await page.setViewportSize({ width, height: width < 1024 ? 844 : 900 });
     await open(page, "/instellingen");
-    const problems: string[] = [];
-    for (let i = 0; i < 40; i++) {
-      await page.keyboard.press("Tab");
-      const r = await page.evaluate(() => {
-        const el = document.activeElement as HTMLElement | null;
-        if (!el || el === document.body) return null;
-        const cs = getComputedStyle(el);
-        const box = el.getBoundingClientRect();
-        const name = (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 30);
-        const ring = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 3;
-        // covered: the centre point is occupied by the sticky top bar or the bottom navigation
-        const cx = Math.min(innerWidth - 1, Math.max(0, box.left + box.width / 2));
-        const cy = Math.min(innerHeight - 1, Math.max(0, box.top + Math.min(box.height / 2, 10)));
-        const hit = document.elementFromPoint(cx, cy);
-        const bar = hit?.closest(".topbar, .bottomnav");
-        const covered = Boolean(bar && !bar.contains(el));
-        return { name, ring, covered, skip: el.classList.contains("skip-link") };
-      });
-      if (!r || r.skip) continue;
-      if (!r.ring) problems.push(`geen Peil-ring: ${r.name}`);
-      if (r.covered) problems.push(`bedekt door kop/ondernavigatie: ${r.name}`);
-    }
-    expect(problems).toEqual([]);
+    await expectTabRoute(page);
   });
 }
 

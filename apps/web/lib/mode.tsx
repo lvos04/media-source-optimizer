@@ -15,6 +15,8 @@ export interface ModeValue {
   /** Autopilot active (mode `autopilot` and not paused). */
   autopilot: boolean;
   paused: boolean;
+  /** Last confirmed pause timestamp, shown only if the subsequent poll fails. */
+  stalePauseAt: number | null;
   loading: boolean;
   error: ApiError | null;
   reload: () => Promise<void>;
@@ -30,23 +32,26 @@ const ModeContext = createContext<ModeValue | null>(null);
 /** Mounted once by the AppShell; polls `GET /api/v1/system/mode` every 30 s. */
 export function ModeProvider({ children }: { children: ReactNode }) {
   const res = useResource<SystemMode>("/system/mode", undefined, 30_000);
+  const current = res.error ? null : res.data;
+  const stalePauseAt = res.stale && res.data?.paused ? res.fetchedAt : null;
   const { reload } = res;
   const pause = useCallback(async () => { await api.post("/system/pause"); await reload(); }, [reload]);
   const resume = useCallback(async () => { await api.post("/system/resume"); await reload(); }, [reload]);
   const setMode = useCallback(async (mode: OperatingMode) => { await api.put("/system/mode", { mode }); await reload(); }, [reload]);
   const value = useMemo<ModeValue>(() => ({
-    mode: res.data?.mode ?? null,
+    mode: current?.mode ?? null,
     // unknown mode is treated as read-only: never enable a mutation we cannot vouch for
-    readOnly: res.data?.mode !== "manage" && res.data?.mode !== "autopilot",
-    autopilot: res.data?.mode === "autopilot" && !res.data?.paused,
-    paused: Boolean(res.data?.paused),
+    readOnly: current?.mode !== "manage" && current?.mode !== "autopilot",
+    autopilot: current?.mode === "autopilot" && !current.paused,
+    paused: Boolean(current?.paused),
+    stalePauseAt,
     loading: res.loading,
     error: res.error,
     reload,
     pause,
     resume,
     setMode,
-  }), [pause, reload, res.data, res.error, res.loading, resume, setMode]);
+  }), [current, pause, reload, res.error, res.loading, resume, setMode, stalePauseAt]);
   return <ModeContext.Provider value={value}>{children}</ModeContext.Provider>;
 }
 

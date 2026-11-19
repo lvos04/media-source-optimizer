@@ -6,7 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 
 import { DangerDialog } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, Progress, Segmented, StatusChip, Switch } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ErrorState, ResourceView, StateView } from "@/components/mg/states";
 import { SchedulesCard } from "@/components/mso/automation/schedules-card";
 import { BackupSpaceNote, MaintenanceCards } from "@/components/mso/system/maintenance-card";
 import { useShell } from "@/components/shell/app-shell";
@@ -94,7 +94,7 @@ export default function SystemPage() {
         </Card>
         <Card className="span-8" title={t("system.health")} icon={Stethoscope} flush actions={<Button size="sm" onClick={() => void reloadHealth()}>{t("action.reload")}</Button>}>
           {healthError ? (
-            <StateView kind="offline" compact action={<Button size="sm" onClick={() => void reloadHealth()}>{t("action.retry")}</Button>} />
+            <ErrorState error={healthError} endpoint="GET /api/v1/system/health" compact onRetry={() => void reloadHealth()} />
           ) : health ? (
             health.components.length ? (
               <div className="list">{health.components.map((c) => (

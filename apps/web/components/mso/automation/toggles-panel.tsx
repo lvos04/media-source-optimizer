@@ -3,7 +3,7 @@
 import { Bot, ListChecks, Lock, ScrollText, ShieldCheck } from "lucide-react";
 
 import { Card, InlineState, StatusChip, Switch } from "@/components/mg/primitives";
-import { StateView } from "@/components/mg/states";
+import { ErrorState, StaleMark, StateView } from "@/components/mg/states";
 import { useAction } from "@/lib/api/actions";
 import type { Resource } from "@/lib/api/hooks";
 import type { AutomationStatus } from "@/lib/api/insights";
@@ -32,11 +32,17 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
   const isAdmin = can("admin");
   const { run, pending } = useAction();
   // live mode/pause state (same source as the topbar chip and pause button) — the status resource may lag behind
-  const { mode, paused } = useMode();
+  const { mode, paused, error: modeError } = useMode();
   const s = status.data as (AutomationStatus & { attempts_last_hour?: number; hold?: AutopilotHold | null }) | null;
   // Autopilot (mode, not paused or paused): the per-area toggles do not apply — every area is on via Autopilot
   const autopilotMode = (mode ?? s?.mode) === "autopilot";
-  if (!s) return <Card className="span-12"><StateView kind={status.error ? "error" : "loading"} compact /></Card>;
+  if (status.error) return (
+    <Card className="span-12" title={t("automation.state")} icon={ShieldCheck}>
+      {status.stale ? <StaleMark>{t("state.stale", { age: relative(status.fetchedAt) })}</StaleMark> : null}
+      <ErrorState error={status.error} compact onRetry={() => void status.reload()} />
+    </Card>
+  );
+  if (!s) return <Card className="span-12"><StateView kind="loading" compact /></Card>;
   const toggle = async (area: string, on: boolean) => {
     const res = await run<AutomationStatus>(`t-${area}`, "put", "/automation/toggles", { areas: { [area]: on } }, t("automation.toggleSaved"));
     if (res) status.setData(() => res);
@@ -57,8 +63,8 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
                 <StatusChip tone="accent" icon={Bot} title={t("automation.viaAutopilotTitle")}>{t("mode.section.autoViaAutopilot")}</StatusChip>
               ) : <>
                 <StatusChip tone={a.auto_apply_safe ? "success" : "neutral"}>{a.auto_apply_safe ? t("automation.on") : t("automation.off")}</StatusChip>
-                <span title={isAdmin ? undefined : t("automation.adminOnly")}>
-                  <Switch checked={a.auto_apply_safe} label={a.label} disabled={!isAdmin || pending === `t-${a.area}`} onChange={(v) => void toggle(a.area, v)} />
+                <span title={!isAdmin ? t("automation.adminOnly") : modeError ? t("mode.unknownReason") : undefined}>
+                  <Switch checked={a.auto_apply_safe} label={a.label} disabled={!isAdmin || Boolean(modeError) || pending === `t-${a.area}`} onChange={(v) => void toggle(a.area, v)} />
                 </span>
               </>}
             </div>
@@ -68,6 +74,7 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
       <Card className="span-5" title={t("automation.state")} icon={ShieldCheck}>
         <div className="stack">
           {(() => {
+            if (modeError) return <InlineState tone="unknown">{t("mode.unknown")}</InlineState>;
             const liveMode = mode ?? s.mode;
             const livePaused = mode === null ? s.paused : paused;
             if (s.hold?.active && liveMode !== "read_only" && !livePaused) return <InlineState tone="danger">{t("safety.stateHeld")}</InlineState>;

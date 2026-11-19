@@ -56,7 +56,7 @@ export const messages = {
   "mode.readOnlyReason": "Niet beschikbaar in alleen-lezen modus — schakel beheermodus in bij Instellingen → Systeem.",
   "mode.roleReason": "Je rol ({role}) heeft hiervoor geen rechten.",
   "mode.loadingReason": "Bedrijfsmodus wordt geladen…",
-  "mode.unknownReason": "Bedrijfsmodus onbekend (backend niet bereikbaar).",
+  "mode.unknownReason": "Bedrijfsmodus onbekend. Ophalen mislukt.",
   "mode.gateTitle": "Alleen-lezen modus",
   "mode.gateBody": "MSO draait in alleen-lezen modus: je ziet adviezen en voorvertoningen, maar er wordt niets toegepast.",
   "mode.gateLink": "Bedrijfsmodus wijzigen",

@@ -30,7 +30,8 @@ const ACTIONS_SHOWN = 5;
 
 function ModeLine({ s }: { s: CalmAutopilotSummary }) {
   const { t } = useI18n();
-  const { mode, paused } = useMode();
+  const { mode, paused, error } = useMode();
+  if (error) return <StatusChip tone="unknown">{t("mode.unknown")}</StatusChip>;
   const m = mode ?? s.mode;
   const p = mode === null ? s.paused : paused;
   if (m === "autopilot" && !p) return <StatusChip tone="accent" icon={Bot}>{t("autopilot.modeOn")}</StatusChip>;

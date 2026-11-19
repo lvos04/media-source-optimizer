@@ -4,6 +4,7 @@ import { OctagonPause, PlayCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button, LinkButton } from "@/components/mg/primitives";
+import { StaleMark } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { api, errorMessage } from "@/lib/api/client";
 import { useResource } from "@/lib/api/hooks";
@@ -15,7 +16,7 @@ import { useSession } from "@/lib/session";
  * Noodrem banner (1.6.0): shown app-wide while MSO has paused its OWN automatic writes after too many automatic
  * rollbacks or failed automatic applies (GET /automation/hold — one small query — polled every minute and refreshed
  * on {@link HOLD_CHANGED_EVENT}). "Hervatten" (operator+) → POST /automation/hold/resume, then the event, so
- * Automatisering → Veiligheid updates too. Renders nothing while loading, on an error or when there is no hold.
+ * Automatisering → Veiligheid updates too.
  */
 export function AutopilotHoldBanner() {
   const { t, relative } = useI18n();
@@ -31,6 +32,12 @@ export function AutopilotHoldBanner() {
   }, [reload]);
   const hold = state.data?.hold;
   if (!hold?.active) return null;
+  const title = hold.mode === "autopilot" ? t("safety.hold.titleAutopilot") : t("safety.hold.titleManage");
+  if (state.stale) return (
+    <div className="px-4 py-2" data-testid="hold-banner">
+      <StaleMark><span>{title} · {t("state.stale", { age: relative(state.fetchedAt) })}</span></StaleMark>
+    </div>
+  );
   const resume = async () => {
     setPending(true);
     try {
@@ -45,7 +52,6 @@ export function AutopilotHoldBanner() {
       setPending(false);
     }
   };
-  const title = hold.mode === "autopilot" ? t("safety.hold.titleAutopilot") : t("safety.hold.titleManage");
   const reason = hold.reason ? hold.reason.charAt(0).toUpperCase() + hold.reason.slice(1) : "";
   return (
     <div className="banner flex flex-wrap items-center gap-2.5 border-b-2 border-down bg-down-bg px-4 py-2 text-base text-down-ink" role="status" data-testid="hold-banner">

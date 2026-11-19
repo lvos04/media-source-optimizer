@@ -33,12 +33,13 @@ export default function OverviewPage() {
   const healthTxt = health ? t(healthLabel(health.status)) : "—";
   const cost = o?.costs;
   const { mode: liveMode } = useMode();
-  const shownMode = liveMode ?? o?.mode ?? null;
+  const shownMode = liveMode ?? (ov.stale ? null : o?.mode) ?? null;
+  const staleLabel = t("state.stale", { age: relative(ov.fetchedAt) });
   return (
     <>
       <PageHeader
         title={t("overview.title")}
-        sub={t("overview.sub", { date: date(new Date()), mode: shownMode ? t(`mode.${shownMode}`) : "—" })}
+        sub={t("overview.sub", { date: date(new Date()), mode: shownMode ? t(`mode.${shownMode}`) : t("mode.unknown") })}
         actions={<LinkButton href="/automatisering" icon={Lightbulb}>{t("nav.automation")}</LinkButton>}
       />
       {/* goals → Wacht op jou → Wat MSO deed first (own endpoints: also shown when GET /overview fails, so the
@@ -52,27 +53,25 @@ export default function OverviewPage() {
         <ResourceView resource={ov} endpoint="GET /api/v1/overview">{() => null}</ResourceView>
       ) : (
         <>
-          {/* Peil: verouderd is visible (dashed + hatched mark, status Onbekend) — the last known numbers stay */}
-          {ov.stale && o ? <div className="mb-3"><StaleMark>{t("state.stale", { age: relative(ov.fetchedAt) })}</StaleMark></div> : null}
           <section className="kpi-grid" aria-label={t("overview.kpis")}>
-            <KpiCard label={t("overview.kpi.health")} icon={HeartPulse} loading={loading} unavailable={!loading && (!o || health?.status === "unknown" || ov.stale)}
-              reason={ov.stale ? t("state.staleShort") : undefined}
+            <KpiCard label={t("overview.kpi.health")} icon={HeartPulse} loading={loading} unavailable={!health || health.status === "unknown" || ov.stale}
+              reason={ov.stale ? <StaleMark>{staleLabel}</StaleMark> : undefined}
               value={health ? <StatusChip tone={healthTone(health.status)} size="lg">{healthTxt}</StatusChip> : healthTxt}
               meta={health ? (health.issues.length ? t("overview.kpi.healthMeta", { count: num(health.issues.length) }) : t("overview.kpi.healthOk")) : null}
               href="/systeem" drill={t("overview.drill.system")} />
-            <KpiCard label={t("overview.kpi.active")} icon={Activity} loading={loading} unavailable={!loading && !o?.downloads.available}
-              reason={o?.downloads.reason ?? undefined}
+            <KpiCard label={t("overview.kpi.active")} icon={Activity} loading={loading} unavailable={!o?.downloads.available || ov.stale}
+              reason={ov.stale ? <StaleMark>{staleLabel}</StaleMark> : o?.downloads.reason}
               value={num(o?.downloads.total_active ?? 0)}
               meta={o?.downloads.available ? t("overview.kpi.activeMeta", { usenet: num(o.downloads.active.usenet), torrent: num(o.downloads.active.torrent) }) : o?.downloads.reason}
               href="/downloads" drill={t("overview.drill.downloads")} />
-            <KpiCard label={t("overview.kpi.failed")} icon={OctagonX} loading={loading} unavailable={!loading && !o?.failures.available}
-              reason={o?.failures.reason ?? undefined}
+            <KpiCard label={t("overview.kpi.failed")} icon={OctagonX} loading={loading} unavailable={!o?.failures.available || ov.stale}
+              reason={ov.stale ? <StaleMark>{staleLabel}</StaleMark> : o?.failures.reason}
               value={num(o?.failures.last_7d ?? 0)}
               meta={o?.failures.available ? t("overview.kpi.failedMeta", { day: num(o.failures.last_24h), rate: o.failures.failure_rate_7d == null ? "—" : pct(o.failures.failure_rate_7d * 100, 1) }) : o?.failures.reason}
               href="/downloads" drill={t("overview.drill.downloads")} />
             {/* B05-008: never an amount that looks complete when services have no price ("Deels onbekend") */}
-            <KpiCard label={t("overview.kpi.costs")} icon={Coins} loading={loading} unavailable={!loading && !cost?.available}
-              reason={cost?.reason ?? undefined}
+            <KpiCard label={t("overview.kpi.costs")} icon={Coins} loading={loading} unavailable={!cost?.available || ov.stale}
+              reason={ov.stale ? <StaleMark>{staleLabel}</StaleMark> : cost?.reason}
               value={cost?.available ? money((cost.monthly_cents ?? 0) / 100, cost.currency) : "—"}
               meta={cost?.available ? (cost.unknown?.length
                 ? <><StatusChip tone="unknown">{t("overview.kpi.costsPartlyUnknown")}</StatusChip> {t("overview.kpi.costsUnknown", { count: num(cost.unknown.length) })}</>
@@ -80,6 +79,7 @@ export default function OverviewPage() {
               href="/kosten" drill={t("overview.drill.costs")} />
           </section>
 
+          {ov.stale ? <div className="mt-3"><StaleMark>{staleLabel}</StaleMark></div> : null}
           <div className="grid" style={{ marginTop: 16 }}>
             {o ? (
               <>

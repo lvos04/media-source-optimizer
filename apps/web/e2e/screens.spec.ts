@@ -1,9 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test as base, type Page } from "@playwright/test";
+
+import { expectTabRoute } from "./tab-route";
 
 // De schermmatrix gebruikt één bron en één gebruiker. Houd tussen schermen ruimte
 // onder de standaardgrens van 600/min, ook als een snelle browser veel pagina's opent.
@@ -237,6 +239,13 @@ for (const theme of ["dark", "light"] as const) {
       expect(unexplained, "uitgeschakelde knoppen zonder uitleg").toEqual([]);
 
       await page.screenshot({ path: path.join(SHOT_DIR, `${s.slug}-${theme}-${deviceWidth}.png`), fullPage: deviceWidth === 1440 });
+      if (deviceWidth === 390 || deviceWidth === 1440) {
+        const stops = await expectTabRoute(page);
+        writeFileSync(test.info().outputPath("tabroute.json"), JSON.stringify({
+          scherm: s.slug, breedte: deviceWidth, thema: theme, stops: stops.length,
+          laagsteContrast: Math.min(...stops.map((stop) => stop.contrast)),
+        }));
+      }
       if (deviceWidth === 1440) {
         for (const width of [320, 1024]) {
           await page.setViewportSize({ width, height: 900 });

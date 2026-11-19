@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { KpiCard } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, Progress, StatusChip } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ResourceView, StaleMark, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangeDialog, PrivateChip, StateChip } from "@/components/mso/torrent/shared";
 import { api, errorMessage } from "@/lib/api/client";
@@ -122,19 +122,20 @@ export default function StoragePage() {
   };
 
   const disk = r?.disk ?? null;
+  const staleReason = report.stale ? <StaleMark>{t("state.stale", { age: relative(report.fetchedAt) })}</StaleMark> : undefined;
   const usedForDownloads = disk && disk.free > 0 ? Math.min(100, (disk.remaining_downloads / disk.free) * 100) : 0;
 
   return (
     <>
       <PageHeader title={t("nav.storage")} sub={t("storage.sub")} />
-      {r && !r.client.available ? <InlineState tone="warning">{r.client.error ? t("torrent.client.error", { error: r.client.error }) : t("storage.noClient")}</InlineState> : null}
+      {r && !r.client.available && !report.stale ? <InlineState tone="warning">{r.client.error ? t("torrent.client.error", { error: r.client.error }) : t("storage.noClient")}</InlineState> : null}
       <section className="kpi-grid" aria-label={t("storage.kpis")} style={{ marginTop: 16 }}>
-        <KpiCard label={t("storage.kpi.free")} icon={HardDrive} unavailable={!disk} value={disk ? bytes(disk.free) : "—"} meta={disk ? t("storage.kpi.freeMeta", { reserve: bytes(disk.reserve) }) : null}
+        <KpiCard label={t("storage.kpi.free")} icon={HardDrive} loading={report.loading} unavailable={!disk || report.stale} reason={staleReason} value={disk ? bytes(disk.free) : "—"} meta={disk ? t("storage.kpi.freeMeta", { reserve: bytes(disk.reserve) }) : null}
           tone={disk ? (disk.status === "kritiek" ? "danger" : disk.status === "waarschuwing" ? "warning" : "success") : undefined} />
-        <KpiCard label={t("storage.kpi.remaining")} icon={FolderTree} unavailable={!disk} value={disk ? bytes(disk.remaining_downloads) : "—"} meta={t("storage.kpi.remainingMeta")} />
-        <KpiCard label={t("storage.kpi.after")} icon={HardDrive} unavailable={!disk} value={disk ? bytes(disk.free_after_downloads) : "—"} meta={disk ? t(`storage.disk.${disk.status}` as MessageKey) : null}
+        <KpiCard label={t("storage.kpi.remaining")} icon={FolderTree} loading={report.loading} unavailable={!disk || report.stale} reason={staleReason} value={disk ? bytes(disk.remaining_downloads) : "—"} meta={t("storage.kpi.remainingMeta")} />
+        <KpiCard label={t("storage.kpi.after")} icon={HardDrive} loading={report.loading} unavailable={!disk || report.stale} reason={staleReason} value={disk ? bytes(disk.free_after_downloads) : "—"} meta={disk ? t(`storage.disk.${disk.status}` as MessageKey) : null}
           tone={disk ? (disk.status === "kritiek" ? "danger" : disk.status === "waarschuwing" ? "warning" : undefined) : undefined} />
-        <KpiCard label={t("storage.kpi.obligations")} icon={Scale} unavailable={!r} value={r ? num(r.obligations_summary.open) : "—"}
+        <KpiCard label={t("storage.kpi.obligations")} icon={Scale} loading={report.loading} unavailable={!r || report.stale} reason={staleReason} value={r ? num(r.obligations_summary.open) : "—"}
           meta={r ? t("storage.kpi.obligationsMeta", { met: num(r.obligations_summary.met), total: num(r.obligations_summary.total) }) : null}
           tone={r && r.obligations_summary.open ? "warning" : undefined} />
       </section>

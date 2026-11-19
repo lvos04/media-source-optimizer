@@ -16,13 +16,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button, Dot, Kbd, Modal, Segmented } from "@/components/mg/primitives";
-import { StateView } from "@/components/mg/states";
+import { StaleMark, StateView } from "@/components/mg/states";
 import { ToastProvider, useToast } from "@/components/mg/toast";
 import { AutopilotHoldBanner } from "@/components/mso/automation/hold-banner";
 import { BrandMark } from "@/components/shell/auth-frame";
 import { ALL_NAV_ITEMS, BOTTOM_NAV_KEYS, isActive, NAV } from "@/components/shell/nav";
 import { WaitingNavBadge, WaitingPill, WaitingProvider } from "@/components/shell/waiting";
-import { errorMessage } from "@/lib/api/client";
+import { errorMessage, type ApiError } from "@/lib/api/client";
 import type { SystemHealth, SystemInfo } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -34,8 +34,8 @@ import { HUB_URL_SETTING, hubUrl } from "@/lib/hub";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------- shell data (health/info)
-interface ShellData { health: SystemHealth | null; healthError: boolean; info: SystemInfo | null; reloadHealth: () => Promise<void> }
-const ShellContext = createContext<ShellData>({ health: null, healthError: false, info: null, reloadHealth: async () => undefined });
+interface ShellData { health: SystemHealth | null; healthError: ApiError | null; info: SystemInfo | null; reloadHealth: () => Promise<void> }
+const ShellContext = createContext<ShellData>({ health: null, healthError: null, info: null, reloadHealth: async () => undefined });
 /** System health (`GET /system/health`, polled every 30 s) and info (`GET /system/info`) for any page. */
 export const useShell = () => useContext(ShellContext);
 
@@ -129,8 +129,8 @@ function ShellFrame({ children }: { children: ReactNode }) {
   }, []);
 
   const shell = useMemo<ShellData>(() => ({
-    health: healthRes.data, healthError: Boolean(healthRes.error), info: infoRes.data, reloadHealth: healthRes.reload,
-  }), [healthRes.data, healthRes.error, healthRes.reload, infoRes.data]);
+    health: healthRes.error ? null : healthRes.data, healthError: healthRes.error, info: infoRes.error ? null : infoRes.data, reloadHealth: healthRes.reload,
+  }), [healthRes.data, healthRes.error, healthRes.reload, infoRes.data, infoRes.error]);
   const { t } = useI18n();
   return (
     <ShellContext.Provider value={shell}>
@@ -219,7 +219,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   // without a measurement.
   const tone = healthError ? "unknown" : health ? healthTone(health.status) : "unknown";
   const dot = tone === "healthy" || tone === "warning" || tone === "danger" ? tone : "unknown";
-  const label = healthError ? t("health.offline") : !health ? t("health.unknown")
+  const label = healthError?.kind === "offline" ? t("health.offline") : !health ? t("health.unknown")
     : health.status === "healthy" ? t("health.healthy") : health.status === "degraded" ? t("health.degraded")
       : health.status === "offline" ? t("health.down") : t("health.unknown");
   const problems = healthError ? [] : (health?.components ?? []).filter((c) => isHealthProblem(c.status));
@@ -408,7 +408,7 @@ function PauseButton() {
   };
   return (
     <>
-      <button type="button" aria-pressed={paused} onClick={() => { setError(null); setOpen(true); }} disabled={Boolean(disabledReason)} title={disabledReason ?? (paused ? t("pause.resumeTitle") : t("pause.button"))} data-testid="pause-button"
+      <button type="button" aria-pressed={known ? paused : undefined} onClick={() => { setError(null); setOpen(true); }} disabled={Boolean(disabledReason)} title={disabledReason ?? (paused ? t("pause.resumeTitle") : t("pause.button"))} data-testid="pause-button"
         className={cn(buttonVariants({ variant: "secundair" }), "estop min-w-touch px-2.5 lg:px-3",
           paused ? "border-paused bg-paused text-primary-foreground hover:bg-paused" : "border-paused bg-paused-bg text-paused-ink hover:bg-paused-bg")}>
         {paused ? <CirclePlay className="ico" aria-hidden="true" /> : <CirclePause className="ico" aria-hidden="true" />}
@@ -421,7 +421,7 @@ function PauseButton() {
         icon={paused ? CirclePlay : CirclePause}
         title={paused ? t("pause.resumeTitle") : t("pause.confirmTitle")}
         description={paused ? t("pause.resumeBody") : t("pause.confirmBody")}
-        footer={<><Button onClick={() => setOpen(false)} data-autofocus>{t("action.cancel")}</Button><Button variant="primary" pending={pending} onClick={() => void submit()} data-testid="pause-confirm">{paused ? t("pause.resume") : t("pause.confirm")}</Button></>}
+        footer={<><Button onClick={() => setOpen(false)} data-autofocus>{t("action.cancel")}</Button><Button variant="primary" pending={pending} disabled={Boolean(disabledReason)} title={disabledReason} onClick={() => void submit()} data-testid="pause-confirm">{paused ? t("pause.resume") : t("pause.confirm")}</Button></>}
       >
         {error ? <div className="field-error flex items-center gap-1.5 text-sm font-semibold text-down-ink" role="alert">{error}</div> : null}
       </Modal>
@@ -430,12 +430,16 @@ function PauseButton() {
 }
 
 function PauseBanner() {
-  const { t } = useI18n();
-  const { paused, resume } = useMode();
+  const { t, relative } = useI18n();
+  const { paused, stalePauseAt, resume } = useMode();
   const { can } = useSession();
   const toast = useToast();
   const [pending, setPending] = useState(false);
-  if (!paused) return null;
+  if (!paused) return stalePauseAt === null ? null : (
+    <div className="px-4 py-2" data-testid="pause-banner">
+      <StaleMark><span>{t("pause.bannerTitle")} · {t("state.stale", { age: relative(stalePauseAt) })}</span></StaleMark>
+    </div>
+  );
   const release = async () => {
     setPending(true);
     try { await resume(); toast.push("success", t("pause.resumed")); } catch (e) { toast.push("danger", t("toast.failed", { message: errorMessage(e) })); } finally { setPending(false); }

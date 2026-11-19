@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { KpiCard } from "@/components/mg/domain";
 import { Button, Card, PageHeader } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ResourceView, StaleMark, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { DirectIndexerDialog } from "@/components/mso/indexers/direct-dialog";
 import { EndpointPanel } from "@/components/mso/indexers/endpoint-panel";
@@ -19,7 +19,7 @@ import { useSession } from "@/lib/session";
 
 /** Shared body of /nzb-indexers (usenet) and /torrent-indexers (torrent). */
 export function IndexersPage({ protocol }: { protocol: Protocol }) {
-  const { t, num, pct } = useI18n();
+  const { t, num, pct, relative } = useI18n();
   const { can } = useSession();
   const toast = useToast();
   const { run, pending } = useAction();
@@ -31,7 +31,8 @@ export function IndexersPage({ protocol }: { protocol: Protocol }) {
   const avgRel = measured.length ? measured.reduce((a, b) => a + (b.reliability ?? 0), 0) / measured.length : null;
   // last observation answered (results or a genuine empty answer)
   const okLast = items.filter((i) => i.stats?.last_search_at && ["ok", "empty", null].includes(i.stats.last_status)).length;
-  const ready = list.data !== null;
+  const ready = list.data !== null && !list.stale;
+  const staleReason = list.stale ? <StaleMark>{t("state.stale", { age: relative(list.fetchedAt) })}</StaleMark> : undefined;
 
   const recompute = async () => {
     if (await run("rel", "post", "/indexers/reliability/recompute", undefined, t("idx.recomputed"))) await list.reload();
@@ -46,12 +47,12 @@ export function IndexersPage({ protocol }: { protocol: Protocol }) {
         </>} />
       <div className="grid">
         <div className="span-12 kpi-grid">
-          <KpiCard label={t("idx.kpi.sources")} icon={Activity} value={ready ? num(items.length) : "—"} unavailable={!ready} />
-          <KpiCard label={t("idx.kpi.healthy")} icon={ShieldCheck} value={ready ? num(okLast) : "—"} unavailable={!ready} />
-          <KpiCard label={t("idx.kpi.reliability")} icon={Gauge} value={avgRel !== null ? pct(avgRel * 100) : null}
+          <KpiCard label={t("idx.kpi.sources")} icon={Activity} loading={list.loading} value={num(items.length)} unavailable={!ready} reason={staleReason} />
+          <KpiCard label={t("idx.kpi.healthy")} icon={ShieldCheck} loading={list.loading} value={num(okLast)} unavailable={!ready} reason={staleReason} />
+          <KpiCard label={t("idx.kpi.reliability")} icon={Gauge} loading={list.loading} value={avgRel !== null ? pct(avgRel * 100) : null}
             meta={ready ? t("idx.kpi.coverage", { n: num(measured.length) }) : undefined} unavailable={!ready || avgRel === null}
-            reason={ready && avgRel === null ? t("idx.kpi.noReliability", { n: num(measured.length) }) : undefined} />
-          <KpiCard label={t("idx.kpi.private")} icon={Lock} value={ready ? num(items.filter((i) => i.private).length) : "—"} unavailable={!ready} />
+            reason={staleReason ?? (ready && avgRel === null ? t("idx.kpi.noReliability", { n: num(measured.length) }) : undefined)} />
+          <KpiCard label={t("idx.kpi.private")} icon={Lock} loading={list.loading} value={num(items.filter((i) => i.private).length)} unavailable={!ready} reason={staleReason} />
         </div>
         <Card className="span-12" title={t("idx.list")} sub={t("idx.listSub")} flush>
           <ResourceView resource={list} endpoint="GET /api/v1/indexers" isEmpty={(d) => d.items.filter((i) => !i.is_mso).length === 0}

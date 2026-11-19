@@ -652,16 +652,22 @@ bestaande gestapelde weergave of een eigen toetsenbordbereikbare scrollregio.
 `screens.spec.ts` meet overloop en axe op 320, 360, 390, 768, 1024 en 1440 px, in licht en donker. De browser meet op
 360 px tegen de ingestelde apparaatbreedte. Op 320 en 360 px meet de suite ook met vergrote tekstafstand.
 `states.spec.ts` houdt per scherm één aanvraag tegen en geeft vervolgens een storing, een weggevallen verbinding en
-een leeg antwoord. De proef controleert de vier toestanden op 360, 390, 768 en 1440 px. `peil.spec.ts` controleert de
-focusring en de zichtbaarheid van de toetsenbordfocus op deze vier breedtes.
+een leeg antwoord. De proef controleert op 360, 390, 768 en 1440 px de melding en de paginabreedte en controleert
+bij storing en uitval ook de herhaalactie. `screens.spec.ts` loopt voor elk van de 16 schermen op 390 en 1440 px
+in beide thema’s de volledige Tab-route door en toetst per stop de focusring, het contrast en de zichtbaarheid.
+Per route bewaart de browserproef een `tabroute.json` met het aantal stops en het laagste contrast.
+`peil.spec.ts` behoudt de toetsenbordproeven op Systeem en Instellingen, inclusief de extra breedtes.
 
 De afdrukken van 360 en 768 px in `docs/screenshots/` gebruiken de voorbereide teststack. In CI bewaart het
 artefact `playwright-results` de afdrukken bij de browseruitvoer.
 
-De gerichte renderproef reproduceerde twee afwijkingen bij een mislukte verversing. In Logs krijgt nu ook een
-eerder lege auditlijst het label Verouderd. De kaart Onderdelen op Systeem geeft de offline-weergave en de
-bestaande herhaalactie voorrang boven de oude gezondheidsstatus. De zijbalk toont dan Onbekend en laat de vorige
-probleemregels weg. De browserproeven voor Logs en Systeem staan in `states.spec.ts`.
+Na een mislukte verversing krijgt ook een eerder lege auditlijst het label Verouderd. Onderdelen op Systeem geeft
+de foutsoort aan het Peil-foutpaneel door en toont de herhaalactie. De zijbalk schakelt over naar Onbekend.
+Een eerder bevestigde automatiseringspauze krijgt een markering als laatst bekend. De banner toont de actuele
+pauze en hervatknop zodra de modusbron die pauze weer bevestigt. Op Kosten volgen het totaal, ontbrekende prijzen
+en eerstvolgende verlenging het kostenoverzicht. Het aantal diensten volgt de dienstenlijst. Ook de kerncijfers op
+Overzicht, Opslag en beide indexerschermen tonen lokaal Onbekend met de versheidsmarkering als hun eigen bron uitvalt.
+De herstelproeven staan in `states.spec.ts` en `tests/unit/schermtoestanden.test.tsx` onder `apps/web/`.
 
 De eerste CI-meting vond op Automatisering 4 px horizontale overloop op 320 px met vergrote tekstafstand, in
 beide thema’s. Een geïsoleerde proef met DejaVu Sans wees de filterbalk van Aanbevelingen aan. De bestaande

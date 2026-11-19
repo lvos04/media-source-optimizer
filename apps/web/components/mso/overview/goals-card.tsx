@@ -8,7 +8,7 @@ import Link from "next/link";
 
 import { Card, InlineState, StatusChip, type Tone } from "@/components/mg/primitives";
 import { ChartFrame } from "@/components/mso/charts/chart-frame";
-import { ResourceView } from "@/components/mg/states";
+import { ResourceView, StaleMark } from "@/components/mg/states";
 import type { Goal, GoalKey, Goals, GoalStatus, GoalTrendPoint, GoalsTrial } from "@/lib/api/goals";
 import { useResource } from "@/lib/api/hooks";
 import { useI18n, type MessageKey } from "@/lib/i18n";
@@ -46,18 +46,19 @@ function useValue() {
 
 /** Overzicht → first card: the three trial goals (start, now, target, day X of 28, trend, what holds it back). */
 export function GoalsCard() {
-  const { t, num } = useI18n();
+  const { t, num, relative } = useI18n();
   const { can } = useSession();
   const res = useResource<Goals>("/overview/goals", undefined, 300_000);
   const data = res.data;
+  const staleLabel = res.stale ? t("state.stale", { age: relative(res.fetchedAt) }) : undefined;
   return (
     <Card className="span-12" title={t("goals.title")} icon={Target} flush
-      sub={data ? <TrialSub trial={data.trial} /> : undefined}
+      sub={data && !res.stale ? <TrialSub trial={data.trial} /> : undefined}
       actions={data ? (
         <>
-          <StatusChip tone="neutral" icon={Target}>
+          {res.stale ? <StatusChip tone="unknown">{t("status.unknown")}</StatusChip> : <StatusChip tone="neutral" icon={Target}>
             {t("goals.metCount", { met: num(data.met), total: num(data.total) })}
-          </StatusChip>
+          </StatusChip>}
           {can("admin") ? <Link className="link-more" href="/instellingen?tab=automatisering">{t("goals.changeStart")} <ArrowRight className="ico ico-sm" aria-hidden="true" /></Link> : null}
         </>
       ) : undefined}>
@@ -66,7 +67,7 @@ export function GoalsCard() {
           <>
             {g.trial.start_warning ? <div style={{ padding: "12px 16px 0" }}><InlineState tone="warning">{g.trial.start_warning}</InlineState></div> : null}
             <div data-testid="goals-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 12, padding: "12px 16px" }}>
-              {g.goals.map((goal) => <GoalTile key={goal.key} goal={goal} notStarted={g.trial.not_started} />)}
+              {g.goals.map((goal) => <GoalTile key={goal.key} goal={goal} notStarted={g.trial.not_started} staleLabel={staleLabel} />)}
             </div>
             <TrialFooter trial={g.trial} />
           </>
@@ -118,16 +119,16 @@ function StartValue({ goal, notStarted }: { goal: Goal; notStarted: boolean }) {
   );
 }
 
-function GoalTile({ goal, notStarted }: { goal: Goal; notStarted: boolean }) {
+function GoalTile({ goal, notStarted, staleLabel }: { goal: Goal; notStarted: boolean; staleLabel?: string }) {
   const { t, num } = useI18n();
   const value = useValue();
   const Icon = ICON[goal.key];
   const target = value(goal, goal.target);
   return (
-    <article className={`kpi ${KPI_TONE[goal.status] ?? ""}`} data-testid={`goal-${goal.key}`} aria-labelledby={`goal-${goal.key}-title`} style={{ gap: 8, minWidth: 0 }}>
+    <article className={`kpi ${staleLabel ? "" : KPI_TONE[goal.status] ?? ""}`} data-testid={`goal-${goal.key}`} aria-labelledby={`goal-${goal.key}-title`} style={{ gap: 8, minWidth: 0 }}>
       <div className="row-between wrap" style={{ gap: 6 }}>
         <span className="kpi-label" id={`goal-${goal.key}-title`}><Icon className="ico" aria-hidden="true" />{t(TITLE[goal.key])}</span>
-        <StatusChip tone={STATUS_TONE[goal.status]} icon={STATUS_ICON[goal.status]}>{t(`goals.status.${goal.status}` as MessageKey)}</StatusChip>
+        {staleLabel ? <StaleMark>{staleLabel}</StaleMark> : <StatusChip tone={STATUS_TONE[goal.status]} icon={STATUS_ICON[goal.status]}>{t(`goals.status.${goal.status}` as MessageKey)}</StatusChip>}
       </div>
       {!goal.available ? (
         <InlineState tone="warning">{goal.reason}</InlineState>

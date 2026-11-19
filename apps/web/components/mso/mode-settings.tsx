@@ -80,7 +80,7 @@ export function ModeSettingsCard() {
             {mode === "autopilot" ? <StatusChip tone="accent" icon={Bot}>{t("mode.autopilot")}</StatusChip>
               : mode === "manage" ? <StatusChip tone="neutral" icon={ShieldCheck}>{t("mode.manage")}</StatusChip>
               : mode === "read_only" ? <StatusChip tone="info" icon={Eye}>{t("mode.read_only")}</StatusChip>
-                : <StatusChip tone="neutral" pending={loading}>{loading ? t("mode.loadingReason") : t("mode.unknown")}</StatusChip>}
+                : <StatusChip tone={loading ? "neutral" : "unknown"} pending={loading}>{loading ? t("mode.loadingReason") : t("mode.unknown")}</StatusChip>}
             {mode !== null ? (
               paused ? <StatusChip tone="paused">{t("mode.section.pausedChip")}</StatusChip>
                 : mode === "manage" || mode === "autopilot" ? <StatusChip tone="success">{t("mode.section.runningChip")}</StatusChip>

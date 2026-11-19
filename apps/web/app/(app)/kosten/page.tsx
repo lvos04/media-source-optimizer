@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { DangerDialog, KpiCard, Timeline } from "@/components/mg/domain";
 import { Button, Card, InlineState, PageHeader, StatusChip, Switch } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ResourceView, StaleMark, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { PriceInline } from "@/components/mso/costs/price-inline";
 import { Scenarios } from "@/components/mso/costs/scenarios";
@@ -45,7 +45,7 @@ function UniqueCell({ m, f }: { m: ServiceMetrics | null | undefined; f: Formatt
 
 export default function CostsPage() {
   const f = useI18n();
-  const { t, num, money, date } = f;
+  const { t, num, money, date, relative } = f;
   const { can } = useSession();
   const toast = useToast();
   const isAdmin = can("admin");
@@ -77,6 +77,8 @@ export default function CostsPage() {
   const reload = () => { void services.reload(); void summary.reload(); };
   const s = summary.data;
   const next = s?.renewals.find((r) => r.days_left >= 0);
+  const summaryStale = summary.stale ? <StaleMark>{t("state.stale", { age: relative(summary.fetchedAt) })}</StaleMark> : undefined;
+  const servicesStale = services.stale ? <StaleMark>{t("state.stale", { age: relative(services.fetchedAt) })}</StaleMark> : undefined;
 
   const doDelete = async () => {
     if (!deleting) return;
@@ -105,29 +107,29 @@ export default function CostsPage() {
         </>} />
       <InlineState tone="info" icon={CircleHelp}><span><strong>{t("costs.disclaimerTitle")}:</strong> {t("costs.disclaimer")}</span></InlineState>
       {services.data?.price_missing ? (
-        <div style={{ marginTop: 12 }}><InlineState tone="unknown">{t("costs.priceMissingBanner", { count: num(services.data.price_missing) })}</InlineState></div>
+        <div style={{ marginTop: 12 }}><InlineState tone="unknown">{t("costs.priceMissingBanner", { count: num(services.data.price_missing) })} {servicesStale}</InlineState></div>
       ) : null}
 
       <section className="kpi-grid" aria-label={t("overview.kpis")} style={{ marginTop: 16 }}>
-        <KpiCard label={t("costs.kpi.total")} icon={Coins} unavailable={!s || s.total.services === 0}
+        <KpiCard label={t("costs.kpi.total")} icon={Coins} loading={summary.loading} unavailable={!s || summary.stale || s.total.services === 0} reason={summaryStale}
           value={s ? money(s.total.monthly_cents / 100, s.total.currency) : "—"}
           meta={s ? (s.total.unknown.length
             // Peil §4.3: een totaal met onbekende delen is nooit stil compleet ("Deels onbekend", zoals op het Overzicht)
             ? <><StatusChip tone="unknown">{t("overview.kpi.costsPartlyUnknown")}</StatusChip> {t("costs.kpi.totalMeta", { count: num(s.total.services) })}</>
             : t("costs.kpi.totalMeta", { count: num(s.total.services) })) : null} />
-        <KpiCard label={t("costs.kpi.unknown")} icon={CircleHelp} unavailable={!s} tone={s?.total.unknown.length ? "warning" : undefined}
+        <KpiCard label={t("costs.kpi.unknown")} icon={CircleHelp} loading={summary.loading} unavailable={!s || summary.stale} reason={summaryStale} tone={s?.total.unknown.length ? "warning" : undefined}
           value={num(s?.total.unknown.length ?? 0)} meta={s?.total.unknown.length ? s.total.unknown.map((u) => u.label).join(", ") : t("costs.kpi.unknownMeta")} />
-        <KpiCard label={t("costs.kpi.nextRenewal")} icon={CalendarClock} unavailable={!s}
+        <KpiCard label={t("costs.kpi.nextRenewal")} icon={CalendarClock} loading={summary.loading} unavailable={!s || summary.stale} reason={summaryStale}
           value={next ? date(next.date) : "—"} meta={next ? `${next.label} · ${t("costs.renewalIn", { days: num(next.days_left), amount: money(next.amount_cents / 100, next.currency) })}` : t("costs.kpi.noRenewal")} />
-        <KpiCard label={t("costs.kpi.services")} icon={Layers} unavailable={!services.data}
+        <KpiCard label={t("costs.kpi.services")} icon={Layers} loading={services.loading} unavailable={!services.data || services.stale} reason={servicesStale}
           value={num((services.data?.items.length ?? 0) - freeCount)}
           meta={services.data ? t("costs.kpi.servicesMeta", { paid: num(services.data.items.length - freeCount), free: num(freeCount), inactive: num(services.data.items.filter((x) => !x.active).length) }) : null} />
       </section>
 
       <div className="grid" style={{ marginTop: 16 }}>
         <Card className="span-12" title={t("costs.services")} icon={Coins} flush
-          actions={freeCount ? <label className="row" style={{ gap: 8 }}><Switch checked={showFree} label={t("costs.showFree")} onChange={setShowFree} /><span>{t("costs.showFree")} ({num(freeCount)})</span></label> : undefined}>
-          {freeCount && !showFree ? <p className="hint" style={{ margin: 0, padding: "10px 16px 0" }}>{t("costs.freeHidden", { count: num(freeCount) })}</p> : null}
+          actions={freeCount ? <label className="row" style={{ gap: 8 }}><Switch checked={showFree} label={t("costs.showFree")} onChange={setShowFree} /><span>{t("costs.showFree")}{services.stale ? "" : ` (${num(freeCount)})`}</span></label> : undefined}>
+          {freeCount && !showFree ? <p className="hint" style={{ margin: 0, padding: "10px 16px 0" }}>{t("costs.freeHidden", { count: num(freeCount) })} {servicesStale}</p> : null}
           <ResourceView resource={services} endpoint="GET /api/v1/costs/services" isEmpty={(d) => shown(d.items).length === 0}
             empty={services.data?.items.length ? <StateView kind="empty" title={t("costs.noPaidServices")} body={t("costs.noPaidServicesBody")} /> : <StateView kind="empty" title={t("costs.noServices")} body={t("costs.noServicesBody")}
               action={<Button variant="primary" icon={Plus} disabled={!isAdmin} title={isAdmin ? undefined : t("costs.adminOnly")} onClick={() => setEditing({ service: null })}>{t("costs.addService")}</Button>} />}>

@@ -1,4 +1,4 @@
-import { expect, test, type Cookie, type Page, type Route } from "@playwright/test";
+import { expect, test, type Cookie, type Locator, type Page, type Route } from "@playwright/test";
 
 const USER = process.env.MSO_E2E_USER ?? "";
 const PASSWORD = process.env.MSO_E2E_PASSWORD ?? "";
@@ -83,11 +83,17 @@ function apiPath(endpoint: string) {
   return (url: URL) => url.pathname === `/api/v1${endpoint}`;
 }
 
-async function expectNoOverflow(page: Page, state: string) {
+async function expectStateAtWidths(page: Page, state: string, message: Locator, retry?: Locator) {
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: 800 });
+    const description = `${state} op ${width} px`;
+    await expect.soft(message, `melding bij ${description}`).toBeVisible();
+    if (retry) {
+      await expect.soft(retry, `herhaalactie bij ${description}`).toBeVisible();
+      await expect.soft(retry, `herhaalactie bij ${description}`).toBeEnabled();
+    }
     const pageWidth = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
-    expect.soft(pageWidth, `${state} op ${width} px`).toBeLessThanOrEqual(width + 1);
+    expect.soft(pageWidth, `paginabreedte bij ${description}`).toBeLessThanOrEqual(width + 1);
   }
   await page.setViewportSize({ width: WIDTHS[0], height: 800 });
 }
@@ -111,29 +117,27 @@ for (const screen of SCREENS) {
     const empty = region.locator('[data-state="empty"]').getByText(screen.emptyText, { exact: true }).first();
     const error = region.getByRole("alert").filter({ hasText: "De proefbron geeft een storing." }).first();
     const offline = region.locator('[data-state="offline"]').filter({ hasText: "Backend niet bereikbaar" }).first();
+    const errorRetry = error.getByRole("button", { name: "Opnieuw proberen" });
+    const offlineRetry = offline.getByRole("button", { name: "Opnieuw proberen" });
     await page.goto(screen.path);
     try {
       await expect(main.getByRole("heading", { level: 1 })).toBeVisible();
-      await expect(region.getByText("Gegevens ophalen…", { exact: true }).first()).toBeVisible();
-      await expectNoOverflow(page, "laden");
+      await expectStateAtWidths(page, "laden", region.getByText("Gegevens ophalen…", { exact: true }).first());
     } finally {
       releaseLoading();
     }
 
-    await expect(error.getByText("Ophalen is mislukt.")).toBeVisible();
     await expect(empty).toHaveCount(0);
-    await expectNoOverflow(page, "storing");
+    await expectStateAtWidths(page, "storing", error.getByText("Ophalen is mislukt."), errorRetry);
     state = "offline";
-    await error.getByRole("button", { name: "Opnieuw proberen" }).click();
-    await expect(offline).toBeVisible();
+    await errorRetry.click();
     await expect(empty).toHaveCount(0);
-    await expectNoOverflow(page, "offline");
+    await expectStateAtWidths(page, "offline", offline, offlineRetry);
 
     state = "empty";
-    await offline.getByRole("button", { name: "Opnieuw proberen" }).click();
-    await expect(empty).toBeVisible();
+    await offlineRetry.click();
     await expect(offline).toHaveCount(0);
-    await expectNoOverflow(page, "leeg");
+    await expectStateAtWidths(page, "leeg", empty);
   });
 }
 
@@ -153,25 +157,71 @@ test("Logs maakt een eerder lege lijst herkenbaar als verouderd wanneer ververse
   await expect(audit.getByText("Geen auditregels gevonden")).toBeVisible();
 });
 
-test("Systeem toont geen gezonde componenten uit een oude meting wanneer verversen offline faalt", async ({ page }) => {
-  let offline = false;
+for (const { path, endpoint, interval } of [
+  { path: "/", endpoint: "/overview", interval: 30_000 },
+  { path: "/opslag", endpoint: "/torrent/storage", interval: 60_000 },
+  { path: "/nzb-indexers", endpoint: "/indexers", interval: 60_000 },
+  { path: "/torrent-indexers", endpoint: "/indexers", interval: 60_000 },
+]) {
+  test(`${path}: alle kerncijfers volgen de versheid van hun bron`, async ({ page }) => {
+    let connected = true;
+    await page.clock.install();
+    await page.route(apiPath(endpoint), (route) => connected ? route.continue() : route.abort("internetdisconnected"));
+    await page.goto(path);
+    const kpis = page.locator("main .kpi-grid .kpi");
+    const stale = kpis.locator('[data-status="stale"]');
+    await expect(kpis).toHaveCount(4);
+    await expect(kpis.locator(".skeleton")).toHaveCount(0);
+    await expect(stale).toHaveCount(0);
+
+    connected = false;
+    await page.clock.fastForward(interval);
+    await expect(stale).toHaveCount(4);
+    await expect(kpis.locator('.kpi-value [data-status="unknown"]')).toHaveCount(4);
+
+    connected = true;
+    await page.clock.fastForward(interval);
+    await expect(stale).toHaveCount(0);
+  });
+}
+
+test("Systeem onderscheidt een storing van uitval na een bevestigde meting en herstelt na opnieuw proberen", async ({ page }) => {
+  let state: "healthy" | "error" | "offline" | "recovered" = "healthy";
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.route(apiPath("/system/health"), (route) => offline
-    ? route.abort("internetdisconnected")
-    : route.fulfill({ json: {
+  await page.route(apiPath("/system/health"), (route) => {
+    if (state === "offline") return route.abort("internetdisconnected");
+    if (state === "error") return route.fulfill({ status: 500, json: ERROR });
+    return route.fulfill({ json: state === "healthy" ? {
       status: "degraded",
       components: [{ name: "Proefcomponent", status: "healthy" }, { name: "Proefstoring", status: "offline" }],
-    } }));
+    } : {
+      status: "healthy",
+      components: [{ name: "Herstelde proefcomponent", status: "healthy" }],
+    } });
+  });
   await page.goto("/systeem");
   const components = page.getByRole("region", { name: "Onderdelen" });
   const sidebarHealth = page.getByTestId("sidebar-health");
   await expect(components.getByText("Gezond", { exact: true })).toBeVisible();
   await expect(sidebarHealth.getByText(/Proefstoring/)).toBeVisible();
 
-  offline = true;
+  state = "error";
   await components.getByRole("button", { name: "Verversen" }).click();
-  await expect(components.locator('[data-state="offline"]')).toBeVisible();
+  const error = components.getByRole("alert");
+  await expect(error.getByText("Ophalen is mislukt.")).toBeVisible();
+  await expect(error.getByText(/HTTP 500/)).toBeVisible();
+  await expect(components.getByText("Gezond", { exact: true })).toHaveCount(0);
+
+  state = "offline";
+  await error.getByRole("button", { name: "Opnieuw proberen" }).click();
+  const offline = components.locator('[data-state="offline"]');
+  await expect(offline.getByText("Backend niet bereikbaar")).toBeVisible();
   await expect(components.getByText("Gezond", { exact: true })).toHaveCount(0);
   await expect(sidebarHealth.getByText("Onbekend — MSO-core reageert niet")).toBeVisible();
   await expect(sidebarHealth.getByText(/Proefstoring/)).toHaveCount(0);
+
+  state = "recovered";
+  await offline.getByRole("button", { name: "Opnieuw proberen" }).click();
+  await expect(components.getByText("Herstelde proefcomponent")).toBeVisible();
+  await expect(sidebarHealth.getByText("Alles gezond")).toBeVisible();
 });

@@ -203,13 +203,15 @@ def test_verification_failure_marks_change_failed(app: Any, db: Any, admin: Any,
     from mso.features.usenet import retry
 
     sab = _start(serve, admin, retry_noop=1)
-    _fail_jobs(sab, 1)
+    (target,) = _fail_jobs(sab, 1)
     _gain(sab, db)
     _switch_off_failing(sab)
     state.set_state("mode", "autopilot")
     res = retry.propose()
     assert res["change"]["status"] == "failed" and res["change"]["auto_applied"] is False
     assert "verificatie mislukt" in (res["change"]["error"] or "")
+    assert sab.retried == [target] and all(slot["nzo_id"] != target for slot in sab.queue)
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action IN ('sabnzbd.retry','change.applied')") == 0
 
 
 def test_no_healthy_server_left_no_retry(app: Any, db: Any, admin: Any, serve: Any) -> None:

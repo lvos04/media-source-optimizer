@@ -304,10 +304,10 @@ def do_retry(client: SabClient, nzo_id: str, command: dict[str, Any]) -> None:
         "client_instance=EXCLUDED.client_instance, error=NULL",
         (nzo_id, nzo_id, None if new == nzo_id else new, client.instance_id),
     )
-    if read_state(client, nzo_id, command) != RETRY_AFTER:
-        raise SabError("De aangevraagde retry is niet bevestigd op de ontvangende instantie", "invalid")
-    audit(ACTOR, "sabnzbd.retry", "Mislukte download opnieuw geprobeerd in SABnzbd", target="sabnzbd",
-          detail={"nzo_id": nzo_id, "new_nzo_id": None if new == nzo_id else new})
+    # De wijzigingsmotor vergelijkt de eindmeting met de goedkeuring, ook bij een bevestigd verzoek zonder effect.
+    if read_state(client, nzo_id, command) == RETRY_AFTER:
+        audit(ACTOR, "sabnzbd.retry", "Mislukte download opnieuw geprobeerd in SABnzbd", target="sabnzbd",
+              detail={"nzo_id": nzo_id, "new_nzo_id": None if new == nzo_id else new})
 
 
 # ------------------------------------------------------------------ proposal / autopilot

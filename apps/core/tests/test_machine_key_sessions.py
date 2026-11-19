@@ -101,7 +101,9 @@ def _matrix_body(response, operation, caller, installed_schema):
 
 def test_existing_http_matrix_against_base(admin, operator, viewer, client, app, db, monkeypatch):
     """Meet het HTTP-antwoord en de auditdelta per oorspronkelijke operatie en identiteit."""
+    from mso.features.overview import autopilot, goals
     from mso.features.torrent import api as torrent_api
+    from mso.features.usenet import categories
 
     expected_operations = json.loads((FIXTURES / "native_operations_before_machine_keys.json").read_text())
     operations = [tuple(pair) for pair in expected_operations["operations"]]
@@ -110,15 +112,18 @@ def test_existing_http_matrix_against_base(admin, operator, viewer, client, app,
                                for method in methods}
     # Uitloggen sluit iedere sessie af en komt daarom als laatste.
     operations.sort(key=lambda pair: pair == ("post", "/api/v1/auth/logout"))
-    # Een trage runner kan tussen identiteiten een taakslot passeren.
-    now = datetime.now(UTC)
+    # De basis-app leverde dagreeksen op 18 november 2026, op de aanmaakdag van de testgebruikers.
+    # Gebruik diezelfde invoer zodat ook elke afzonderlijke kalenderdag in de inhoudshash wordt getoetst.
+    now = datetime(2026, 11, 18, 12, tzinfo=UTC)
+    db.execute("UPDATE users SET created_at=%s", (now,))
 
     class MatrixDateTime(datetime):
         @classmethod
         def now(cls, tz=None):
             return now.astimezone(tz) if tz is not None else now.replace(tzinfo=None)
 
-    monkeypatch.setattr(torrent_api, "datetime", MatrixDateTime)
+    for module in (autopilot, goals, torrent_api, categories):
+        monkeypatch.setattr(module, "datetime", MatrixDateTime)
     monkeypatch.setattr(time, "time", now.timestamp)
     monkeypatch.setattr(get_settings(), "build", BuildMetadata("onbekend", "onbekend", "onbekend", "onbekend"))
 
@@ -130,9 +135,15 @@ def test_existing_http_matrix_against_base(admin, operator, viewer, client, app,
         "size_bytes": 12 * 1024**2, "tables": [{"name": "jobs", "bytes": 81920, "rows": 0}],
     })
     scalar = db.scalar
-    monkeypatch.setattr(db, "scalar", lambda query, *args, **kwargs:
-                        12 * 1024**2 if query == "SELECT pg_database_size(current_database())"
-                        else scalar(query, *args, **kwargs))
+
+    def matrix_scalar(query, params=None):
+        if query == "SELECT pg_database_size(current_database())":
+            return 12 * 1024**2
+        if query == "SELECT (now() AT TIME ZONE %s)::date":
+            return scalar("SELECT (%s::timestamptz AT TIME ZONE %s)::date", (now, *params))
+        return scalar(query, params)
+
+    monkeypatch.setattr(db, "scalar", matrix_scalar)
     monkeypatch.setattr(newznab_keys, "_new_key", lambda: "0" * 32)
     installed_schema = db.scalar("SELECT max(version) FROM schema_migrations")
     last_id = db.scalar("SELECT coalesce(max(id),0) FROM audit_log")

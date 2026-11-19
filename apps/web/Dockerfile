@@ -2,7 +2,7 @@
 # mso-web: Next.js UI + same-origin proxy (server.mjs) for /api/v1, /newznab and /torznab (MSO core).
 #   docker build [--secret id=ca_bundle,src=/pad/naar/ca.crt] -t mso/web:dev apps/web
 # Runtime: non-root (568, TrueNAS "apps" user), read-only rootfs compatible (only /tmp needs to be writable), port 3000.
-ARG NODE_IMAGE=mirror.gcr.io/library/node:22-bookworm-slim
+ARG NODE_IMAGE=mirror.gcr.io/library/node:22.23.5-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
 
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /src

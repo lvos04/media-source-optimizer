@@ -4,7 +4,7 @@
 #
 #   docker build [--secret id=ca_bundle,src=/pad/naar/ca.crt] -t mso-mocks:test apps/mocks
 #   docker run --rm mso-mocks:test <name> --port 8080 [--fault key=value]
-ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.13.18-slim-bookworm
+ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.13.18-slim-bookworm@sha256:a5a7017efc5969e00ae2b91c8eb0631049a569652aa4ffc4501769049ae45c72
 FROM ${PYTHON_IMAGE}
 ARG UID=568
 ARG GID=568

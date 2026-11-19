@@ -9,8 +9,8 @@
 #          dumb-init as PID 1, PostgreSQL 16 client tools (pg_dump/pg_restore/psql) for backups.
 # The optional ca_bundle build secret is only for TLS-inspecting proxies; it is never stored in a layer.
 
-ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.13.18-slim-bookworm
-ARG POSTGRES_IMAGE=mirror.gcr.io/library/postgres:16.15-bookworm
+ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.13.18-slim-bookworm@sha256:a5a7017efc5969e00ae2b91c8eb0631049a569652aa4ffc4501769049ae45c72
+ARG POSTGRES_IMAGE=mirror.gcr.io/library/postgres:16.15-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9
 
 # ---------------------------------------------------------------- PostgreSQL 16 client tools
 # Debian bookworm only ships client 15, and pg_dump must be >= the server major (16). Instead of

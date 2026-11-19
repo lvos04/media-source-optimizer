@@ -72,6 +72,8 @@ jobs:
         run: pip install -e "apps/core[test]"
       - name: Ruff
         run: ruff check apps/core apps/mocks tests/stack scripts
+      - name: Vaste digests voor Docker-basisimages
+        run: python scripts/check_dockerfile_digests.py
       - name: Gepinde kopieën ongewijzigd (contract 1.3, Peil 1.1.1)
         run: python scripts/bronkopie.py controleer
       - name: Gepinde kopieën tegen de bron (ai-server-manager op GitHub; Peil E08, contract 1.3 kop)

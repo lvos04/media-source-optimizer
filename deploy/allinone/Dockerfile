@@ -8,9 +8,9 @@
 # PostgreSQL 16 runs inside, on a unix socket only (no network port, no password).
 # Starts as root only to fix /appdata ownership; every process then runs as uid/gid 568 (TrueNAS "apps").
 
-ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.13.18-slim-bookworm
-ARG POSTGRES_IMAGE=mirror.gcr.io/library/postgres:16.15-bookworm
-ARG NODE_IMAGE=mirror.gcr.io/library/node:22-bookworm-slim
+ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.13.18-slim-bookworm@sha256:a5a7017efc5969e00ae2b91c8eb0631049a569652aa4ffc4501769049ae45c72
+ARG POSTGRES_IMAGE=mirror.gcr.io/library/postgres:16.15-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9
+ARG NODE_IMAGE=mirror.gcr.io/library/node:22.23.5-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
 
 # ---------------------------------------------------------------- PostgreSQL 16 server + client
 FROM ${POSTGRES_IMAGE} AS pg

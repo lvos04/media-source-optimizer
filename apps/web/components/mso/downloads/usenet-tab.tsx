@@ -177,6 +177,10 @@ export function UsenetDownloadsTab() {
   const queue = useResource<SabQueue>("/usenet/sab/queue", undefined, 15_000);
   const history = useResource<SabHistory>("/usenet/sab/history", { limit: 100, failed_only: filter === "failed" }, 60_000);
   const reclassified = useResource<ReclassifyStatus>("/usenet/sab/reclassify");
+  const speed = queue.data?.speed_kbps;
+  const queueSummary = queue.data?.paused ? t("usenet.dl.paused")
+    : speed ? t("usenet.dl.speed", { speed: bytes(speed * 1024) })
+      : queue.data?.status ? queueStatus(queue.data.status) : undefined;
 
   const refresh = async () => {
     setBusy(true);
@@ -194,7 +198,7 @@ export function UsenetDownloadsTab() {
   return (
     <div className="grid">
       <Card title={t("usenet.dl.queue")} icon={ListOrdered} className="span-12" flush
-        sub={queue.data ? (queue.data.paused ? t("usenet.dl.paused") : queue.data.status && !queue.data.speed_kbps ? queueStatus(queue.data.status) : queue.data.speed_kbps ? t("usenet.dl.speed", { speed: bytes(queue.data.speed_kbps * 1024) }) : undefined) : undefined}
+        sub={queue.stale ? <StatusChip tone="unknown">{t("status.unknown")}</StatusChip> : queueSummary}
         actions={
           <Button size="sm" icon={RefreshCw} onClick={() => void refresh()} pending={busy} disabled={!can("operator")}
             title={can("operator") ? undefined : t("usenet.operatorOnly")}>{t("usenet.refresh")}</Button>

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { Confidence } from "@/components/mg/domain";
 import { Button, Card, Field, InlineState, PageHeader, Segmented, StatusChip } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ResourceView, StaleMark, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { CompareDrawer } from "@/components/mso/search/compare-drawer";
 import { FlagChips, MEDIA_CATEGORIES, ReleaseRibbon, SourceReportCard, categoryKey, confidenceShort, confidenceText, isFake, numbering } from "@/components/mso/search/parts";
@@ -58,7 +58,8 @@ export default function SearchPage() {
 
   const params = useMemo(() => (query ? Object.fromEntries(Object.entries(query).filter(([, v]) => v !== undefined && v !== "")) : undefined), [query]);
   const res = useResource<SearchResponse>(query ? "/search" : null, params as Record<string, string | number> | undefined);
-  const prowlarrSlow = res.data?.sources.find((s) => s.source_id === "prowlarr" && s.status === "timeout") ?? null;
+  const prowlarrSlow = res.stale ? null : res.data?.sources.find((s) => s.source_id === "prowlarr" && s.status === "timeout");
+  const staleLabel = res.stale ? t("state.stale", { age: relative(res.fetchedAt) }) : undefined;
   // "Opnieuw proberen" keeps the old result visible until the new one arrives: track that explicitly.
   const [retryFrom, setRetryFrom] = useState<number | null>(null);
   const retrying = retryFrom !== null && res.fetchedAt === retryFrom && !res.error;
@@ -182,7 +183,7 @@ export default function SearchPage() {
               </div>
             ) : null}
             <Card className="span-8" title={t("zoeken.results")} icon={Search} flush
-              sub={res.data ? t("zoeken.resultsSub", { total: num(res.data.total) }) : undefined}
+              sub={staleLabel ? <StaleMark>{staleLabel}</StaleMark> : res.data ? t("zoeken.resultsSub", { total: num(res.data.total) }) : undefined}
               actions={<Button size="sm" icon={GitCompareArrows} disabled={selected.length < 2} title={selected.length < 2 ? t("zoeken.compareHint") : undefined}
                 onClick={() => setComparing(true)}>{t("zoeken.compare", { n: selected.length })}</Button>}>
               <ResourceView resource={res} endpoint="GET /api/v1/search" isEmpty={(d) => d.items.length === 0}
@@ -269,8 +270,9 @@ export default function SearchPage() {
               </ResourceView>
             </Card>
             <div className="span-4 stack">
+              {staleLabel ? <StaleMark>{staleLabel}</StaleMark> : null}
               {res.data ? <SourceReportCard sources={res.data.sources} trace={res.data.trace} traceId={res.data.trace_id} />
-                : <Card title={t("zoeken.report")}><StateView kind="loading" compact /></Card>}
+                : !res.error ? <Card title={t("zoeken.report")}><StateView kind="loading" compact /></Card> : null}
             </div>
           </>
         )}

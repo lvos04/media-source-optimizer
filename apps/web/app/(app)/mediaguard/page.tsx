@@ -4,7 +4,7 @@ import { Ban, CheckCheck, Gauge, History, KeyRound, ListChecks, RefreshCw, Scale
 import { useState } from "react";
 
 import { Button, Card, InlineState, PageHeader, Segmented, StatusChip } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ResourceView, StaleMark, StateView } from "@/components/mg/states";
 import { ConnectorList } from "@/components/mso/connector-form";
 import { CompatTable, MgModeChip, QuotaMeter } from "@/components/mso/mediaguard/parts";
 import { useAction } from "@/lib/api/actions";
@@ -58,7 +58,7 @@ export default function MediaGuardPage() {
         </>} />
 
       <div className="grid">
-        <Card className="span-8" title={t("mg.connection")} icon={ShieldCheck} actions={<MgModeChip mode={s?.mode} />}>
+        <Card className="span-8" title={t("mg.connection")} icon={ShieldCheck} actions={<MgModeChip mode={status.stale ? null : s?.mode} />}>
           <ResourceView resource={status} endpoint="GET /api/v1/mediaguard/status">
             {(d) => (
               <div className="stack">
@@ -92,6 +92,7 @@ export default function MediaGuardPage() {
               <li>{t("mg.auth.viewer")}</li>
               <li>{t("mg.auth.tokenWarn")}</li>
             </ul>
+            {status.stale ? <StaleMark>{t("state.stale", { age: relative(status.fetchedAt) })}</StaleMark> : null}
             <Segmented<"apikey" | "user" | "token"> label={t("mg.authMethod")} value={s?.auth_method ?? "apikey"} onChange={(v) => void setMethod(v)}
               options={[
                 { value: "apikey", label: t("mg.auth.apikey"), disabled: !isAdmin || pending === "method", title: isAdmin ? undefined : t("mg.needAdmin") },

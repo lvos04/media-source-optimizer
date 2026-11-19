@@ -143,7 +143,8 @@ export function HeaderIndexCard({ providers }: { providers: UsenetProvider[] }) 
 
   return (
     <Card title={t("usenet.hi.title")} icon={Database} className="span-12"
-      actions={status.data ? <StatusChip tone={status.data.config.enabled ? "success" : "neutral"}>{t(status.data.config.enabled ? "usenet.hi.on" : "usenet.hi.off")}</StatusChip> : undefined}>
+      actions={status.stale ? <StatusChip tone="unknown">{t("status.unknown")}</StatusChip>
+        : status.data ? <StatusChip tone={status.data.config.enabled ? "success" : "neutral"}>{t(status.data.config.enabled ? "usenet.hi.on" : "usenet.hi.off")}</StatusChip> : undefined}>
       <ResourceView resource={status} endpoint="GET /api/v1/usenet/headerindex">
         {(s) => (
           <div className="stack">

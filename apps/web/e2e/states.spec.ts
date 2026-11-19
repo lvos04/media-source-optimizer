@@ -84,19 +84,33 @@ function apiPath(endpoint: string) {
 }
 
 async function expectStateAtWidths(page: Page, state: string, message: Locator, retry?: Locator) {
-  for (const width of WIDTHS) {
-    await page.setViewportSize({ width, height: 800 });
-    const description = `${state} op ${width} px`;
-    await expect.soft(message, `melding bij ${description}`).toBeVisible();
-    if (retry) {
-      await expect.soft(retry, `herhaalactie bij ${description}`).toBeVisible();
-      await expect.soft(retry, `herhaalactie bij ${description}`).toBeEnabled();
+  try {
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 800 });
+      const description = `${state} op ${width} px`;
+      await expect(message, `melding bij ${description}`).toBeVisible();
+      if (retry) {
+        await expect(retry, `herhaalactie bij ${description}`).toBeVisible();
+        await expect(retry, `herhaalactie bij ${description}`).toBeEnabled();
+      }
+      const pageWidth = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+      expect(pageWidth, `paginabreedte bij ${description}`).toBeLessThanOrEqual(width + 1);
     }
-    const pageWidth = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
-    expect.soft(pageWidth, `paginabreedte bij ${description}`).toBeLessThanOrEqual(width + 1);
+  } finally {
+    await page.setViewportSize({ width: WIDTHS[0], height: 800 });
   }
-  await page.setViewportSize({ width: WIDTHS[0], height: 800 });
 }
+
+test("de breedteproef weigert een melding en herhaalactie die op 768 px verdwijnen", async ({ page }) => {
+  for (const [selector, failure] of [["p", "melding"], ["button", "herhaalactie"]]) {
+    await page.setContent(`
+      <style>@media (width: 768px) { ${selector} { visibility: hidden } }</style>
+      <p>Proefstoring</p><button>Opnieuw proberen</button>
+    `);
+    const check = expectStateAtWidths(page, "storing", page.getByText("Proefstoring"), page.getByRole("button"));
+    await expect(check).rejects.toThrow(`${failure} bij storing op 768 px`);
+  }
+});
 
 for (const screen of SCREENS) {
   test(`${screen.name}: laden, storing, offline en leeg`, async ({ page }) => {

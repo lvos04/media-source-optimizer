@@ -5,7 +5,12 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import CostsPage from "@/app/(app)/kosten/page";
 import LogsPage from "@/app/(app)/logs/page";
+import MediaGuardPage from "@/app/(app)/mediaguard/page";
+import WantedPage from "@/app/(app)/ontbrekend/page";
 import SystemPage from "@/app/(app)/systeem/page";
+import SearchPage from "@/app/(app)/zoeken/page";
+import { UsenetDownloadsTab } from "@/components/mso/downloads/usenet-tab";
+import { HeaderIndexCard } from "@/components/mso/usenet/header-index";
 import { AppShell } from "@/components/shell/app-shell";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
@@ -22,6 +27,9 @@ let uitval: "geen" | "offline" | "serverfout" | "kostenbron" | "dienstenbron";
 let mislukteVerzoeken: string[];
 let bronGepauzeerd: boolean;
 let maandbedragInCenten: number;
+let bestemmingGekoppeld: boolean;
+let wachtrijGepauzeerd: boolean;
+let zoekresultaten: number;
 const perTestId = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
 function knop(container: ParentNode, label: string) {
@@ -35,6 +43,9 @@ beforeEach(() => {
   mislukteVerzoeken = [];
   bronGepauzeerd = true;
   maandbedragInCenten = 1715;
+  bestemmingGekoppeld = false;
+  wachtrijGepauzeerd = true;
+  zoekresultaten = 17;
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -55,6 +66,20 @@ beforeEach(() => {
       case "/system/health": return Response.json({ status: "healthy", components: [{ name: "Proefbron", status: "healthy" }] });
       case "/system/mode": return Response.json({ mode: "autopilot", paused: bronGepauzeerd });
       case "/audit": return Response.json({ items: [], next_before_id: null });
+      case "/mediaguard/status": return Response.json({
+        mode: bestemmingGekoppeld ? "degraded" : "connected", configured: true, auth_method: "apikey",
+        warnings: [], compat: { reference: { repo: "proefbron", commit: "proef" }, routes: [], never_used: [] },
+        search: { available: true },
+      });
+      case "/recovery/wanted": return Response.json({ items: [], total: 0, mode: bestemmingGekoppeld ? "connected" : "standalone" });
+      case "/search": return Response.json({
+        items: [], sources: [{ source_id: "prowlarr", label: "Prowlarr", status: "timeout", count: 0, latency_ms: null }],
+        trace: [], trace_id: "zoekproef", total: zoekresultaten,
+      });
+      case "/usenet/sab/queue": return Response.json({ items: [], paused: wachtrijGepauzeerd, status: "Idle" });
+      case "/usenet/headerindex": return Response.json({
+        config: { enabled: false, provider: "", groups: [] }, usage: { headers: 0 }, runs: [], disclaimer: "",
+      });
       case "/costs/summary": return Response.json({
         total: { monthly_cents: maandbedragInCenten, currency: "EUR", mixed_currencies: false, services: 1, unknown: [], by_kind: { other: maandbedragInCenten } },
         renewals: [], reminder_days: 30, disclaimers: [],
@@ -173,4 +198,82 @@ it("markeert een eerder lege auditlijst en trekt de markering in na herstel", as
   await knop(kaart, "Verversen");
   expect(kaart?.querySelector('[data-status="stale"]')).toBeNull();
   expect(kaart?.textContent).toContain("Geen auditregels gevonden");
+});
+
+it("toont een gepauzeerde downloadwachtrij als onbekend na uitval van de wachtrijbron", async () => {
+  await toon("/downloads", <UsenetDownloadsTab />);
+  const kop = [...document.querySelectorAll("main h2")].find((el) => el.textContent?.startsWith("Wachtrij (SABnzbd)"));
+  expect(kop?.textContent).toContain("Gepauzeerd");
+  uitval = "offline";
+  wachtrijGepauzeerd = false;
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+  expect(kop?.querySelector('[data-status="unknown"]')?.textContent).toBe("Onbekend");
+  expect(kop?.textContent).not.toContain("Gepauzeerd");
+
+  uitval = "geen";
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+  expect(kop?.textContent).toContain("Inactief");
+  expect(kop?.querySelector('[data-status="unknown"]')).toBeNull();
+});
+
+it("werkt de koppelstatus boven Ontbrekend bij na uitval en herstel van de bron", async () => {
+  await toon("/ontbrekend", <WantedPage />);
+  const kop = document.querySelector("main .page-header");
+  expect(kop?.textContent).toContain("Zelfstandig");
+  uitval = "offline";
+  bestemmingGekoppeld = true;
+  await act(async () => vi.advanceTimersByTimeAsync(120_000));
+  expect(kop?.querySelector('[data-status="unknown"]')?.textContent).toBe("Onbekend");
+  expect(kop?.textContent).not.toContain("Zelfstandig");
+
+  uitval = "geen";
+  await act(async () => vi.advanceTimersByTimeAsync(120_000));
+  expect(kop?.textContent).toContain("Gekoppeld");
+});
+
+it("toont de status van de headerindex als onbekend als de eigen poll faalt", async () => {
+  await toon("/usenet-providers", <HeaderIndexCard providers={[]} />);
+  const kop = document.querySelector("main h2")?.parentElement;
+  expect(kop?.textContent).toContain("Uit");
+  uitval = "offline";
+  await act(async () => vi.advanceTimersByTimeAsync(30_000));
+  expect(kop?.querySelector('[data-status="unknown"]')?.textContent).toBe("Onbekend");
+
+  uitval = "geen";
+  await act(async () => vi.advanceTimersByTimeAsync(30_000));
+  expect(kop?.textContent).toContain("Uit");
+});
+
+it("markeert de verbindingsstatus en ingestelde toegangsvorm op MediaGuard bij uitval van de statusbron", async () => {
+  await toon("/mediaguard", <MediaGuardPage />);
+  const kop = [...document.querySelectorAll("main h2")].find((el) => el.textContent === "Verbinding")?.parentElement;
+  expect(kop?.textContent).toContain("Gekoppeld");
+  uitval = "offline";
+  bestemmingGekoppeld = true;
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+  expect(kop?.querySelector('[data-status="unknown"]')?.textContent).toBe("Onbekend");
+  expect(document.querySelector('main [data-status="stale"]')?.textContent).toContain("laatst bekend");
+
+  uitval = "geen";
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+  expect(kop?.textContent).toContain("Beperkt");
+  expect(document.querySelector('main [data-status="stale"]')).toBeNull();
+});
+
+it("markeert het aantal zoekresultaten en het bronrapport na een mislukte zoekverversing", async () => {
+  await toon("/zoeken?q=Peilproef", <SearchPage />);
+  const kop = [...document.querySelectorAll("main h2")].find((el) => el.textContent?.startsWith("Resultaten"));
+  expect(kop?.textContent).toContain("17 gevonden");
+  uitval = "offline";
+  await knop(document, "Opnieuw proberen (ruimere time-out)");
+  expect(kop?.querySelector('[data-status="stale"]')?.textContent).toContain("laatst bekend");
+  expect(kop?.textContent).not.toContain("17 gevonden");
+  const rapport = perTestId("source-prowlarr")?.closest("section")?.parentElement;
+  expect(rapport?.querySelector('[data-status="stale"]')?.textContent).toContain("laatst bekend");
+
+  uitval = "geen";
+  zoekresultaten = 22;
+  await knop(document, "Zoeken");
+  expect(kop?.textContent).toContain("22 gevonden");
+  expect(rapport?.querySelector('[data-status="stale"]')).toBeNull();
 });

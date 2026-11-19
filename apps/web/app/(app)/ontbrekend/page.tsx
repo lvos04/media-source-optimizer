@@ -78,12 +78,12 @@ export default function MissingPage() {
     <>
       <PageHeader title={t("nav.missing")} sub={t("rec.sub")}
         actions={<>
-          <MgModeChip mode={wanted.data?.mode} />
+          <MgModeChip mode={wanted.stale ? null : wanted.data?.mode} />
           <ManualWantedDialog disabled={!isOperator} disabledReason={t("mg.needOperator")} onCreated={(ref) => { void wanted.reload(); select(ref); }} />
           <Button variant="primary" icon={Activity} pending={pending === "analyze" || analyzing} disabled={!isOperator} title={isOperator ? undefined : t("mg.needOperator")} onClick={() => void analyze()}>{t("rec.analyze")}</Button>
         </>} />
 
-      {wanted.data && wanted.data.mode !== "connected" ? (
+      {wanted.data && !wanted.stale && wanted.data.mode !== "connected" ? (
         <InlineState tone="info">
           <span>{wanted.data.mode === "standalone" ? t("rec.standaloneNote") : t("rec.degradedNote")} <Link href="/mediaguard">{t("rec.toMediaGuard")}</Link></span>
         </InlineState>
@@ -99,7 +99,7 @@ export default function MissingPage() {
                 ? ` · ${t("rec.wanted.partial", { done: num(wanted.data.mediaguard_sync.cycle_items ?? 0), total: num(wanted.data.mediaguard_sync.total_open) })}`
                 : "")
             : undefined}
-          actions={wanted.data?.mediaguard_stale ? <StatusChip tone="stale">{t("state.staleShort")}</StatusChip> : undefined}>
+          actions={wanted.stale || wanted.data?.mediaguard_stale ? <StatusChip tone="stale">{t("state.staleShort")}</StatusChip> : undefined}>
           <div className="toolbar" style={{ padding: "12px 16px" }}>
             <Segmented<Source> label={t("rec.wanted.source")} value={source} onChange={(v) => { setSource(v); setPage(1); }}
               options={[{ value: "all", label: t("rec.wanted.all") }, { value: "mediaguard", label: t("rec.origin.mg") }, { value: "manual", label: t("rec.origin.manual") }]} />

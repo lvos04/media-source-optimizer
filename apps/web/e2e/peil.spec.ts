@@ -160,6 +160,24 @@ for (const width of [360, 390, 768, 1440]) {
   });
 }
 
+for (const [title, css, failure] of [
+  ["ontbrekende ring", "#laatste:focus-visible { outline: none }", "Peil-ring"],
+  ["bedekte knop", "body:has(#laatste:focus-visible) .bedekking { position: fixed; inset: 0 }", "onbedekte focus"],
+]) {
+  test(`de Tab-proef weigert een ${title} na de veertigste stop`, async ({ page }) => {
+    await page.setContent(`
+      <style>:focus-visible { outline: 3px solid black } ${css}</style>
+      <a class="skip-link" href="#main">Naar inhoud</a>
+      <main id="main">
+        ${Array.from({ length: 41 }, (_, i) => `<button>Proefknop ${i + 1}</button>`).join("")}
+        <button id="laatste">Late proefknop</button>
+      </main>
+      <div class="bedekking" aria-hidden="true"></div>
+    `);
+    await expect(expectTabRoute(page)).rejects.toThrow(`${failure} bij Tab 43 bij Late proefknop`);
+  });
+}
+
 for (const width of [320, 390]) {
   test(`peil ondernavigatie (1.1.1, E16): actief = balk 3 px + inkt, zonder extra gewicht · ${width}`, async ({ page }) => {
     test.skip(!USER, "MSO_E2E_USER niet gezet");

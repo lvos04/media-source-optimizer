@@ -28,7 +28,7 @@ stack:
 	tests/stack/run.sh
 
 # Lower bound for the number of Playwright tests (desktop + mobile); fewer found = failure, not a silent pass.
-E2E_MIN_TESTS ?= 225
+E2E_MIN_TESTS ?= 228
 
 # The admin password is random per run and only passed through the environment (never echoed or stored).
 e2e:

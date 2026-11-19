@@ -657,6 +657,8 @@ bij storing en uitval ook de herhaalactie. `screens.spec.ts` loopt voor elk van 
 in beide thema’s de volledige Tab-route door en toetst per stop de focusring, het contrast en de zichtbaarheid.
 Per route bewaart de browserproef een `tabroute.json` met het aantal stops en het laagste contrast.
 `peil.spec.ts` behoudt de toetsenbordproeven op Systeem en Instellingen, inclusief de extra breedtes.
+Negatieve browserproeven verbergen de melding en herhaalactie afzonderlijk op 768 px en toetsen dat een
+ontbrekende focusring of bedekte knop voorbij de veertigste Tab-stop de routecontrole laat falen.
 
 De afdrukken van 360 en 768 px in `docs/screenshots/` gebruiken de voorbereide teststack. In CI bewaart het
 artefact `playwright-results` de afdrukken bij de browseruitvoer.
@@ -667,6 +669,7 @@ Een eerder bevestigde automatiseringspauze krijgt een markering als laatst beken
 pauze en hervatknop zodra de modusbron die pauze weer bevestigt. Op Kosten volgen het totaal, ontbrekende prijzen
 en eerstvolgende verlenging het kostenoverzicht. Het aantal diensten volgt de dienstenlijst. Ook de kerncijfers op
 Overzicht, Opslag en beide indexerschermen tonen lokaal Onbekend met de versheidsmarkering als hun eigen bron uitvalt.
+De koppen bij Downloads, de Usenet-headerindex, MediaGuard, Ontbrekend en Zoeken volgen hun eigen bron.
 De herstelproeven staan in `states.spec.ts` en `tests/unit/schermtoestanden.test.tsx` onder `apps/web/`.
 
 De eerste CI-meting vond op Automatisering 4 px horizontale overloop op 320 px met vergrote tekstafstand, in

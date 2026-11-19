@@ -45,6 +45,7 @@ export interface ResourceDay {
   day: string;
   observed_at: string | null;
   values: Record<string, number | null> | null;
+  provenance?: Record<string, ResourceSource> | null;
 }
 
 export interface ResourceTrend {

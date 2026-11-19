@@ -31,10 +31,18 @@ SOURCES: dict[str, tuple[str, Quality]] = {
 METRICS = tuple(key for key in SOURCES if key != "table_bytes")
 
 
+class ResourceSource(BaseModel):
+    source: str
+    quality: Quality
+    observed_at: datetime | None
+    reason: str | None = None
+
+
 class ResourceDay(BaseModel):
     day: date
     observed_at: datetime | None
     values: dict[str, int | None] | None
+    provenance: dict[str, ResourceSource] | None = None
 
 
 class ResourceTrend(BaseModel):
@@ -57,13 +65,6 @@ class ResourceGrowth(BaseModel):
     days: list[ResourceDay]
     per_day: dict[str, ResourceTrend]
     tables: list[TableGrowth]
-
-
-class ResourceSource(BaseModel):
-    source: str
-    quality: Quality
-    observed_at: datetime | None
-    reason: str | None = None
 
 
 class MaintenanceStatus(BaseModel):
@@ -93,6 +94,10 @@ def _database_clock(db: Database) -> datetime:
     return db.scalar("SELECT clock_timestamp()").astimezone(UTC)
 
 
+def _free_bytes(value: object) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
 def _measure(db: Database, now: datetime) -> dict[str, Any]:
     from mso.features.torrent import storage
     from mso.features.usenet.headerindex import engine
@@ -101,11 +106,7 @@ def _measure(db: Database, now: datetime) -> dict[str, Any]:
     backups_by_kind = backup_kinds(db)
     appdata = _disk(get_settings().data_dir)
     header_index = engine.usage()
-    torrent = storage.report()
-    torrent_at = torrent["client"]["updated_at"]
-    torrent_disk = torrent["disk"]
-    torrent_recent = (torrent["client"]["available"] and torrent_at is not None
-                      and timedelta(0) <= now - torrent_at <= timedelta(seconds=storage.SNAPSHOT_MAX_AGE_S))
+    torrent_free, torrent_at, torrent_reason = storage.free_space(db, now)
     return {
         "values": {
             "database_bytes": database["size_bytes"],
@@ -113,15 +114,16 @@ def _measure(db: Database, now: datetime) -> dict[str, Any]:
                                               "WHERE datname = current_database()"),
             "backups_bytes": sum(row["bytes"] for row in backups_by_kind.values()),
             "backups_count": sum(row["count"] for row in backups_by_kind.values()),
-            "backup_free_bytes": backups.space_status(db)["free_bytes"],
-            "appdata_free_bytes": appdata["free"] if appdata else None,
+            "backup_free_bytes": _free_bytes(backups.space_status(db)["free_bytes"]),
+            "appdata_free_bytes": _free_bytes(appdata["free"]) if appdata else None,
             "header_index_bytes": header_index["physical_bytes"],
             "header_index_estimated_bytes": header_index["estimated_bytes"],
-            "torrent_free_bytes": torrent_disk["free"] if torrent_recent and torrent_disk else None,
+            "torrent_free_bytes": torrent_free,
             "container_log_bytes": None,
         },
         "tables": {row["name"]: row["bytes"] for row in database["tables"]},
-        "torrent_observed_at": torrent_at.astimezone(UTC) if torrent_recent and torrent_disk else None,
+        "torrent_observed_at": torrent_at.astimezone(UTC) if torrent_at else None,
+        "torrent_reason": torrent_reason,
     }
 
 
@@ -153,23 +155,54 @@ def _trend(points: list[tuple[date, int | None]], quality: Quality) -> ResourceT
                          from_day=first_day, to_day=last_day, quality=quality)
 
 
-def _provenance(latest: dict[str, Any] | None) -> dict[str, ResourceSource]:
-    values = latest["data"]["values"] if latest else {}
+def _source_time(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        time = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return time.astimezone(UTC) if time.tzinfo is not None else None
+
+
+def _provenance(
+    values: dict[str, int | None], observed_at: datetime | None = None, *, has_tables: bool = False,
+    torrent_at: datetime | None = None, torrent_reason: str | None = None,
+) -> dict[str, ResourceSource]:
     result = {}
     for key, (source, quality) in SOURCES.items():
-        available = bool(latest["data"]["tables"]) if latest and key == "table_bytes" else values.get(key) is not None
-        observed_at = latest["observed_at"].astimezone(UTC) if latest and available else None
-        if latest and available and key == "torrent_free_bytes":
-            observed_at = latest["data"]["torrent_observed_at"]
+        available = has_tables if key == "table_bytes" else values.get(key) is not None
+        source_time = observed_at if available else None
         reason = None
         if not available:
             reason = {
                 "container_log_bytes": "Het containerlog valt buiten MSO.",
-                "torrent_free_bytes": "Er is geen bruikbare, recente momentopname van de torrentclient.",
-            }.get(key, "De bron leverde geen waarde voor deze meting." if latest else "Er zijn nog geen metingen.")
+                "torrent_free_bytes": torrent_reason or "Er is geen bruikbare momentopname van de torrentclient.",
+            }.get(key, "De bron leverde geen bruikbare waarde voor deze meting."
+                  if observed_at else "Er zijn nog geen metingen.")
+        if key == "torrent_free_bytes":
+            source_time = torrent_at
         result[key] = ResourceSource(source=source, quality=quality if available else "onbekend",
-                                     observed_at=observed_at, reason=reason)
+                                     observed_at=source_time, reason=reason)
     return result
+
+
+def _resource_day(row: dict[str, Any]) -> ResourceDay:
+    data = row["data"]
+    observed_at = row["observed_at"].astimezone(UTC)
+    # Filter ook gegevens uit eerdere versies, zonder opgeslagen dagmetingen te wijzigen.
+    values = {key: _free_bytes(value) if key.endswith("_free_bytes") else value
+              for key, value in data.get("values", {}).items()}
+    torrent_at = _source_time(data.get("torrent_observed_at"))
+    torrent_reason = data.get("torrent_reason")
+    if values.get("torrent_free_bytes") is not None and torrent_at is None:
+        values["torrent_free_bytes"] = None
+        torrent_reason = "Het bronmoment van de torrentmeting ontbreekt of is ongeldig."
+    return ResourceDay(
+        day=row["day"], observed_at=observed_at, values=values,
+        provenance=_provenance(values, observed_at, has_tables=bool(data.get("tables")),
+                               torrent_at=torrent_at, torrent_reason=torrent_reason),
+    )
 
 
 def history(db: Database) -> tuple[ResourceGrowth, dict[str, ResourceSource]]:
@@ -181,18 +214,19 @@ def history(db: Database) -> tuple[ResourceGrowth, dict[str, ResourceSource]]:
         "ORDER BY day DESC", (start, today, today))
     latest = rows[0] if rows else None
     recent = [row for row in rows if row["day"] >= start]
-    days = {row["day"]: ResourceDay(day=row["day"], observed_at=row["observed_at"].astimezone(UTC),
-                                   values=row["data"]["values"]) for row in rows}
+    days = {row["day"]: _resource_day(row) for row in rows}
+    latest_day = days[latest["day"]] if latest else None
+    recent_days = [day for day in days.values() if day.day >= start]
     calendar = [today - timedelta(days=i) for i in range(GROWTH_DAYS)] if latest else []
-    latest_tables = latest["data"]["tables"] if latest else {}
+    latest_tables = latest["data"].get("tables", {}) if latest else {}
     largest = sorted(latest_tables, key=lambda name: (-latest_tables[name], name))[:6]
     return ResourceGrowth(
-        latest=days[latest["day"]] if latest else None,
+        latest=latest_day,
         days=[days.get(day) or ResourceDay(day=day, observed_at=None, values=None) for day in calendar],
-        per_day={key: _trend([(row["day"], row["data"]["values"].get(key)) for row in recent], SOURCES[key][1])
+        per_day={key: _trend([(day.day, (day.values or {}).get(key)) for day in recent_days], SOURCES[key][1])
                  for key in METRICS},
         tables=[TableGrowth(name=name, bytes=latest_tables[name],
-                            per_day=_trend([(row["day"], row["data"]["tables"].get(name)) for row in recent],
+                            per_day=_trend([(row["day"], row["data"].get("tables", {}).get(name)) for row in recent],
                                            SOURCES["table_bytes"][1]))
                 for name in largest],
-    ), _provenance(latest)
+    ), latest_day.provenance if latest_day and latest_day.provenance is not None else _provenance({})

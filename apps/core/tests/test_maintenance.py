@@ -16,6 +16,7 @@ import pytest
 from mso import backups, jobs, retention
 from mso import settings_registry as sr
 from mso.config import get_settings
+from mso.db import jsonb
 
 Usage = namedtuple("Usage", "total used free")
 
@@ -620,6 +621,7 @@ def test_resource_growth_over_thirty_utc_days(viewer: Any, db: Any, monkeypatch:
     assert db.scalar("SELECT count(*) FROM resource_samples") == 29
     gap = next(day for day in growth["days"] if day["day"] == (start + timedelta(days=8)).date().isoformat())
     assert gap["observed_at"] is None and gap["values"] is None
+    assert gap["provenance"] is None
     assert growth["per_day"]["database_bytes"] == {
         "value": 20, "from_day": start.date().isoformat(), "to_day": clock.date().isoformat(), "quality": "gemeten",
     }
@@ -634,7 +636,6 @@ def test_resource_sample_uses_existing_sources_and_never_publishes_paths(
     viewer: Any, db: Any, worker: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from mso import resource_usage
-    from mso.features.torrent import storage
     from mso.features.usenet.headerindex import engine
 
     now = db.scalar("SELECT clock_timestamp()")
@@ -644,10 +645,10 @@ def test_resource_sample_uses_existing_sources_and_never_publishes_paths(
         "free_bytes": 555, "path": "/proef/backup", "needed_bytes": 666,
     })
     monkeypatch.setattr(engine, "usage", lambda: {"physical_bytes": 777, "estimated_bytes": 888})
-    monkeypatch.setattr(storage, "report", lambda: {
-        "client": {"available": True, "updated_at": now - timedelta(minutes=1)},
-        "disk": {"free": 999, "path": "/proef/torrent"},
-    })
+    db.execute(
+        "INSERT INTO torrent_client_snapshot(id, server_state, updated_at) VALUES (1,%s,%s)",
+        (jsonb({"free_space_on_disk": 999, "save_path": "/proef/torrent"}), now - timedelta(minutes=1)),
+    )
     job = jobs.enqueue("system.resource_sample", {})
     worker.drain()
     assert db.fetchone("SELECT status, result FROM jobs WHERE id=%s", (job["id"],)) == {
@@ -669,6 +670,88 @@ def test_resource_sample_uses_existing_sources_and_never_publishes_paths(
     next_day = viewer.get("/api/v1/system/maintenance").json()
     assert next_day["growth"]["latest"]["values"]["torrent_free_bytes"] is None
     assert next_day["provenance"]["torrent_free_bytes"]["quality"] == "onbekend"
+
+
+@pytest.mark.parametrize(("free", "age_seconds", "error", "expected"), [
+    (-1, 0, None, None),
+    (False, 0, None, None),
+    (1.5, 0, None, None),
+    (1.0, 0, None, None),
+    ("123", 0, None, None),
+    ("onleesbaar", 601, None, None),
+    (123, -1, None, None),
+    ("onleesbaar", 0, "Bron onbereikbaar", None),
+    (0, 600, None, 0),
+])
+def test_resource_torrent_snapshot_validity(
+    viewer: Any, db: Any, worker: Any, monkeypatch: pytest.MonkeyPatch,
+    free: Any, age_seconds: int, error: str | None, expected: int | None,
+) -> None:
+    from mso import resource_usage
+
+    now = resource_usage._database_clock(db)
+    monkeypatch.setattr(resource_usage, "_database_clock", lambda _: now)
+    source_time = now - timedelta(seconds=age_seconds)
+    db.execute(
+        "INSERT INTO torrent_client_snapshot(id, server_state, updated_at, error) VALUES (1,%s,%s,%s)",
+        (jsonb({"free_space_on_disk": free}), source_time, error),
+    )
+
+    job = jobs.enqueue("system.resource_sample", {}, max_attempts=1)
+    worker.drain()
+    assert db.scalar("SELECT status FROM jobs WHERE id=%s", (job["id"],)) == "done"
+    body = viewer.get("/api/v1/system/maintenance").raise_for_status().json()
+    values = body["growth"]["latest"]["values"]
+    assert values["database_bytes"] > 0 and values["backups_bytes"] == 0
+    assert values["torrent_free_bytes"] == expected
+    source = body["provenance"]["torrent_free_bytes"]
+    if expected is None:
+        assert source["quality"] == "onbekend" and source["reason"]
+        if age_seconds == 601:
+            assert "meetvenster" in source["reason"]
+            assert datetime.fromisoformat(source["observed_at"]) == source_time
+    else:
+        assert source["quality"] == "gemeten" and source["reason"] is None
+        assert datetime.fromisoformat(source["observed_at"]) == source_time
+
+
+def test_resource_history_preserves_source_times_and_excludes_invalid_free_bytes(
+    viewer: Any, db: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mso import resource_usage
+
+    today = datetime(2026, 11, 18, 1, tzinfo=UTC)
+    monkeypatch.setattr(resource_usage, "_database_clock", lambda _: today)
+    for offset, value in enumerate((-1, 0, 100, "200", True, 300.0, -2)):
+        measured = today - timedelta(days=6 - offset)
+        db.execute(
+            "INSERT INTO resource_samples(day, observed_at, data) VALUES (%s,%s,%s)",
+            (measured.date(), measured, jsonb({
+                "values": {"torrent_free_bytes": value, "appdata_free_bytes": value, "backup_free_bytes": value},
+                "tables": {},
+                "torrent_observed_at": measured - timedelta(minutes=offset),
+            })),
+        )
+    before = db.fetchall("SELECT day, data FROM resource_samples ORDER BY day")
+
+    body = viewer.get("/api/v1/system/maintenance").raise_for_status().json()
+    days = body["growth"]["days"]
+    for metric in ("torrent_free_bytes", "appdata_free_bytes", "backup_free_bytes"):
+        assert [day["values"][metric] for day in days[:7]] == [None, None, None, None, 100, 0, None]
+        assert body["growth"]["per_day"][metric] == {
+            "value": 100, "from_day": days[5]["day"], "to_day": days[4]["day"], "quality": "gemeten",
+        }
+        assert days[0]["provenance"][metric]["quality"] == "onbekend"
+        assert days[0]["provenance"][metric]["reason"]
+    for index, minutes in ((4, 2), (5, 1)):
+        day = days[index]
+        source = day["provenance"]["torrent_free_bytes"]
+        recorded_at = datetime.fromisoformat(day["observed_at"])
+        assert source["quality"] == "gemeten"
+        assert datetime.fromisoformat(source["observed_at"]) == recorded_at - timedelta(minutes=minutes)
+        assert day["provenance"]["appdata_free_bytes"]["observed_at"] == day["observed_at"]
+    assert body["provenance"] == days[0]["provenance"]
+    assert db.fetchall("SELECT day, data FROM resource_samples ORDER BY day") == before
 
 
 def test_resource_history_retention_preserves_previous_data(app: Any, db: Any, database_bytes: Any) -> None:

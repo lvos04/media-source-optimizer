@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from mso import jobs
 from mso.config import get_settings
 from mso.connectors import base as cb
-from mso.db import get_db, jsonb
+from mso.db import Database, get_db, jsonb
 from mso.features.torrent import policy
 from mso.features.torrent import settings as ts
 from mso.features.torrent.adapters import get_adapter
@@ -149,24 +149,49 @@ SEEDING_STATES = {"uploading", "forcedUP", "stalledUP", "queuedUP", "checkingUP"
 STOPPED_STATES = {"pausedUP", "stoppedUP", "pausedDL", "stoppedDL"}
 
 
+def _snapshot(db: Database) -> dict[str, Any] | None:
+    return db.fetchone("SELECT server_state, updated_at, error FROM torrent_client_snapshot WHERE id=1")
+
+
+def _free_bytes(snapshot: dict[str, Any] | None) -> int | None:
+    state = snapshot["server_state"] if snapshot else None
+    free = state.get("free_space_on_disk") if isinstance(state, dict) else None
+    return free if type(free) is int and free >= 0 else None
+
+
+def free_space(db: Database, now: datetime) -> tuple[int | None, datetime | None, str | None]:
+    """Lees dezelfde vrije ruimte als het opslagrapport, met de versheidsgrens voor dagmetingen."""
+    snapshot = _snapshot(db)
+    if snapshot is None:
+        return None, None, "Er is geen momentopname van de torrentclient."
+    observed_at = snapshot["updated_at"]
+    if snapshot["error"]:
+        return None, observed_at, "De laatste broncontrole van de torrentclient gaf een fout."
+    if not timedelta(0) <= now - observed_at <= timedelta(seconds=SNAPSHOT_MAX_AGE_S):
+        return None, observed_at, "Het bronmoment valt buiten het meetvenster van de torrentclient."
+    free = _free_bytes(snapshot)
+    if free is None:
+        return None, observed_at, "De torrentclient leverde geen niet-negatief geheel aantal vrije bytes."
+    return free, observed_at, None
+
+
 def report() -> dict[str, Any]:
     db = get_db()
-    snap = db.fetchone("SELECT server_state, updated_at, error FROM torrent_client_snapshot WHERE id=1")
-    s = (snap or {}).get("server_state") or {}
+    snap = _snapshot(db)
     rows = db.fetchall(
         "SELECT hash, name, category, media_category, private, tracker_host, info, diagnosis, state "
         "FROM torrent_state WHERE NOT removed"
     )
     reserve = int(float(ts.get("disk_reserve_gb")) * GB)
-    free = s.get("free_space_on_disk")
+    free = _free_bytes(snap)
     remaining = sum(
         int(r["info"].get("amount_left") or 0) for r in rows if float(r["info"].get("progress") or 0) < 1
     )
     disk = None
     if free is not None:
-        after = int(free) - remaining
+        after = free - remaining
         disk = {
-            "free": int(free),
+            "free": free,
             "remaining_downloads": remaining,
             "free_after_downloads": after,
             "reserve": reserve,

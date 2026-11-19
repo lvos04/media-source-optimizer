@@ -3032,6 +3032,20 @@
       ],
       "title": "Observed At"
      },
+     "provenance": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "$ref": "#/components/schemas/ResourceSource"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provenance"
+     },
      "values": {
       "anyOf": [
        {

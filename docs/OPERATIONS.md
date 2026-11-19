@@ -245,8 +245,12 @@ vrije ruimte, de header-index en de laatste bruikbare momentopname van de torren
 op Onbekend, omdat dit buiten MSO valt.
 
 `GET /api/v1/system/maintenance` levert de afgelopen 30 UTC-dagen in `growth.days`. Een ontbrekende dag heeft
-`observed_at: null` en `values: null`. Een trend gebruikt per reeks het eerste en laatste beschikbare meetpunt
-over die periode. Eén meetpunt levert een onbekende trend op. `provenance` vermeldt de bron, kwaliteit en meettijd.
+`observed_at: null`, `values: null` en `provenance: null`. Elke dagmeting bevat in `provenance` de bron, kwaliteit
+en bronmeettijd per reeks. De herkomst bovenaan het API-antwoord hoort bij `growth.latest`.
+Een trend gebruikt per reeks het eerste en laatste bruikbare meetpunt over die periode. Eén meetpunt levert een
+onbekende trend op. Een meting van vrije bytes vereist een niet-negatief geheel getal, inclusief nul. Een onbruikbare
+waarde verschijnt als onbekend met een reden en telt niet mee voor de trend. Voor de torrentclient geldt bovendien
+dat de momentopname tijdens de dagmeting maximaal tien minuten oud, beschikbaar en foutvrij moet zijn.
 
 De dagelijkse opslagmeting draait ook als dagelijks opruimen uitstaat. Met opruimen aan bewaart het
 bestaande onderhoud de laatste 400 UTC-dagen. De bestaande geschiedenis en het bewijs in de twaalf groeitabellen

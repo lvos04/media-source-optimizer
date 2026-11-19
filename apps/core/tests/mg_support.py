@@ -182,8 +182,8 @@ def install_clients(monkeypatch: Any) -> dict[str, list[Any]]:
         def from_config(cls) -> SabClient:
             return cls()
 
-        def has_download(self, ref: str, category: str) -> bool:
-            return any(ref == f"SABnzbd_nzo_{i}" and job["category"] == category
+        def has_download(self, ref: str, category: str, *, owner=None, expected_name=None) -> bool:
+            return any(ref == f"SABnzbd_nzo_{i}" and job["category"] == category and job["owner"] == owner
                        for i, job in enumerate(sent["sab"], 1))
 
         def add_url(
@@ -191,14 +191,20 @@ def install_clients(monkeypatch: Any) -> dict[str, list[Any]]:
         ) -> str:
             raise AssertionError("recovery must send NZB content fetched via Slice A, not a URL")
 
-        def add_nzb(self, data: bytes, filename: str, *, category: str, exact: bool = False) -> str:
-            sent["sab"].append({"bytes": len(data), "filename": filename, "category": category})
+        def add_nzb(self, data: bytes, filename: str, *, category: str, exact: bool = False, owner=None,
+                    expected_field=None) -> str:
+            sent["sab"].append({"bytes": len(data), "filename": filename, "category": category, "owner": owner})
             return f"SABnzbd_nzo_{len(sent['sab'])}"
 
     sab.SabClient = SabClient  # type: ignore[attr-defined]
     qb = types.ModuleType("mso.connectors.qbittorrent")
 
+    targets = {}
+
     class QbitClient:
+        def torrent(self, ref):
+            return targets.get(ref)
+
         def pause_field(self):
             return "stopped"
 
@@ -224,6 +230,16 @@ def install_clients(monkeypatch: Any) -> dict[str, list[Any]]:
             pause_field: str | None = None,
             tags: list[str] | None = None,
         ) -> None:
+            import time
+
+            from mso.domain import releasegate
+            from mso.domain.release import magnet_name
+
+            fetched = types.SimpleNamespace(content=data, final_url=url)
+            ref = releasegate.torrent_download_id(fetched, None)
+            name = magnet_name(url) if url else releasegate.torrent_payload(data)["name"]
+            targets[ref] = {"hash": ref, "name": name, "category": category, "tags": ", ".join(tags or []),
+                            "added_on": int(time.time())}
             sent["qbit"].append({"url": url, "bytes": len(data or b""), "category": category, "tags": tags})
 
     qb.QbitClient = QbitClient  # type: ignore[attr-defined]

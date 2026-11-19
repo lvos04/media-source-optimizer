@@ -126,7 +126,7 @@ def _read(path: str, command: dict[str, Any] | None = None) -> str:
         raise ValueError("De eerdere verzending hoort niet bij deze goedgekeurde opdracht")
     cb.bind_write_target(path, digest([row["client"], row["client_ref"]]))
     label = CLIENT_LABEL.get(row["client"], row["client"])
-    return AFTER if actions.confirmed_download(row, command) else f"niet gevonden in {label}"
+    return AFTER if actions.confirmed_download(row, command) else f"herkomst onbekend in {label}"
 
 
 def _write(path: str, value: Any, command: dict[str, Any]) -> None:

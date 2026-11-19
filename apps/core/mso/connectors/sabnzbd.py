@@ -23,7 +23,7 @@ from typing import Any
 
 import httpx
 
-from mso import changes
+from mso import changes, download_receipts
 from mso.audit import audit
 from mso.change_preview import digest as command_hash
 from mso.connectors import base as cb
@@ -458,8 +458,11 @@ class SabClient:
 
         url_hash = hashlib.sha256(url.encode()).hexdigest()
         if existing := nzbs.recent_send(sha256=url_hash, instance=self.instance_id, category=category):
+            if not self.has_download(existing, category):
+                raise SabError("De herkomst van de eerdere URL-verzending is onbekend", "ambiguous_id")
             return existing
         _rate_limit()
+        started = int(time.time())
         body = self._call(
             "addurl",
             {"cat": category, "nzbname": name, "priority": priority},
@@ -467,10 +470,23 @@ class SabClient:
             data={"name": url},
         )
         nzo_id = _nzo_id(body)
+        # Bij addurl bezit MSO de NZB niet. Bind de opdracht aan het exacte teruggelezen bestandsoverzicht.
+        finished = int(time.time())
+        proof = None
+        try:
+            slot, history = self._download_slot(nzo_id, category)
+            added = slot.get("time_added")
+            if (name and not history and slot.get("filename") == name
+                    and type(added) is int and started <= added <= finished):
+                files = self._file_identity(nzo_id)
+                proof = {"filename": name, "url": True, "sha256": url_hash, "sent_at": started,
+                         "added": added, "files": files, "category": category}
+        except (SabError, ValueError):
+            pass
         nzbs.record_send(
             nzo_id=nzo_id,
             instance=self.instance_id,
-            request_hash=command_hash(["addurl", category, url_hash, name, priority]),
+            request_hash=command_hash(["addurl", category, url_hash, name, priority]), proof=proof,
             origin="send_url",
             title=name or redact(url)[:200],
             category=category,
@@ -499,6 +515,8 @@ class SabClient:
         release_key: str | None = None,
         source_id: str | None = None,
         exact: bool = False,
+        owner: str | None = None,
+        expected_field: str | None = None,
     ) -> str:
         """Upload NZB content to SABnzbd. Idempotent per NZB content for 24 h. The message-ids are kept
         (bounded sample) so MSO can later test article availability for exactly this job."""
@@ -507,25 +525,47 @@ class SabClient:
         digest = hashlib.sha256(data).hexdigest()
         safe_name = filename if filename.lower().endswith(".nzb") else f"{filename}.nzb"
         fields = command_hash(["addfile", category, safe_name, digest])
+        upload_name = nzbs.upload_name(safe_name, digest)
+        if expected_field is not None and expected_field != command_hash([upload_name, digest]):
+            raise SabError("De te verzenden NZB wijkt af van de goedgekeurde formuliervelden", "invalid")
         if existing := nzbs.recent_send(sha256=digest, instance=self.instance_id, category=category,
                                         request_hash=fields if exact else None):
-            if exact and not self.has_download(existing, category):
-                raise SabError("Het eerdere NZB-doel ontbreekt op de ontvangende instantie", "invalid")
+            if not self.has_download(existing, category, expected_name=expected_field):
+                raise SabError("Het eerdere NZB-doel ontbreekt of de herkomst is onbekend", "ambiguous_id")
+            if owner:
+                download_receipts.bind_owner(CONNECTOR_ID, self.instance_id, existing, owner)
             return existing
         parsed = nzbs.parse_nzb(data)  # validates before sending
         _rate_limit()
+        started = int(time.time())
         body = self._call(
             "addfile",
-            {"cat": category, "nzbname": None},
+            {"cat": category, "nzbname": safe_name[:-4]},
             method="POST",
-            files={"name": (safe_name, data, "application/x-nzb")},
+            files={"name": (upload_name, data, "application/x-nzb")},
         )
         nzo_id = _nzo_id(body)
+        finished = int(time.time())
+        proof = {"filename": safe_name, "upload_name": upload_name, "sha256": digest, "payload_size": len(data),
+                 "bytes": parsed.bytes_total,
+                 "article_md5": parsed.article_md5, "sent_at": started, "category": category}
+        try:
+            slot, history = self._download_slot(nzo_id, category)
+            added = slot.get("time_added")
+            if type(added) is not int or not started <= added <= finished:
+                raise ValueError("De aanmaaktijd van de NZB is onbekend")
+            proof["added"] = added
+            if not history:
+                proof["files"] = self._file_identity(nzo_id, parsed.bytes_total)
+            if not self._matches_item(slot, history, proof, nzo_id, captured=True):
+                raise ValueError("Het ontvangen NZB-item komt niet overeen met de verzending")
+        except (SabError, ValueError):
+            proof = None
         nzbs.record_send(
             nzo_id=nzo_id,
             instance=self.instance_id,
             origin="send_nzb",
-            request_hash=fields,
+            request_hash=fields, proof=proof, owner=owner,
             title=safe_name[:-4],
             category=category,
             sha256=digest,
@@ -534,6 +574,8 @@ class SabClient:
             source_id=source_id,
             actor=actor,
         )
+        if not proof:
+            raise SabError("De herkomst van het ontvangen NZB-item is onbekend", "ambiguous_id")
         audit(
             actor,
             "sabnzbd.add_nzb",
@@ -543,15 +585,59 @@ class SabClient:
         )
         return nzo_id
 
-    def has_download(self, ref: str, category: str | None = None) -> bool:
+    def _download_slot(self, ref: str, category: str | None) -> tuple[dict[str, Any], bool]:
         queue = measured_download_slots(self.queue, limit=500)
         history = measured_download_slots(self.history, limit=500)
-        found = [s for s in (*queue, *history) if s["nzo_id"] == ref]
+        found = [(s, archived) for slots, archived in ((queue, False), (history, True))
+                 for s in slots if s["nzo_id"] == ref]
         if len(found) > 1:
             raise ValueError("Het download-ID op deze instantie is niet eenduidig")
-        if found and category is not None and download_category(found[0]) != category:
+        if found and category is not None and download_category(found[0][0]) != category:
             raise ValueError("De categorie van de eerdere NZB wijkt af van de goedkeuring")
-        return bool(found)
+        return found[0] if found else ({}, False)
+
+    def _file_identity(self, ref: str, expected_bytes: int | None = None) -> str:
+        """SAB geeft in get_files exacte bytes en per bestand een eigen nzf_id."""
+        response = self._call("get_files", {"value": ref})
+        files = response.get("files") if isinstance(response, dict) else None
+        sizes: dict[str, int] = {}
+        if isinstance(files, list):
+            for entry in files:
+                ident = entry.get("nzf_id") if isinstance(entry, dict) else None
+                size = str(entry.get("bytes")) if isinstance(entry, dict) else ""
+                if (not isinstance(ident, str) or not ident or ident in sizes
+                        or not re.fullmatch(r"[0-9]+(?:\.0+)?", size)):
+                    raise ValueError("De bestanden van de ontvangen NZB zijn onleesbaar")
+                sizes[ident] = int(size.split(".")[0])
+        if (not sizes or min(sizes.values()) <= 0
+                or (expected_bytes is not None and sum(sizes.values()) != expected_bytes)):
+            raise ValueError("De bestandsgrootte van de ontvangen NZB wijkt af")
+        return command_hash(sizes)
+
+    def _matches_item(self, slot: dict[str, Any], history: bool, proof: dict[str, Any], ref: str, *,
+                      captured: bool = False) -> bool:
+        name = proof["filename"] if proof.get("url") else proof["filename"][:-4]
+        if (type(slot.get("time_added")) is not int or slot["time_added"] != proof["added"]
+                or download_category(slot) != proof["category"]):
+            return False
+        if history:
+            return (not proof.get("url") and slot.get("name") == name and slot.get("nzb_name") == proof["upload_name"]
+                    and slot.get("md5sum") == proof["article_md5"])
+        return (slot.get("filename") == name and bool(proof.get("files"))
+                and (captured or self._file_identity(ref, proof.get("bytes")) == proof["files"]))
+
+    def has_download(self, ref: str, category: str | None = None, *, owner: str | None = None,
+                     expected_name: str | None = None) -> bool:
+        slot, history = self._download_slot(ref, category)
+        if not slot or type(slot.get("time_added")) is not int:
+            return False
+        receipt = download_receipts.target(CONNECTOR_ID, self.instance_id, ref)
+        if not receipt or not (proof := receipt["proof"]) or (owner and owner != receipt["owner"]):
+            return False
+        if (expected_name and (proof.get("url")
+                               or expected_name != command_hash([proof["upload_name"], proof["sha256"]]))):
+            return False
+        return self._matches_item(slot, history, proof, ref)
 
 
 def _rate_limit() -> None:

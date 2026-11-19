@@ -22,6 +22,7 @@ from xml.etree.ElementTree import Element
 from defusedxml import ElementTree as SafeET
 from fastapi import HTTPException
 
+from mso import download_receipts
 from mso.db import get_db, jsonb
 
 LOGGER = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ class ParsedNzb:
     files: int = 0
     segment_total: int = 0
     bytes_total: int = 0
+    article_md5: str = ""
     segments: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -80,6 +82,7 @@ def parse_nzb(data: bytes) -> ParsedNzb:
     segs: list[dict[str, Any]] = []
     files = 0
     bytes_total = 0
+    article_md5 = hashlib.md5(usedforsecurity=False)  # SABnzbd-history hasht de opeenvolgende artikel-ID’s.
     for fi, f in enumerate(el for el in root if _local(el.tag) == "file"):
         files += 1
         if (d := f.get("date")) and d.isdigit():
@@ -98,6 +101,7 @@ def parse_nzb(data: bytes) -> ParsedNzb:
                         num = int(s.get("number") or 0)
                     except ValueError:
                         b, num = 0, 0
+                    article_md5.update((s.text or "").encode())
                     bytes_total += max(0, b)
                     segs.append({"m": mid, "b": b, "f": fi, "n": num})
     if not segs:
@@ -110,8 +114,17 @@ def parse_nzb(data: bytes) -> ParsedNzb:
         files=files,
         segment_total=len(segs),
         bytes_total=bytes_total,
+        article_md5=article_md5.hexdigest(),
         segments=spread_sample(segs, MAX_STORED_SEGMENTS),
     )
+
+
+def upload_name(filename: str, sha256: str) -> str:
+    """Vaste multipartnaam voor deze MSO-installatie, exacte bestandsnaam en inhoud."""
+    marker = get_db().scalar("SELECT marker FROM download_receipt_origin WHERE singleton")
+    if not marker:
+        raise ValueError("Het lokale herkomstkenmerk voor NZB-verzendingen ontbreekt")
+    return download_receipts.nzb_filename(filename, sha256, str(marker))
 
 
 def recent_send(*, sha256: str, instance: str, category: str, request_hash: str | None = None) -> str | None:
@@ -122,6 +135,12 @@ def recent_send(*, sha256: str, instance: str, category: str, request_hash: str 
     if len(receipts) > 1:
         raise ValueError("Voor deze NZB bestaan meerdere verschillende ontvangstbewijzen")
     receipt = receipts[0] if receipts else None
+    if receipt:
+        download_receipts.target("sabnzbd", receipt["instance"], receipt["nzo_id"])
+        if db.scalar("SELECT 1 FROM sab_send_receipts WHERE instance=%s AND nzo_id=%s "
+                     "AND (category,sha256,request_hash) IS DISTINCT FROM (%s,%s,%s) LIMIT 1",
+                     (receipt["instance"], receipt["nzo_id"], receipt["category"], sha256, receipt["request_hash"])):
+            raise download_receipts.ReceiptConflict()
     if receipt and (receipt["instance"], receipt["category"]) == (instance, category):
         if request_hash is not None and receipt["request_hash"] != request_hash:
             raise ValueError("De eerdere NZB-verzending gebruikte andere formuliervelden")
@@ -142,49 +161,58 @@ def record_send(
     parsed: ParsedNzb | None = None,
     instance: str | None = None,
     request_hash: str | None = None,
+    proof: dict[str, Any] | None = None,
+    owner: str | None = None,
     url_redacted: str | None = None,
     release_key: str | None = None,
     source_id: str | None = None,
     actor: str = "system",
 ) -> int:
     p = parsed or ParsedNzb(title=None)
+    accepted = True
     with get_db().tx() as conn:
         if instance is not None:
+            if not nzo_id:
+                raise ValueError("Het download-ID ontbreekt in het ontvangstbewijs")
+            accepted = download_receipts.register(conn, "sabnzbd", instance, nzo_id, owner, proof)
             conn.execute("INSERT INTO sab_send_receipts(instance,nzo_id,category,sha256,request_hash) "
                          "VALUES (%s,%s,%s,%s,%s)", (instance, nzo_id, category, sha256, request_hash))
-        saved = conn.execute(
-            "INSERT INTO "
-            "usenet_nzbs(nzo_id,origin,title,category,release_key,source_id,sha256,url_redacted,groups,"
-            "posted_at,files,segment_total,bytes_total,segments,created_by) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-            "ON CONFLICT (nzo_id) DO UPDATE SET segments=CASE WHEN EXCLUDED.segment_total>0 THEN "
-            "EXCLUDED.segments "
-            "ELSE usenet_nzbs.segments END, segment_total=GREATEST(usenet_nzbs.segment_total, "
-            "EXCLUDED.segment_total), "
-            "files=GREATEST(usenet_nzbs.files, EXCLUDED.files), "
-            "bytes_total=GREATEST(usenet_nzbs.bytes_total, "
-            "EXCLUDED.bytes_total), groups=CASE WHEN EXCLUDED.segment_total>0 THEN EXCLUDED.groups ELSE "
-            "usenet_nzbs.groups END, posted_at=COALESCE(EXCLUDED.posted_at, usenet_nzbs.posted_at), "
-            "release_key=COALESCE(EXCLUDED.release_key, usenet_nzbs.release_key), "
-            "source_id=COALESCE(EXCLUDED.source_id, usenet_nzbs.source_id) RETURNING id",
-            (
-                nzo_id,
-                origin,
-                (p.title or title)[:300],
-                category,
-                release_key,
-                source_id,
-                sha256,
-                url_redacted,
-                p.groups,
-                p.posted_at,
-                p.files,
-                p.segment_total,
-                p.bytes_total,
-                jsonb(p.segments),
-                actor,
-            ),
-        ).fetchone()
+        if accepted:
+            saved = conn.execute(
+                "INSERT INTO "
+                "usenet_nzbs(nzo_id,origin,title,category,release_key,source_id,sha256,url_redacted,groups,"
+                "posted_at,files,segment_total,bytes_total,segments,created_by) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (nzo_id) DO UPDATE SET segments=CASE WHEN EXCLUDED.segment_total>0 THEN "
+                "EXCLUDED.segments "
+                "ELSE usenet_nzbs.segments END, segment_total=GREATEST(usenet_nzbs.segment_total, "
+                "EXCLUDED.segment_total), "
+                "files=GREATEST(usenet_nzbs.files, EXCLUDED.files), "
+                "bytes_total=GREATEST(usenet_nzbs.bytes_total, "
+                "EXCLUDED.bytes_total), groups=CASE WHEN EXCLUDED.segment_total>0 THEN EXCLUDED.groups ELSE "
+                "usenet_nzbs.groups END, posted_at=COALESCE(EXCLUDED.posted_at, usenet_nzbs.posted_at), "
+                "release_key=COALESCE(EXCLUDED.release_key, usenet_nzbs.release_key), "
+                "source_id=COALESCE(EXCLUDED.source_id, usenet_nzbs.source_id) RETURNING id",
+                (
+                    nzo_id,
+                    origin,
+                    (p.title or title)[:300],
+                    category,
+                    release_key,
+                    source_id,
+                    sha256,
+                    url_redacted,
+                    p.groups,
+                    p.posted_at,
+                    p.files,
+                    p.segment_total,
+                    p.bytes_total,
+                    jsonb(p.segments),
+                    actor,
+                ),
+            ).fetchone()
+    if not accepted:
+        raise download_receipts.ReceiptConflict()
     nid = saved["id"]
     if origin in ("send_url", "send_nzb") and p.segments:
         _auto_sample(nid, actor)

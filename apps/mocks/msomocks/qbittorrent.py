@@ -33,7 +33,9 @@ import copy
 import hashlib
 import json
 import secrets
+import time
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
@@ -778,6 +780,16 @@ def create_app(**faults: Any) -> FastAPI:
                 ident, name = _torrent_identity(data)
             except Exception:
                 return PlainTextResponse("Fails.")
+        elif isinstance(url, str) and url.startswith("magnet:?"):
+            query = parse_qs(urlsplit(url).query)
+            for xt in query.get("xt", []):
+                prefix, _, value = xt.lower().rpartition(":")
+                if prefix == "urn:btih" and len(value) == 40:
+                    ident = value
+                    break
+                if prefix == "urn:btmh" and value.startswith("1220") and len(value) == 68:
+                    ident = value[4:]
+            name = (query.get("dn") or [ident])[0]
         if ident in qb.torrents:
             return PlainTextResponse("Fails.")
         paused = str(f.get("paused", f.get("stopped", "false"))).lower() == "true"
@@ -790,6 +802,7 @@ def create_app(**faults: Any) -> FastAPI:
             tracker="",
             private=False,
         )
+        t["added_on"] = int(time.time())
         t["hash"] = t["infohash_v1"] = ident
         if f.get("savepath"):
             t["save_path"] = str(f["savepath"])

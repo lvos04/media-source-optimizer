@@ -366,5 +366,7 @@ def test_candidate_storage_drops_secret_urls_and_torrent_send(
     assert "PASSKEY0123456789" not in operator.get(f"/api/v1/recovery/items/{ref}").text
     r = operator.post(f"/api/v1/recovery/items/{ref}/send", json={"release_key": tor.release_key})
     assert r.status_code == 200, r.text
-    assert sent["qbit"][0]["category"] == "mso-tv" and sent["qbit"][0]["tags"] == ["mso-herstel"]
+    assert sent["qbit"][0]["category"] == "mso-tv" and sent["qbit"][0]["tags"][0] == "mso-herstel"
+    _, marker = sent["qbit"][0]["tags"]
+    assert marker.startswith("mso-") and len(marker) == 36
     assert r.json()["send"]["client_ref"] == tor.infohash_v1

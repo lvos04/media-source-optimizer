@@ -301,6 +301,7 @@ class Checked:
     kind: str  # files|magnet|nzb
     files_checked: int = 0
     keys: list[str] = field(default_factory=list)
+    name: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {"kind": self.kind, "files_checked": self.files_checked, "keys": self.keys}
@@ -347,7 +348,7 @@ def check_download(
         if title_hits or dn_hits:
             found = title_hits + dn_hits
             raise Refused(_uniq([describe(m) for m in found]), evidence={"kind": "magnet", "matches": found[:20]})
-        return Checked("magnet")
+        return Checked("magnet", name=magnet_name(final_url))
     payload = torrent_payload(bytes(getattr(fetched, "content", b"") or b""))
     problems, matches, n = payload_problems(
         payload["name"], payload["files"], media=is_media or is_media_release(payload["name"])
@@ -360,4 +361,4 @@ def check_download(
             keys=payload["keys"],
             evidence={"kind": "files", "matches": found[:20], "files_checked": n},
         )
-    return Checked("files", files_checked=n, keys=payload["keys"])
+    return Checked("files", files_checked=n, keys=payload["keys"], name=payload["name"])

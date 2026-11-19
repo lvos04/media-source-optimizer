@@ -132,9 +132,9 @@ def test_oude_hash_blijft_ongewijzigd_bij_weigering(admin, client, db, database_
     _pin(key, monkeypatch)
     machine = _hub_key(admin, ["changes:approve"])
     try:
-        assert migrate_down(db, 609) == [612, 611, 610]
+        assert migrate_down(db, 609) == [613, 612, 611, 610]
     finally:
-        assert migrate_up(db) == [610, 611, 612]
+        assert migrate_up(db) == [610, 611, 612, 613]
     base = f"/api/v1/changes/{ch['id']}"
     wrong = digest("andere voorvertoning")
     before = database_bytes(db)

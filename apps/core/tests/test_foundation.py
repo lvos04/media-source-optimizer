@@ -752,3 +752,22 @@ def test_one_way_ops_allowed_automatically_but_not_rolled_back(admin: Any, fake:
     ops = {o["path"]: o["result"] for o in r.json()["ops"]}
     assert ops == {"speed": "niet_terug_te_draaien", "conns": "teruggedraaid"}
     assert fake.values["speed"] == 1 and fake.values["conns"] == 50
+
+
+def test_oude_ontvangstbewijzen_blijven_bewaard_bij_migratie(schema_db):
+    from mso.db import migrate_down, migrate_up
+
+    db = schema_db
+    assert migrate_down(db, 612) == [613]
+    for ref, form in [("enkel", "a"), ("dubbel", "b"), ("dubbel", "c")]:
+        db.execute("INSERT INTO sab_send_receipts(instance,nzo_id,category,sha256,request_hash) "
+                   "VALUES ('zelfde-bron',%s,'tv',%s,%s)", (ref, form, form))
+    before = db.fetchall("SELECT * FROM sab_send_receipts ORDER BY id")
+    for _ in range(2):
+        assert migrate_up(db) == [613]
+        assert db.fetchall("SELECT download_id,disputed,proof FROM download_receipt_targets ORDER BY download_id") == [
+            {"download_id": "dubbel", "disputed": True, "proof": None},
+            {"download_id": "enkel", "disputed": False, "proof": None},
+        ]
+        assert migrate_down(db, 612) == [613]
+        assert db.fetchall("SELECT * FROM sab_send_receipts ORDER BY id") == before

@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from mso import changes
+from mso import changes, download_receipts
+from mso.change_preview import digest
 from mso.connectors import prowlarr, qbittorrent, sabnzbd
 from mso.features.indexers import prowlarr_sync
 from mso.features.recovery import fallback
@@ -42,6 +43,7 @@ def meet(lezen, pad, geval, verwacht):
 
 def sab_bron(monkeypatch, antwoord):
     bron = object.__new__(sabnzbd.SabClient)
+    bron.instance_id = "proefinstantie"
     monkeypatch.setattr(bron, "_call", antwoord)
     monkeypatch.setattr(bron, "close", lambda: None)
     monkeypatch.setattr(sabnzbd.SabClient, "from_config", lambda: bron)
@@ -130,15 +132,28 @@ def test_prowlarrmeting(monkeypatch, veld, ongeldig, geval):
     meet(changes.APPLIERS["prowlarr"]().read, "indexer:newznab", geval, prowlarr_sync.summary(reg))
 
 
+def sab_verzendbewijs(monkeypatch, ref):
+    files = {"bestand": 42}
+    proof = {"filename": "proef.nzb", "upload_name": "upload.nzb", "sha256": "inhoud", "category": "proef",
+             "added": 10, "bytes": 42, "files": digest(files), "article_md5": "artikelhash"}
+    command = {"instance": "proefinstantie", "category": "proef", "fields": {"name": digest(["upload.nzb", "inhoud"])}}
+    monkeypatch.setattr(download_receipts, "target", lambda *_: {"owner": "proef", "proof": proof})
+    row = {"status": "sent", "client": "sabnzbd", "client_ref": ref, "idempotency_key": "proef", "command": command}
+    slot = {"filename": "proef", "time_added": 10, "cat": "proef", "name": "proef", "nzb_name": "upload.nzb",
+            "md5sum": "artikelhash"}
+    return row, slot
+
+
 @pytest.mark.parametrize("status", ["sent", "download_ok", "download_failed"])
 @pytest.mark.parametrize("geval", STATUS)
 def test_herstelverzendingmeting(monkeypatch, geval, status):
-    slot = {}
+    rij, slot = sab_verzendbewijs(monkeypatch, "0")
     bronwaarde(slot, "nzo_id", geval, "0", 0)
     antwoorden = {"queue": {"queue": {"slots": [slot], "noofslots": 1}},
                   "history": {"history": {"slots": [], "noofslots": 0}}}
     sab_bron(monkeypatch, lambda mode, *_: antwoorden[mode])
-    rij = {"status": status, "client": "sabnzbd", "client_ref": "0"}
+    antwoorden["get_files"] = {"files": [{"nzf_id": "bestand", "bytes": "42.00"}]}
+    rij["status"] = status
     monkeypatch.setattr(fallback, "get_db", lambda: SimpleNamespace(fetchone=lambda *_: rij))
     monkeypatch.setattr(fallback, "parse_path", lambda _: ("proef", "kandidaat"))
     meet(changes.APPLIERS[fallback.TARGET]().read, "proef", geval, fallback.AFTER)
@@ -281,6 +296,8 @@ def test_sab_paginering_per_schrijfadapter(monkeypatch, doel, lijst, geval):
     geraakt = {"nzo_id": "taak", "cat": "proef", "status": doelstatus}
 
     def antwoord(mode, params):
+        if mode == "get_files":
+            return {"files": [{"nzf_id": "bestand", "bytes": "42.00"}]}
         if mode == "get_config":
             return {"config": {"categories": [{"name": "proef", "dir": "proef", "order": 0}]}}
         if mode != lijst:
@@ -297,7 +314,8 @@ def test_sab_paginering_per_schrijfadapter(monkeypatch, doel, lijst, geval):
     sab_bron(monkeypatch, antwoord)
     monkeypatch.setattr(sabnzbd.SabClient, "delete_category", lambda _, naam: verwijderd.append(naam))
     monkeypatch.setattr(retry, "_row", lambda _: {"retried_at": True})
-    verzending = {"status": "sent", "client": "sabnzbd", "client_ref": "taak"}
+    verzending, bewijs = sab_verzendbewijs(monkeypatch, "taak")
+    geraakt.update(bewijs)
     monkeypatch.setattr(fallback, "get_db", lambda: SimpleNamespace(fetchone=lambda *_: verzending))
     monkeypatch.setattr(fallback, "parse_path", lambda _: ("proef", "kandidaat"))
     adapter = changes.APPLIERS[doel]()
@@ -406,15 +424,28 @@ def test_qbittorrent_torrentlijst_voor_herstelverzending(monkeypatch, document):
     monkeypatch.setattr(bron, "close", lambda: None)
     monkeypatch.setattr(bron, "torrents", lambda _: document)
     monkeypatch.setattr(qbittorrent.QbitClient, "from_config", lambda: bron)
-    monkeypatch.setattr(fallback.actions.time, "sleep", lambda _: None)
-    verzending = {"status": "sent", "client": "qbittorrent", "client_ref": HASH}
+    monkeypatch.setattr(download_receipts.time, "sleep", lambda _: None)
+    bron.instance_id = "proefinstantie"
+    monkeypatch.setattr(bron, "pause_field", lambda: "stopped")
+    eigenschap = {"category": "proef", "added_on": 10, "tags": "bewijs", "name": "torrent"}
+    for item in document if isinstance(document, list) else []:
+        if isinstance(item, dict):
+            item.update(eigenschap)
+    bewijs = {"owner": "proef", "proof": {"category": "proef", "added": 10, "hash": HASH,
+                                          "name": "torrent", "tags": ["bewijs"],
+                                          "form_hash": digest({"tags": "bewijs"})}}
+    monkeypatch.setattr(download_receipts, "target", lambda *_: bewijs)
+    opdracht = {"instance": bron.instance_id, "category": "proef", "download_id": HASH, "pause_field": "stopped",
+                "fields": {"tags": "bewijs"}}
+    verzending = {"status": "sent", "client": "qbittorrent", "client_ref": HASH,
+                  "idempotency_key": "proef", "command": opdracht}
     monkeypatch.setattr(fallback, "get_db", lambda: SimpleNamespace(fetchone=lambda *_: verzending))
     monkeypatch.setattr(fallback, "parse_path", lambda _: ("proef", "kandidaat"))
     lees = changes.APPLIERS[fallback.TARGET]().read
-    if document == [{"hash": HASH.upper()}]:
+    if document == [{"hash": HASH.upper(), **eigenschap}]:
         assert lees("proef") == fallback.AFTER
     elif document == []:
-        assert lees("proef") == "niet gevonden in qBittorrent"
+        assert lees("proef") == "herkomst onbekend in qBittorrent"
     else:
         with pytest.raises(qbittorrent.QbitError, match="onleesbaar"):
             lees("proef")

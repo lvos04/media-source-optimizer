@@ -79,12 +79,12 @@ def test_interrupted_restore_keeps_current_permissions(admin, client, db, interr
 
 
 @pytest.mark.parametrize(
-    "schema", [607, 608, 609, 610, 611, 612],
+    "schema", [607, 608, 609, 610, 611, 612, 613],
     ids=["voor-sleutelbeheer", "voor-event-id", "voor-change-hash", "voor-opslagmeting",
-         "voor-ontvangstbewijs", "gewone-back-up"],
+         "voor-ontvangstbewijs", "voor-itemherkomst", "gewone-back-up"],
 )
 def test_restore_keep_tables_stay_out_of_dumps(admin, db, schema):
-    expected = [version for version in (612, 611, 610, 609, 608) if version > schema]
+    expected = [version for version in (613, 612, 611, 610, 609, 608) if version > schema]
     try:
         assert migrate_down(db, schema) == expected
         original = backups.create_backup(actor="test")
@@ -147,10 +147,10 @@ def test_open_restore_blocks_key_management(admin, client, db):
 
 def test_migration_failure_retains_keys_from_current_schema(admin, client, db, monkeypatch):
     try:
-        assert migrate_down(db, 607) == [612, 611, 610, 609, 608]
+        assert migrate_down(db, 607) == [613, 612, 611, 610, 609, 608]
         backup = backups.create_backup(actor="test")
     finally:
-        assert migrate_up(db) == [608, 609, 610, 611, 612]
+        assert migrate_up(db) == [608, 609, 610, 611, 612, 613]
     active = create(admin)
     revoked = create(admin, name="Ingetrokken")
     assert revoke(admin, revoked["item"]["id"]).status_code == 200

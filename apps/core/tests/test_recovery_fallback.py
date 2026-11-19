@@ -213,6 +213,8 @@ def test_auto_send_setting_makes_proposal_safe_and_automation_applies_it(
     added: list[dict[str, Any]] = []
     qb = types.ModuleType("mso.connectors.qbittorrent")
 
+    added_at = []
+
     class QbitClient:
         instance_id = "test-torrent"
 
@@ -239,10 +241,13 @@ def test_auto_send_setting_makes_proposal_safe_and_automation_applies_it(
             pause_field: str | None = None,
             tags: list[str] | None = None,
         ) -> None:
+            added_at.append(int(datetime.now(UTC).timestamp()))
             added.append({"category": category, "tags": tags})
 
         def torrent(self, h: str) -> dict[str, Any] | None:
-            return {"hash": h, "category": added[-1]["category"]} if added and h == tor.infohash_v1 else None
+            return ({"hash": h, "name": tor.title, "category": added[-1]["category"],
+                     "added_on": added_at[0], "tags": ", ".join(added[-1]["tags"])}
+                    if added and h == tor.infohash_v1 else None)
 
     qb.QbitClient = QbitClient  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "mso.connectors.qbittorrent", qb)
@@ -267,7 +272,9 @@ def test_auto_send_setting_makes_proposal_safe_and_automation_applies_it(
 
     res = engine.apply_safe()
     assert res["applied"] == [ch["id"]], res
-    assert added == [{"category": "mso-tv", "tags": ["mso-herstel"]}]
+    expected_tags = ch["ops"][0]["command"]["fields"]["tags"].split(",")
+    assert expected_tags[0] == "mso-herstel" and len(expected_tags) == 2
+    assert added == [{"category": "mso-tv", "tags": expected_tags}]
     assert viewer.get(f"/api/v1/changes/{ch['id']}").json()["status"] == "applied"
 
 

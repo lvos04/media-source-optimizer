@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import logging
+import uuid
 from contextlib import closing
 from datetime import datetime
 from typing import Any, Literal
@@ -11,6 +13,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from mso import download_receipts
 from mso.audit import audit
 from mso.auth import Principal, require
 from mso.db import get_db
@@ -345,15 +348,15 @@ def _previous_send(existing: dict[str, Any], client: str, category: str) -> dict
             ):
                 raise ValueError("ander doel")
             ref = existing["client_ref"]
+            owner = "search:" + existing["release_key"]
             if client == "sabnzbd":
-                found = peer.has_download(ref, category)
+                found = peer.has_download(ref, category, owner=owner)
             else:
-                torrent = peer.torrent(ref)
-                found = torrent is not None and torrent.get("category") == category
+                found = download_receipts.confirmed_torrent(peer, ref, category, owner)
     except Exception as exc:
         raise HTTPException(409, detail="De eerdere verzending kan niet worden bevestigd op deze instantie") from exc
     if not found:
-        raise HTTPException(409, detail="De eerdere download ontbreekt in de opgegeven categorie")
+        raise HTTPException(409, detail="De herkomst van de eerdere download is onbekend in de opgegeven categorie")
     return {"status": "already_sent", "send": existing}
 
 
@@ -402,17 +405,19 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
             checked = releasegate.check_download(row["protocol"], fetched, title=row["title"], media=media)
             if body.category not in inst.categories():
                 raise ValueError("De verzendcategorie ontbreekt op de ontvangende instantie")
+            owner = "search:" + row["release_key"]
             if client == "sabnzbd":
                 name = fetched.filename or f"{row['title']}.nzb"
-                ref = inst.add_nzb(fetched.content, name, category=body.category)
+                ref = inst.add_nzb(fetched.content, name, category=body.category, exact=True, owner=owner)
             else:
                 key = row["release_key"]
                 expected = key.split(":", 1)[1] if key.startswith(("btih:", "btmh:")) else None
                 ref = releasegate.torrent_download_id(fetched, expected, checked.keys)
-                if fetched.final_url:
-                    inst.add_torrent(url=fetched.final_url, category=body.category)
-                else:
-                    inst.add_torrent(data=fetched.content, category=body.category)
+                data = fetched.final_url.encode() if fetched.final_url else fetched.content
+                form_hash = hashlib.sha256(data).hexdigest()
+                tag = download_receipts.torrent_tag(uuid.uuid4(), form_hash)
+                download_receipts.send_torrent(inst, fetched, ref, checked.name, body.category,
+                                               owner=owner, tags=[tag], form_hash=form_hash)
     except releasegate.Refused as exc:
         _fail(row, exc.message)
         raise _refuse(row, exc, actor=p.actor, client=client) from exc
@@ -421,7 +426,11 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
         raise HTTPException(409, detail=str(exc)) from exc
     except Exception as exc:
         msg = redact(f"{type(exc).__name__}: {exc}")
-        _fail(row, msg)
+        if getattr(exc, "code", "") in {"ambiguous_id", "timeout"}:
+            db.execute("UPDATE search_sends SET error=%s, updated_at=now() WHERE release_key=%s",
+                       (msg, row["release_key"]))
+        else:
+            _fail(row, msg)
         audit(
             p.actor,
             "search.send_failed",

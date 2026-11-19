@@ -48,9 +48,11 @@ import email.policy
 import itertools
 import threading
 import time
+import uuid
 from datetime import date, timedelta
 from typing import Any
 
+from defusedxml import ElementTree
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -167,6 +169,8 @@ class SabState:
         self.history: list[dict[str, Any]] = _history_for(scenario)
         self.archive: list[dict[str, Any]] = []  # jobs removed from the history (SABnzbd ≥ 4 archives them)
         self.queue: list[dict[str, Any]] = []
+        self.job_files: dict[str, list[dict[str, str]]] = {}
+        self.nzb_names: dict[str, str] = {}
         self.last_history_update = 1
         self.counter = itertools.count(1000)
         self.servers: list[dict[str, Any]] = [
@@ -636,6 +640,8 @@ def create_app(**faults: Any) -> FastAPI:
                 return ok({"status": True, "nzo_id": new_id})
             if mode == "get_cats":
                 return ok({"categories": [c["name"] for c in state.ordered_categories()]})
+            if mode == "get_files":
+                return ok({"files": state.job_files.get(params.get("value"), [])})
             if mode in ("addurl", "addfile"):
                 if mode == "addurl":
                     url = params.get("name", "")
@@ -646,12 +652,26 @@ def create_app(**faults: Any) -> FastAPI:
                     f = files.get("name") or files.get("nzbfile")
                     if not f or b"<nzb" not in f[1]:
                         return ok({"status": False, "error": "No file"})
-                    title = (f[0] or "upload.nzb").removesuffix(".nzb")
+                    title = params.get("nzbname") or (f[0] or "upload.nzb").removesuffix(".nzb")
                 nzo = f"SABnzbd_nzo_{next(state.counter)}"
+                if mode == "addurl":
+                    state.job_files[nzo] = [{"nzf_id": "SABnzbd_nzf_" + uuid.uuid4().hex, "bytes": "1024.00"}]
+                else:
+                    try:
+                        state.nzb_names[nzo] = f[0]
+                        root = ElementTree.fromstring(f[1])
+                        state.job_files[nzo] = [
+                            {"nzf_id": "SABnzbd_nzf_" + uuid.uuid4().hex,
+                             "bytes": str(sum(int(seg.get("bytes", "0")) for seg in file.iterfind(".//{*}segment")))}
+                            for file in root.iterfind("{*}file")
+                        ]
+                    except (ValueError, ElementTree.ParseError):
+                        return ok({"status": False, "error": "No file"})
                 state.queue.append(
                     {
                         "nzo_id": nzo,
                         "filename": title,
+                        "time_added": int(time.time()),
                         "cat": state.resolve_cat(params.get("cat")),
                         "status": "Queued",
                         "percentage": "0",

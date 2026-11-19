@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-import time
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
@@ -25,6 +24,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from mso import download_receipts
 from mso import settings_registry as sr
 from mso.audit import audit
 from mso.change_preview import digest
@@ -34,6 +34,7 @@ from mso.db import get_db, jsonb
 from mso.domain import releasegate
 from mso.domain.release import NormalizedRelease
 from mso.features.recovery import blacklist, candidates
+from mso.features.usenet import nzbs
 from mso.security import redact
 
 FAKE_BLACKLIST_TTL_H = 24 * 365 * 10  # a proven fake never becomes good (same as the malware cleanup)
@@ -51,6 +52,7 @@ def download_client(protocol: str) -> Any:
 
 def confirmed_download(row: dict[str, Any], command: dict[str, Any] | None) -> bool:
     """Lees het eerder ontvangen ID en de categorie op de geadresseerde client terug."""
+    command = command or row.get("command")
     ref = row.get("client_ref")
     if not isinstance(ref, str) or not ref.strip():
         raise ValueError("Download-ID van de herstelverzending is onleesbaar")
@@ -60,23 +62,23 @@ def confirmed_download(row: dict[str, Any], command: dict[str, Any] | None) -> b
     with closing(download_client(protocol)) as client:
         if command and client.instance_id != command["instance"]:
             raise ValueError("De eerdere download is op een andere instantie verzonden")
+        owner = row.get("idempotency_key")
+        category = command["category"] if command else row.get("client_category")
         if protocol == "usenet":
-            return client.has_download(ref, command["category"] if command else None)
+            expected = command.get("fields", {}).get("name") if command else None
+            found = client.has_download(ref, category, owner=owner, expected_name=expected)
+            return bool(owner and expected and found)
         if command and (ref != command["download_id"] or client.pause_field() != command["pause_field"]):
             raise ValueError("Het download-ID of pauzeveld wijkt af van de goedgekeurde torrentopdracht")
-        for attempt in range(4):
-            torrent = client.torrent(ref.lower())
-            if torrent:
-                if command and torrent.get("category") != command["category"]:
-                    raise ValueError("De categorie van de eerdere torrent wijkt af van de goedkeuring")
-                return True
-            if attempt < 3:
-                time.sleep(0.75)
-        return False
+        form_hash = digest(command["fields"]) if command and command.get("fields") else None
+        found = download_receipts.confirmed_torrent(client, ref.lower(), category, owner, form_hash)
+        return bool(form_hash and found)
 
 
 @contextmanager
-def prepared_download(r: NormalizedRelease, category: str) -> Iterator[tuple[dict[str, Any], Any, Any]]:
+def prepared_download(
+    r: NormalizedRelease, category: str, receipt_id: Any,
+) -> Iterator[tuple[dict[str, Any], Any, Any]]:
     """Leg ook geheime formulierwaarden vast met een hash. Alleen het opgehaalde exemplaar kan worden verzonden."""
     search = importlib.import_module("mso.features.search.service")
     fetched = search.fetch_download(r.extra["token"])
@@ -85,11 +87,14 @@ def prepared_download(r: NormalizedRelease, category: str) -> Iterator[tuple[dic
         if r.protocol == "usenet":
             name = fetched.filename or f"{r.title}.nzb"
             filename = name if name.lower().endswith(".nzb") else f"{name}.nzb"
-            fields = {"cat": category, "name": digest([filename, payload])}
+            upload_name = nzbs.upload_name(filename, payload)
+            fields = {"cat": category, "nzbname": digest(filename[:-4]), "name": digest([upload_name, payload])}
             command = {"client": "sabnzbd", "mode": "addfile", "fields": fields}
         else:
             pause = client.pause_field()
-            fields = torrent_form.add_fields(category, pause, paused=False, tags=["mso-herstel"])
+            content_hash = hashlib.sha256(fetched.final_url.encode()).hexdigest() if fetched.final_url else payload
+            tags = ["mso-herstel", download_receipts.torrent_tag(receipt_id, content_hash)]
+            fields = torrent_form.add_fields(category, pause, paused=False, tags=tags)
             if fetched.final_url:
                 fields["urls"] = digest(fetched.final_url)
             else:
@@ -102,20 +107,22 @@ def prepared_download(r: NormalizedRelease, category: str) -> Iterator[tuple[dic
 
 
 def preview_command(media_ref: str, release_key: str, category: str) -> dict[str, Any]:
-    row = get_db().fetchone("SELECT release FROM recovery_candidates WHERE media_ref=%s AND release_key=%s",
+    row = get_db().fetchone("SELECT release,receipt_id FROM recovery_candidates WHERE media_ref=%s AND release_key=%s",
                             (media_ref, release_key))
     if not row:
         raise ValueError("De beoordeelde kandidaat ontbreekt")
     try:
-        with prepared_download(candidates.release_from_json(row["release"]), category) as (command, _, _):
+        release = candidates.release_from_json(row["release"])
+        with prepared_download(release, category, row["receipt_id"]) as (command, _, _):
             return command
     except Exception as exc:
         raise ValueError("De verzendopdracht kon niet worden vastgelegd. Zoek de kandidaat opnieuw.") from exc
 
 
-def _dispatch(r: NormalizedRelease, media_category: str, approved: dict[str, Any] | None) -> tuple[dict[str, Any], str]:
+def _dispatch(r: NormalizedRelease, media_category: str, approved: dict[str, Any] | None,
+              owner: str, receipt_id: Any) -> tuple[dict[str, Any], str]:
     category = client_category(media_category)
-    with prepared_download(r, category) as (current, client, fetched):
+    with prepared_download(r, category, receipt_id) as (current, client, fetched):
         if approved is not None and current != approved:
             raise HTTPException(409, detail="De verzendopdracht wijkt af van de goedgekeurde voorvertoning")
         command = current if approved is None else approved
@@ -124,15 +131,17 @@ def _dispatch(r: NormalizedRelease, media_category: str, approved: dict[str, Any
             raise HTTPException(409, detail="De verzendcategorie ontbreekt op de ontvangende instantie")
         if r.protocol == "usenet":
             name = fetched.filename or f"{r.title}.nzb"
-            ref = client.add_nzb(fetched.content, name, category=command["category"], exact=True)
+            ref = client.add_nzb(fetched.content, name, category=command["category"], exact=True, owner=owner,
+                                 expected_field=command["fields"]["name"])
         else:
             try:
                 ref = releasegate.torrent_download_id(fetched, command["download_id"], checked.keys)
             except ValueError as exc:
                 raise HTTPException(409, detail=str(exc)) from exc
-            payload = {"url": fetched.final_url} if fetched.final_url else {"data": fetched.content}
-            client.add_torrent(**payload, category=command["category"], paused=False,
-                               pause_field=command["pause_field"], tags=["mso-herstel"])
+            fields = command["fields"]
+            download_receipts.send_torrent(client, fetched, ref, checked.name, category, owner=owner,
+                                           tags=fields["tags"].split(","), form_hash=digest(fields),
+                                           paused=False, pause_field=command["pause_field"])
         return command, ref
 
 
@@ -236,14 +245,14 @@ def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual",
         except Exception as exc:
             raise HTTPException(409, detail="Het eerdere doel kan op deze instantie niet worden bevestigd") from exc
         if not found:
-            raise HTTPException(409, detail="De eerdere download ontbreekt op de ontvangende instantie")
+            raise HTTPException(409, detail="De herkomst van de eerdere download is onbekend")
         return {
             "duplicate": True,
             "send": existing,
             "message": "Deze release is al naar de downloadclient gestuurd voor dit item; niet opnieuw.",
         }
     try:
-        command, ref = _dispatch(r, t.media_category, approved)
+        command, ref = _dispatch(r, t.media_category, approved, key, cand["receipt_id"])
         client = command["client"]
         category = command["category"]
     except releasegate.Refused as exc:

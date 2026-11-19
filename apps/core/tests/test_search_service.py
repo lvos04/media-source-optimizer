@@ -286,14 +286,15 @@ class FakeSab:
     def close(self):
         pass
 
-    def has_download(self, ref: str, category: str) -> bool:
-        return ref == "SABnzbd_nzo_abc" and any(cat == category for _, _, cat in self.added)
+    def has_download(self, ref: str, category: str, *, owner: str) -> bool:
+        return owner == self.owner and ref == "SABnzbd_nzo_abc" and any(cat == category for _, _, cat in self.added)
 
     @classmethod
     def from_config(cls) -> FakeSab:
         return cls()
 
-    def add_nzb(self, data: bytes, filename: str, *, category: str) -> str:
+    def add_nzb(self, data: bytes, filename: str, *, category: str, exact: bool, owner: str) -> str:
+        FakeSab.owner = owner
         FakeSab.added.append((data, filename, category))
         return "SABnzbd_nzo_abc"
 
@@ -313,7 +314,18 @@ class FakeQbit:
         return cls()
 
     def add_torrent(self, **kw: Any) -> None:
+        import time
+
+        from mso.domain import releasegate
+
+        payload = releasegate.torrent_payload(kw["data"])
+        ref = payload["keys"][0].split(":")[1]
+        FakeQbit.item = {"hash": ref, "name": payload["name"], "category": kw["category"],
+                         "tags": ", ".join(kw["tags"]), "added_on": int(time.time())}
         FakeQbit.added.append(kw)
+
+    def torrent(self, ref):
+        return self.item if self.item["hash"] == ref else None
 
     def categories(self) -> list[str]:
         return ["tv", "movies"]

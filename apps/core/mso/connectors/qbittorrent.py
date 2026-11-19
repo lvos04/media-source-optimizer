@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 from typing import Any
 
@@ -31,6 +32,7 @@ from mso.connectors import base as cb
 LOGGER = logging.getLogger(__name__)
 CONNECTOR_ID = "qbittorrent"
 INFINITE_ETA = 8640000
+INACTIVE_LIMIT_SINCE = (2, 9, 2)
 
 
 class QbitError(RuntimeError):
@@ -55,15 +57,21 @@ def _vtuple(v: str | None) -> tuple[int, ...]:
     return tuple(out)
 
 
+def _webapi_tuple(version: str | None) -> tuple[int, ...]:
+    if not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?", version or ""):
+        return ()
+    return tuple(map(int, version.split(".")))
+
+
 def capabilities_for(app_version: str | None, webapi: str | None, *, build_info: bool) -> dict[str, Any]:
     """Feature flags by WebAPI version (documented in the qBittorrent WebUI API changelog)."""
-    w = _vtuple(webapi)
+    w = _webapi_tuple(webapi)
     a = _vtuple(app_version)
     return {
         "webapi": webapi,
         "sync_maindata": w >= (2, 0),
         "share_limits": w >= (2, 0, 1),
-        "inactive_seeding_time_limit": w >= (2, 9, 2),
+        "inactive_seeding_time_limit": w >= INACTIVE_LIMIT_SINCE if w >= (2, 0) else None,
         "infohash_v2": w >= (2, 8, 3),
         "private_flag_in_info": w >= (2, 11, 1),
         "build_info": build_info,
@@ -257,13 +265,20 @@ class QbitClient:
         return self._request("POST", path, data=data or {}, files=files)
 
     # ------------------------------------------------------------------ discovery
+    def _read_webapi_version(self) -> str | None:
+        try:
+            return self._request("GET", "app/webapiVersion").text.strip() or None
+        except QbitUnsupported:
+            return None
+
+    def has_legacy_share_limits(self) -> bool:
+        """Alleen een actuele versie van WebAPI v2 vóór 2.9.2 verklaart het ontbrekende veld."""
+        return (2, 0) <= _webapi_tuple(self._read_webapi_version()) < INACTIVE_LIMIT_SINCE
+
     def detect(self) -> dict[str, Any]:
         """Version + capability detection (cheap, call once per client)."""
         self.version = self._request("GET", "app/version").text.strip()
-        try:
-            self.webapi = self._request("GET", "app/webapiVersion").text.strip()
-        except QbitUnsupported:
-            self.webapi = "2.0"
+        self.webapi = self._read_webapi_version()
         try:
             self.build = self._get_json("app/buildInfo")
             has_build = True
@@ -361,7 +376,8 @@ class QbitClient:
         seeding_time_limit: int,
         inactive_seeding_time_limit: int | None = None,
     ) -> None:
-        if not self.cap("share_limits"):
+        version = _webapi_tuple(self._read_webapi_version())
+        if version < (2, 0, 1):
             raise QbitUnsupported(
                 "Deelgrenzen per torrent worden door deze qBittorrent-versie niet ondersteund"
             )
@@ -370,10 +386,12 @@ class QbitClient:
             "ratioLimit": ratio_limit,
             "seedingTimeLimit": int(seeding_time_limit),
         }
-        if self.cap("inactive_seeding_time_limit"):
+        if version >= INACTIVE_LIMIT_SINCE:
             data["inactiveSeedingTimeLimit"] = int(
                 -2 if inactive_seeding_time_limit is None else inactive_seeding_time_limit
             )
+        elif inactive_seeding_time_limit is not None:
+            raise QbitUnsupported("Deze WebAPI ondersteunt de gevraagde inactiviteitslimiet niet")
         self._post("torrents/setShareLimits", data)
 
     def recheck(self, hashes: list[str]) -> None:

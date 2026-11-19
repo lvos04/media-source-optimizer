@@ -35,6 +35,7 @@ PREFERENCE_TYPES = {
     "bool": (bool,), "int": (int,), "rate": (int,), "float": (int, float), "string": (str,),
     "patterns": (str, list, tuple),
 }
+SHARE_LIMIT_TYPES = {"ratio_limit": (int, float), "seeding_time_limit": (int,), "inactive_seeding_time_limit": (int,)}
 
 
 class MissingPreference(ValueError):
@@ -42,8 +43,19 @@ class MissingPreference(ValueError):
 
 
 def _measured_value(value: Any, types: tuple[type, ...], field: str) -> Any:
+    error = f"qBittorrent-veld '{field}' is onleesbaar"
     if type(value) not in types or (type(value) is float and not math.isfinite(value)):
-        raise ValueError(f"qBittorrent-veld '{field}' is onleesbaar")
+        raise ValueError(error)
+    if type(value) in (int, float) and value < 0:
+        # Deelgrenzen kennen ook -2 (globale instelling). Aantallen en snelheden kennen -1 (onbeperkt).
+        if field in ("async_io_threads", "hashing_threads", "disk_queue_size") or not (
+            value == -1 or (value == -2 and field in SHARE_LIMIT_TYPES)
+        ):
+            raise ValueError(error)
+    if field == "max_ratio_act" and value not in range(4):
+        raise ValueError(error)
+    if isinstance(value, (list, tuple)) and any(not isinstance(pattern, str) for pattern in value):
+        raise ValueError(error)
     return value
 
 
@@ -223,6 +235,14 @@ class QbitAdapter:
         return None
 
     # ---- applier primitives (paths documented in applier.py)
+    def _share_limits(self, values: dict[str, Any]) -> dict[str, Any]:
+        limits = {}
+        for key, types in SHARE_LIMIT_TYPES.items():
+            if key == "inactive_seeding_time_limit" and key not in values and self.qb.has_legacy_share_limits():
+                continue
+            limits[key] = _measured_value(values.get(key), types, key)
+        return limits
+
     def read_value(self, path: str) -> Any:
         kind, _, rest = path.partition(":")
         if kind == "pref":
@@ -230,10 +250,7 @@ class QbitAdapter:
             value = self.qb.preferences().get(rest)
             if value is None:
                 raise MissingPreference(f"qBittorrent-instelling '{rest}' is onleesbaar")
-            value = _measured_value(value, PREFERENCE_TYPES[meta["kind"]], rest)
-            if isinstance(value, (list, tuple)) and any(not isinstance(pattern, str) for pattern in value):
-                raise ValueError(f"qBittorrent-instelling '{rest}' is onleesbaar")
-            return value
+            return _measured_value(value, PREFERENCE_TYPES[meta["kind"]], rest)
         if kind == "transfer" and rest == "alt_speed":
             return bool(self.qb.speed_limits_mode())
         if kind == "torrent":
@@ -244,40 +261,29 @@ class QbitAdapter:
             if field_ in ("up_limit", "dl_limit"):
                 return _measured_value(t.get(field_), (int,), "snelheidslimiet")
             if field_ == "share_limits":
-                limits = {
-                    "ratio_limit": _measured_value(t.get("ratio_limit"), (int, float), "ratio_limit"),
-                    "seeding_time_limit": _measured_value(t.get("seeding_time_limit"), (int,), "seeding_time_limit"),
-                }
-                inactive = "inactive_seeding_time_limit"
-                if inactive in t or self.qb.cap(inactive):
-                    limits[inactive] = _measured_value(t.get(inactive), (int,), inactive)
-                return limits
+                return self._share_limits(t)
         raise ValueError(f"onbekend pad {path}")
 
     def write_value(self, path: str, value: Any) -> None:
         kind, _, rest = path.partition(":")
         if kind == "pref":
-            self.qb.set_preferences({rest: value})
+            types = PREFERENCE_TYPES[policy.ALLOWED_PREFS[rest]["kind"]]
+            self.qb.set_preferences({rest: _measured_value(value, types, rest)})
             return
         if kind == "transfer" and rest == "alt_speed":
-            if bool(self.qb.speed_limits_mode()) != bool(value):
+            if bool(self.qb.speed_limits_mode()) != _measured_value(value, (bool,), rest):
                 self.qb.toggle_speed_limits_mode()
             return
         if kind == "torrent":
             h, _, field_ = rest.partition(":")
             if field_ == "up_limit":
-                self.qb.set_upload_limit([h], int(value))
+                self.qb.set_upload_limit([h], _measured_value(value, (int,), "snelheidslimiet"))
                 return
             if field_ == "dl_limit":
-                self.qb.set_download_limit([h], int(value))
+                self.qb.set_download_limit([h], _measured_value(value, (int,), "snelheidslimiet"))
                 return
             if field_ == "share_limits":
-                self.qb.set_share_limits(
-                    [h],
-                    ratio_limit=float(value["ratio_limit"]),
-                    seeding_time_limit=int(value["seeding_time_limit"]),
-                    inactive_seeding_time_limit=value.get("inactive_seeding_time_limit"),
-                )
+                self.qb.set_share_limits([h], **self._share_limits(value))
                 return
         raise ValueError(f"onbekend pad {path}")
 

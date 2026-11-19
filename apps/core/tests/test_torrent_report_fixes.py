@@ -113,6 +113,45 @@ def test_ontbrekende_torrentlimiet_telt_niet_als_nul(qb: Qb) -> None:
         adapter.read_value(f"torrent:{h}:up_limit")
 
 
+def test_onleesbare_limiet_na_schrijfantwoord(qb, client, db, manage_mode, monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from test_connector_api import PREFIX, _connector_headers, _execution, _pin
+
+    from mso.change_preview import digest
+
+    qb.st.prefs["dl_limit"] = 4096
+    ch = changes.create("qbittorrent", "Limiet teruglezen", [{"path": "pref:dl_limit", "before": 4096, "after": 0}],
+                        risk="toestemming_nodig")
+    sleutel = Ed25519PrivateKey.generate()
+    _pin(sleutel, monkeypatch)
+    bericht, koppen = _execution(ch, sleutel), _connector_headers()
+    bron = QbitClient.cached()
+    lezen = bron.preferences
+    onleesbaar = True
+
+    def voorkeuren():
+        waarden = lezen()
+        if onleesbaar and qb.calls("/setPreferences"):
+            waarden["dl_limit"] = -3
+        return waarden
+
+    monkeypatch.setattr(bron, "preferences", voorkeuren)
+    for _ in range(2):
+        antwoord = client.post(PREFIX + "/apply", json=bericht, headers=koppen)
+        assert antwoord.status_code == 502 and "after_hash" not in antwoord.json()
+    rij = changes.get(ch["id"])
+    assert rij["status"] == "applying" and rij["ops"][0]["write_acknowledged"] is True
+    assert "observed_after" not in rij["ops"][0]
+    audits = "SELECT count(*) FROM audit_log WHERE action='change.applied' AND change_id=%s"
+    assert db.scalar(audits, (ch["id"],)) == 0
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "wacht"}
+    onleesbaar = False
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "afgerond"}
+    herhaling = client.post(PREFIX + "/apply", json=bericht, headers=koppen)
+    assert herhaling.status_code == 200 and herhaling.json()["after_hash"] == digest([qb.st.prefs["dl_limit"]])
+    assert db.scalar(audits, (ch["id"],)) == 1 and len(qb.calls("/setPreferences")) == 1
+
+
 def test_every_rate_path_tolerates_kib_rounding(qb: Qb, admin: Any, manage_mode: None) -> None:
     """Change sets created elsewhere (non-multiples of 1024) still verify: global, alt and per-torrent limits."""
     set_settings(admin, line_up_mbit=2000.0)

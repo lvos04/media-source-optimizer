@@ -97,6 +97,9 @@ def build() -> Applier:
                 raise ValueError("cross-seed-kandidaat bestaat niet")
             return "toegevoegd_gepauzeerd" if adapter().has_torrent(row["candidate_hash"]) else "afwezig"
         value = adapter().read_value(path)
+        if kind == "pref" and state.get("refresh_pref") == rest:
+            _refresh_snapshot_pref(rest, value)
+            del state["refresh_pref"]
         if path == "pref:excluded_file_names" and value is not None:
             # qBittorrent keeps a list (one glob per line); compare the normalised text
             return policy.join_patterns(policy.split_patterns(value))
@@ -142,7 +145,8 @@ def build() -> Applier:
             return
         adapter().write_value(path, value)
         if kind == "pref":
-            _refresh_snapshot_pref(rest, adapter().read_value(path))
+            # De eerstvolgende bronlezing werkt de momentopname bij. Het schrijfantwoord is al ontvangen.
+            state["refresh_pref"] = rest
 
     def validate(path: str, value: Any) -> None:
         if cleanup.is_cleanup_path(path):
@@ -150,9 +154,9 @@ def build() -> Applier:
         else:
             policy.validate(path, value)  # refuses every other delete/remove path
 
-    def same(path: str, a: Any, b: Any) -> bool:
+    def same(path: str, current: Any, expected: Any) -> bool:
         # qBittorrent keeps speed limits in whole KiB/s: the same limit, rounded (rollback drift check / read-back)
-        return policy.is_rate_path(path) and policy.rate_matches(a, b)
+        return policy.is_rate_path(path) and policy.rate_matches(expected, current)
 
     def noop_rollback(path: str) -> bool:
         # a recheck/reannounce changes no data: its rollback is a harmless no-op (see ``write``)

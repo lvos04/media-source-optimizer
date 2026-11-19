@@ -408,26 +408,42 @@ NO_RESULTS_HINT = "no results were returned from your indexer"
 CAT_NAMES_NL = {"Movies": "Films", "TV": "Series"}
 
 
+def _registration_field(rec: dict[str, Any], name: str) -> str:
+    fields = rec.get("fields")
+    if isinstance(fields, list) and all(isinstance(field, dict) for field in fields):
+        values = [field.get("value") for field in fields if field.get("name") == name]
+        if len(values) == 1 and isinstance(values[0], str):
+            return values[0]
+    raise ProwlarrError(f"Prowlarr-indexerveld '{name}' is onleesbaar", "malformed")
+
+
+def _registration_url(rec: dict[str, Any]) -> str:
+    url = _registration_field(rec, "baseUrl")
+    try:
+        base = urlsplit(url)
+        if base.scheme in ("http", "https") and base.hostname:
+            return url.rstrip("/")
+    except ValueError:
+        pass
+    raise ProwlarrError("Prowlarr-indexerveld 'baseUrl' is onleesbaar", "malformed")
+
+
 def _normalize(rec: dict[str, Any] | None) -> dict[str, Any] | None:
     if rec is None:
         return None
     result = {
         "name": rec.get("name"),
         "implementation": rec.get("implementation"),
-        "baseUrl": field_value(rec, "baseUrl"),
-        "apiPath": field_value(rec, "apiPath"),
+        "baseUrl": _registration_url(rec),
+        "apiPath": _registration_field(rec, "apiPath"),
         "enable": rec.get("enable"),
     }
-    for field in ("name", "implementation", "baseUrl", "apiPath"):
+    for field in ("name", "implementation"):
         value = result[field]
-        if not isinstance(value, str) or (field != "apiPath" and not value.strip()):
+        if not isinstance(value, str) or not value.strip():
             raise ProwlarrError(f"Prowlarr-indexerveld '{field}' is onleesbaar", "malformed")
     if not isinstance(result["enable"], bool):
         raise ProwlarrError("Prowlarr-indexerveld 'enable' is onleesbaar", "malformed")
-    base = urlsplit(result["baseUrl"])
-    if base.scheme not in ("http", "https") or not base.hostname:
-        raise ProwlarrError("Prowlarr-indexerveld 'baseUrl' is onleesbaar", "malformed")
-    result["baseUrl"] = result["baseUrl"].rstrip("/")
     return result
 
 
@@ -474,15 +490,17 @@ def find_registrations(
     for idx in indexers:
         implementation = idx.get("implementation")
         named = idx.get("name") == f"{MSO_INDEXER_PREFIX} ({spec['label']})"
-        if not named and isinstance(implementation, str) and implementation != spec["implementation"]:
+        if not isinstance(implementation, str) or not implementation.strip():
+            raise ProwlarrError("Prowlarr-indexeridentiteit is onleesbaar", "malformed")
+        if not named and implementation != spec["implementation"]:
             continue
-        base = norm_url(field_value(idx, "baseUrl"))
+        base = norm_url(_registration_url(idx))
         if named or (target and base == target):
             if implementation != spec["implementation"]:
                 raise ProwlarrError("Prowlarr-indexerveld 'implementation' is onleesbaar voor deze registratie",
                                     "malformed")
             out.append(idx)
-        elif not isinstance(implementation, str) or not isinstance(idx.get("name"), str) or not base:
+        elif not isinstance(idx.get("name"), str) or not idx["name"].strip():
             raise ProwlarrError("Prowlarr-indexeridentiteit is onleesbaar", "malformed")
     return out
 
@@ -584,25 +602,31 @@ def _applier() -> changes.Applier:
             raise ValueError(f"MSO mag in Prowlarr alleen zijn eigen indexer registreren, niet '{path}'")
         return kind
 
-    def read(path: str) -> Any:
-        found = find_registrations(client.indexers(), kind_of(path))
+    def registration(kind: str) -> dict[str, Any] | None:
+        found = find_registrations(client.indexers(), kind)
         if len(found) > 1:
             raise ProwlarrError("Prowlarr-indexermeting is onleesbaar door dubbele registraties", "malformed")
-        return summary(_normalize(found[0])) if found else None
+        return found[0] if found else None
+
+    def read(path: str) -> Any:
+        return summary(_normalize(registration(kind_of(path))))
 
     def write(path: str, value: Any) -> None:
         kind = kind_of(path)
-        found = find_registrations(client.indexers(), kind)
+        rec = registration(kind)
+        if rec is not None:
+            _normalize(rec)
+            if type(rec.get("id")) is not int or rec["id"] <= 0:
+                raise ProwlarrError("Prowlarr-indexer-ID is onleesbaar", "malformed")
         if value is None:  # rollback of a registration MSO created
-            for rec in found:
-                if str(rec.get("name") or "").startswith(MSO_INDEXER_PREFIX):
-                    client.delete_indexer(int(rec["id"]))
+            if rec is not None and rec["name"].startswith(MSO_INDEXER_PREFIX):
+                client.delete_indexer(rec["id"])
             return
         reg = parse_registration(value)
         key = keys.default_key()
         try:
-            if found:
-                body = copy.deepcopy(found[0])
+            if rec is not None:
+                body = copy.deepcopy(rec)
                 body["name"] = reg["name"]
                 body["enable"] = reg["enable"]
                 _set_field(body, "baseUrl", reg["baseUrl"])

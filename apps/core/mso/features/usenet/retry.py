@@ -231,10 +231,10 @@ def candidates(client: SabClient, servers: list[dict[str, Any]] | None = None) -
 def read_state(client: SabClient, nzo_id: str) -> str:
     row = _row(nzo_id)
     ids = {nzo_id} | ({row["new_nzo_id"]} if row and row.get("new_nzo_id") else set())
-    q = measured_download_slots(client.queue(limit=1000))
+    q = measured_download_slots(client.queue, limit=1000)
     if any(s["nzo_id"] in ids for s in q):
         return RETRY_AFTER
-    hist = measured_download_slots(client.history(limit=1000))
+    hist = measured_download_slots(client.history, limit=1000)
     retried = bool(row and row.get("retried_at"))
     for s in hist:
         if s["nzo_id"] not in ids:

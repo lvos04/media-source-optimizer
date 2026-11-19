@@ -150,6 +150,9 @@ def run(
             if operation and not saved:
                 operation.check_nonces(db)
             if ch["status"] == "applying" and ch["apply_request_id"] == request_id and request_id is not None:
+                if any(op.get("write_acknowledged") is True and op.get("result") == "onbevestigd" for op in ch["ops"]):
+                    # De bron heeft al geantwoord. Herhaal de meetfout tot de achtergrondcontrole uitsluitsel geeft.
+                    raise changes.ChangeUncertain()
                 raise ChangeRequestError(409, "idempotency_in_progress", "Wacht op het herstel van de wijziging.")
             try:
                 if saved and ch["status"] == "failed" and ch["apply_request_id"] == request_id:

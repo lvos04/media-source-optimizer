@@ -103,10 +103,10 @@ def _client_has(row: dict[str, Any]) -> bool:
         mod = importlib.import_module("mso.connectors.sabnzbd")
         sab = mod.SabClient.from_config()
         try:
-            queue = mod.measured_download_slots(sab.queue(limit=500))
+            queue = mod.measured_download_slots(sab.queue, limit=500)
             if any(s["nzo_id"] == ref for s in queue):
                 return True
-            hist = mod.measured_download_slots(sab.history(limit=500))
+            hist = mod.measured_download_slots(sab.history, limit=500)
             return any(s["nzo_id"] == ref for s in hist)
         finally:
             close = getattr(sab, "close", None)

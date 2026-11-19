@@ -79,7 +79,6 @@ PATH_RE = re.compile(
 
 
 RATE_PREFS = tuple(k for k, m in ALLOWED_PREFS.items() if m["kind"] == "rate")
-KIB_TOLERANCE = 1024  # qBittorrent keeps speed limits in whole KiB/s
 
 
 class PolicyError(ValueError):
@@ -144,20 +143,12 @@ def is_rate_path(path: str) -> bool:
 
 
 def rate_matches(requested: Any, actual: Any) -> bool:
-    """True when ``actual`` is what qBittorrent makes of ``requested``: equal, or the same limit rounded to
-    whole KiB/s (difference < 1024 bytes/s). 0 and -1 both mean "no limit" in qBittorrent and match each
-    other, never a real limit."""
-    if isinstance(requested, bool) or isinstance(actual, bool):
+    """Vergelijk de bron met het doel of de afronding daarvan naar beneden in hele KiB/s."""
+    if type(requested) is not int or type(actual) is not int or min(requested, actual) < -1:
         return False
-    try:
-        r, a = int(requested), int(actual)
-    except (TypeError, ValueError):
-        return False
-    if r == a or (r <= 0 and a <= 0):
-        return True
-    if r <= 0 or a <= 0:
-        return False
-    return abs(r - a) < KIB_TOLERANCE
+    if requested <= 0 or actual <= 0:
+        return requested <= 0 and actual <= 0
+    return actual in (requested, ts.kib_floor(requested))
 
 
 # ------------------------------------------------------------------ guardrail bounds (connections / slots)

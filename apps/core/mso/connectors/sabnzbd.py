@@ -17,6 +17,7 @@ import hmac
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
@@ -115,7 +116,10 @@ class SabClient:
         return str(self._call("version").get("version", ""))
 
     def queue(self, *, start: int = 0, limit: int = 100) -> dict[str, Any]:
-        return dict(self._call("queue", {"start": start, "limit": limit}).get("queue") or {})
+        body = self._call("queue", {"start": start, "limit": limit})
+        if not isinstance(body, dict) or not isinstance(body.get("queue"), dict):
+            raise SabError("SABnzbd-wachtrij is onleesbaar", "invalid")
+        return body["queue"]
 
     def history(
         self,
@@ -139,10 +143,14 @@ class SabClient:
                 "archive": 1 if archive else None,
             },
         )
+        if not isinstance(body, dict):
+            raise SabError("SABnzbd-historie is onleesbaar", "invalid")
         hist = body.get("history")
         if hist is False or hist is None:
             return None
-        return dict(hist)
+        if not isinstance(hist, dict):
+            raise SabError("SABnzbd-historie is onleesbaar", "invalid")
+        return hist
 
     def server_stats(self) -> dict[str, Any]:
         return dict(self._call("server_stats"))
@@ -152,12 +160,17 @@ class SabClient:
         config = body.get("config") if isinstance(body, dict) else None
         rows = config.get(section) if isinstance(config, dict) else None
         if isinstance(rows, dict) and all(isinstance(v, dict) for v in rows.values()):  # old versions
+            if any("name" in row and row["name"] != key for key, row in rows.items()):
+                raise SabError(f"SABnzbd-configuratie '{section}' is onleesbaar door tegenstrijdige namen", "invalid")
             rows = [dict(v, name=k) for k, v in rows.items()]
         if not isinstance(rows, list) or any(
             not isinstance(row, dict) or not isinstance(row.get("name"), str) or not row["name"].strip()
             for row in rows
         ):
             raise SabError(f"SABnzbd-configuratie '{section}' is onleesbaar", "invalid")
+        names = {row["name"].lower() if section == "categories" else row["name"] for row in rows}
+        if len(names) != len(rows):
+            raise SabError(f"SABnzbd-configuratie '{section}' is onleesbaar door dubbele namen", "invalid")
         return rows
 
     def _raw_servers(self) -> list[dict[str, Any]]:
@@ -556,14 +569,30 @@ def _measured_server_field(server: dict[str, Any], field: str) -> int:
     return value
 
 
-def measured_download_slots(page: dict[str, Any] | None) -> list[dict[str, Any]]:
-    slots = page.get("slots") if isinstance(page, dict) else None
-    if not isinstance(slots, list) or any(
-        not isinstance(slot, dict) or not isinstance(slot.get("nzo_id"), str) or not slot["nzo_id"].strip()
-        for slot in slots
-    ):
-        raise SabError("SABnzbd-downloadlijst is onleesbaar", "invalid")
-    return slots
+def measured_download_slots(read_page: Callable[..., dict[str, Any] | None], *, limit: int) -> list[dict[str, Any]]:
+    """SABnzbd adresseert met een offset. Tel de geleverde slots tot het stabiele totaal is bereikt."""
+    slots: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    total = None
+    while True:
+        page = read_page(start=len(slots), limit=limit)
+        if not isinstance(page, dict) or not isinstance(page.get("slots"), list):
+            raise SabError("SABnzbd-downloadlijst is onleesbaar", "invalid")
+        batch = page["slots"]
+        count = _source_integer(page.get("noofslots"))
+        if count is None or count < len(slots) + len(batch) or (total is not None and count != total):
+            raise SabError("SABnzbd-downloadtotaal is onleesbaar", "invalid")
+        total = count
+        for slot in batch:
+            ident = slot.get("nzo_id") if isinstance(slot, dict) else None
+            if not isinstance(ident, str) or not ident.strip() or ident in seen:
+                raise SabError("SABnzbd-downloadlijst is onleesbaar", "invalid")
+            seen.add(ident)
+        slots.extend(batch)
+        if len(slots) == total:
+            return slots
+        if not batch:
+            raise SabError("SABnzbd-downloadlijst is onleesbaar door een ontbrekende pagina", "invalid")
 
 
 def _validate_server_field(field: str, value: Any) -> None:
@@ -680,14 +709,14 @@ def _category_applier() -> changes.Applier:
     def find(name: str) -> dict[str, Any] | None:
         return next((c for c in client.category_config(measure=True) if c["name"].lower() == name), None)
 
-    def category_in_use(slot: dict[str, Any], name: str, *fields: str) -> bool:
-        for field in fields:
-            if field in slot:
-                category = slot[field]
-                if isinstance(category, str):
-                    return category.lower() == name
-                break
-        raise SabError("SABnzbd-downloadcategorie is onleesbaar", "invalid")
+    def category_in_use(slot: dict[str, Any], name: str) -> bool:
+        values = [slot[field] for field in ("cat", "category") if field in slot]
+        if not values or any(not isinstance(value, str) for value in values):
+            raise SabError("SABnzbd-downloadcategorie is onleesbaar", "invalid")
+        categories = {value.strip().lower() for value in values}
+        if len(categories) != 1:
+            raise SabError("SABnzbd-downloadcategorie is onleesbaar door tegenstrijdige velden", "invalid")
+        return name in categories
 
     def read(path: str) -> Any:
         cat = find(category_path_name(path))
@@ -701,15 +730,18 @@ def _category_applier() -> changes.Applier:
                 return
             if category_present(cat["dir"]) != category_present(name):
                 raise SabError(f"categorie '{name}' is buiten MSO gewijzigd; MSO verwijdert hem niet", "invalid")
-            queue = measured_download_slots(client.queue(limit=10_000))
-            using = [s for s in queue if category_in_use(s, name, "cat")]
+            queue = measured_download_slots(client.queue, limit=10_000)
+            using = [s for s in queue if category_in_use(s, name)]
             # jobs still in post-processing sit in the history with a non-final status and still need the
             # category: without it SABnzbd moves them to the '*' folder (postproc.get_complete_directory)
-            hist = measured_download_slots(client.history(limit=CATEGORY_HISTORY_LIMIT))
-            busy = [
-                s for s in hist
-                if category_in_use(s, name, "category", "cat") and s.get("status") not in CATEGORY_FINAL_STATUSES
-            ]
+            hist = measured_download_slots(client.history, limit=CATEGORY_HISTORY_LIMIT)
+            busy = []
+            for slot in hist:
+                status = slot.get("status")
+                if not isinstance(status, str) or not status.strip():
+                    raise SabError("SABnzbd-historystatus is onleesbaar", "invalid")
+                if category_in_use(slot, name) and status not in CATEGORY_FINAL_STATUSES:
+                    busy.append(slot)
             if using or busy:
                 where = [
                     *([f"{len(using)} in de wachtrij"] if using else []),

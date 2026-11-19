@@ -28,19 +28,22 @@ const test = base.extend({
  *   MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin MSO_E2E_PASSWORD=… npx playwright test e2e/screens.spec.ts
  * (A stack from plain tests/stack/run.sh with MSO_STACK_KEEP=1 is NOT enough: its wizard is not completed.)
  *
- * Per screen × theme (dark/light) × viewport (project 1440 / 390):
+ * Per screen × theme (dark/light) × viewport (1440 / 768 / 390 / 360):
  *  - renders real backend data (no error state, h1 present)
  *  - no horizontal page scroll, measured against the DEVICE width (ADR-0006 punt 7: with isMobile Chromium widens the
  *    layout viewport to the widest content, so scrollWidth − innerWidth is always 0 and hides real overflow)
  *  - axe-core with the Peil tag set wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa: zero violations of any impact
  *  - every enabled button has an accessible name; every disabled button explains why (title / aria-describedby / text)
  *  - screenshot into docs/screenshots/ for the visual comparison with MediaGuard
+ * Het desktopproject meet daarnaast beide thema's op 320 en 1024 px voor P-PEIL.
  */
 const USER = process.env.MSO_E2E_USER ?? "";
 const PASSWORD = process.env.MSO_E2E_PASSWORD ?? "";
 const SHOT_DIR = process.env.MSO_STACK_RESULTS_ROOT
   ? path.join(process.env.MSO_STACK_RESULTS_ROOT, "screenshots")
-  : path.resolve(__dirname, "../../../docs/screenshots");
+  : process.env.CI
+    ? path.join(__dirname, ".results", "screenshots")
+    : path.resolve(__dirname, "../../../docs/screenshots");
 
 const SCREENS: Array<{ route: string; slug: string; title: RegExp }> = [
   { route: "/", slug: "overzicht", title: /Overzicht/ },
@@ -79,6 +82,30 @@ async function settle(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
   // skeletons gone (data rendered or an explicit state shown)
   await expect.poll(async () => page.locator(".skeleton").count(), { timeout: 15_000 }).toBe(0);
+}
+
+async function expectNoPageOverflow(page: Page, width: number, description: string): Promise<void> {
+  const overflow = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w, width);
+  expect.soft(overflow, `${description} (${width} px)`).toBeLessThanOrEqual(1);
+}
+
+async function expectResponsivePeil(page: Page, width: number): Promise<void> {
+  await expectNoPageOverflow(page, width, "geen horizontale paginascroll t.o.v. de apparaatbreedte");
+
+  const axe = await new AxeBuilder({ page: page as unknown as ConstructorParameters<typeof AxeBuilder>[0]["page"] }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+  expect.soft(axe.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`), `axe, alle impacts (${width} px)`).toEqual([]);
+
+  if (width <= 360) {
+    const spacing = await page.addStyleTag({ content: `
+      * { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
+      p { margin-block-end: 2em !important; }
+    ` });
+    try {
+      await expectNoPageOverflow(page, width, "geen horizontale paginascroll met vergrote tekstafstand");
+    } finally {
+      await spacing.evaluate((style) => style.parentNode?.removeChild(style));
+    }
+  }
 }
 
 test.describe.configure({ mode: "default" });
@@ -185,7 +212,7 @@ for (const theme of ["dark", "light"] as const) {
   });
 
   for (const s of SCREENS) {
-    test(`${s.slug} · ${theme}`, async ({ page }, info) => {
+    test(`${s.slug} · ${theme}`, { tag: "@schermbreedte" }, async ({ page }) => {
       test.skip(!USER, "MSO_E2E_USER niet gezet");
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
@@ -199,8 +226,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.locator(".state--error"), "geen foutstaat").toHaveCount(0);
 
       const deviceWidth = page.viewportSize()?.width ?? 1440;
-      const overflow = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w, deviceWidth);
-      expect(overflow, `geen horizontale paginascroll t.o.v. de apparaatbreedte (${deviceWidth} px)`).toBeLessThanOrEqual(1);
+      await expectResponsivePeil(page, deviceWidth);
 
       const unnamed = await page.$$eval("button:not([disabled])", (bs) =>
         bs.filter((b) => !(b.getAttribute("aria-label") || b.textContent?.trim() || b.getAttribute("title"))).length);
@@ -210,17 +236,19 @@ for (const theme of ["dark", "light"] as const) {
           || b.closest("[data-disabled-reason]") || b.textContent?.trim())).map((b) => b.outerHTML.slice(0, 120)));
       expect(unexplained, "uitgeschakelde knoppen zonder uitleg").toEqual([]);
 
-      const axe = await new AxeBuilder({ page: page as unknown as ConstructorParameters<typeof AxeBuilder>[0]["page"] }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-      expect(axe.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.length}× ${v.nodes[0]?.target.join(" ")}`), "axe, alle impacts").toEqual([]);
-
-      const width = info.project.name.includes("390") ? 390 : 1440;
-      await page.screenshot({ path: path.join(SHOT_DIR, `${s.slug}-${theme}-${width}.png`), fullPage: width === 1440 });
+      await page.screenshot({ path: path.join(SHOT_DIR, `${s.slug}-${theme}-${deviceWidth}.png`), fullPage: deviceWidth === 1440 });
+      if (deviceWidth === 1440) {
+        for (const width of [320, 1024]) {
+          await page.setViewportSize({ width, height: 900 });
+          await expectResponsivePeil(page, width);
+        }
+      }
       expect(errors, "geen JavaScript-fouten").toEqual([]);
     });
   }
 }
 
-test("toetsenbord: skip-link en zichtbare focus", async ({ page }) => {
+test("toetsenbord: skip-link en zichtbare focus", { tag: "@schermbreedte" }, async ({ page }) => {
   test.skip(!USER, "MSO_E2E_USER niet gezet");
   await login(page);
   await page.goto("/");

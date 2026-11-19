@@ -89,12 +89,12 @@ function AuditView() {
           <Button type="submit" size="sm" variant="primary">{t("action.filter")}</Button>
           {applied ? <Button size="sm" variant="ghost" onClick={() => { setAction(""); setApplied(""); router.replace("/logs", { scroll: false }); }}>{t("action.clear")}</Button> : null}
         </form>
+        {first.stale ? <div className="px-4 pb-2"><StaleMark>{t("state.stale", { age: relative(first.fetchedAt) })}</StaleMark></div> : null}
         {first.loading ? <StateView kind="loading" />
           : first.error && !first.data ? <ErrorState error={first.error} onRetry={() => void first.reload()} endpoint="GET /api/v1/audit" />
             : rows.length === 0 ? <StateView kind="empty" title={applied ? t("logs.emptyFiltered", { action: applied }) : t("logs.empty")} />
               : (
                 <>
-                  {first.stale ? <div className="px-4 pb-2"><StaleMark>{t("state.stale", { age: relative(first.fetchedAt) })}</StaleMark></div> : null}
                   <div className="table-wrap" tabIndex={0} role="region" aria-label="Tabel (horizontaal scrollbaar)">
                     <table className="table table--compact table--stack">
                       <thead><tr><th>{t("logs.when")}</th><th>{t("logs.who")}</th><th>{t("logs.what")}</th><th>{t("logs.target")}</th><th>{t("logs.summary")}</th><th><span className="sr-only">{t("action.details")}</span></th></tr></thead>

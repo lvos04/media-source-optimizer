@@ -185,7 +185,7 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
-for (const width of [390, 1440]) {
+for (const width of [360, 390, 768, 1440]) {
   test(`peil toetsenbord: ring ≥ 3 px en nooit bedekt · ${width}`, async ({ page }) => {
     test.skip(!USER, "MSO_E2E_USER niet gezet");
     await page.setViewportSize({ width, height: width < 1024 ? 844 : 900 });

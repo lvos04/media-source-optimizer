@@ -93,7 +93,9 @@ export default function SystemPage() {
           </ResourceView>
         </Card>
         <Card className="span-8" title={t("system.health")} icon={Stethoscope} flush actions={<Button size="sm" onClick={() => void reloadHealth()}>{t("action.reload")}</Button>}>
-          {health ? (
+          {healthError ? (
+            <StateView kind="offline" compact action={<Button size="sm" onClick={() => void reloadHealth()}>{t("action.retry")}</Button>} />
+          ) : health ? (
             health.components.length ? (
               <div className="list">{health.components.map((c) => (
                 <div className="list-row" key={c.name}>
@@ -102,7 +104,7 @@ export default function SystemPage() {
                 </div>
               ))}</div>
             ) : <StateView kind="empty" compact />
-          ) : healthError ? <StateView kind="offline" compact action={<Button size="sm" onClick={() => void reloadHealth()}>{t("action.retry")}</Button>} /> : <StateView kind="loading" compact />}
+          ) : <StateView kind="loading" compact />}
         </Card>
 
         <Card className="span-12" title={t("system.migrations")} icon={ListChecks} flush>

@@ -635,3 +635,34 @@ toestanden en een Tab-doorloop. De gevonden afwijkingen zijn gerepareerd: overlo
 amber voor niet-gezondheid, iconen per betekenis, ErnstLabel, een eigen vorm voor Verouderd, oude statuswoorden, de
 offlinepagina zonder h1, een scrollende grafiektabel, de grafiek "Downloads in '*'" en forced colors. Zie
 `docs/ontwerp/PEIL_REVIEW.md` en ADR-0008.
+
+## 13. Schermronde S-P3-280
+
+De 16 appschermen gebruiken de bestaande Peil-schil. Op 360 en 390 px geldt de mobiele indeling. Op 768 px blijft
+ondernavigatie met de Meer-lade beschikbaar. Vanaf 1024 px staat de navigatie in de zijbalk. Tabellen gebruiken de
+bestaande gestapelde weergave of een eigen toetsenbordbereikbare scrollregio.
+
+| Toestand | Bestaand Peil-onderdeel | Verwachting |
+|---|---|---|
+| Leeg | `StateView` met de uitleg van de lijst of kaart | De gebruiker ziet welke resultaten of metingen ontbreken. |
+| Bezig | `StateView` met `Skeleton` en een voorleesbare status | De laadtoestand blijft zichtbaar zolang het antwoord uitstaat. |
+| Storing | `ErrorState` met de storingsuitleg en de herhaalactie | Een mislukte aanvraag toont een foutpaneel in het getroffen onderdeel. |
+| Offline | `ErrorState` of `StateView` met het offline-icoon | De gebruiker kan opnieuw proberen. Een zichtbare bewaarde lijst draagt de bestaande `StaleMark`. |
+
+`screens.spec.ts` meet overloop en axe op 320, 360, 390, 768, 1024 en 1440 px, in licht en donker. De browser meet op
+360 px tegen de ingestelde apparaatbreedte. Op 320 en 360 px meet de suite ook met vergrote tekstafstand.
+`states.spec.ts` houdt per scherm één aanvraag tegen en geeft vervolgens een storing, een weggevallen verbinding en
+een leeg antwoord. De proef controleert de vier toestanden op 360, 390, 768 en 1440 px. `peil.spec.ts` controleert de
+focusring en de zichtbaarheid van de toetsenbordfocus op deze vier breedtes.
+
+De afdrukken van 360 en 768 px in `docs/screenshots/` gebruiken de voorbereide teststack. In CI bewaart het
+artefact `playwright-results` de afdrukken bij de browseruitvoer.
+
+De gerichte renderproef reproduceerde twee afwijkingen bij een mislukte verversing. In Logs krijgt nu ook een
+eerder lege auditlijst het label Verouderd. De kaart Onderdelen op Systeem geeft de offline-weergave en de
+bestaande herhaalactie voorrang boven de oude gezondheidsstatus. De zijbalk toont dan Onbekend en laat de vorige
+probleemregels weg. De browserproeven voor Logs en Systeem staan in `states.spec.ts`.
+
+ADR-0009 besluit 5 blijft leidend voor E11 (ZekerheidLabel vereist zekerheid uit de API), E13 (Verzonden betreft de
+terugleesstatus) en E15 (offline/verouderd vraagt een functionele ronde). Deze ronde gebruikt de bestaande
+Peil 1.1.1-componenten en de huidige verzoeken en statussen.

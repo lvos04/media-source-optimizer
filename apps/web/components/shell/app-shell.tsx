@@ -222,7 +222,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const label = healthError ? t("health.offline") : !health ? t("health.unknown")
     : health.status === "healthy" ? t("health.healthy") : health.status === "degraded" ? t("health.degraded")
       : health.status === "offline" ? t("health.down") : t("health.unknown");
-  const problems = (health?.components ?? []).filter((c) => isHealthProblem(c.status));
+  const problems = healthError ? [] : (health?.components ?? []).filter((c) => isHealthProblem(c.status));
   const reason = (p: { status: string; message?: string | null }) => (p.message && !BARE_STATUS_WORDS.has(p.message.trim().toLowerCase()) && p.message !== p.status ? p.message : t(healthLabel(p.status)));
   return (
     <>

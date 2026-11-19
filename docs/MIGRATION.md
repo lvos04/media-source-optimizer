@@ -65,22 +65,21 @@ sudo docker exec -u 568 "$C" mso migrate --down 501
 een eigen transactie. Ontbreekt het down-script van een toegepaste migratie (bijvoorbeeld omdat je een
 ouder image gebruikt), dan stopt het commando met een fout en blijft de rest ongewijzigd.
 
-## Upgradepad
+## Updaten via TrueNAS
 
-1. ZFS-snapshot van de APPDATA-dataset (aanbevolen). Een back-up maakt MSO sinds 1.6.0 zelf vlak vóór de migraties
-   (zie hierboven); een eigen back-up (Systeem → Back-ups) mag natuurlijk ook.
-2. Schemaversie noteren.
-3. Image-tag(s) naar de nieuwe versie zetten en opslaan (Custom App: TRUENAS_CUSTOM_APP.md → Updaten; YAML:
-   TRUENAS_INSTALL.md → Updaten).
-4. MSO maakt de back-up vóór upgrade, `migrate` past de nieuwe migraties toe; daarna starten `api`, `worker` en `web`.
-
-Versies overslaan (bijv. 1.0 → 1.3) is toegestaan: alle tussenliggende migraties zitten in het nieuwe image en
-worden op volgorde toegepast. Tenzij de CHANGELOG van een versie anders vermeldt.
+1. Stop MSO en maak in **Datasets → Snapshots** een ZFS-snapshot van de volledige APPDATA-dataset. Bewaar
+   de naam van de snapshot en de vorige imageversie met digest.
+2. Open onder **Apps** het bestaande Custom App-formulier met **Edit**. Kies de nieuwe versie met de
+   bijbehorende image-digest, sla op met **Update** en start de app.
+3. Tijdens een schema-update zie je in het app-log eerst de bevestiging van de pre-upgrade-back-up en daarna
+   de toegepaste migraties. Na de start staat het archief als **Vóór upgrade** onder **Systeem → Back-ups**.
+   Controleer de schemaversie onder **Systeem → MSO-core**. Bij een onbruikbaar terugvalarchief stopt de start
+   vóór de migratie. Het app-log geeft de oorzaak.
 
 ## 1.5.0 → 1.6.0
 
-**Wat je doet:** alleen de tag naar `1.6.0` zetten. Er is geen handmatige stap nodig. MSO maakt eerst de back-up
-"Vóór upgrade" (schemaversie 501) en past daarna de migraties 0600–0607 toe. De schemaversie wordt 607.
+Volg het updatepad hierboven. De release 1.6.0 maakt eerst de back-up **Vóór upgrade** op schema 501 en past
+daarna de migraties 0600–0607 toe. Latere images passen ook hun volgende migraties toe.
 
 **Wat de migraties doen:**
 
@@ -109,59 +108,24 @@ worden op volgorde toegepast. Tenzij de CHANGELOG van een versie anders vermeldt
 - In "Wacht op jou" kunnen nieuwe items verschijnen, bijvoorbeeld "SABnzbd kan downloads niet uitpakken", een
   voorstel voor een ontbrekende SABnzbd-categorie of een vervalherinnering.
 
-## Rollback
+## Terug naar 1.5.0 via TrueNAS
 
-De down-scripts van nieuwe migraties zitten alleen in het **nieuwe** image. Daarom:
+**Zet altijd de back-up van vóór de upgrade terug voordat je 1.5.0 start. Start de 1.5.0-image nooit op
+het nieuwere schema.** 1.5.0 heeft geen schemaweigering en kan op de bijgewerkte database starten.
+Een image met schemabewaking meldt in het app-log: „database is van een nieuwere MSO-versie; zet de
+bijpassende snapshot/back-up terug”.
 
-1. Stop `worker` (en bij voorkeur `web`), zodat er niets schrijft. In de alles-in-één-image kan dat niet apart: doe
-   stap 2 en 3 dan direct na elkaar.
-2. Draai met het nieuwe image: `mso migrate --down <schemaversie van vóór de upgrade>`.
-3. Zet de oude image-tags terug en start de app.
+1. Stop MSO onder **Apps**.
+2. Open **Datasets → Snapshots** en kies **Rollback** bij de APPDATA-snapshot van vóór de upgrade.
+   Die snapshot zet ook de lokale bestanden terug die nodig zijn om versleutelde koppelingsgeheimen te lezen.
+   Wijzigingen in MSO sinds de snapshot gaan verloren.
+3. Open het Custom App-formulier met **Edit**, kies de vorige imageversie met de bijbehorende digest en
+   sla op met **Update**. Start de app pas nadat de snapshot is teruggezet.
+4. Log opnieuw in en controleer onder **Systeem → MSO-core** dat de schemaversie voor 1.5.0 weer 501 is.
 
-Let op:
-
-- Een down-migratie verwijdert kolommen/tabellen die de nieuwe versie heeft toegevoegd, **inclusief de data
-  daarin**. Wat je na de upgrade in nieuwe functies hebt vastgelegd, gaat daarbij verloren.
-- Start je het oude image zonder eerst `--down` te draaien, dan ziet de oude versie een nieuwer schema. Het
-  oude image past dan niets toe (alle bekende migraties zijn al toegepast), maar kan vastlopen op gewijzigde
-  structuren. Doe dit niet.
-- De betrouwbaarste terugval bij twijfel (of na een mislukte migratie) is de ZFS-snapshot-rollback van de
-  APPDATA-dataset met de app gestopt, gevolgd door het terugzetten van de oude tags.
-
-### Terug naar 1.5.0
-
-Kies één van twee manieren.
-
-**A. Schema terugzetten (je gegevens blijven).** Doe dit met het 1.6.0-image, vóór je de tag terugzet.
-
-Alles-in-één (Custom App):
-
-```sh
-C=$(sudo docker ps --format '{{.Names}}' | grep media-source-optimizer | head -1)
-sudo docker exec -u 568 "$C" mso migrate --down 501
-```
-
-Zet daarna meteen de tag terug: Apps → media-source-optimizer → **Edit** → Tag `1.5.0` → **Update**. Herstart MSO
-tussendoor niet met het 1.6.0-image: bij elke start past 1.6.0 zijn migraties gewoon opnieuw toe.
-
-Losse containers (YAML):
-
-```sh
-API=$(sudo docker ps --format '{{.Names}}' | grep -E 'media-source-optimizer.*api' | head -1)
-WORKER=$(sudo docker ps --format '{{.Names}}' | grep -E 'media-source-optimizer.*worker' | head -1)
-sudo docker stop "$WORKER"
-sudo docker exec "$API" mso migrate --down 501
-```
-
-Zet daarna in **Edit** de tags `MSO_CORE_IMAGE` en `MSO_WEB_IMAGE` terug op `1.5.0` en **Save**.
-
-Controleer in Systeem (Back-up & updates) → MSO-core dat de schemaversie 501 is. `--down 501` draait 0607 tot en met
-0600 terug; wat daarbij verloren gaat, staat in de tabel hierboven. Wil je precies de stand van vóór de upgrade terug,
-herstel dan daarna in 1.5.0 de back-up "pre-upgrade" (Systeem → Back-ups); alles wat sinds de upgrade gebeurde, gaat dan
-verloren.
-
-**B. ZFS-snapshot** (betrouwbaarst, ook na een mislukte migratie): stop de app, zet de APPDATA-dataset terug naar de
-snapshot van vóór de upgrade, zet de tag op `1.5.0` en start de app.
+De automatische databaseback-up **Vóór upgrade** kan ook dienen voor herstel naar een lege,
+afzonderlijke 1.5.0-installatie. De containerproef herstelt dat archief met `pg_restore` vóór de eerste
+appstart. Voor terugval van de bestaande Custom App gebruik je de volledige dataset-snapshot.
 
 ## Back-ups en schemaversies
 
@@ -179,9 +143,8 @@ snapshot van vóór de upgrade, zet de tag op `1.5.0` en start de app.
 - Herstel je een oudere dump **met de hand** (`pg_restore`, zie OPERATIONS.md), draai dan eerst met het huidige
   image `mso migrate --down <schemaversie van de dump>`. `pg_restore --clean` verwijdert alleen wat in de dump
   staat; tabellen van nieuwere migraties blijven anders staan en laten de volgende `migrate` vastlopen.
-- Terug naar 1.5.0 met de `pre-upgrade`-back-up: eerst `mso migrate --down 501` met het 1.6.0-image en de
-  1.5.0-tag (zie *Terug naar 1.5.0* hierboven), daarna de `pre-upgrade`-dump herstellen in 1.5.0. Wil je alleen de
-  gegevens van vóór de upgrade terug en 1.6.0 houden, herstel de `pre-upgrade`-back-up dan gewoon in 1.6.0.
+- Wil je de gegevens van vóór de upgrade terug en de huidige image houden, herstel de `pre-upgrade`-back-up in
+  de huidige app. Voor terugval naar 1.5.0 volg je de stappen onder *Terug naar 1.5.0 via TrueNAS*.
 - De bedrijfsstand hoort niet bij een herstel: modus (alleen-lezen/beheer/Autopilot), pauze en noodrem blijven
   zoals ze vlak vóór het herstel waren. Een wijziging die werd toegepast op het moment van de dump, krijgt de
   status "mislukt" zonder dat MSO iets terugzet; je ziet er één item voor bij "Wacht op jou".
@@ -194,7 +157,7 @@ snapshot van vóór de upgrade, zet de tag op `1.5.0` en start de app.
 1. **Nooit** een toegepaste migratie wijzigen; voeg een nieuwe toe.
 2. Elke `up` heeft een `down` die de `up` volledig terugdraait. De testsuite controleert up → down → up.
 3. Bij voorkeur additief (expand/contract): eerst nieuwe kolom/tabel toevoegen en vullen, pas in een latere
-   release de oude verwijderen. Zo kan de vorige release tijdens een rollback nog met het schema werken.
+   release de oude verwijderen. Dit beperkt het aantal gegevens dat een migratie moet herschrijven.
 4. Nieuwe `NOT NULL`-kolommen krijgen een default, zodat bestaande rijen geldig blijven.
 5. Geen geheimen in migraties; geheimen horen in de vault (`secrets`-tabel, versleuteld).
 6. Langdurige datamigraties (grote tabellen) horen in een worker-job, niet in een SQL-migratie die de start

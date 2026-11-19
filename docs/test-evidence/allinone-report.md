@@ -69,3 +69,31 @@ Daarom tellen deze historische metingen niet mee als bewijs. De 16 hierboven gen
 
 P-INSTALLATIE staat open. De voormalige TrueNAS-installatiestappen met losse containers zijn uit de
 installatiedocumentatie en de hardwarechecklist gehaald. De praktijkproef volgens N-P6-05 volgt na vrijgave.
+
+## Upgrade en terugval S-P3-260
+
+De lokale Docker-proef van 19 november 2026 doorliep **19 van 19 scenario’s zonder overslagen** met
+testgegevens en een SABnzbd-simulator. De upgrade- en herstelbron was de openbare 1.5.0-image
+`ghcr.io/lvos04/media-source-optimizer@sha256:7ee5cb5e3c37d8ca6e3c8445cd6ef24f8b175e2f3167ccd40541737564866be2`.
+
+| Scenario | Meting |
+|---|---|
+| 17 Upgrade vanaf 1.5.0 | Schema 501 → 610, alle 25 migraties geregistreerd. Het log bevestigde het pre-upgrade-archief vóór de eerste migratie. Gebruiker, nieuwe inlog, uitgeschakelde proefkoppeling en wijzigingsvoorstel kwamen overeen met de uitgangssituatie. |
+| 18 Herstel in een lege 1.5.0-installatie | SHA-256 uit de back-upregistratie en het controlebestand geverifieerd. De proef herstelde het archief met `pg_restore` voordat de app startte. Schema 501, migratiehistorie en dezelfde proefgegevens kwamen terug. Opnieuw inloggen lukte. |
+| 19 Weigering van een nieuwer schema | De weigerimage kende schema 607 en weigerde schema 610 met de Nederlandse melding. De healthcheck gaf exitcode 1. De logische dump van de complete database en de inhoud en metadata van de applicatiebestanden waren vóór en na de proef gelijk. |
+
+De gepubliceerde 1.5.0-image heeft geen schemaweigering. Daarom bouwt
+`tests/stack/build-schema-guard.sh` de weigerimage vanaf S-P3-205-commit
+`2512cd761ad30f42a4787935687388e9a3f0d428` met de vastgezette basisimages uit
+`5e2c3af7cf01895ea526327ac8b6a21346c6d361`. De proef start de weigerimage op het lokale
+image-ID via `MSO_SCHEMA_GUARD_IMAGE`. De databasevergelijking maakt aan beide kanten een dump uit een
+wegwerpkopie van de gestopte database. PostgreSQL kan bij een start of stop zijn fysieke controle- en
+WAL-bestanden bijwerken.
+
+Bij een onbereikbare 1.5.0-digest meldt de suite de betreffende scenario’s als overgeslagen en geeft
+zij exitcode 1. De CI-job `allinone` draait dezelfde suite en publiceert de resultaten per scenario.
+De CI-uitkomst op de eindcommit staat in `RAPPORT-A-BOUW.md` van keten S-P3-260.
+
+**NIET GEVALIDEERD (echte NAS).** De upgradeproef gebruikt een proefkoppeling zonder geheim.
+De APPDATA-snapshot en het formulier worden getoetst in de praktijkproef. Het integrale EX15-bewijs
+volgt in S-P6-20.

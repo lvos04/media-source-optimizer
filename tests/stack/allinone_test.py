@@ -20,6 +20,9 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
 14  healthcheck weigert een onmogelijke rechtenwissel vóór HTTP
 15  rechtenproef weigert een healthcheck met overgeslagen wissel of extra capabilities
 16  PID 1 ruimt een overgenomen zombie op
+17  upgrade van de gepubliceerde 1.5.0-image met gegevens en pre-upgrade-archief
+18  pre-upgrade-archief herstellen in een lege 1.5.0-installatie
+19  gepinde S-P3-205-image weigert het inmiddels nieuwere schema zonder gegevenswijziging
 """
 
 from __future__ import annotations
@@ -31,17 +34,30 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 
 import httpx
 
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else "media-source-optimizer:local"
 MOCKS = os.environ.get("MSO_MOCKS_IMAGE", "mso-mocks:stack")
-NAME, NET, PORT = "mso-aio-test", "mso-aio-net", 48091
+PREVIOUS_IMAGE = ("ghcr.io/lvos04/media-source-optimizer"
+                  "@sha256:7ee5cb5e3c37d8ca6e3c8445cd6ef24f8b175e2f3167ccd40541737564866be2")
+GUARD_REVISION = "2512cd761ad30f42a4787935687388e9a3f0d428"
+UPGRADE_SCENARIOS = (
+    "17 upgrade vanaf de gepubliceerde 1.5.0-image",
+    "18 pre-upgrade-archief herstellen met de 1.5.0-image",
+    "19 oudere image met schemabewaking weigert nieuwer schema",
+)
+SCENARIO_COUNT = 16 + len(UPGRADE_SCENARIOS)
+NAME = f"mso-aio-{secrets.token_hex(6)}"
+NET, MOCK_NAME = f"{NAME}-net", f"{NAME}-sab"
+PORT = int(os.environ.get("MSO_AIO_TEST_PORT", "48091"))
 BASE = f"http://127.0.0.1:{PORT}"
 ADMIN, ADMIN_PW = "beheerder", "Aio-" + secrets.token_urlsafe(16)
 SAB_KEY = "sab" + secrets.token_hex(16)
-RESULTS: list[tuple[str, bool, str]] = []
+RESULTS: list[tuple[str, bool | None, str]] = []
 HEALTHCHECK = ["python", "/usr/local/lib/mso/healthcheck.py"]
 ZERO_CAPS = "0000000000000000"
 PROCESS_STATUS = """
@@ -62,13 +78,15 @@ print(json.dumps(processes))
 def sh(*cmd: str, check: bool = True) -> str:
     r = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if check and r.returncode != 0:
-        raise RuntimeError(f"{' '.join(cmd)}: {r.stderr.strip()[:400]}")
+        detail = (r.stderr.strip().splitlines() or ["geen foutmelding"])[-1]
+        raise RuntimeError(f"{' '.join(cmd[:2])} exitcode {r.returncode}: {detail[:400]}")
     return r.stdout.strip()
 
 
-def record(name: str, ok: bool, detail: str = "") -> None:
+def record(name: str, ok: bool | None, detail: str = "") -> None:
     RESULTS.append((name, ok, detail))
-    print(f"[{'OK  ' if ok else 'FAIL'}] {name} — {detail}", flush=True)
+    status = {True: "OK  ", False: "FAIL", None: "SKIP"}[ok]
+    print(f"[{status}] {name} — {detail}", flush=True)
 
 
 def wait_healthy(name: str = NAME, timeout: float = 180) -> str:
@@ -83,12 +101,13 @@ def wait_healthy(name: str = NAME, timeout: float = 180) -> str:
     return status
 
 
-def run(data: Path, *extra: str, name: str = NAME) -> None:
+def run(data: Path, *extra: str, name: str = NAME, image: str = IMAGE) -> None:
     sh("docker", "rm", "-f", name, check=False)
     sh(
         "docker",
         "run",
         "-d",
+        "--pull=never",
         "--name",
         name,
         "--network",
@@ -98,7 +117,7 @@ def run(data: Path, *extra: str, name: str = NAME) -> None:
         "-v",
         f"{data}:/appdata",
         *extra,
-        IMAGE,
+        image,
     )
 
 
@@ -226,19 +245,266 @@ def login() -> tuple[httpx.Client, str]:
     return c, r.json()["csrf_token"]
 
 
+def container_logs() -> str:
+    result = subprocess.run(["docker", "logs", NAME], capture_output=True, text=True, check=True)
+    return result.stdout + result.stderr
+
+
+def stop_cleanly() -> None:
+    sh("docker", "stop", "-t", "60", NAME)
+    assert sh("docker", "inspect", "-f", "{{.State.ExitCode}}", NAME) == "0", "containerstop mislukte"
+
+
+def api_data(client: httpx.Client, route: str) -> dict | list:
+    return client.get("/api/v1/" + route).raise_for_status().json()
+
+
+def upgrade_data(client: httpx.Client, change_id: int) -> tuple:
+    users = api_data(client, "users")["items"]
+    connector = next(row for row in api_data(client, "connectors") if row["id"] == "sabnzbd")
+    change = api_data(client, f"changes/{change_id}")
+    return (
+        [{k: row[k] for k in ("id", "username", "role", "disabled")} for row in users],
+        {k: connector[k] for k in ("id", "url", "enabled", "options")},
+        {k: change[k] for k in ("id", "target", "title", "status", "ops", "created_by")},
+    )
+
+
+def known_migrations(image: str) -> list[list]:
+    return json.loads(sh(
+        "docker", "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "python", image, "-c",
+        "import json; from mso.db import load_migrations; "
+        "print(json.dumps([(m.version, m.name) for m in load_migrations()]))",
+    ))
+
+
+def migration_history(info: dict) -> list[tuple[int, str, datetime]]:
+    return [(row["version"], row["name"], datetime.fromisoformat(row["applied_at"])) for row in info["migrations"]]
+
+
+def restore_pre_upgrade(data: Path, backups: Path, filename: str, digest: str) -> None:
+    # Alleen PostgreSQL draait tijdens het herstel. De oude app start pas met schema 501.
+    sh(
+        "docker", "run", "--rm", "--pull=never", "--network", "none", "-v", f"{data}:/appdata",
+        "-v", f"{backups}:/archive:ro", "--entrypoint", "python", PREVIOUS_IMAGE, "-c",
+        """
+import hashlib
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/mso")
+import supervisor
+
+archive = Path("/archive") / sys.argv[1]
+expected = sys.argv[2]
+with archive.open("rb") as source:
+    assert hashlib.file_digest(source, "sha256").hexdigest() == expected, "SHA-256 van het archief wijkt af"
+assert archive.with_suffix(".sha256").read_text().split() == [expected, archive.name], "SHA-256-bestand wijkt af"
+supervisor.prepare_dirs()
+supervisor.init_database()
+pg = supervisor.postgres_child()
+pg.start()
+try:
+    supervisor.wait_for_db(pg)
+    subprocess.run(
+        ["pg_restore", "-h", str(supervisor.SOCKET_DIR), "-U", "mso", "-d", "mso",
+         "--no-owner", "--no-privileges", "--exit-on-error", "--single-transaction", str(archive)],
+        preexec_fn=supervisor.demote, check=True,
+    )
+finally:
+    pg.stop()
+""", filename, digest,
+    )
+
+
+def stopped_data_fingerprint(data: Path) -> str:
+    # Lees de applicatiemappen direct. Maak voor de logische databasedump een kopie,
+    # omdat alleen het starten van PostgreSQL al WAL- en controlebestanden kan bijwerken.
+    return sh(
+        "docker", "run", "--rm", "--pull=never", "--network", "none", "--user", "568:568",
+        "-v", f"{data}:/source:ro", "-e", "MSO_DATA_DIR=/tmp/probe", "--entrypoint", "python", IMAGE, "-c",
+        """
+import hashlib
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/mso")
+import supervisor
+
+source = Path("/source")
+postgres = source / "postgres"
+entries = [source, postgres]
+for path in source.iterdir():
+    if path != postgres:
+        entries.append(path)
+        if path.is_dir() and not path.is_symlink():
+            entries.extend(path.rglob("*"))
+manifest = []
+for path in sorted(entries):
+    info = path.lstat()
+    content = None
+    if stat.S_ISLNK(info.st_mode):
+        content = os.readlink(path)
+    elif stat.S_ISREG(info.st_mode):
+        with path.open("rb") as stream:
+            content = hashlib.file_digest(stream, "sha256").hexdigest()
+    # Een normale PostgreSQL-stop wijzigt de mtime van zijn eigen databasemap.
+    mtime = None if path == postgres else info.st_mtime_ns
+    manifest.append((str(path.relative_to(source)), info.st_mode, info.st_uid, info.st_gid, mtime, content))
+assert not (postgres / "postmaster.pid").exists(), "de bron is niet schoon gestopt"
+shutil.copytree(postgres, supervisor.PGDATA)
+supervisor.SOCKET_DIR.mkdir()
+pg = supervisor.postgres_child()
+pg.start()
+try:
+    supervisor.wait_for_db(pg)
+    dump = subprocess.check_output(
+        ["pg_dump", "-h", str(supervisor.SOCKET_DIR), "-U", "mso", "-d", "mso",
+         "--restrict-key=msoSchemaGuardTest"],
+    )
+finally:
+    pg.stop()
+print(json.dumps([hashlib.sha256(dump).hexdigest(), hashlib.sha256(json.dumps(manifest).encode()).hexdigest()]))
+""",
+    ).splitlines()[-1]
+
+
+def verify_schema_refusal(data: Path, image: str, migrated_schema: int) -> str:
+    guard_schema = known_migrations(image)[-1][0]
+    assert 501 < guard_schema < migrated_schema, "de proef vraagt een echt nieuwere schemaversie dan de weigerimage"
+    before = stopped_data_fingerprint(data)
+    run(data, image=image)
+    message = "database is van een nieuwere MSO-versie; zet de bijpassende snapshot/back-up terug"
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        logs = container_logs()
+        if message in logs or "start api" in logs:
+            break
+        time.sleep(1)
+    assert message in logs, "de Nederlandse schemaweigering ontbreekt in het containerlog"
+    unexpected = ("start api", "start worker", "start web", "migraties:", "back-up vóór upgrade:")
+    assert not any(entry in logs for entry in unexpected), "de weigering startte alsnog een applicatieproces"
+    health = subprocess.run(["docker", "exec", NAME, *HEALTHCHECK], capture_output=True, check=False)
+    assert health.returncode == 1, "de healthcheck moet de geweigerde start afkeuren"
+    stop_cleanly()
+    database, files = json.loads(before)
+    database_after, files_after = json.loads(stopped_data_fingerprint(data))
+    assert database == database_after, "de logische database wijzigde bij de weigering"
+    assert files == files_after, "de applicatiebestanden of hun metadata wijzigden bij de weigering"
+    return f"schema {migrated_schema} > {guard_schema}; schemaweigering; healthcheck 1; database en appbestanden gelijk"
+
+
+def previous_image_upgrade(tmp: Path) -> None:
+    scenario = 0
+    try:
+        sh("docker", "pull", PREVIOUS_IMAGE)
+    except RuntimeError:
+        for name in UPGRADE_SCENARIOS:
+            record(name, None, "OVERGESLAGEN: de verplichte openbare 1.5.0-digest is niet opgehaald")
+        return
+
+    try:
+        data = tmp / "upgrade"
+        data.mkdir()
+        run(data, image=PREVIOUS_IMAGE)
+        assert wait_healthy() == "healthy", "1.5.0 startte niet op de lege map"
+        with httpx.Client(base_url=BASE, timeout=30) as client:
+            initial = client.post("/api/v1/setup/admin", json={"username": ADMIN, "password": ADMIN_PW})
+            csrf = {"X-CSRF-Token": initial.raise_for_status().json()["csrf_token"]}
+            connector = {"url": "http://sabnzbd:8080", "enabled": False, "options": {"probe": "upgrade"}}
+            client.put("/api/v1/connectors/sabnzbd", headers=csrf, json=connector).raise_for_status()
+            client.post("/api/v1/setup/complete", headers=csrf, json={"mode": "read_only"}).raise_for_status()
+            change_id = int(sh(
+                "docker", "exec", "-u", "568:568", "-e", "MSO_DATABASE_URL=postgresql://mso@/mso?host=/tmp/mso-pg",
+                NAME, "python", "-c",
+                "from mso import changes; from mso.db import Database, set_db; from mso.config import get_settings; "
+                "db = Database(get_settings().database_url, max_size=1); set_db(db); "
+                "print(changes.create('sabnzbd', 'Upgradeproef', [{'path': 'proef', 'before': 1, 'after': 2}], "
+                "risk='advies', db=db)['id']); db.close()",
+            ))
+            original = upgrade_data(client, change_id)
+            users, stored_connector, change = original
+            assert len(users) == 1 and users[0]["username"] == ADMIN, "proefgebruiker ontbreekt"
+            assert stored_connector == {"id": "sabnzbd", **connector}, "ingestelde proefkoppeling ontbreekt"
+            assert change["title"] == "Upgradeproef" and change["status"] == "preview", "proefvoorstel ontbreekt"
+            old_info = api_data(client, "system/info")
+            assert old_info["schema_version"] == 501, "de upgrade moet op schema 501 beginnen"
+            old_history = migration_history(old_info)
+        stop_cleanly()
+
+        run(data)
+        assert wait_healthy() == "healthy", "de nieuwe image startte niet op de 1.5.0-map"
+        with closing(login()[0]) as client:
+            assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij upgrade"
+            info = api_data(client, "system/info")
+            expected = known_migrations(IMAGE)
+            assert [[row["version"], row["name"]] for row in info["migrations"]] == expected, "migraties ontbreken"
+            assert migration_history(info)[:len(old_history)] == old_history, "migratiehistorie wijkt af"
+            archives = [row for row in api_data(client, "backups")["items"] if row["kind"] == "pre-upgrade"]
+            assert len(archives) == 1 and archives[0]["schema_version"] == 501 and archives[0]["present"], (
+                "verwacht één aanwezig pre-upgrade-archief van schema 501"
+            )
+        archive = archives[0]
+        logs = container_logs()
+        marker = "back-up vóór upgrade gemaakt: " + archive["file"]
+        first_migration = next(row for row in expected if row[0] > 501)
+        applied = f"migratie {first_migration[0]:04d}_{first_migration[1]} toegepast"
+        assert 0 <= logs.find(marker) < logs.find(applied), "het archief moet klaar zijn vóór de eerste migratie"
+        stop_cleanly()
+        record(UPGRADE_SCENARIOS[0], True, f"501 → {info['schema_version']}; {len(expected)} migraties; "
+               "archief vooraf; gebruiker, koppeling, voorstel en inlog behouden")
+        scenario = 1
+
+        restored = tmp / "restored"
+        restored.mkdir()
+        filename = archive["file"]
+        assert filename == Path(filename).name and filename.endswith("-pre-upgrade.dump"), "ongeldige archiefnaam"
+        restore_pre_upgrade(restored, data / "backups", filename, archive["sha256"])
+        run(restored, image=PREVIOUS_IMAGE)
+        assert wait_healthy() == "healthy", "1.5.0 startte niet na herstel"
+        with closing(login()[0]) as client:
+            restored_info = api_data(client, "system/info")
+            assert migration_history(restored_info) == old_history, "de herstelde migratiehistorie wijkt af"
+            assert restored_info["schema_version"] == 501, "het herstel kwam niet terug op schema 501"
+            assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij herstel"
+        stop_cleanly()
+        record(UPGRADE_SCENARIOS[1], True, "SHA-256 gecontroleerd; schema 501; "
+               "gebruiker, koppeling, voorstel en inlog hersteld")
+        scenario = 2
+
+        guard = os.environ.get("MSO_SCHEMA_GUARD_IMAGE", "")
+        if not guard:
+            record(UPGRADE_SCENARIOS[2], None, "OVERGESLAGEN: bouw eerst de gepinde image met build-schema-guard.sh")
+            return
+        metadata = json.loads(sh("docker", "image", "inspect", guard))[0]
+        assert guard == metadata["Id"] and metadata["Config"]["Labels"].get(
+            "org.opencontainers.image.revision"
+        ) == GUARD_REVISION, "de weigerimage moet op image-ID en de vaste broncommit gepind zijn"
+        record(UPGRADE_SCENARIOS[2], True, verify_schema_refusal(data, guard, info["schema_version"]))
+    except (AssertionError, RuntimeError, httpx.HTTPError, subprocess.CalledProcessError) as exc:
+        record(UPGRADE_SCENARIOS[scenario], False, str(exc))
+        for name in UPGRADE_SCENARIOS[scenario + 1:]:
+            record(name, None, "OVERGESLAGEN: een voorgaande upgrade- of herstelproef faalde")
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="mso-aio-"))
     data = tmp / "appdata"
     data.mkdir()
     os.chmod(data, 0o755)
     sh("docker", "network", "create", NET, check=False)
-    sh("docker", "rm", "-f", "mock-sabnzbd-aio", check=False)
     sh(
         "docker",
         "run",
         "-d",
         "--name",
-        "mock-sabnzbd-aio",
+        MOCK_NAME,
         "--network",
         NET,
         "--network-alias",
@@ -477,28 +743,33 @@ def main() -> int:
         log8 = subprocess.run(["docker", "logs", NAME], capture_output=True, text=True, check=False)
         msg = [ln for ln in (log8.stdout + log8.stderr).splitlines() if "FOUT" in ln]
         record("8 --user 568 op root-map → duidelijke foutmelding", bool(msg), msg[0] if msg else "geen melding")
+        previous_image_upgrade(tmp)
     finally:
-        sh("docker", "rm", "-f", NAME, "mock-sabnzbd-aio", check=False)
+        sh("docker", "rm", "-f", NAME, MOCK_NAME, check=False)
         sh("docker", "network", "rm", NET, check=False)
         sh("docker", "run", "--rm", "-v", f"{tmp}:/t", "--entrypoint", "sh", IMAGE, "-c", "rm -rf /t/*", check=False)
+        tmp.rmdir()
 
-    ok = len(RESULTS) == 16 and all(r[1] for r in RESULTS)
+    passed = sum(ok is True for _, ok, _ in RESULTS)
+    skipped = sum(ok is None for _, ok, _ in RESULTS)
+    ok = passed == len(RESULTS) == SCENARIO_COUNT
     out = Path(os.environ.get("MSO_STACK_RESULTS_ROOT", Path(__file__).parent / "results"))
     out.mkdir(exist_ok=True)
     lines = [
         "# All-in-one image — testrapport",
         "",
-        f"Image: `{IMAGE}` · {len(RESULTS)} scenario's · {sum(r[1] for r in RESULTS)} geslaagd",
+        f"Image: `{IMAGE}` · {len(RESULTS)} scenario's · {passed} groen · {skipped} overgeslagen",
         "",
         "| Scenario | Resultaat | Details |",
         "|---|---|---|",
     ]
-    lines += [f"| {n} | {'ok' if o else 'MISLUKT'} | {d.replace('|', '/')} |" for n, o, d in RESULTS]
+    labels = {True: "ok", False: "MISLUKT", None: "OVERGESLAGEN"}
+    lines += [f"| {n} | {labels[o]} | {d.replace('|', '/')} |" for n, o, d in RESULTS]
     (out / "allinone-report.md").write_text("\n".join(lines) + "\n")
     (out / "allinone-report.json").write_text(
         json.dumps([{"scenario": n, "ok": o, "detail": d} for n, o, d in RESULTS], indent=2, ensure_ascii=False)
     )
-    print(f"Alles-in-één: {sum(r[1] for r in RESULTS)}/16 scenario's groen", flush=True)
+    print(f"Alles-in-één: {passed}/{SCENARIO_COUNT} scenario's groen, {skipped} overgeslagen", flush=True)
     return 0 if ok else 1
 
 

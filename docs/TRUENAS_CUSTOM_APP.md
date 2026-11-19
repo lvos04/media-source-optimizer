@@ -84,14 +84,14 @@ Alles hieronder gaat via de TrueNAS-web-UI, zonder terminal. De menunamen volgen
 **NIET GEVALIDEERD** op een echte NAS.
 
 - **Updaten**:
-  1. Maak eerst een ZFS-snapshot van de dataset uit stap 1 (**Datasets** → de dataset → **Snapshots** → maak een
-     snapshot). Dat is je terugval.
+  1. Stop de app en maak een ZFS-snapshot van de dataset uit stap 1 (**Datasets** → de dataset → **Snapshots** →
+     maak een snapshot). Dat is je terugval.
   2. App → **Edit** → Tag naar de nieuwe versie (met digest, zoals in stap 2) → **Update**.
 
   Sinds 1.6.0 maakt MSO bij de start eerst automatisch een back-up ("Vóór upgrade" in *Back-up & updates*; de nieuwste
-  3 blijven) als er databasewijzigingen zijn, en voert daarna de migraties uit. Is er te weinig ruimte voor die
-  back-up, dan staat dat in de log en start MSO gewoon door. Mislukt een migratie, dan blijft de oude database
-  onaangeroerd en meldt de log dat.
+  3 blijven) als er databasewijzigingen zijn, en voert daarna de migraties uit. In images met upgradeslot
+  en archiefcontrole stopt de start vóór migratie bij ruimtegebrek of een onbruikbare back-up. Raadpleeg het
+  app-log en [het upgradepad](MIGRATION.md#updaten-via-truenas).
 - **Terugdraaien** (bijv. 1.6.0 → 1.5.0): terugzetten = de vorige image **én** de snapshot samen, nooit alleen de
   image. Een oudere versie werkt niet betrouwbaar met het nieuwere databaseschema.
   1. App → **Stop**.
@@ -104,10 +104,8 @@ Alles hieronder gaat via de TrueNAS-web-UI, zonder terminal. De menunamen volgen
   in die na de snapshot zijn ingetrokken. Herstel via **Systeem → Back-ups** in
   MSO behoudt de actuele intrekkingen.
 
-  Wat je sinds de update in MSO hebt gedaan, gaat daarbij verloren. Een terugweg die je gegevens van na de update
-  bewaart (het schema eerst met de nieuwe versie terugzetten), vraagt nu nog een commando in de container en is
-  daarom geen gebruikersroute; die staat voor ontwikkelaars in `docs/MIGRATION.md` → *Terug naar 1.5.0*. Een knop
-  daarvoor in de MSO-UI is gepland (P3-13, `docs/platform-v2/DELTA_MATRIX.md`).
+  Wat je sinds de update in MSO hebt gedaan, gaat daarbij verloren. Controleer na terugval naar 1.5.0
+  of je kunt inloggen en schemaversie 501 ziet. [Terug naar 1.5.0 via TrueNAS](MIGRATION.md#terug-naar-150-via-truenas)
 
 ## Problemen
 

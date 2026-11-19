@@ -60,6 +60,8 @@ jobs:
       packages: write   # push to ghcr.io
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0 # Vaste S-P3-205-broncommit voor de weigerimage
       - name: Version
         id: v
         run: |
@@ -75,11 +77,15 @@ jobs:
         run: |
           scripts/build-images.sh allinone
           docker build -t mso-mocks:stack apps/mocks
-      - name: End-to-end test of the all-in-one image (root, user 568, restart, kill, backup/restore, rights)
+      - name: Bouw de gepinde schemaweigerimage
+        run: |
+          guard_image="$(tests/stack/build-schema-guard.sh)"
+          printf 'MSO_SCHEMA_GUARD_IMAGE=%s\n' "$guard_image" >> "$GITHUB_ENV"
+      - name: End-to-end test van de alles-in-één-image, inclusief upgrade, herstel en schemaweigering
         run: |
           python3 -m venv /tmp/aio-venv && /tmp/aio-venv/bin/pip install -q httpx==0.28.1
           # root only so the test can create a folder owned by 568 (scenario 7)
-          sudo --preserve-env=MSO_BUILD_VERSION,MSO_BUILD_GIT_SHA,MSO_BUILD_TIME,MSO_BUILD_CHANNEL \
+          sudo --preserve-env=MSO_BUILD_VERSION,MSO_BUILD_GIT_SHA,MSO_BUILD_TIME,MSO_BUILD_CHANNEL,MSO_SCHEMA_GUARD_IMAGE \
             /tmp/aio-venv/bin/python tests/stack/allinone_test.py media-source-optimizer:local
       - name: Bouw core voor de release
         uses: docker/build-push-action@v6.18.0

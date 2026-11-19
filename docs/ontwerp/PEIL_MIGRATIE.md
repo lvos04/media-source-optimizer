@@ -663,6 +663,10 @@ eerder lege auditlijst het label Verouderd. De kaart Onderdelen op Systeem geeft
 bestaande herhaalactie voorrang boven de oude gezondheidsstatus. De zijbalk toont dan Onbekend en laat de vorige
 probleemregels weg. De browserproeven voor Logs en Systeem staan in `states.spec.ts`.
 
+De eerste CI-meting vond op Automatisering 4 px horizontale overloop op 320 px met vergrote tekstafstand, in
+beide thema’s. Een geïsoleerde proef met DejaVu Sans wees de filterbalk van Aanbevelingen aan. De bestaande
+filterbalk en keuzelijsten blijven nu binnen de breedte van de kaart. De segmenten kunnen binnen die ruimte omlopen.
+
 ADR-0009 besluit 5 blijft leidend voor E11 (ZekerheidLabel vereist zekerheid uit de API), E13 (Verzonden betreft de
 terugleesstatus) en E15 (offline/verouderd vraagt een functionele ronde). Deze ronde gebruikt de bestaande
 Peil 1.1.1-componenten en de huidige verzoeken en statussen.

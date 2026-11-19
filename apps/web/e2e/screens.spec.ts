@@ -42,7 +42,7 @@ const PASSWORD = process.env.MSO_E2E_PASSWORD ?? "";
 const SHOT_DIR = process.env.MSO_STACK_RESULTS_ROOT
   ? path.join(process.env.MSO_STACK_RESULTS_ROOT, "screenshots")
   : process.env.CI
-    ? path.join(__dirname, ".results", "screenshots")
+    ? path.resolve(__dirname, "../../../tests/stack/results/screenshots")
     : path.resolve(__dirname, "../../../docs/screenshots");
 
 const SCREENS: Array<{ route: string; slug: string; title: RegExp }> = [

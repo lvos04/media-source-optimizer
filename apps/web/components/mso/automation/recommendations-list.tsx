@@ -50,13 +50,13 @@ export function RecommendationsList({ onOpenChange }: { onOpenChange: (changeId:
   return (
     <Card className="span-12" title={t("automation.tab.recommendations")} icon={Lightbulb} flush
       actions={
-        <div className="toolbar">
+        <div className="toolbar min-w-0 max-w-full">
           <Segmented label={t("automation.filter.status")} value={status} onChange={setStatus}
             options={STATUSES.map((s) => ({ value: s, label: s === "all" ? t("automation.filter.all") : t(`automation.status.${s}` as MessageKey) }))} />
-          <select className="select input--sm" aria-label={t("automation.filter.area")} value={area} onChange={(e) => setArea(e.target.value)} style={{ width: "auto" }}>
+          <select className="select input--sm max-w-full" aria-label={t("automation.filter.area")} value={area} onChange={(e) => setArea(e.target.value)} style={{ width: "auto" }}>
             {AREAS.map((a) => <option key={a} value={a}>{a ? t(areaLabel(a)) : `${t("automation.filter.area")}: ${t("automation.filter.all")}`}</option>)}
           </select>
-          <select className="select input--sm" aria-label={t("automation.filter.risk")} value={risk} onChange={(e) => setRisk(e.target.value)} style={{ width: "auto" }}>
+          <select className="select input--sm max-w-full" aria-label={t("automation.filter.risk")} value={risk} onChange={(e) => setRisk(e.target.value)} style={{ width: "auto" }}>
             {RISKS.map((r) => <option key={r} value={r}>{r ? t(`risk.${r}` as MessageKey) : `${t("automation.filter.risk")}: ${t("automation.filter.all")}`}</option>)}
           </select>
         </div>

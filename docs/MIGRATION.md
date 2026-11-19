@@ -27,13 +27,18 @@ Sonarr/Radarr, Prowlarr, SABnzbd of qBittorrent.
    uit vóór API, worker en web starten.
 2. API en worker roepen bij het starten ook `migrate_up` aan. Op het huidige schema blijft dit zonder effect.
 
-**Back-up vóór upgrade (sinds 1.6.0).** Zijn er openstaande migraties en bestaat er al een database, dan probeert
-MSO eerst een back-up van soort `pre-upgrade` te maken. In Systeem → Back-ups staan de drie meest recente onder
-"Vóór upgrade".
-In images met verplichte archiefcontrole delen de startprocessen een upgradeslot. Onder dat slot controleert MSO
-de SHA-256 en de leesbaarheid van het PostgreSQL-archief. Bij ruimtegebrek, een dumpfout of een onbruikbaar archief
-stopt zo'n image vóór de volgende migratie en meldt de oorzaak in het app-log. Een nieuwe installatie kan direct
-starten. `mso migrate --no-backup` controleert in deze images het bestaande archief voor de upgrade.
+### Gedrag per imageversie
+
+**Gepubliceerde 1.6.0.** Bij ruimtegebrek of een dumpfout gaat de migratie door zonder nieuwe pre-upgradeback-up.
+MSO logt dat het de back-up heeft overgeslagen bij ruimtegebrek of dat de dump is mislukt.
+
+**Huidige bronstand.** Bij ruimtegebrek, een dumpfout of een onbruikbaar archief stopt de migratie.
+Bij openstaande migraties op een bestaande database delen de startprocessen een upgradeslot waaronder MSO
+de SHA-256 en de leesbaarheid van het PostgreSQL-archief controleert. `mso migrate --no-backup`
+controleert het bestaande archief voor dezelfde upgrade opnieuw. De oorzaak van een stop staat in het app-log.
+Een nieuwe installatie kan direct starten.
+
+Maak en verifieer bij beide imageversies vóór elke upgrade een snapshot van de volledige APPDATA-dataset van de gestopte app.
 
 ## Updaten via TrueNAS
 
@@ -46,19 +51,18 @@ starten. `mso migrate --no-backup` controleert in deze images het bestaande arch
 3. Open onder **Apps** het bestaande [Custom App-formulier](../deploy/truenas/CUSTOM_APP.md) met **Edit**.
    Behoud de formulierwaarden en de APPDATA-mount op `/appdata`. Kies de vrijgegeven versie met de
    bijbehorende digest, sla op met **Update** en start de app.
-4. Controleer de registerdigest via de image-informatie van TrueNAS en de schemaversie onder **Systeem → MSO-core**.
-   Bij openstaande migraties
-   verschijnt in het app-log eerst de bevestiging van de pre-upgrade-back-up en daarna die van de migraties.
-   Het gecontroleerde archief staat als **Vóór upgrade** onder **Systeem → Back-ups**. Bij een onbruikbaar
-   archief stopt de huidige bronstand vóór migratie. De log geeft de oorzaak.
+4. Voer de [digestcontrole](../deploy/truenas/CUSTOM_APP.md#na-het-opslaan) uit en controleer de schemaversie
+   onder **Systeem → MSO-core**. Lees bij schemamigraties het app-log volgens het
+   [gedrag van de gekozen image](#gedrag-per-imageversie). Een gemaakt archief staat als **Vóór upgrade**
+   onder **Systeem → Back-ups**. Pauzeer het gebruik als de back-up of migratie faalt en beoordeel het herstelpunt.
 5. Vergelijk aanmelding, instellingen, koppelingen, taken en audit met de toestand uit stap 1.
    Hervat het gebruik na akkoord op de vergelijking.
 
 ## 1.5.0 → 1.6.0
 
 Volg het updatepad hierboven, inclusief de verplichte APPDATA-snapshot van de gestopte app. De gepubliceerde
-1.6.0 probeert eerst de back-up **Vóór upgrade** op schema 501 te maken. Bij ruimtegebrek kan die release
-zonder archief doorgaan met de migraties 0600–0607. Latere images passen ook hun volgende migraties toe.
+1.6.0 probeert eerst de back-up **Vóór upgrade** op schema 501 te maken. Bij ruimtegebrek of een dumpfout
+gaat die release zonder nieuwe back-up door met de migraties 0600–0607. Latere images passen ook hun volgende migraties toe.
 
 **Wat de migraties doen:**
 

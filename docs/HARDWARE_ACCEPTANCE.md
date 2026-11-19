@@ -18,9 +18,23 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
-| 0.1 | Noteer de TrueNAS-versie (`System → General`), CPU en RAM. | TrueNAS SCALE 24.10 of nieuwer met het standaard Custom App-formulier. | NIET GEVERIFIEERD |
-| 0.2 | Leg de bestaande versie en digest, formulierwaarden en APPDATA-dataset vast. Verifieer bij een upgrade de snapshot van de gestopte app. | Herstelbare APPDATA-snapshot en exacte vorige imagepin beschikbaar. | NIET GEVERIFIEERD |
+| 0.1 | Noteer de TrueNAS-versie (`System → General`), CPU en RAM. D01 blijft open tot de versie en het formulier op de echte NAS zijn bevestigd. | TrueNAS SCALE 24.10.2.2 of nieuwer voor het beschreven standaardformulier (ix-app 1.4.8). | NIET GEVERIFIEERD |
+| 0.2 | Maak en verifieer de vijf afzonderlijke herstelpunten uit de tabel hieronder. Leg bij een MSO-upgrade ook de vorige imageversie met digest en de formulierwaarden vast. | Voor elke dienst is het eigen herstelpunt geverifieerd. Bij een MSO-upgrade is ook de exacte vorige imagepin beschikbaar. | NIET GEVERIFIEERD |
 | 0.3 | Noteer in de MediaGuard-repo/installatie `git rev-parse HEAD` en `git status --porcelain` (of de image-tags). | Referentie voor criterium "MediaGuard bit-voor-bit ongewijzigd". | NIET GEVERIFIEERD |
+
+### Herstelpunten vóór de eerste schrijvende proef
+
+Maak vóór stap 1 per dienst een afzonderlijk herstelpunt en leg de herstelroute vast. Verifieer in een geïsoleerde
+kopie dat elke snapshot herstelbaar is en de gegevens en instellingen dekt die de proeven kunnen wijzigen.
+Noteer het bewijs per dienst. Stop de checklist zodra voor één dienst het eigen geverifieerde herstelpunt ontbreekt.
+
+| Dienst | Eigen herstelpunt | Resultaat |
+|---|---|---|
+| MSO | Volledige APPDATA-snapshot van de gestopte app bij een upgrade, of van de eigen lege dataset vóór een eerste installatie. | NIET GEVERIFIEERD |
+| MediaGuard | Afzonderlijke snapshot met configuratie, database en voortgang. | NIET GEVERIFIEERD |
+| Prowlarr | Afzonderlijke snapshot met configuratie, database en indexers. | NIET GEVERIFIEERD |
+| SABnzbd | Afzonderlijke snapshot met configuratie en de door de proef geraakte wachtrij- en geschiedenisgegevens. | NIET GEVERIFIEERD |
+| qBittorrent | Afzonderlijke snapshot met configuratie en de door de proef geraakte torrentstatus. | NIET GEVERIFIEERD |
 
 ## 1. Installatie op TrueNAS na vrijgave
 

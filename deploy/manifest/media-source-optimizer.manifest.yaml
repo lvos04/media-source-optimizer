@@ -91,8 +91,8 @@ backup:
   db_export:
     method: pg_dump
     description_nl: >-
-      MSO controleert de SHA-256 en het PostgreSQL-archief vóór een schemamigratie. Maak daarnaast vóór
-      elke upgrade een snapshot van de volledige APPDATA-dataset terwijl MSO gestopt is. De dump dekt
+      Deze bronstand controleert de SHA-256 en het PostgreSQL-archief vóór een schemamigratie. Maak
+      vóór elke upgrade een snapshot van de volledige APPDATA-dataset terwijl MSO gestopt is. De dump dekt
       de kluis en het bijbehorende sleutelbestand niet volledig. Bewaar de snapshot en de vorige imagepin.
   snapshot_datasets: [appdata]
   rpo: {param: rpo}
@@ -115,7 +115,7 @@ decisions_required: [D01, D02, D03, D07]
 docs: [I04_MEDIA_SOURCE_OPTIMIZER]
 validation_status: unvalidated
 compatibility:
-  truenas_min_version: "24.10.0" # Minimum voor het beschreven standaardformulier. D01 blijft open.
+  truenas_min_version: "24.10.2.2" # Ondergrens voor het beschreven ix-app-formulier 1.4.8. D01 blijft open.
   truenas_max_version: null
   ix_app_min_version: null
 post_install_checks:

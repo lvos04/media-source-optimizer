@@ -28,8 +28,10 @@ migratie of gegevenscontrole faalt.
    beschermde kopie buiten de oorspronkelijke dataset. Stop als de snapshot of de vorige imagepin ontbreekt.
 3. Open de bestaande app met **Edit**. Behoud de huidige formulierwaarden en de bestaande koppeling van APPDATA
    aan `/appdata`. Kies de vrijgegeven versie met bijbehorende digest, sla op met **Update** en start MSO.
-4. Controleer het app-log op de geverifieerde databaseback-up **Vóór upgrade**, gevolgd door de migraties als
-   er schemaveranderingen zijn. Bij een onbruikbaar archief stopt de huidige bronstand vóór de migratie.
+4. Voer de [digestcontrole](../deploy/truenas/CUSTOM_APP.md#na-het-opslaan) uit. Controleer bij schemamigraties
+   het app-log voor de back-up **Vóór upgrade** en de migraties volgens het
+   [gedrag van de gekozen image](MIGRATION.md#gedrag-per-imageversie).
+   Pauzeer het gebruik als de back-up of migratie faalt en beoordeel het herstelpunt.
    Controleer daarna de schemaversie, aanmelding, instellingen, koppelingsstatus en de stand van taken en audit
    aan de hand van stap 1. Hervat automatisering na akkoord op de voor-en-na-vergelijking.
 

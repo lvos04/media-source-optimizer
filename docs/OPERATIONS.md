@@ -79,7 +79,7 @@ met de bijpassende imageversie via [het terugvalpad](MIGRATION.md#terugdraaien-v
 
 Bewaar vóór elke upgrade de herstelbare snapshot van de volledige APPDATA-dataset van de gestopte app,
 de huidige formulierwaarden en de vorige imagepin. Zie [updaten via TrueNAS](MIGRATION.md#updaten-via-truenas).
-MSO weigert een database waarvan het hoogste migratienummer nieuwer is dan deze image kent, vóór de
+De huidige bronstand weigert een database waarvan het hoogste migratienummer nieuwer is dan deze image kent, vóór de
 back-up en vóór API of worker iets schrijven. In de log verschijnt: "database is van een nieuwere MSO-versie;
 zet de bijpassende snapshot/back-up terug". De opdrachtregel eindigt dan met code 79. Er volgt geen migratie,
 back-up, retentie-opruiming of automatische terugzetting. Kies in het standaardformulier van de TrueNAS Custom App
@@ -95,24 +95,23 @@ ook de aparte back-upstap eindigt dan met code 79. De bewaker bereidt vóór zij
 uitsluitend de databaseopslag en databasesocket voor. De mappen voor back-ups, geheimen en werkbestanden worden pas
 na een geslaagde controle voorbereid. Een lege installatie en een gewone update blijven normaal starten.
 
-Sinds 1.6.0 maakt MSO vóór openstaande migraties automatisch een back-up van soort `pre-upgrade` ("Vóór upgrade" in
-Systeem → Back-ups):
+### Gedrag per imageversie
 
-- **Waar:** in de alles-in-één-image als aparte stap van de supervisor (`mso backup --pre-upgrade`, daarna
-  `mso migrate --no-backup`); in de losse-containerstack door `mso migrate` in de `migrate`-container; en voor de
-  zekerheid ook bij de start van `api`/`worker`. Een advisory lock en een markering per upgrade zorgen dat er één dump
-  per upgrade komt.
-- Een nieuwe installatie of een database op de huidige schemaversie kan direct starten.
-- Bij openstaande migraties controleert MSO de SHA-256 en de leesbaarheid van het PostgreSQL-archief.
-  `mso migrate --no-backup` gebruikt een eerder aangemaakt archief voor dezelfde upgrade en controleert het opnieuw.
-  Bij ruimtegebrek, een dumpfout of een onbruikbaar archief stopt de migratie. De oorzaak staat in het app-log.
-  Herstel de vrije ruimte of het terugvalarchief en start de app opnieuw.
-- **Bewaard:** de nieuwste 3. Herstellen kan gewoon in de app (zie *Herstel*, punt 5) of, voor terug naar de vorige
-  versie, zoals in [MIGRATION.md](MIGRATION.md) → *Terug naar 1.5.0*.
+**Gepubliceerde 1.6.0.** Bij ruimtegebrek of een dumpfout gaat de migratie door zonder nieuwe pre-upgradeback-up.
+MSO logt dat het de back-up heeft overgeslagen bij ruimtegebrek of dat de dump is mislukt.
 
-Controleer na een update de volgorde in **TrueNAS → Apps → MSO → Logs** en kijk in **Systeem → Back-ups**
-naar het archief **Vóór upgrade** wanneer er schemamigraties waren. Controleer daarna aanmelding,
-koppelingen en gegevens zoals beschreven in het migratiepad.
+**Huidige bronstand.** Bij ruimtegebrek, een dumpfout of een onbruikbaar archief stopt de migratie.
+Bij openstaande migraties op een bestaande database controleert MSO de SHA-256 en de leesbaarheid van het
+PostgreSQL-archief. In de alles-in-één-image maakt de bewaker het archief met `mso backup --pre-upgrade` en
+controleert `mso migrate --no-backup` het archief voor dezelfde upgrade opnieuw. In de ontwikkelstack maakt
+`mso migrate` het archief. API en worker bewaken de voorwaarde ook tijdens hun start. De oorzaak van een stop
+staat in het app-log. Een nieuwe installatie of een database op de huidige schemaversie kan direct starten.
+
+Maak en verifieer bij beide imageversies vóór elke upgrade een snapshot van de volledige APPDATA-dataset van de gestopte app.
+
+Controleer bij schemamigraties het log onder **TrueNAS → Apps → MSO → Logs**. Onder **Systeem → Back-ups**
+staan de drie nieuwste gemaakte archieven als **Vóór upgrade**. Controleer daarna aanmelding, koppelingen en
+gegevens zoals beschreven in het migratiepad.
 
 ## Taken (jobs) en herstel na uitval
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+from contextlib import closing
 from datetime import datetime
 from typing import Any, Literal
 
@@ -15,7 +16,12 @@ from mso.auth import Principal, require
 from mso.db import get_db
 from mso.domain import categories as C
 from mso.domain import outcomes, releasegate
-from mso.domain.release import NormalizedRelease, ParsedTitle, QualityRequirements, check_quality
+from mso.domain.release import (
+    NormalizedRelease,
+    ParsedTitle,
+    QualityRequirements,
+    check_quality,
+)
 from mso.features.search import origin, service
 from mso.features.search import settings as S
 from mso.features.search.models import SearchQuery
@@ -329,6 +335,28 @@ def _refuse(row: dict[str, Any], exc: releasegate.Refused, *, actor: str, client
     return HTTPException(422, detail=exc.message)
 
 
+def _previous_send(existing: dict[str, Any], client: str, category: str) -> dict[str, Any]:
+    if existing["status"] != "sent" or not existing["client_ref"]:
+        raise HTTPException(409, detail="De oorspronkelijke verzending is nog niet bevestigd")
+    try:
+        with closing(_client_module(client).from_config()) as peer:
+            if (existing["client"], existing["client_instance"], existing["category"]) != (
+                client, peer.instance_id, category
+            ):
+                raise ValueError("ander doel")
+            ref = existing["client_ref"]
+            if client == "sabnzbd":
+                found = peer.has_download(ref, category)
+            else:
+                torrent = peer.torrent(ref)
+                found = torrent is not None and torrent.get("category") == category
+    except Exception as exc:
+        raise HTTPException(409, detail="De eerdere verzending kan niet worden bevestigd op deze instantie") from exc
+    if not found:
+        raise HTTPException(409, detail="De eerdere download ontbreekt in de opgegeven categorie")
+    return {"status": "already_sent", "send": existing}
+
+
 @router.post("/send")
 def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
     """Direct send (no change set). Release gate: a fake title is refused before anything is fetched; after
@@ -352,7 +380,7 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
     db = get_db()
     existing = db.fetchone("SELECT * FROM search_sends WHERE release_key=%s", (row["release_key"],))
     if existing and existing["status"] in ("sent", "sending"):
-        return {"status": "already_sent", "send": existing}
+        return _previous_send(existing, client, body.category)
     cls = _client_module(client)
     ok, wait = limiter.hit("search-send", p.actor, int(S.get("search.send_rate_per_min", 20)), 60)
     if not ok:
@@ -366,23 +394,25 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
         (row["release_key"], client, body.category, row["title"], row["source_id"], p.actor),
     )
     if claimed is None:
-        return {
-            "status": "already_sent",
-            "send": db.fetchone("SELECT * FROM search_sends WHERE release_key=%s", (row["release_key"],)),
-        }
+        existing = db.fetchone("SELECT * FROM search_sends WHERE release_key=%s", (row["release_key"],))
+        return _previous_send(existing, client, body.category)
     try:
-        inst = cls.from_config()
-        fetched = service.fetch_download(body.token)
-        releasegate.check_download(row["protocol"], fetched, title=row["title"], media=media)
-        if client == "sabnzbd":
-            name = fetched.filename or f"{row['title']}.nzb"
-            ref = inst.add_nzb(fetched.content, name, category=body.category)
-        else:
-            if fetched.final_url:
-                inst.add_torrent(url=fetched.final_url, category=body.category)
+        with closing(cls.from_config()) as inst:
+            fetched = service.fetch_download(body.token)
+            checked = releasegate.check_download(row["protocol"], fetched, title=row["title"], media=media)
+            if body.category not in inst.categories():
+                raise ValueError("De verzendcategorie ontbreekt op de ontvangende instantie")
+            if client == "sabnzbd":
+                name = fetched.filename or f"{row['title']}.nzb"
+                ref = inst.add_nzb(fetched.content, name, category=body.category)
             else:
-                inst.add_torrent(data=fetched.content, category=body.category)
-            ref = row["release_key"].split(":", 1)[1] if row["release_key"].startswith("btih:") else None
+                key = row["release_key"]
+                expected = key.split(":", 1)[1] if key.startswith(("btih:", "btmh:")) else None
+                ref = releasegate.torrent_download_id(fetched, expected, checked.keys)
+                if fetched.final_url:
+                    inst.add_torrent(url=fetched.final_url, category=body.category)
+                else:
+                    inst.add_torrent(data=fetched.content, category=body.category)
     except releasegate.Refused as exc:
         _fail(row, exc.message)
         raise _refuse(row, exc, actor=p.actor, client=client) from exc
@@ -401,9 +431,9 @@ def send(body: SendBody, p: Principal = Depends(require("operator"))) -> dict[st
         )
         raise HTTPException(502, detail=f"Versturen naar {client} mislukt: {msg}") from exc
     sent = db.fetchone(
-        "UPDATE search_sends SET status='sent', client_ref=%s, updated_at=now() WHERE release_key=%s "
-        "RETURNING *",
-        (str(ref) if ref else None, row["release_key"]),
+        "UPDATE search_sends SET status='sent', client_ref=%s, client_instance=%s, updated_at=now() "
+        "WHERE release_key=%s RETURNING *",
+        (ref, inst.instance_id, row["release_key"]),
     )
     audit(
         p.actor,

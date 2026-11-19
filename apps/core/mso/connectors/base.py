@@ -72,20 +72,26 @@ class ConnectorSpec:
 
 SPECS: dict[str, ConnectorSpec] = {}
 
-# Alleen actief bij het uitvoeren, terugdraaien of herstellen van een change set.
-_write_targets: ContextVar[tuple[dict[str, str], bool] | None] = ContextVar("write_targets", default=None)
+# Actief bij de voorvertoning en de uitvoering van een wijziging, inclusief herstel.
+_write_targets: ContextVar[tuple[dict[str, str], bool, frozenset[str]] | None] = ContextVar(
+    "write_targets", default=None
+)
+
+
+def instance_id(url: str) -> str:
+    return digest(url.rstrip("/"))
 
 
 @contextmanager
-def write_targets(targets: dict[str, str], *, existing: bool) -> Iterator[None]:
+def write_targets(targets: dict[str, str], *, existing: bool, unbound: frozenset[str] = frozenset()) -> Iterator[None]:
     # Een al geopende client kan nog bereikbaar zijn nadat de beheerder de koppeling heeft vervangen.
     configured = targets.keys() & SPECS.keys()
     if configured:
         rows = get_db().fetchall("SELECT id,url FROM connectors WHERE enabled AND id = ANY(%s)", (list(configured),))
-        current = {r["id"]: digest(r["url"].rstrip("/")) for r in rows if r["url"]}
+        current = {r["id"]: instance_id(r["url"]) for r in rows if r["url"]}
         if current != {k: targets[k] for k in configured}:
             raise ValueError("De aangeschreven koppeling ontbreekt, is uitgeschakeld of verwijst naar een andere bron")
-    token = _write_targets.set((targets, existing))
+    token = _write_targets.set((targets, existing, unbound))
     try:
         yield
     finally:
@@ -97,11 +103,17 @@ def recorded_target(name: str) -> str | None:
     return active[0].get(name) if active is not None else None
 
 
+class UnboundWriteTarget(ValueError):
+    """De goedgekeurde voorvertoning geeft geen toestemming voor deze ontvangende instantie."""
+
+
 def bind_write_target(name: str, identity: str) -> None:
     active = _write_targets.get()
     if active is None:
         return
-    targets, existing = active
+    targets, existing, unbound = active
+    if name in unbound:
+        raise UnboundWriteTarget("De ontvangende instantie ontbreekt in de goedkeuring. Maak een nieuw voorstel.")
     if not existing:
         targets.setdefault(name, identity)
     if targets.get(name) != identity:
@@ -136,7 +148,7 @@ def load_config(cid: str, *, require_enabled: bool = True) -> ConnectorConfig:
     if row is None or spec is None or not row["url"] or (require_enabled and not row["enabled"]):
         raise ConnectorNotConfigured(cid)
     if _write_targets.get() is not None:
-        bind_write_target(cid, digest(row["url"].rstrip("/")))
+        bind_write_target(cid, instance_id(row["url"]))
     _remember_url(cid, row["url"])
     vault = get_vault()
     secrets = {f.name: v for f in spec.secret_fields if (v := vault.get(secret_name(cid, f.name)))}
@@ -254,8 +266,16 @@ class MonitoredClient(httpx.Client):
     def __init__(self, cid: str, **kw: Any) -> None:
         super().__init__(**kw)
         self.mso_connector = cid
+        self.mso_instance = instance_id(kw["base_url"])
 
     def send(self, request: httpx.Request, **kw: Any) -> httpx.Response:  # type: ignore[override]
+        approved = recorded_target(self.mso_connector)
+        if approved and (request.method != "GET" or request.url.params.get("mode") in {
+            "set_config", "del_config", "retry",
+        }):
+            url = get_db().scalar("SELECT url FROM connectors WHERE id=%s AND enabled", (self.mso_connector,))
+            if not url or approved != self.mso_instance or instance_id(url) != approved:
+                raise ValueError("De ontvangende instantie veranderde vóór verzending")
         try:
             response = super().send(request, **kw)
         except httpx.TransportError as exc:

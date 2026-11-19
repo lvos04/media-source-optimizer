@@ -566,18 +566,19 @@ def test_migration_roundtrip_preserves_existing_tables(admin, operator, db, data
     assert admin.get("/api/v1/newznab/endpoint").status_code == 200
     made = create(admin)
     new_tables = {"machine_keys", "machine_key_requests", "machine_auth_limits", "connector_idempotency",
-                  "resource_samples", "schema_migrations"}
+                  "resource_samples", "sab_send_receipts", "schema_migrations"}
     before = database_bytes(db)
     try:
-        assert migrate_down(db, 607) == [611, 610, 609, 608]
+        assert migrate_down(db, 607) == [612, 611, 610, 609, 608]
         assert db.scalar("SELECT to_regclass('machine_keys')") is None
         assert db.scalar("SELECT to_regclass('connector_idempotency')") is None
+        assert db.scalar("SELECT to_regclass('sab_send_receipts')") is None
         assert {name: data for name, data in before.items() if name not in new_tables} == {
             name: data for name, data in database_bytes(db).items() if name != "schema_migrations"
         }
         assert admin.get("/api/v1/auth/me").status_code == 200
     finally:
-        assert migrate_up(db) == [608, 609, 610, 611]
+        assert migrate_up(db) == [608, 609, 610, 611, 612]
     assert db.scalar("SELECT count(*) FROM connector_idempotency") == 0
     check_schema_compatibility(db)
     after = database_bytes(db)

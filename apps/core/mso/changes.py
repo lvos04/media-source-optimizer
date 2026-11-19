@@ -109,6 +109,8 @@ class Applier:
     rollback_deletes: Callable[[str, Any], bool] | None = None
     # Voor een API die een heel document vereist, draagt de preview de hash van de overige velden.
     payload_hashes: dict[str, str] | None = None
+    commands: dict[str, dict[str, Any]] | None = None
+    prepare: Callable[[list[dict[str, Any]]], None] | None = None
 
 
 def deletes_on_write(applier: Applier | None, path: str, value: Any) -> bool:
@@ -147,18 +149,39 @@ def register_applier(target: str, factory: Callable[[], Applier]) -> None:
     APPLIERS[target] = factory
 
 
-def _bound_applier(factory: Callable[[], Applier], ops: list[dict[str, Any]], *, existing: bool) -> Applier:
+def _recipients(target: str, ops: list[dict[str, Any]]) -> set[str]:
+    if target == "download_send":
+        return {op["command"]["client"] for op in ops if op.get("command")}
+    if target in {"sabnzbd_categories", "sabnzbd_retry"}:
+        return {"sabnzbd"}
+    if target == "qbittorrent" and any(op["path"].startswith("arrblock:") for op in ops):
+        return {"qbittorrent", "mediaguard"}
+    return {target} if target in connectors.SPECS else set()
+
+
+def _bound_applier(target: str, ops: list[dict[str, Any]], *, existing: bool) -> Applier:
     """Bewaar de gebruikte koppelingen bij de operaties, ook voor een nieuwe adapter na een herstart."""
     # Eén register per wijziging. Dynamische doelen staan hierin onder hun volledige operatiepad.
     targets = ops[0].setdefault("source_bindings", {}) if ops else {}
+    approved = ops[0].get("preview_instances", {}) if ops else {}
+    recipients = _recipients(target, ops) | approved.keys()
+    for name in recipients:
+        # Een eerder journaal mag zijn eigen aantoonbare ontvanger blijven meten.
+        identity = approved.get(name) or (targets.get(name) if existing else None)
+        if identity and targets.setdefault(name, identity) != identity:
+            raise ValueError("De ontvanger in het journaal wijkt af van de goedkeuring")
+
+    unbound = frozenset(recipients - targets.keys())
 
     def bound(call, *args):
-        with connectors.write_targets(targets, existing=existing):
+        with connectors.write_targets(targets, existing=existing, unbound=unbound):
             return call(*args)
 
-    applier = bound(factory)
+    applier = bound(APPLIERS[target])
     if applier.payload_hashes is not None:
         applier.payload_hashes.update({op["path"]: op["payload_hash"] for op in ops if "payload_hash" in op})
+    if applier.commands is not None:
+        applier.commands.update({op["path"]: op.get("command", {}) for op in ops})
     return replace(applier, read=partial(bound, applier.read), write=partial(bound, applier.write))
 
 
@@ -223,23 +246,42 @@ def create(target: str, title: str, ops: list[dict[str, Any]], *, risk: str, exp
         raise ValueError("uitschakelen kan niet als advies worden toegepast")
     if not ops:
         raise ValueError("lege wijziging")
+    ops = [dict(op) for op in ops]
     for op in ops:
         if "path" not in op or "after" not in op:
             raise ValueError("elke operatie heeft path en after nodig")
         op.setdefault("label", op["path"])
         op.setdefault("before", None)
+        op.pop("preview_instances", None)
+        op.pop("source_bindings", None)
     db = db or get_db()
-    if target in APPLIERS and (validate := _validator(target)):
+    instances: dict[str, str] = {}
+    with connectors.write_targets(instances, existing=False):
+        adapter = _preview_applier(target) if target in APPLIERS else None
+    if adapter:
         for op in ops:
             try:
-                validate(op["path"], op["after"])
+                if adapter.validate:
+                    adapter.validate(op["path"], op["after"])
             except ValueError as exc:
                 raise HTTPException(422, detail=f"Beleid weigert '{op['label']}': {exc}") from exc
+        if adapter.prepare:
+            adapter.prepare(ops)
     if dedupe_key:
         existing = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s AND status = ANY(%s)",
                                (dedupe_key, list(OPEN_STATUSES)))
         if existing:
             return _fill_hash(existing, db)
+    recipients = _recipients(target, ops)
+    if recipients:
+        rows = db.fetchall("SELECT id,url FROM connectors WHERE enabled AND url IS NOT NULL AND id=ANY(%s)",
+                           (list(recipients),))
+        for row in rows:
+            current = connectors.instance_id(row["url"])
+            if instances.setdefault(row["id"], current) != current:
+                raise HTTPException(409, detail="De ontvangende instantie veranderde tijdens de voorvertoning")
+    if instances:
+        ops[0]["preview_instances"] = instances
     evaluate_after = datetime.now(UTC) + timedelta(hours=evaluate_after_h) if evaluate_after_h else None
     with db.tx() as conn:
         row = conn.execute(
@@ -256,9 +298,9 @@ def create(target: str, title: str, ops: list[dict[str, Any]], *, risk: str, exp
     return row
 
 
-def _validator(target: str) -> Callable[[str, Any], None] | None:
+def _preview_applier(target: str) -> Applier | None:
     try:
-        return APPLIERS[target]().validate
+        return APPLIERS[target]()
     except Exception:
         return None
 
@@ -466,6 +508,7 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
                  request_id: UUID | None = None, reserve: Callable[[Connection], None] | None = None) -> dict[str, Any]:
     state.require_manage_mode()
     _check_applicable(ch, automatic, verifies_approval is not None)
+    check_preview(ch, ch["preview_hash"])
     check_deadline = verifies_approval or (lambda: check_approval(ch))
     check_deadline()
     change_id = ch["id"]
@@ -474,7 +517,9 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
         raise HTTPException(409, detail=f"Geen schrijfkoppeling voor '{ch['target']}'")
     ops = [{key: value for key, value in op.items() if key not in JOURNAL_FIELDS} for op in ch["ops"]]
     try:
-        applier = _bound_applier(factory, ops, existing=False)
+        applier = _bound_applier(ch["target"], ops, existing=False)
+    except connectors.UnboundWriteTarget as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
             from exc
@@ -483,6 +528,8 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
     for op in ops:
         try:
             current = _read_apply_value(applier, op)
+        except connectors.UnboundWriteTarget as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
         except HTTPException:
             raise
         except Exception as exc:
@@ -647,7 +694,7 @@ def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str
         raise HTTPException(409, detail=f"Geen schrijfkoppeling voor '{ch['target']}'")
     ops = [dict(op) for op in ch["ops"]]
     try:
-        applier = _bound_applier(factory, ops, existing=True)
+        applier = _bound_applier(ch["target"], ops, existing=True)
     except Exception as exc:
         raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
             from exc
@@ -849,7 +896,7 @@ def _settle_apply(ch: dict[str, Any], db: Database, applier: Applier | None = No
     title = ch["title"]
     try:
         if applier is None:
-            applier = _bound_applier(APPLIERS[ch["target"]], ops, existing=True)
+            applier = _bound_applier(ch["target"], ops, existing=True)
     except Exception as exc:
         pending = [f"koppeling niet beschikbaar: {redact(str(exc))[:160]}"]
         missing_proof = []

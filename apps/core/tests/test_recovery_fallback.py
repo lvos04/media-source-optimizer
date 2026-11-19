@@ -214,6 +214,17 @@ def test_auto_send_setting_makes_proposal_safe_and_automation_applies_it(
     qb = types.ModuleType("mso.connectors.qbittorrent")
 
     class QbitClient:
+        instance_id = "test-torrent"
+
+        def categories(self):
+            return ["mso-tv"]
+
+        def pause_field(self):
+            return "stopped"
+
+        def close(self):
+            pass
+
         @classmethod
         def from_config(cls) -> QbitClient:
             return cls()
@@ -225,12 +236,13 @@ def test_auto_send_setting_makes_proposal_safe_and_automation_applies_it(
             data: bytes | None = None,
             category: str,
             paused: bool = False,
+            pause_field: str | None = None,
             tags: list[str] | None = None,
         ) -> None:
             added.append({"category": category, "tags": tags})
 
         def torrent(self, h: str) -> dict[str, Any] | None:
-            return {"hash": h} if added and h == tor.infohash_v1 else None
+            return {"hash": h, "category": added[-1]["category"]} if added and h == tor.infohash_v1 else None
 
     qb.QbitClient = QbitClient  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "mso.connectors.qbittorrent", qb)

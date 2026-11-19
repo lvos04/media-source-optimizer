@@ -403,9 +403,10 @@ def test_prowlarr_registratielijst(monkeypatch, geval):
                                       [{"hash": HASH}, {"hash": HASH}], [], [{"hash": HASH.upper()}]])
 def test_qbittorrent_torrentlijst_voor_herstelverzending(monkeypatch, document):
     bron = object.__new__(qbittorrent.QbitClient)
+    monkeypatch.setattr(bron, "close", lambda: None)
     monkeypatch.setattr(bron, "torrents", lambda _: document)
     monkeypatch.setattr(qbittorrent.QbitClient, "from_config", lambda: bron)
-    monkeypatch.setattr(fallback.time, "sleep", lambda _: None)
+    monkeypatch.setattr(fallback.actions.time, "sleep", lambda _: None)
     verzending = {"status": "sent", "client": "qbittorrent", "client_ref": HASH}
     monkeypatch.setattr(fallback, "get_db", lambda: SimpleNamespace(fetchone=lambda *_: verzending))
     monkeypatch.setattr(fallback, "parse_path", lambda _: ("proef", "kandidaat"))

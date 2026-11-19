@@ -37,7 +37,15 @@ from mso import changes, state
 from mso import settings_registry as sr
 from mso.audit import audit
 from mso.connectors import base as cb
-from mso.connectors.sabnzbd import RETRY_AFTER, RETRY_BEFORE, RETRY_TARGET, SabClient, SabError, measured_download_slots
+from mso.connectors.sabnzbd import (
+    RETRY_AFTER,
+    RETRY_BEFORE,
+    RETRY_TARGET,
+    SabClient,
+    SabError,
+    download_category,
+    measured_download_slots,
+)
 from mso.db import get_db
 from mso.domain import outcomes
 from mso.domain.outcomes import FAILURE_REASONS
@@ -229,35 +237,60 @@ def candidates(client: SabClient, servers: list[dict[str, Any]] | None = None) -
 
 
 # ------------------------------------------------------------------ applier helpers (called by the connector)
-def read_state(client: SabClient, nzo_id: str) -> str:
+def read_state(client: SabClient, nzo_id: str, command: dict[str, Any] | None = None) -> str:
+    queue = measured_download_slots(client.queue, limit=1000)
+    history = measured_download_slots(client.history, limit=1000)
+    return _state_from_slots(client, nzo_id, command, queue, history)
+
+
+def _state_from_slots(client: SabClient, nzo_id: str, command: dict[str, Any] | None,
+                      queue: list[dict[str, Any]], history: list[dict[str, Any]]) -> str:
     row = _row(nzo_id)
     returned = cb.recorded_target(op_path(nzo_id))
-    ids = {returned} if returned is not None else {nzo_id, (row or {}).get("new_nzo_id")}
-    q = measured_download_slots(client.queue, limit=1000)
-    if any(s["nzo_id"] in ids for s in q):
-        return RETRY_AFTER
-    hist = measured_download_slots(client.history, limit=1000)
     retried = bool(row and row.get("retried_at"))
-    for s in hist:
-        if s["nzo_id"] not in ids:
-            continue
-        status = s.get("status")
-        if status == "Failed":
-            return "opnieuw mislukt" if retried else RETRY_BEFORE
-        if status != "Completed":
-            raise SabError("SABnzbd-historystatus is onleesbaar of nog in behandeling", "invalid")
-        return RETRY_AFTER if retried else "niet mislukt"
-    return "niet gevonden in SABnzbd"
+    if command is not None:
+        if not command or command["instance"] != client.instance_id or command["download_id"] != nzo_id:
+            raise ValueError("De ontvangende instantie of de retry-opdracht wijkt af van de goedkeuring")
+        if row and (row["nzo_id"] != nzo_id or row["client_instance"] != client.instance_id
+                    or row["status"] == "failed" and not retried):
+            raise ValueError("De eerdere retry heeft geen eenduidig ontvangstbewijs voor deze instantie")
+    target = returned or (row or {}).get("new_nzo_id") or nzo_id
+    matching = [s for s in (*queue, *history) if s["nzo_id"] == target]
+    if command and target != nzo_id and any(s["nzo_id"] == nzo_id for s in (*queue, *history)):
+        raise ValueError("Het oorspronkelijke retry-doel is nog aanwezig naast het teruggegeven download-ID")
+    if len(matching) > 1:
+        raise SabError("SABnzbd-download-ID is onleesbaar door dubbele toewijzing", "invalid")
+    if matching and command and download_category(matching[0]) != command["category"]:
+        raise ValueError("De retry-categorie op de bron wijkt af van de goedkeuring")
+    if any(s["nzo_id"] == target for s in queue):
+        if command and not (retried or returned):
+            raise ValueError("De download staat zonder retry-ontvangstbewijs in de wachtrij")
+        return RETRY_AFTER
+    if not matching:
+        return "niet gevonden in SABnzbd"
+    status = matching[0].get("status")
+    if status == "Failed":
+        return "opnieuw mislukt" if retried else RETRY_BEFORE
+    if status != "Completed":
+        raise SabError("SABnzbd-historystatus is onleesbaar of nog in behandeling", "invalid")
+    return RETRY_AFTER if retried else "niet mislukt"
 
 
-def do_retry(client: SabClient, nzo_id: str) -> None:
+def do_retry(client: SabClient, nzo_id: str, command: dict[str, Any]) -> None:
     q = quota()
     if q["left"] <= 0:
         raise SabError(
             f"limiet opnieuw proberen bereikt ({q['hour_max']} per uur / {q['day_max']} per dag)", "rate_limited"
         )
+    queue = measured_download_slots(client.queue, limit=1000)
+    history = measured_download_slots(client.history, limit=1000)
     try:
+        if _state_from_slots(client, nzo_id, command, queue, history) != RETRY_BEFORE:
+            raise changes.SourceWriteRefused("De aangevraagde download staat niet meer als mislukt in de historie")
+        occupied = {s["nzo_id"] for s in (*queue, *history)}
         new = client.retry(nzo_id)
+        if new != nzo_id and new in occupied:
+            raise SabError("Het teruggegeven download-ID bestond al voor een andere download", "ambiguous_id")
         cb.bind_write_target(op_path(nzo_id), new)
     except SabError as exc:
         get_db().execute(
@@ -265,11 +298,14 @@ def do_retry(client: SabClient, nzo_id: str) -> None:
         )
         raise
     get_db().execute(
-        "INSERT INTO usenet_retries(nzo_id,title,status,new_nzo_id,retried_at) VALUES (%s,%s,'retried',%s,now()) "
+        "INSERT INTO usenet_retries(nzo_id,title,status,new_nzo_id,client_instance,retried_at) "
+        "VALUES (%s,%s,'retried',%s,%s,now()) "
         "ON CONFLICT (nzo_id) DO UPDATE SET status='retried', new_nzo_id=EXCLUDED.new_nzo_id, retried_at=now(), "
-        "error=NULL",
-        (nzo_id, nzo_id, None if new == nzo_id else new),
+        "client_instance=EXCLUDED.client_instance, error=NULL",
+        (nzo_id, nzo_id, None if new == nzo_id else new, client.instance_id),
     )
+    if read_state(client, nzo_id, command) != RETRY_AFTER:
+        raise SabError("De aangevraagde retry is niet bevestigd op de ontvangende instantie", "invalid")
     audit(ACTOR, "sabnzbd.retry", "Mislukte download opnieuw geprobeerd in SABnzbd", target="sabnzbd",
           detail={"nzo_id": nzo_id, "new_nzo_id": None if new == nzo_id else new})
 
@@ -321,7 +357,9 @@ def propose(client: SabClient | None = None, *, actor: str = ACTOR) -> dict[str,
     for o in items:
         reason = FAILURE_REASONS.get(o.get("failure_reason") or "unknown", "Onbekende oorzaak")
         ops.append({"path": op_path(o["client_ref"]), "label": f"{o['title']} ({reason.lower()})",
-                    "before": RETRY_BEFORE, "after": RETRY_AFTER, "one_way": True})
+                    "before": RETRY_BEFORE, "after": RETRY_AFTER, "one_way": True,
+                    "command": {"instance": c.instance_id, "download_id": o["client_ref"],
+                                "category": o["client_category"]}})
     existing = _open_bundle()
     if existing and sorted(o["path"] for o in existing["ops"]) != sorted(o["path"] for o in ops):
         _discard_bundle(existing)
@@ -342,10 +380,12 @@ def propose(client: SabClient | None = None, *, actor: str = ACTOR) -> dict[str,
     db = get_db()
     for o in items:  # once per job: a row that was retried before is never reset
         db.execute(
-            "INSERT INTO usenet_retries(nzo_id,outcome_id,title,reason,status) VALUES (%s,%s,%s,%s,'proposed') "
+            "INSERT INTO usenet_retries(nzo_id,outcome_id,title,reason,status,client_instance) "
+            "VALUES (%s,%s,%s,%s,'proposed',%s) "
             "ON CONFLICT (nzo_id) DO UPDATE SET outcome_id=EXCLUDED.outcome_id, title=EXCLUDED.title, "
-            "reason=EXCLUDED.reason, status='proposed', error=NULL WHERE usenet_retries.retried_at IS NULL",
-            (o["client_ref"], o["id"], o["title"][:500], o.get("failure_reason")),
+            "reason=EXCLUDED.reason, client_instance=EXCLUDED.client_instance, status='proposed', error=NULL "
+            "WHERE usenet_retries.retried_at IS NULL AND usenet_retries.status='proposed'",
+            (o["client_ref"], o["id"], o["title"][:500], o.get("failure_reason"), c.instance_id),
         )
     ch = autoapply.propose_and_apply(
         RETRY_TARGET,

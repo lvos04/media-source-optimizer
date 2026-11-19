@@ -105,7 +105,20 @@ _BTIH_RE = re.compile(r"urn:btih:([0-9a-fA-F]{40}|[A-Z2-7]{32})", re.I)
 _BTMH_RE = re.compile(r"urn:btmh:1220([0-9a-fA-F]{64})", re.I)
 
 
-def infohashes_from_magnet(magnet: str) -> tuple[str | None, str | None]:
+def infohashes_from_magnet(magnet: str, *, strict: bool = False) -> tuple[str | None, str | None]:
+    if strict:
+        parsed = urlsplit(magnet)
+        if magnet.splitlines() != [magnet] or parsed.scheme != "magnet":
+            raise ValueError("De verwijzing bevat geen eenduidige magnet")
+        topics = [t for t in parse_qs(parsed.query).get("xt", []) if t.lower().startswith(("urn:btih:", "urn:btmh:"))]
+        if any(not (_BTIH_RE.fullmatch(t) or _BTMH_RE.fullmatch(t)) for t in topics):
+            raise ValueError("De magnet bevat een onleesbaar download-ID")
+        pairs = [infohashes_from_magnet(t) for t in topics]
+        v1s = {h for h, _ in pairs if h}
+        v2s = {h for _, h in pairs if h}
+        if not pairs or len(v1s) > 1 or len(v2s) > 1:
+            raise ValueError("De magnet bevat geen eenduidig download-ID")
+        return next(iter(v1s), None), next(iter(v2s), None)
     v1 = v2 = None
     if m := _BTIH_RE.search(magnet):
         h = m.group(1)

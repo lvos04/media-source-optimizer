@@ -612,6 +612,7 @@ def _applier() -> changes.Applier:
     targets: dict[str, int | None] = {}
     removed: dict[str, int] = {}
     payload_hashes: dict[str, str] = {}
+    commands: dict[str, dict[str, Any]] = {}
 
     def kind_of(path: str) -> str:
         kind = path.split(":", 1)[1] if path.startswith("indexer:") else ""
@@ -628,6 +629,17 @@ def _applier() -> changes.Applier:
         if len(found) > 1:
             raise ProwlarrError("Prowlarr-indexermeting is onleesbaar door dubbele registraties", "malformed")
         ident = found[0]["id"] if found else None
+        path = f"indexer:{kind}"
+        command = commands.get(path)
+        if command is not None:
+            if not command or command["instance"] != cb.instance_id(client.base_url):
+                raise ProwlarrError("De goedgekeurde Prowlarr-instantie kan niet worden bevestigd", "malformed")
+            expected = command["registration_id"]
+            if expected is None and (saved_id := cb.recorded_target(path)) is not None:
+                expected = int(saved_id)
+            if ident != expected and not (ident is None and expected not in ids and
+                                          cb.recorded_target(path) is not None):
+                raise ProwlarrError("Het registratie-ID wijkt af van de goedkeuring", "malformed")
         if len(set(ids)) != len(ids):
             raise ProwlarrError("Prowlarr-indexer-ID is onleesbaar door dubbele toewijzing", "malformed")
         if targets.setdefault(kind, ident) != ident or removed.get(kind) in ids:
@@ -695,7 +707,7 @@ def _applier() -> changes.Applier:
             if not ready["ready"]:
                 raise ValueError(ready["reason"])
 
-    return changes.Applier(read=read, write=write, validate=validate, payload_hashes=payload_hashes)
+    return changes.Applier(read=read, write=write, validate=validate, payload_hashes=payload_hashes, commands=commands)
 
 
 changes.register_applier(PROWLARR_ID, _applier)
@@ -793,6 +805,8 @@ def propose_registration(actor: str, kinds: list[str] | None = None) -> dict[str
                 "before": summary(cur),
                 "after": summary(want),
                 "payload_hash": _payload_hash(body, template),
+                "command": {"instance": cb.instance_id(client.base_url),
+                            "registration_id": found[0]["id"] if found else None},
             }
         )
     if not ops:

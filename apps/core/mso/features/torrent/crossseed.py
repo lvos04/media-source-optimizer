@@ -315,6 +315,7 @@ def preview(cid: int, actor: str) -> dict[str, Any]:
                 "label": f"Torrent voor {row['tracker_host']}",
                 "before": "afwezig",
                 "after": "toegevoegd_gepauzeerd",
+                "command": get_adapter("qbittorrent").crossseed_command(row),
                 "payload_hash": crossseed_payload_hash(row, get_vault().get(crossseed_secret(cid))),
             }
         ],

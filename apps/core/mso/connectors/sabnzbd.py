@@ -25,6 +25,7 @@ import httpx
 
 from mso import changes
 from mso.audit import audit
+from mso.change_preview import digest as command_hash
 from mso.connectors import base as cb
 from mso.security import limiter, redact
 
@@ -47,6 +48,7 @@ class SabClient:
         if not api_key:
             raise SabError("SABnzbd API-sleutel ontbreekt", "auth")
         self._api_key = api_key
+        self.instance_id = cb.instance_id(url)
         self._http = cb.http_client(url, timeout=timeout)
 
     def __repr__(self) -> str:  # never show the key
@@ -437,10 +439,7 @@ class SabClient:
         if not nzo_id or len(nzo_id) > 200:
             raise SabError("ongeldig nzo_id", "invalid")
         body = self._call("retry", {"value": nzo_id})
-        if not isinstance(body, dict) or body.get("status") is False:
-            raise SabError("SABnzbd kon de download niet opnieuw proberen", "api")
-        new = body.get("nzo_id") or (body.get("nzo_ids") or [None])[0]
-        return str(new or nzo_id)
+        return _nzo_id(body)
 
     # ------------------------------------------------------------------ direct user actions
     def add_url(
@@ -458,7 +457,7 @@ class SabClient:
         from mso.features.usenet import nzbs  # lazy: feature module owns the send history
 
         url_hash = hashlib.sha256(url.encode()).hexdigest()
-        if existing := nzbs.recent_send(sha256=url_hash):
+        if existing := nzbs.recent_send(sha256=url_hash, instance=self.instance_id, category=category):
             return existing
         _rate_limit()
         body = self._call(
@@ -470,6 +469,8 @@ class SabClient:
         nzo_id = _nzo_id(body)
         nzbs.record_send(
             nzo_id=nzo_id,
+            instance=self.instance_id,
+            request_hash=command_hash(["addurl", category, url_hash, name, priority]),
             origin="send_url",
             title=name or redact(url)[:200],
             category=category,
@@ -497,17 +498,22 @@ class SabClient:
         actor: str = "system",
         release_key: str | None = None,
         source_id: str | None = None,
+        exact: bool = False,
     ) -> str:
         """Upload NZB content to SABnzbd. Idempotent per NZB content for 24 h. The message-ids are kept
         (bounded sample) so MSO can later test article availability for exactly this job."""
         from mso.features.usenet import nzbs
 
         digest = hashlib.sha256(data).hexdigest()
-        if existing := nzbs.recent_send(sha256=digest):
+        safe_name = filename if filename.lower().endswith(".nzb") else f"{filename}.nzb"
+        fields = command_hash(["addfile", category, safe_name, digest])
+        if existing := nzbs.recent_send(sha256=digest, instance=self.instance_id, category=category,
+                                        request_hash=fields if exact else None):
+            if exact and not self.has_download(existing, category):
+                raise SabError("Het eerdere NZB-doel ontbreekt op de ontvangende instantie", "invalid")
             return existing
         parsed = nzbs.parse_nzb(data)  # validates before sending
         _rate_limit()
-        safe_name = filename if filename.lower().endswith(".nzb") else f"{filename}.nzb"
         body = self._call(
             "addfile",
             {"cat": category, "nzbname": None},
@@ -517,7 +523,9 @@ class SabClient:
         nzo_id = _nzo_id(body)
         nzbs.record_send(
             nzo_id=nzo_id,
+            instance=self.instance_id,
             origin="send_nzb",
+            request_hash=fields,
             title=safe_name[:-4],
             category=category,
             sha256=digest,
@@ -535,6 +543,16 @@ class SabClient:
         )
         return nzo_id
 
+    def has_download(self, ref: str, category: str | None = None) -> bool:
+        queue = measured_download_slots(self.queue, limit=500)
+        history = measured_download_slots(self.history, limit=500)
+        found = [s for s in (*queue, *history) if s["nzo_id"] == ref]
+        if len(found) > 1:
+            raise ValueError("Het download-ID op deze instantie is niet eenduidig")
+        if found and category is not None and download_category(found[0]) != category:
+            raise ValueError("De categorie van de eerdere NZB wijkt af van de goedkeuring")
+        return bool(found)
+
 
 def _rate_limit() -> None:
     ok, wait = limiter.hit("sab-send", "global", SEND_RATE_PER_MIN, 60)
@@ -543,10 +561,15 @@ def _rate_limit() -> None:
 
 
 def _nzo_id(body: dict[str, Any]) -> str:
-    ids = body.get("nzo_ids") or []
-    if not body.get("status") or not ids:
-        raise SabError("SABnzbd heeft de NZB niet geaccepteerd", "api")
-    return str(ids[0])
+    if not isinstance(body, dict) or body.get("status") is not True:
+        raise SabError("SABnzbd heeft de opdracht niet bevestigd", "api")
+    ids = body.get("nzo_ids", [])
+    if not isinstance(ids, list) or ("nzo_ids" in body and len(ids) != 1):
+        raise SabError("SABnzbd gaf geen eenduidig download-ID terug", "ambiguous_id")
+    received = [*ids, *([body["nzo_id"]] if "nzo_id" in body else [])]
+    if not received or any(not isinstance(i, str) or not i.strip() or i != received[0] for i in received):
+        raise SabError("SABnzbd gaf geen eenduidig download-ID terug", "ambiguous_id")
+    return received[0]
 
 
 def _int(v: Any, default: int) -> int:
@@ -571,6 +594,13 @@ def _measured_server_field(server: dict[str, Any], field: str) -> int:
     except ValueError:
         raise SabError(f"SABnzbd-serverveld '{field}' is onleesbaar", "invalid") from None
     return value
+
+
+def download_category(slot: dict[str, Any]) -> str:
+    values = [slot[field] for field in ("cat", "category") if field in slot]
+    if not values or any(not isinstance(v, str) or v != values[0] for v in values):
+        raise SabError("SABnzbd-downloadcategorie is onleesbaar", "invalid")
+    return values[0]
 
 
 def measured_download_slots(read_page: Callable[..., dict[str, Any] | None], *, limit: int) -> list[dict[str, Any]]:
@@ -650,21 +680,22 @@ def _retry_applier() -> changes.Applier:
     from mso.features.usenet import retry as rt  # lazy: the feature module keeps the retry history
 
     client = SabClient.from_config()
+    commands: dict[str, dict[str, Any]] = {}
 
     def read(path: str) -> Any:
-        return rt.read_state(client, rt.parse_path(path))
+        return rt.read_state(client, rt.parse_path(path), commands.get(path))
 
     def write(path: str, value: Any) -> None:
         if value != RETRY_AFTER:
             raise SabError("een opnieuw geprobeerde download kan niet worden teruggezet", "invalid")
-        rt.do_retry(client, rt.parse_path(path))
+        rt.do_retry(client, rt.parse_path(path), commands.get(path, {}))
 
     def validate(path: str, value: Any) -> None:
         rt.parse_path(path)
         if value not in (RETRY_BEFORE, RETRY_AFTER):
             raise ValueError("waarde moet 'opnieuw in wachtrij' zijn")
 
-    return changes.Applier(read=read, write=write, validate=validate)
+    return changes.Applier(read=read, write=write, validate=validate, commands=commands)
 
 
 changes.register_applier(RETRY_TARGET, _retry_applier)
@@ -709,6 +740,20 @@ def _category_applier() -> changes.Applier:
     Rollback is only ever manual and by an admin (``rollback_deletes``): never by the reconciler, the restore after
     a failed apply or 'Alles terugzetten'; :func:`_category_evaluation` keeps the automation engine from it too."""
     client = SabClient.from_config()
+    commands: dict[str, dict[str, Any]] = {}
+
+    def next_order() -> int:
+        orders = [c["order"] for c in client.category_config(measure=True)]
+        if any(order is None for order in orders):
+            raise SabError("SABnzbd-categorievolgorde is onleesbaar", "invalid")
+        return max(orders, default=0) + 1
+
+    def prepare(ops: list[dict[str, Any]]) -> None:
+        order = next_order()
+        for op in ops:
+            if op["after"] != CATEGORY_ABSENT:
+                op["command"] = {"instance": client.instance_id, "order": order}
+                order += 1
 
     def find(name: str) -> dict[str, Any] | None:
         return next((c for c in client.category_config(measure=True) if c["name"].lower() == name), None)
@@ -723,7 +768,12 @@ def _category_applier() -> changes.Applier:
         return name in categories
 
     def read(path: str) -> Any:
-        cat = find(category_path_name(path))
+        name = category_path_name(path)
+        cat = find(name)
+        command = commands.get(path)
+        if command and (command["instance"] != client.instance_id
+                        or cat and cat["dir"] == name and cat["order"] != command["order"]):
+            raise ValueError("De instantie of volgorde van de categorie wijkt af van de goedkeuring")
         return CATEGORY_ABSENT if cat is None else category_present(cat["dir"])
 
     def write(path: str, value: Any) -> None:
@@ -760,10 +810,10 @@ def _category_applier() -> changes.Applier:
             return
         if value != category_present(name):
             raise SabError("MSO maakt een categorie alleen aan met een eigen map met dezelfde naam", "invalid")
-        orders = [c["order"] for c in client.category_config(measure=True)]
-        if any(order is None for order in orders):
-            raise SabError("SABnzbd-categorievolgorde is onleesbaar", "invalid")
-        client.create_category(name, name, order=max(orders, default=0) + 1)
+        order = next_order()
+        if path in commands and commands[path] != {"instance": client.instance_id, "order": order}:
+            raise changes.SourceWriteRefused("De instantie of volgorde van de categorie wijkt af van de goedkeuring")
+        client.create_category(name, name, order=order)
 
     def validate(path: str, value: Any) -> None:
         name = category_path_name(path)
@@ -771,7 +821,7 @@ def _category_applier() -> changes.Applier:
             raise ValueError(f"waarde moet '{CATEGORY_ABSENT}' of '{category_present(name)}' zijn")
 
     # writing 'ontbreekt' back deletes the category: never unattended, and a person's rollback needs an admin
-    return changes.Applier(read=read, write=write, validate=validate,
+    return changes.Applier(read=read, write=write, validate=validate, commands=commands, prepare=prepare,
                            rollback_deletes=lambda _path, value: value == CATEGORY_ABSENT)
 
 

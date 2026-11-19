@@ -113,7 +113,7 @@ def release(
         confidence=0.8,
     )
     if protocol == "torrent":
-        r.infohash_v1 = (ident * 3)[:40].ljust(40, "0")
+        r.infohash_v1 = nzmock.infohash(title)
     else:
         r.nzb_id = ident
     return r
@@ -170,16 +170,28 @@ def install_clients(monkeypatch: Any) -> dict[str, list[Any]]:
     sab = types.ModuleType("mso.connectors.sabnzbd")
 
     class SabClient:
+        instance_id = "test-sabclient"
+
+        def close(self):
+            pass
+
+        def categories(self):
+            return ["mso-tv", "mso-movies", "tv", "movies"]
+
         @classmethod
         def from_config(cls) -> SabClient:
             return cls()
+
+        def has_download(self, ref: str, category: str) -> bool:
+            return any(ref == f"SABnzbd_nzo_{i}" and job["category"] == category
+                       for i, job in enumerate(sent["sab"], 1))
 
         def add_url(
             self, url: str, *, category: str, name: str | None = None, priority: int | None = None
         ) -> str:
             raise AssertionError("recovery must send NZB content fetched via Slice A, not a URL")
 
-        def add_nzb(self, data: bytes, filename: str, *, category: str) -> str:
+        def add_nzb(self, data: bytes, filename: str, *, category: str, exact: bool = False) -> str:
             sent["sab"].append({"bytes": len(data), "filename": filename, "category": category})
             return f"SABnzbd_nzo_{len(sent['sab'])}"
 
@@ -187,6 +199,17 @@ def install_clients(monkeypatch: Any) -> dict[str, list[Any]]:
     qb = types.ModuleType("mso.connectors.qbittorrent")
 
     class QbitClient:
+        def pause_field(self):
+            return "stopped"
+
+        instance_id = "test-qbitclient"
+
+        def close(self):
+            pass
+
+        def categories(self):
+            return ["mso-tv", "mso-movies", "tv", "movies"]
+
         @classmethod
         def from_config(cls) -> QbitClient:
             return cls()
@@ -198,6 +221,7 @@ def install_clients(monkeypatch: Any) -> dict[str, list[Any]]:
             data: bytes | None = None,
             category: str,
             paused: bool = False,
+            pause_field: str | None = None,
             tags: list[str] | None = None,
         ) -> None:
             sent["qbit"].append({"url": url, "bytes": len(data or b""), "category": category, "tags": tags})

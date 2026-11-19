@@ -26,7 +26,8 @@ EXPECTED_MATRIX_DIFFERENCES = {
         "added_migrations": [{"version": 608, "name": "machine_keys", "applied_at": "<tijd>"},
                              {"version": 609, "name": "automation_event_id", "applied_at": "<tijd>"},
                              {"version": 610, "name": "connector_idempotency", "applied_at": "<tijd>"},
-                             {"version": 611, "name": "resource_samples", "applied_at": "<tijd>"}],
+                             {"version": 611, "name": "resource_samples", "applied_at": "<tijd>"},
+                             {"version": 612, "name": "download_receipts", "applied_at": "<tijd>"}],
         # S-P3-210 voegt imageherkomst toe. Zonder buildargumenten is ook de versie onbekend.
         "base_software_version": "1.6.0",
         "build_fields": ("git_sha", "build_time", "channel"),

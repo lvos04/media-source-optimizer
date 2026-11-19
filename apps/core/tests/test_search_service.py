@@ -280,7 +280,14 @@ def test_compare_candidates_and_flag(viewer: Any, operator: Any, indexers: dict[
 
 # ------------------------------------------------------------------ send to client
 class FakeSab:
+    instance_id = "test-sab"
     added: list[tuple[bytes, str, str]] = []
+
+    def close(self):
+        pass
+
+    def has_download(self, ref: str, category: str) -> bool:
+        return ref == "SABnzbd_nzo_abc" and any(cat == category for _, _, cat in self.added)
 
     @classmethod
     def from_config(cls) -> FakeSab:
@@ -295,7 +302,11 @@ class FakeSab:
 
 
 class FakeQbit:
+    instance_id = "test-torrent"
     added: list[dict[str, Any]] = []
+
+    def close(self):
+        pass
 
     @classmethod
     def from_config(cls) -> FakeQbit:
@@ -316,7 +327,7 @@ def fake_clients(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_send_nzb_idempotent_and_audited(
-    viewer: Any, operator: Any, indexers: dict[str, Any], fake_clients: None, db: Any
+    viewer: Any, operator: Any, indexers: dict[str, Any], fake_clients: None, db: Any, monkeypatch: Any
 ) -> None:
     res = search(viewer, q="Expanse", category="tv", protocol="usenet")
     item = res["items"][0]
@@ -330,6 +341,11 @@ def test_send_nzb_idempotent_and_audited(
     assert data.startswith(b"<?xml") and b"<nzb" in data and cat == "tv" and filename.endswith(".nzb")
     again = operator.post("/api/v1/search/send", json={"token": item["token"], "category": "tv"}).json()
     assert again["status"] == "already_sent" and len(FakeSab.added) == 1
+    assert again["send"]["client_instance"] == FakeSab.instance_id
+    with monkeypatch.context() as replacement:
+        replacement.setattr(FakeSab, "instance_id", "andere-testinstantie")
+        refused = operator.post("/api/v1/search/send", json={"token": item["token"], "category": "tv"})
+        assert refused.status_code == 409 and len(FakeSab.added) == 1
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='search.sent'") == 1
     assert NZ_KEY not in str(db.fetchall("SELECT * FROM audit_log")) + str(
         db.fetchall("SELECT * FROM search_sends")
@@ -352,6 +368,7 @@ def test_send_torrent_uses_file_and_keeps_private(
     kw = FakeQbit.added[0]
     assert kw["category"] == "movies" and kw["data"].startswith(b"d8:announce")
     assert r.json()["send"]["client_ref"] == item["release_key"].split(":", 1)[1]
+    assert r.json()["send"]["client_instance"] == FakeQbit.instance_id
 
 
 def test_send_refused_when_blacklisted_or_client_absent(

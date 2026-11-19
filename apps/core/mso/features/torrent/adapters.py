@@ -24,6 +24,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from mso.connectors import base as cb
+from mso.connectors import torrent_form
 from mso.features.torrent import policy
 from mso.security import redact
 
@@ -108,12 +109,13 @@ class TorrentClientAdapter(Protocol):
     def read_value(self, path: str) -> Any: ...  # change-set applier paths (see applier.py)
     def write_value(self, path: str, value: Any) -> None: ...
     def add_torrent(
-        self, *, data: bytes, category: str, save_path: str | None, paused: bool, tags: list[str]
+        self, *, data: bytes, category: str, save_path: str | None, paused: bool, pause_field: str, tags: list[str]
     ) -> None: ...
     def recheck(self, h: str) -> None: ...
     def reannounce(self, h: str) -> None: ...
     def has_torrent(self, h: str) -> bool: ...
-    def torrent_state(self, h: str) -> str | None: ...
+    def crossseed_command(self, row: dict[str, Any]) -> dict[str, Any]: ...
+    def torrent_state(self, h: str, *, category: str, save_path: str) -> str | None: ...
     def live_torrents(self) -> list[dict[str, Any]]: ...  # torrents/info rows (fresh, not the sync cache)
     def delete_with_files(self, h: str) -> None: ...  # cleanup applier only
 
@@ -297,10 +299,11 @@ class QbitAdapter:
         raise ValueError(f"onbekend pad {path}")
 
     def add_torrent(
-        self, *, data: bytes, category: str, save_path: str | None, paused: bool, tags: list[str]
+        self, *, data: bytes, category: str, save_path: str | None, paused: bool, pause_field: str, tags: list[str]
     ) -> None:
         self.qb.add_torrent(
-            data=data, category=category, paused=paused, tags=tags, save_path=save_path, skip_checking=False
+            data=data, category=category, paused=paused, pause_field=pause_field, tags=tags,
+            save_path=save_path, skip_checking=False
         )
 
     def recheck(self, h: str) -> None:
@@ -312,10 +315,23 @@ class QbitAdapter:
     def has_torrent(self, h: str) -> bool:
         return self.qb.torrent(h) is not None
 
-    def torrent_state(self, h: str) -> str | None:
+    def crossseed_command(self, row: dict[str, Any]) -> dict[str, Any]:
+        source = self.qb.torrent(row["source_hash"])
+        category, save_path = row["category"] or "", row["save_path"]
+        if not source or source.get("category") != category or not save_path or source.get("save_path") != save_path:
+            raise ValueError("Bron, categorie of opslagpad van de cross-seed is gewijzigd")
+        pause = self.qb.pause_field()
+        fields = torrent_form.add_fields(category, pause, paused=True, tags=["mso-cross-seed"], save_path=save_path)
+        return {"instance": self.qb.instance_id, "source": row["source_hash"], "download_id": row["candidate_hash"],
+                "category": category, "save_path": save_path, "pause_field": pause, "mode": "torrents/add",
+                "fields": {**fields, "torrents": [torrent_form.FILENAME, torrent_form.CONTENT_TYPE]}}
+
+    def torrent_state(self, h: str, *, category: str, save_path: str) -> str | None:
         torrent = self.qb.torrent(h)
         if torrent is None:
             return None
+        if torrent.get("category") != category or torrent.get("save_path") != save_path:
+            raise ValueError("De ontvangen torrent heeft een andere categorie of een ander opslagpad")
         value = torrent.get("state")
         if not isinstance(value, str) or not value.strip():
             raise ValueError("De torrentstatus op de bron is onleesbaar")

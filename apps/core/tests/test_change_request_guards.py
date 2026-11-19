@@ -27,7 +27,7 @@ def _applied_count(db, ch):
     return db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'", (ch["id"],))
 
 
-@pytest.mark.parametrize("moment", ["voor-schrijven", "na-schrijven", "herstart"])
+@pytest.mark.parametrize("moment", ["na-preview", "voor-schrijven", "na-schrijven", "herstart"])
 @pytest.mark.parametrize(("target", "connector"), [
     ("sabnzbd", "sabnzbd"), ("sabnzbd_categories", "sabnzbd"), ("sabnzbd_retry", "sabnzbd"),
     ("qbittorrent", "qbittorrent"), ("prowlarr", "prowlarr"), ("download_send", "qbittorrent"),
@@ -61,6 +61,13 @@ def test_herstel_meet_de_aangeschreven_instantie(db, manage_mode, monkeypatch, t
     instantie(eerste)
     monkeypatch.setitem(changes.APPLIERS, target, adapter)
     ch = changes.create(target, "Instantiemeting", [{"path": "proef", "before": 10, "after": 20}], risk="advies")
+    if moment == "na-preview":
+        instantie(tweede)
+        with pytest.raises(HTTPException) as exc:
+            changes.apply(ch["id"], "beheerder")
+        assert exc.value.status_code == 409
+        assert metingen == opdrachten == [] and _applied_count(db, ch) == 0
+        return
     if moment != "herstart":
         with pytest.raises(changes.ChangeUncertain):
             changes.apply(ch["id"], "beheerder")
@@ -125,9 +132,9 @@ def test_oude_hash_blijft_ongewijzigd_bij_weigering(admin, client, db, database_
     _pin(key, monkeypatch)
     machine = _hub_key(admin, ["changes:approve"])
     try:
-        assert migrate_down(db, 609) == [611, 610]
+        assert migrate_down(db, 609) == [612, 611, 610]
     finally:
-        assert migrate_up(db) == [610, 611]
+        assert migrate_up(db) == [610, 611, 612]
     base = f"/api/v1/changes/{ch['id']}"
     wrong = digest("andere voorvertoning")
     before = database_bytes(db)

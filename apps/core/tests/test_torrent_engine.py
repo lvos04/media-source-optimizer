@@ -614,9 +614,9 @@ def _torrent_bytes(name: str, files: list[tuple[str, int]], announce: str) -> by
     return bencode({"announce": announce, "info": info})
 
 
-@pytest.mark.parametrize("map_gewijzigd", [False, True])
+@pytest.mark.parametrize("wijziging", ["geen", "opslagpad", "categorie", "pauzeveld"])
 def test_cross_seed_only_identical_payload_allowed_tracker(
-    qb: Qb, admin: Any, operator: Any, db: Any, manage_mode: None, map_gewijzigd: bool
+    qb: Qb, admin: Any, operator: Any, db: Any, manage_mode: None, wijziging: str
 ) -> None:
     from mso.features.torrent.crossseed import parse_torrent
 
@@ -658,18 +658,34 @@ def test_cross_seed_only_identical_payload_allowed_tracker(
     cand = r.json()
     assert "GEHEIMEPASSKEY" not in r.text and cand["tracker_host"] == "tracker.ander.example"
     assert "GEHEIMEPASSKEY" not in operator.get("/api/v1/torrent/cross-seed").text
+    qb.st.webapi = "2.8.3"
     ch = operator.post(f"/api/v1/torrent/cross-seed/{cand['id']}/preview").json()
+    command = ch["ops"][0]["command"]
+    assert command["pause_field"] == "paused"
+    assert command["fields"] == {
+        "category": qb.st.torrents[h]["category"], "paused": "true", "skip_checking": "false",
+        "tags": "mso-cross-seed", "savepath": qb.st.torrents[h]["save_path"], "autoTMM": "false",
+        "contentLayout": "Original", "torrents": ["release.torrent", "application/x-bittorrent"],
+    }
     assert ch["risk"] == "toestemming_nodig"
     assert operator.post(f"/api/v1/changes/{ch['id']}/apply").status_code in (403, 409)
     admin.post(f"/api/v1/changes/{ch['id']}/approve")
-    if map_gewijzigd:
+    if wijziging == "opslagpad":
         db.execute("UPDATE torrent_crossseed_candidates SET save_path='andere-map' WHERE id=%s", (cand["id"],))
+    elif wijziging == "pauzeveld":
+        qb.st.webapi = "2.16.2"
+    elif wijziging == "categorie":
+        qb.st.torrents[h]["category"] = "andere-categorie"
     r = operator.post(f"/api/v1/changes/{ch['id']}/apply")
-    if map_gewijzigd:
+    if wijziging != "geen":
         assert r.status_code == 502 and not qb.calls("torrents/add")
+        assert db.scalar("SELECT count(*) FROM audit_log WHERE action='change.applied' AND change_id=%s",
+                         (ch["id"],)) == 0
         return
     assert r.status_code == 200, r.text
     new_hash = parse_torrent(data)["infohash"]
+    assert db.fetchone("SELECT hash,client_instance FROM torrent_actions WHERE action='crossseed_add'") == {
+        "hash": new_hash, "client_instance": command["instance"]}
     added = qb.st.torrents[new_hash]
     assert added["state"] == "stoppedDL" and added["skip_checking"] is False
     assert added["save_path"] == qb.st.torrents[h]["save_path"]  # same data location, nothing moved

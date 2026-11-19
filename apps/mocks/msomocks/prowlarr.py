@@ -573,7 +573,7 @@ def create_app(api_key: str = "prowlarr-test-key", **faults: Any) -> FastAPI:
                     ):
                         continue
                     torrent = idx["protocol"] == "torrent"
-                    h = nz.infohash(f["id"])
+                    h = nz.infohash(f["title"], idx.get("privacy") == "private")
                     results.append(
                         {
                             "guid": f"{base}/guid/{idx['id']}/{f['id']}",

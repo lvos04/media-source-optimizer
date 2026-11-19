@@ -15,7 +15,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import time
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,9 +27,12 @@ from fastapi import HTTPException
 
 from mso import settings_registry as sr
 from mso.audit import audit
+from mso.change_preview import digest
 from mso.connectors import base as cb
-from mso.db import get_db
+from mso.connectors import torrent_form
+from mso.db import get_db, jsonb
 from mso.domain import releasegate
+from mso.domain.release import NormalizedRelease
 from mso.features.recovery import blacklist, candidates
 from mso.security import redact
 
@@ -36,36 +43,97 @@ def client_category(media_category: str) -> str:
     return media_category if sr.get("herstel.send_category_mode") == "mediaguard" else f"mso-{media_category}"
 
 
-def _dispatch(protocol: str, token: str, *, category: str, title: str) -> tuple[str, str | None]:
-    """Fetch the NZB/.torrent through Slice A (``fetch_download(token)``: SSRF guard, size cap, indexer secret
-    re-injected server-side), check its payload (release gate: raises ``releasegate.Refused``) and hand it to the
-    client via the Slice B/C contracts. Returns (client, client_ref)."""
-    try:
-        search = importlib.import_module("mso.features.search.service")
-    except ModuleNotFoundError as exc:
-        raise HTTPException(409, detail="Zoekmachine niet beschikbaar; kan de release niet ophalen") from exc
+def download_client(protocol: str) -> Any:
     if protocol == "usenet":
-        try:
-            mod = importlib.import_module("mso.connectors.sabnzbd")
-        except ModuleNotFoundError as exc:
-            raise HTTPException(409, detail="SABnzbd-koppeling niet beschikbaar in deze installatie") from exc
-        sab = mod.SabClient.from_config()
-        fetched = search.fetch_download(token)
-        releasegate.check_download("usenet", fetched, title=title, media=True)
-        name = getattr(fetched, "filename", None) or f"{title}.nzb"
-        return "sabnzbd", sab.add_nzb(fetched.content, name, category=category)
+        return importlib.import_module("mso.connectors.sabnzbd").SabClient.from_config()
+    return importlib.import_module("mso.connectors.qbittorrent").QbitClient.from_config()
+
+
+def confirmed_download(row: dict[str, Any], command: dict[str, Any] | None) -> bool:
+    """Lees het eerder ontvangen ID en de categorie op de geadresseerde client terug."""
+    ref = row.get("client_ref")
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError("Download-ID van de herstelverzending is onleesbaar")
+    if row["client"] not in {"sabnzbd", "qbittorrent"}:
+        raise ValueError("Downloadclient van de herstelverzending is onleesbaar")
+    protocol = "usenet" if row["client"] == "sabnzbd" else "torrent"
+    with closing(download_client(protocol)) as client:
+        if command and client.instance_id != command["instance"]:
+            raise ValueError("De eerdere download is op een andere instantie verzonden")
+        if protocol == "usenet":
+            return client.has_download(ref, command["category"] if command else None)
+        if command and (ref != command["download_id"] or client.pause_field() != command["pause_field"]):
+            raise ValueError("Het download-ID of pauzeveld wijkt af van de goedgekeurde torrentopdracht")
+        for attempt in range(4):
+            torrent = client.torrent(ref.lower())
+            if torrent:
+                if command and torrent.get("category") != command["category"]:
+                    raise ValueError("De categorie van de eerdere torrent wijkt af van de goedkeuring")
+                return True
+            if attempt < 3:
+                time.sleep(0.75)
+        return False
+
+
+@contextmanager
+def prepared_download(r: NormalizedRelease, category: str) -> Iterator[tuple[dict[str, Any], Any, Any]]:
+    """Leg ook geheime formulierwaarden vast met een hash. Alleen het opgehaalde exemplaar kan worden verzonden."""
+    search = importlib.import_module("mso.features.search.service")
+    fetched = search.fetch_download(r.extra["token"])
+    payload = hashlib.sha256(fetched.content or b"").hexdigest()
+    with closing(download_client(r.protocol)) as client:
+        if r.protocol == "usenet":
+            name = fetched.filename or f"{r.title}.nzb"
+            filename = name if name.lower().endswith(".nzb") else f"{name}.nzb"
+            fields = {"cat": category, "name": digest([filename, payload])}
+            command = {"client": "sabnzbd", "mode": "addfile", "fields": fields}
+        else:
+            pause = client.pause_field()
+            fields = torrent_form.add_fields(category, pause, paused=False, tags=["mso-herstel"])
+            if fetched.final_url:
+                fields["urls"] = digest(fetched.final_url)
+            else:
+                fields["torrents"] = digest([torrent_form.FILENAME, torrent_form.CONTENT_TYPE, payload])
+            download_id = r.infohash_v1 or r.infohash_v2 or releasegate.torrent_download_id(fetched, None)
+            command = {"client": "qbittorrent", "mode": "torrents/add", "fields": fields, "pause_field": pause,
+                       "download_id": download_id.lower()}
+        command.update(instance=client.instance_id, category=category, release_key=r.release_key)
+        yield command, client, fetched
+
+
+def preview_command(media_ref: str, release_key: str, category: str) -> dict[str, Any]:
+    row = get_db().fetchone("SELECT release FROM recovery_candidates WHERE media_ref=%s AND release_key=%s",
+                            (media_ref, release_key))
+    if not row:
+        raise ValueError("De beoordeelde kandidaat ontbreekt")
     try:
-        mod = importlib.import_module("mso.connectors.qbittorrent")
-    except ModuleNotFoundError as exc:
-        raise HTTPException(409, detail="qBittorrent-koppeling niet beschikbaar in deze installatie") from exc
-    qb = mod.QbitClient.from_config()
-    fetched = search.fetch_download(token)
-    releasegate.check_download("torrent", fetched, title=title, media=True)
-    if getattr(fetched, "final_url", None):
-        qb.add_torrent(url=fetched.final_url, category=category, paused=False, tags=["mso-herstel"])
-    else:
-        qb.add_torrent(data=fetched.content, category=category, paused=False, tags=["mso-herstel"])
-    return "qbittorrent", None
+        with prepared_download(candidates.release_from_json(row["release"]), category) as (command, _, _):
+            return command
+    except Exception as exc:
+        raise ValueError("De verzendopdracht kon niet worden vastgelegd. Zoek de kandidaat opnieuw.") from exc
+
+
+def _dispatch(r: NormalizedRelease, media_category: str, approved: dict[str, Any] | None) -> tuple[dict[str, Any], str]:
+    category = client_category(media_category)
+    with prepared_download(r, category) as (current, client, fetched):
+        if approved is not None and current != approved:
+            raise HTTPException(409, detail="De verzendopdracht wijkt af van de goedgekeurde voorvertoning")
+        command = current if approved is None else approved
+        checked = releasegate.check_download(r.protocol, fetched, title=r.title, media=True)
+        if command["category"] not in client.categories() or client_category(media_category) != command["category"]:
+            raise HTTPException(409, detail="De verzendcategorie ontbreekt op de ontvangende instantie")
+        if r.protocol == "usenet":
+            name = fetched.filename or f"{r.title}.nzb"
+            ref = client.add_nzb(fetched.content, name, category=command["category"], exact=True)
+        else:
+            try:
+                ref = releasegate.torrent_download_id(fetched, command["download_id"], checked.keys)
+            except ValueError as exc:
+                raise HTTPException(409, detail=str(exc)) from exc
+            payload = {"url": fetched.final_url} if fetched.final_url else {"data": fetched.content}
+            client.add_torrent(**payload, category=command["category"], paused=False,
+                               pause_field=command["pause_field"], tags=["mso-herstel"])
+        return command, ref
 
 
 def idempotency_key(media_ref: str, release_key: str) -> str:
@@ -82,7 +150,8 @@ def sends_used_last_hour() -> int:
     )
 
 
-def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual") -> dict[str, Any]:
+def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual",
+         approved: dict[str, Any] | None = None) -> dict[str, Any]:
     """``via='change'``: sent by applying an approved change set (``download_send`` applier) — same quality
     gate, quota, backoff and idempotency as a manual send."""
     t = candidates.resolve_target(media_ref)
@@ -158,13 +227,25 @@ def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual") -
     )
     if row is None:
         existing = db.fetchone("SELECT * FROM recovery_sends WHERE idempotency_key=%s", (key,))
+        command = approved or preview_command(media_ref, release_key, category)
+        if (not existing or existing["status"] not in {"sent", "download_ok", "download_failed"}
+                or existing["command"] != command):
+            raise HTTPException(409, detail="De eerdere verzending heeft geen overeenkomende ontvanger en opdracht")
+        try:
+            found = confirmed_download(existing, command)
+        except Exception as exc:
+            raise HTTPException(409, detail="Het eerdere doel kan op deze instantie niet worden bevestigd") from exc
+        if not found:
+            raise HTTPException(409, detail="De eerdere download ontbreekt op de ontvangende instantie")
         return {
             "duplicate": True,
             "send": existing,
             "message": "Deze release is al naar de downloadclient gestuurd voor dit item; niet opnieuw.",
         }
     try:
-        client, ref = _dispatch(r.protocol, token, category=category, title=r.title)
+        command, ref = _dispatch(r, t.media_category, approved)
+        client = command["client"]
+        category = command["category"]
     except releasegate.Refused as exc:
         db.execute(
             "UPDATE recovery_sends SET status='failed', error=%s, idempotency_key=%s, updated_at=now() "
@@ -196,18 +277,18 @@ def send(media_ref: str, release_key: str, *, actor: str, via: str = "manual") -
         raise HTTPException(409, detail=str(exc)) from exc
     except Exception as exc:
         msg = redact(f"{type(exc).__name__}: {exc}")
+        failed_key = key if getattr(exc, "code", "") in {"ambiguous_id", "timeout"} else f"{key}:failed:{row['id']}"
         db.execute(
             "UPDATE recovery_sends SET status='failed', error=%s, idempotency_key=%s, updated_at=now() "
             "WHERE id=%s",
-            (msg, f"{key}:failed:{row['id']}", row["id"]),
+            (msg, failed_key, row["id"]),
         )
         raise HTTPException(502, detail=f"Downloadclient weigerde: {msg}") from exc
-    if r.protocol == "torrent":
-        ref = r.infohash_v1 or r.infohash_v2 or ref
     done = db.fetchone(
-        "UPDATE recovery_sends SET status='sent', client=%s, client_ref=%s, updated_at=now() "
+        "UPDATE recovery_sends SET status='sent', client=%s, client_ref=%s, client_category=%s, command=%s, "
+        "updated_at=now() "
         "WHERE id=%s RETURNING *",
-        (client, ref, row["id"]),
+        (client, ref, category, jsonb(command), row["id"]),
     )
     audit(
         actor,

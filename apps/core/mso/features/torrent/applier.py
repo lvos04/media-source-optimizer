@@ -63,7 +63,8 @@ def _action_done(path: str) -> bool:
 
 
 def _record_action(h: str, action: str) -> None:
-    get_db().execute("INSERT INTO torrent_actions(hash, action) VALUES (%s,%s)", (h, action))
+    get_db().execute("INSERT INTO torrent_actions(hash,action,client_instance) VALUES (%s,%s,%s)",
+                     (h, action, cb.recorded_target("qbittorrent")))
 
 
 def _refresh_snapshot_pref(key: str, value: Any) -> None:
@@ -81,6 +82,7 @@ def _refresh_snapshot_pref(key: str, value: Any) -> None:
 def build() -> Applier:
     state: dict[str, Any] = {}
     payload_hashes: dict[str, str] = {}
+    commands: dict[str, dict[str, Any]] = {}
 
     def adapter() -> Any:
         if "a" not in state:
@@ -90,6 +92,17 @@ def build() -> Applier:
         return state["a"]
 
     cl = cleanup.CleanupOps(adapter)
+
+    def crossseed_candidate(path: str, cid: int) -> tuple[dict[str, Any], str]:
+        row = get_db().fetchone("SELECT * FROM torrent_crossseed_candidates WHERE id=%s", (cid,))
+        blob = get_vault().get(crossseed_secret(cid))
+        if row is None or not blob:
+            raise ValueError("Torrentbestand van de kandidaat ontbreekt")
+        command = commands.get(path)
+        if adapter().crossseed_command(row) != command or crossseed_payload_hash(row, blob) != payload_hashes.get(path):
+            raise changes.SourceWriteRefused("De cross-seedopdracht wijkt af van de goedkeuring")
+        cb.bind_write_target(path, command["download_id"])
+        return command, blob
 
     def read(path: str) -> Any:
         if cleanup.is_cleanup_path(path):
@@ -102,13 +115,9 @@ def build() -> Applier:
                     raise ValueError("De torrent voor de aangevraagde actie ontbreekt op de bron")
                 return "uitgevoerd" if _action_done(path) else "niet_uitgevoerd"
         if kind == "crossseed":
-            row = get_db().fetchone(
-                "SELECT candidate_hash FROM torrent_crossseed_candidates WHERE id=%s", (int(rest),)
-            )
-            if row is None:
-                raise ValueError("cross-seed-kandidaat bestaat niet")
-            cb.bind_write_target(path, row["candidate_hash"])
-            status = adapter().torrent_state(row["candidate_hash"])
+            command, _ = crossseed_candidate(path, int(rest))
+            status = adapter().torrent_state(command["download_id"], category=command["category"],
+                                            save_path=command["save_path"])
             if status is None:
                 return "afwezig"
             return "toegevoegd_gepauzeerd" if status in ("pausedDL", "pausedUP", "stoppedDL", "stoppedUP") else "actief"
@@ -144,21 +153,16 @@ def build() -> Applier:
                     "qBittorrent (zonder bestanden)"
                 )
             cid = int(rest)
-            row = get_db().fetchone("SELECT * FROM torrent_crossseed_candidates WHERE id=%s", (cid,))
-            blob = get_vault().get(crossseed_secret(cid))
-            if row is None or not blob:
-                raise ValueError("torrentbestand van de kandidaat ontbreekt")
-            cb.bind_write_target(path, row["candidate_hash"])
-            if crossseed_payload_hash(row, blob) != payload_hashes.get(path):
-                raise changes.SourceWriteRefused("De torrent of de opslaginstellingen wijken af van de goedkeuring")
+            command, blob = crossseed_candidate(path, cid)
             adapter().add_torrent(
                 data=base64.b64decode(blob),
-                category=row["category"] or "",
-                save_path=row["save_path"],
+                category=command["category"],
+                save_path=command["save_path"],
                 paused=True,
+                pause_field=command["pause_field"],
                 tags=["mso-cross-seed"],
             )
-            _record_action(row["candidate_hash"], "crossseed_add")
+            _record_action(command["download_id"], "crossseed_add")
             get_db().execute(
                 "UPDATE torrent_crossseed_candidates SET status='added', updated_at=now() WHERE id=%s", (cid,)
             )
@@ -183,7 +187,7 @@ def build() -> Applier:
         return path.startswith("torrent:") and path.endswith((":recheck", ":reannounce"))
 
     return Applier(read=read, write=write, validate=validate, same=same,
-                   noop_rollback=noop_rollback, payload_hashes=payload_hashes)
+                   noop_rollback=noop_rollback, payload_hashes=payload_hashes, commands=commands)
 
 
 changes.register_applier("qbittorrent", build)

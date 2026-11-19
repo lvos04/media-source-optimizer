@@ -28,6 +28,7 @@ from typing import Any
 import httpx
 
 from mso.connectors import base as cb
+from mso.connectors import torrent_form
 
 LOGGER = logging.getLogger(__name__)
 CONNECTOR_ID = "qbittorrent"
@@ -134,6 +135,7 @@ class QbitClient:
         timeout: float = 20.0,
     ) -> None:
         self.base = url.rstrip("/")
+        self.instance_id = cb.instance_id(url)
         self._username = username
         self._password = password
         self._api_key = api_key
@@ -244,7 +246,7 @@ class QbitClient:
         if method == "POST" and path == "torrents/setShareLimits" and (cb.recorded_target(CONNECTOR_ID) or not retry):
             self._check_share_limit_fields(kw["data"])
         elif method == "POST" and path == "torrents/add":
-            if _pause_field(_webapi_tuple(self._read_webapi_version())) not in kw["data"]:
+            if {"paused", "stopped"}.intersection(kw["data"]) != {self.pause_field()}:
                 raise QbitUnsupported("De actuele WebAPI vereist een ander pauzeveld voor deze torrent")
         elif method == "POST" and path != "torrents/setShareLimits" and cb.recorded_target(CONNECTOR_ID):
             if _webapi_tuple(self._read_webapi_version())[:1] != (2,):
@@ -288,6 +290,9 @@ class QbitClient:
     def has_legacy_share_limits(self) -> bool:
         """Alleen een actuele versie van WebAPI v2 vóór 2.9.2 verklaart het ontbrekende veld."""
         return (2, 0) <= _webapi_tuple(self._read_webapi_version()) < INACTIVE_LIMIT_SINCE
+
+    def pause_field(self) -> str:
+        return _pause_field(_webapi_tuple(self._read_webapi_version()))
 
     def detect(self) -> dict[str, Any]:
         """Version + capability detection (cheap, call once per client)."""
@@ -443,28 +448,23 @@ class QbitClient:
         data: bytes | None = None,
         category: str,
         paused: bool = False,
+        pause_field: str | None = None,
         tags: list[str] | None = None,
         save_path: str | None = None,
         skip_checking: bool = False,
-        filename: str = "release.torrent",
+        filename: str = torrent_form.FILENAME,
     ) -> None:
         """Gebruik het pauzeveld van deze WebAPI. Bestaande data worden standaard op hash gecontroleerd."""
         if not url and not data:
             raise ValueError("url of data is verplicht")
-        form: dict[str, Any] = {
-            "category": category,
-            _pause_field(_webapi_tuple(self._read_webapi_version())): "true" if paused else "false",
-            "skip_checking": "true" if skip_checking else "false",
-        }
-        if tags:
-            form["tags"] = ",".join(tags)
-        if save_path:
-            form["savepath"] = save_path
-            form["autoTMM"] = "false"
-            form["contentLayout"] = "Original"
+        current = self.pause_field()
+        if pause_field is not None and pause_field != current:
+            raise QbitUnsupported("Het goedgekeurde pauzeveld past niet bij de actuele WebAPI")
+        form = torrent_form.add_fields(category, pause_field or current, paused=paused, tags=tags,
+                                      save_path=save_path, skip_checking=skip_checking)
         if url:
             form["urls"] = url
-        files = {"torrents": (filename, data, "application/x-bittorrent")} if data else None
+        files = {"torrents": (filename, data, torrent_form.CONTENT_TYPE)} if data else None
         r = self._post("torrents/add", form, files=files)
         if r.text.strip() == "Fails.":
             raise QbitError("qBittorrent weigerde de torrent (ongeldig of al aanwezig)")

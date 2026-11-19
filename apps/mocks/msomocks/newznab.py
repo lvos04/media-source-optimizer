@@ -129,20 +129,12 @@ CAT_NAMES = {
 }
 
 
-def infohash(fid: str) -> str:
-    return hashlib.sha1(fid.encode(), usedforsecurity=False).hexdigest()
-
-
 def _bstr(v: str | bytes) -> bytes:
     b = v.encode() if isinstance(v, str) else v
     return str(len(b)).encode() + b":" + b
 
 
-def torrent_bytes(
-    fid: str, title: str, private: bool = False, files: list[tuple[str, int]] | None = None
-) -> bytes:
-    """A valid (bencoded, v1) .torrent. ``files``: ``[(relative path, size), …]`` → multi-file torrent (a fixture
-    can carry ``"files"`` to model a fake release whose payload hides a program behind a clean title)."""
+def _torrent_info(title: str, private: bool, files: list[tuple[str, int]] | None) -> bytes:
     if files:
         entries = b"".join(
             b"d6:lengthi" + str(size).encode() + b"e4:pathl" + b"".join(_bstr(p) for p in path.split("/")) + b"ee"
@@ -151,7 +143,7 @@ def torrent_bytes(
         layout = b"5:filesl" + entries + b"e"
     else:
         layout = b"6:lengthi1048576e"
-    info = (
+    return (
         b"d"
         + layout
         + b"4:name"
@@ -161,6 +153,18 @@ def torrent_bytes(
         + (b"7:privatei1e" if private else b"")
         + b"e"
     )
+
+
+def infohash(title: str, private: bool = False, files: list[tuple[str, int]] | None = None) -> str:
+    return hashlib.sha1(_torrent_info(title, private, files), usedforsecurity=False).hexdigest()
+
+
+def torrent_bytes(
+    fid: str, title: str, private: bool = False, files: list[tuple[str, int]] | None = None
+) -> bytes:
+    """A valid (bencoded, v1) .torrent. ``files``: ``[(relative path, size), …]`` → multi-file torrent (a fixture
+    can carry ``"files"`` to model a fake release whose payload hides a program behind a clean title)."""
+    info = _torrent_info(title, private, files)
     return b"d8:announce" + _bstr("http://tracker.invalid/announce") + b"4:info" + info + b"e"
 
 
@@ -322,7 +326,7 @@ def rss_xml(
             attr("episode", f["ep"])
         attr("grabs", f.get("grabs", 0))
         if protocol == "torrent":
-            h = infohash(f["id"])
+            h = infohash(f["title"], private, f.get("files"))
             seeders = f.get("seeders", 25)
             attr("seeders", seeders)
             attr("peers", seeders + 5)

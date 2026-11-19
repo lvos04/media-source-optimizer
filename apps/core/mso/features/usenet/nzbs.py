@@ -114,13 +114,22 @@ def parse_nzb(data: bytes) -> ParsedNzb:
     )
 
 
-def recent_send(*, sha256: str) -> str | None:
-    """nzo_id of an identical send within the idempotency window (prevents duplicate sends)."""
-    return get_db().scalar(
-        "SELECT nzo_id FROM usenet_nzbs WHERE sha256=%s AND nzo_id IS NOT NULL AND origin<>'upload' "
-        "AND created_at > now() - make_interval(hours => %s) ORDER BY id DESC LIMIT 1",
-        (sha256, IDEMPOTENT_WINDOW_H),
-    )
+def recent_send(*, sha256: str, instance: str, category: str, request_hash: str | None = None) -> str | None:
+    db = get_db()
+    params = (sha256, IDEMPOTENT_WINDOW_H)
+    receipts = db.fetchall("SELECT DISTINCT instance,category,nzo_id,request_hash FROM sab_send_receipts "
+                           "WHERE sha256=%s AND created_at > now() - make_interval(hours => %s)", params)
+    if len(receipts) > 1:
+        raise ValueError("Voor deze NZB bestaan meerdere verschillende ontvangstbewijzen")
+    receipt = receipts[0] if receipts else None
+    if receipt and (receipt["instance"], receipt["category"]) == (instance, category):
+        if request_hash is not None and receipt["request_hash"] != request_hash:
+            raise ValueError("De eerdere NZB-verzending gebruikte andere formuliervelden")
+        return receipt["nzo_id"]
+    if receipt or db.scalar("SELECT 1 FROM usenet_nzbs WHERE sha256=%s AND nzo_id IS NOT NULL AND origin<>'upload' "
+                            "AND created_at > now() - make_interval(hours => %s) LIMIT 1", params):
+        raise ValueError("De eerdere NZB-verzending is niet bevestigd voor deze instantie en categorie")
+    return None
 
 
 def record_send(
@@ -131,14 +140,19 @@ def record_send(
     category: str | None,
     sha256: str | None,
     parsed: ParsedNzb | None = None,
+    instance: str | None = None,
+    request_hash: str | None = None,
     url_redacted: str | None = None,
     release_key: str | None = None,
     source_id: str | None = None,
     actor: str = "system",
 ) -> int:
     p = parsed or ParsedNzb(title=None)
-    nid = int(
-        get_db().scalar(
+    with get_db().tx() as conn:
+        if instance is not None:
+            conn.execute("INSERT INTO sab_send_receipts(instance,nzo_id,category,sha256,request_hash) "
+                         "VALUES (%s,%s,%s,%s,%s)", (instance, nzo_id, category, sha256, request_hash))
+        saved = conn.execute(
             "INSERT INTO "
             "usenet_nzbs(nzo_id,origin,title,category,release_key,source_id,sha256,url_redacted,groups,"
             "posted_at,files,segment_total,bytes_total,segments,created_by) "
@@ -170,8 +184,8 @@ def record_send(
                 jsonb(p.segments),
                 actor,
             ),
-        )
-    )
+        ).fetchone()
+    nid = saved["id"]
     if origin in ("send_url", "send_nzb") and p.segments:
         _auto_sample(nid, actor)
     return nid

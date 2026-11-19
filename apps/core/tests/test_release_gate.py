@@ -407,6 +407,7 @@ def qbit(admin: Any, serve: Any) -> Any:
 
     QbitClient.reset_cache()
     app = create_app(version="5.1.2", scenario="empty")
+    app.state.qb.categories["mso-tv"] = {"name": "mso-tv", "savePath": ""}
     r = admin.put("/api/v1/connectors/qbittorrent",
                   json={"url": serve(app), "secrets": {"username": "admin", "password": "adminadmin"}})
     assert r.status_code == 200, r.text

@@ -26,7 +26,7 @@ from typing import Any
 
 from defusedxml import ElementTree as SafeET
 
-from mso.domain.release import NormalizedRelease, ParsedTitle, is_episodic, magnet_name
+from mso.domain.release import NormalizedRelease, ParsedTitle, infohashes_from_magnet, is_episodic, magnet_name
 from mso.features.torrent import diagnostics
 
 MIB = 1024 * 1024
@@ -259,6 +259,18 @@ def torrent_payload(data: bytes) -> dict[str, Any]:
     if not files:
         raise Refused([f"torrentbestand zonder bestandenlijst; {unchecked}"], evidence=unreadable)
     return {"name": name, "files": files, "keys": keys}
+
+
+def torrent_download_id(fetched: Any, expected: str | None, keys: list[str] | None = None) -> str:
+    """Bepaal het doel uit de opgehaalde torrent en vergelijk een door de bron opgegeven identiteit."""
+    if fetched.final_url:
+        hashes = [h for h in infohashes_from_magnet(fetched.final_url, strict=True) if h]
+    else:
+        keys = torrent_payload(fetched.content)["keys"] if keys is None else keys
+        hashes = [key.split(":", 1)[1] for key in keys]
+    if not hashes or (expected and expected.lower() not in hashes):
+        raise ValueError("De opgehaalde torrent heeft geen overeenkomend download-ID")
+    return expected.lower() if expected else hashes[0]
 
 
 def nzb_file_names(data: bytes) -> list[str]:

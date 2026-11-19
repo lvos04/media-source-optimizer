@@ -413,6 +413,35 @@ def schema_db(app: Any, database_url: str, tmp_path: Any, monkeypatch: pytest.Mo
             conn.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
+def test_oude_verzendingen_krijgen_geen_veronderstelde_instantie(schema_db):
+    from mso.db import migrate_down, migrate_up
+    from mso.features.usenet import nzbs
+
+    db = schema_db
+    migrate_down(db, 611)
+    db.execute("INSERT INTO recovery_sends(idempotency_key,media_ref,release_key,protocol,client,client_category,"
+               "client_ref,title,status,actor) VALUES ('oud','manual:1','nzb:oud','usenet','sabnzbd','tv',"
+               "'oud-doel','proef','sent','test')")
+    db.execute("INSERT INTO search_sends(release_key,client,category,title,status,client_ref,actor) "
+               "VALUES ('nzb:oud','sabnzbd','tv','proef','sent','oud-doel','test')")
+    db.execute("INSERT INTO usenet_retries(nzo_id,title,status,new_nzo_id) "
+               "VALUES ('oud-doel','proef','verified','oud-vervolg')")
+    db.execute("INSERT INTO usenet_nzbs(nzo_id,origin,title,category,sha256) "
+               "VALUES ('oud-doel','send_nzb','proef','tv','testinhoud')")
+    for _ in range(2):
+        assert migrate_up(db, 612) == [612]
+        assert db.fetchone("SELECT client_ref,command FROM recovery_sends") == {
+            "client_ref": "oud-doel", "command": None}
+        assert db.fetchone("SELECT client_ref,client_instance FROM search_sends") == {
+            "client_ref": "oud-doel", "client_instance": None}
+        assert db.fetchone("SELECT new_nzo_id,client_instance FROM usenet_retries") == {
+            "new_nzo_id": "oud-vervolg", "client_instance": None}
+        assert db.scalar("SELECT count(*) FROM sab_send_receipts") == 0
+        with pytest.raises(ValueError, match="niet bevestigd"):
+            nzbs.recent_send(sha256="testinhoud", instance="huidige-instantie", category="tv")
+        assert migrate_down(db, 611) == [612]
+
+
 def _newer_schema(db: Any, offset: int = 1, gap: bool = False) -> int:
     from mso.db import load_migrations
 

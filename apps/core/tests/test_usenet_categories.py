@@ -358,6 +358,21 @@ def test_apply_detects_drift_and_failed_writes(app: Any, serve: Any, admin: Any,
     assert sab.category("tv-anime")["dir"] == "anime"
 
 
+def test_categorie_weigert_gewijzigde_volgorde(app, serve, admin, operator, db, manage_mode):
+    sab = _sab(serve, admin, categories=NO_ANIME)
+    _mg(serve, admin)
+    request = admin.post("/api/v1/usenet/categories/propose", json={"names": ["tv-anime"]})
+    assert request.is_success
+    change = request.json()
+    route = f"/api/v1/changes/{change['id']}"
+    assert admin.post(route + "/approve").is_success
+    sab.add_category("tussentijds", order=change["ops"][0]["command"]["order"])
+    answer = operator.post(route + "/apply")
+    assert answer.status_code >= 400 and sab.category("tv-anime") is None
+    count = db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'", (change["id"],))
+    assert count == 0
+
+
 def test_apply_verification_failure_when_sab_config_is_locked(
     app: Any, serve: Any, admin: Any, operator: Any
 ) -> None:

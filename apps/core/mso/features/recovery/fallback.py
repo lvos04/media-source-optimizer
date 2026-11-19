@@ -36,10 +36,8 @@ MSO never deletes downloads, the preview says so.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import re
-import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -96,36 +94,6 @@ def parse_path(path: str) -> tuple[str, str]:
 
 
 # ------------------------------------------------------------------ applier
-def _client_has(row: dict[str, Any]) -> bool:
-    """Read-back at the source: is the download really in the client?"""
-    ref = row.get("client_ref")
-    if not isinstance(ref, str) or not ref.strip():
-        raise ValueError("Download-ID van de herstelverzending is onleesbaar")
-    if row["client"] == "sabnzbd":
-        mod = importlib.import_module("mso.connectors.sabnzbd")
-        sab = mod.SabClient.from_config()
-        try:
-            queue = mod.measured_download_slots(sab.queue, limit=500)
-            if any(s["nzo_id"] == ref for s in queue):
-                return True
-            hist = mod.measured_download_slots(sab.history, limit=500)
-            return any(s["nzo_id"] == ref for s in hist)
-        finally:
-            close = getattr(sab, "close", None)
-            if callable(close):
-                close()
-    if row["client"] != "qbittorrent":
-        raise ValueError("Downloadclient van de herstelverzending is onleesbaar")
-    mod = importlib.import_module("mso.connectors.qbittorrent")
-    qb = mod.QbitClient.from_config()
-    for attempt in range(4):  # qBittorrent adds asynchronously: give it a moment
-        if qb.torrent(ref.lower()):
-            return True
-        if attempt < 3:
-            time.sleep(0.75)
-    return False
-
-
 def _precheck_quota(media_ref: str) -> None:
     """Before anything is written: refuse (change stays open) when a limit is reached."""
     per_hour = int(sr.get("herstel.manual_sends_per_hour"))
@@ -140,20 +108,28 @@ def _precheck_quota(media_ref: str) -> None:
         )
 
 
-def _read(path: str) -> str:
+def _read(path: str, command: dict[str, Any] | None = None) -> str:
     media_ref, _key = parse_path(path)
+    if command is not None:
+        if not command or command.get("release_key") != _key:
+            raise ValueError("De goedgekeurde verzendopdracht ontbreekt. Maak een nieuw voorstel.")
+        if actions.client_category(candidates.resolve_target(media_ref).media_category) != command["category"]:
+            raise HTTPException(409, detail="De verzendcategorie wijkt af van de goedkeuring")
     row = get_db().fetchone("SELECT * FROM recovery_sends WHERE idempotency_key=%s", (path,))
     if row is None:
         _precheck_quota(media_ref)
         return BEFORE
     if row["status"] == "pending":
         return "bezig met versturen"
+    if command is not None and (row.get("command") != command or row["client"] != command["client"]
+                                or row["client_category"] != command["category"]):
+        raise ValueError("De eerdere verzending hoort niet bij deze goedgekeurde opdracht")
     cb.bind_write_target(path, digest([row["client"], row["client_ref"]]))
     label = CLIENT_LABEL.get(row["client"], row["client"])
-    return AFTER if _client_has(dict(row)) else f"niet gevonden in {label}"
+    return AFTER if actions.confirmed_download(row, command) else f"niet gevonden in {label}"
 
 
-def _write(path: str, value: Any) -> None:
+def _write(path: str, value: Any, command: dict[str, Any]) -> None:
     media_ref, key = parse_path(path)
     if value != AFTER:
         raise RuntimeError(
@@ -161,7 +137,9 @@ def _write(path: str, value: Any) -> None:
             "download zo nodig zelf in de downloadclient"
         )
     try:
-        result = actions.send(media_ref, key, actor=ACTOR, via="change")
+        if not command:
+            raise changes.SourceWriteRefused("Een goedgekeurde verzendopdracht ontbreekt")
+        result = actions.send(media_ref, key, actor=ACTOR, via="change", approved=command)
         sent = result["send"]
         cb.bind_write_target(path, digest([sent["client"], sent["client_ref"]]))
     except HTTPException as exc:
@@ -177,7 +155,10 @@ def _validate(path: str, value: Any) -> None:
 
 
 def build_applier() -> changes.Applier:
-    return changes.Applier(read=_read, write=_write, validate=_validate)
+    commands: dict[str, dict[str, Any]] = {}
+    return changes.Applier(read=lambda path: _read(path, commands.get(path)),
+                           write=lambda path, value: _write(path, value, commands.get(path, {})),
+                           validate=_validate, commands=commands)
 
 
 changes.register_applier(TARGET, build_applier)
@@ -425,6 +406,7 @@ def propose(o: dict[str, Any], media_ref: str, cand: dict[str, Any], res: dict[s
         "label": f"{cand['title']} → {label} (categorie {category})",
         "before": BEFORE,
         "after": AFTER,
+        "command": actions.preview_command(media_ref, cand["release_key"], category),
     }
     # sending cannot be undone: in approval mode it is 'irreversible' (never automatic); in the opt-in auto-send
     # mode it is 'one_way' (may be applied automatically, rollback skips it with "niet terug te draaien")

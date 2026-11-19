@@ -15,7 +15,7 @@ from mso import backups, changes, machine_keys, state
 from mso.app import init_runtime
 from mso.change_preview import digest
 from mso.connectors.sabnzbd import SabError
-from mso.db import migrate_down, migrate_up, schema_version
+from mso.db import jsonb, migrate_down, migrate_up, schema_version
 
 signed_change = test_connector_api.signed_change
 old_db = test_maintenance.old_db
@@ -329,6 +329,134 @@ def test_vertraagde_bronactie_wordt_eenmaal_bevestigd(timeout, client, db, signe
     assert replay.json()["status"] == "applied" and replay.json()["readback"]["verified"]
     assert received == source.writes == [(HUB_RATE_PATH, 80)]
     assert _applied_count(db, ch) == 1 and changes.reconcile_interrupted()["checked"] == 0
+
+
+def _vertraagde_limieten(client, signed_change, monkeypatch, extra_ops):
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    source.values.update({op["path"]: op["before"] for op in extra_ops})
+    ch = changes.create(ch["target"], "Lokale testlimieten", [*ch["ops"], *extra_ops], risk=ch["risk"])
+    original = source.applier()
+    received = []
+
+    def write(path, value):
+        received.append((path, value))
+        if (path, value) == (HUB_RATE_PATH, 80):
+            raise TimeoutError("De lokale bron verwerkt de eerste opdracht later.")
+        original.write(path, value)
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(original.read, write))
+    assert client.post(PREFIX + "/apply", json=_execution(ch, key), headers=_connector_headers()).status_code == 502
+    assert received == [(HUB_RATE_PATH, 80)] and changes.get(ch["id"])["status"] == "applying"
+    original.write(*received[0])
+    return ch, source, received
+
+
+@pytest.mark.parametrize("derde_waarde", [30, 20])
+def test_herstel_slaat_onverstuurde_limieten_over(derde_waarde, client, signed_change, monkeypatch):
+    upload, alternatief = "pref:up_limit", "pref:alt_dl_limit"
+    ch, source, received = _vertraagde_limieten(client, signed_change, monkeypatch, [
+        {"path": upload, "before": 50, "after": 40}, {"path": alternatief, "before": 30, "after": 20},
+    ])
+    source.values.update({upload: 40, alternatief: derde_waarde})
+    uitkomst = changes.reconcile_interrupted()
+    assert source.values[upload] == 40 and source.values[alternatief] == derde_waarde
+    assert received == [(HUB_RATE_PATH, 80), (HUB_RATE_PATH, 100)]
+    assert uitkomst["outcomes"] == {str(ch["id"]): "teruggezet"}
+    einde = changes.get(ch["id"])
+    assert einde["status"] == "failed"
+    assert [op["result"] for op in einde["ops"]] == ["teruggedraaid", "niet_uitgevoerd", "niet_uitgevoerd"]
+
+
+def test_herstel_bewaart_handmatige_waarde_na_eerste_lezing(client, signed_change, monkeypatch):
+    ch, source, received = _vertraagde_limieten(client, signed_change, monkeypatch, [
+        {"path": "pref:up_limit", "before": 50, "after": 40},
+    ])
+    applier = changes.APPLIERS[ch["target"]]()
+    metingen = []
+
+    def read(path):
+        waarde = applier.read(path)
+        if path == HUB_RATE_PATH:
+            metingen.append(waarde)
+            if len(metingen) == 1:
+                source.values[path] = 37  # De beheerder schrijft nadat de achtergrondcontrole 80 las.
+        return waarde
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(read, applier.write))
+    uitkomst = changes.reconcile_interrupted()
+    assert source.values[HUB_RATE_PATH] == 37 and received == [(HUB_RATE_PATH, 80)]
+    assert metingen[0] == 80 and 37 in metingen[1:]
+    assert uitkomst["outcomes"] == {str(ch["id"]): "deels"}
+    op = changes.get(ch["id"])["ops"][0]
+    assert op["result"] == "overgeslagen" and op["current"] == 37
+    assert op["skip_reason"] == "buiten MSO gewijzigd" and changes.reconcile_interrupted()["checked"] == 0
+
+
+def test_herstel_bewaart_handmatige_limiet_bij_directe_bronfout(client, db, signed_change, monkeypatch):
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    upload, alternatief = "pref:up_limit", "pref:alt_dl_limit"
+    source.values.update({upload: 50, alternatief: 30})
+    ch = changes.create(ch["target"], "Drie testlimieten", [
+        *ch["ops"], {"path": upload, "before": 50, "after": 40}, {"path": alternatief, "before": 30, "after": 20},
+    ], risk=ch["risk"])
+    original = source.applier()
+
+    def write(path, value):
+        if path == alternatief:
+            source.values[HUB_RATE_PATH] = 37
+            raise changes.SourceWriteRefused("De lokale bron weigert de laatste limiet.")
+        original.write(path, value)
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(original.read, write))
+    assert client.post(PREFIX + "/apply", json=_execution(ch, key), headers=_connector_headers()).status_code == 502
+    assert source.values[HUB_RATE_PATH] == 37 and source.values[upload] == 50
+    assert source.writes == [(HUB_RATE_PATH, 80), (upload, 40), (upload, 50)]
+    op, hersteld, _ = changes.get(ch["id"])["ops"]
+    assert op["result"] == "overgeslagen" and op["current"] == 37
+    detail = db.scalar("SELECT detail FROM audit_log WHERE change_id=%s AND action='change.auto_restored'", (ch["id"],))
+    assert detail["skipped"] == [op["label"]] and detail["values"] == [{"label": hersteld["label"], "back_to": 50}]
+
+
+@pytest.mark.parametrize("achtergrondmeting", [False, True])
+def test_oud_journaal_zonder_schrijfbewijs_laat_handmatige_limiet_staan(
+    achtergrondmeting, client, db, signed_change, monkeypatch,
+):
+    upload = "pref:up_limit"
+    ch, source, received = _vertraagde_limieten(client, signed_change, monkeypatch, [
+        {"path": upload, "before": 50, "after": 40}, {"path": "pref:alt_dl_limit", "before": 30, "after": 20},
+    ])
+    ops = changes.get(ch["id"])["ops"]
+    for op in ops:
+        op.pop("write_started", None)
+    if achtergrondmeting:
+        # Een oude controle in leesmodus kon beide gelijke bronwaarden als toegepast opslaan.
+        for op in ops[:2]:
+            op.update(result="toegepast", observed_after=op["after"], checked_at=changes._now_iso(),
+                      verified_at=changes._now_iso())
+        ops[2].update(result="niet_toegepast", observed_after=30, checked_at=changes._now_iso())
+    db.execute("UPDATE change_sets SET ops=%s, apply_started_at=now()-interval '61 minutes' WHERE id=%s",
+               (jsonb(ops), ch["id"]))
+    source.values[upload] = 40
+    uitkomst = changes.reconcile_interrupted()
+    assert source.values[upload] == 40 and received == [(HUB_RATE_PATH, 80)]
+    assert uitkomst["outcomes"] == {str(ch["id"]): "onduidelijk"} and changes.get(ch["id"])["status"] == "failed"
+    assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key=%s AND status='open'",
+                     (f"change.interrupted:{ch['id']}",)) == 1
+
+
+@pytest.mark.parametrize("resultaat", ["onbevestigd", "toegepast"])
+def test_oud_journaal_met_schrijfbewijs_bevestigt_de_bronactie(resultaat, client, db, signed_change, monkeypatch):
+    ch, source, received = _vertraagde_limieten(client, signed_change, monkeypatch, [])
+    ops = changes.get(ch["id"])["ops"]
+    ops[0].pop("write_started", None)
+    if resultaat == "toegepast":
+        ops[0].update(result=resultaat, observed_after=80, verified_at=changes._now_iso())
+    db.execute("UPDATE change_sets SET ops=%s WHERE id=%s", (jsonb(ops), ch["id"]))
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "afgerond"}
+    assert changes.get(ch["id"])["status"] == "applied" and _applied_count(db, ch) == 1
+    assert source.writes == received == [(HUB_RATE_PATH, 80)]
 
 
 @pytest.mark.parametrize("unreachable", [True, False], ids=["onbereikbaar", "oude_waarde"])

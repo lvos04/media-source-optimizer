@@ -157,14 +157,20 @@ nieuwe "Vóór upgrade".
 ### Onderbroken wijzigingen (reconciler)
 
 Vóór de eerste schrijfactie naar SABnzbd, qBittorrent of Prowlarr krijgt een wijziging de status `applying`
-("Bezig met toepassen"). MSO bewaart de oude waarde per operatie en slaat elk resultaat meteen op. Tijdens de
-uitvoering houdt MSO een PostgreSQL-advisory-lock vast. Als het schrijfverzoek een time-out krijgt en de bron de
-uitkomst nog niet bevestigt, geeft de API 502 en blijft de wijziging `applying`. Na vrijgave van het slot, ook na
+("Bezig met toepassen"). MSO bewaart de oude waarde per operatie, markeert elke schrijfpoging vlak vóór verzending
+en slaat het resultaat na teruglezen op. Tijdens de uitvoering houdt MSO een PostgreSQL-advisory-lock vast.
+Als het schrijfverzoek een time-out krijgt en de bron de uitkomst nog niet bevestigt, geeft de API 502 en blijft
+de wijziging `applying`. Na vrijgave van het slot, ook na
 een crash of herstart, controleert `changes.reconcile` de bron. Deze taak draait bij de start van de worker en daarna
 elke twee minuten.
 
 - alles al geschreven → `applied` ("afgerond na onderbreking");
-- deels geschreven → de omkeerbare, al geschreven waarden terugzetten en teruglezen, daarna `failed` met uitleg;
+- deels geschreven → MSO leest de bronwaarde vlak vóór elke herstelopdracht. MSO zet een omkeerbare operatie
+  alleen terug als de schrijfpoging is gestart en de waarde nog overeenkomt met de door MSO ingestelde waarde.
+  MSO leest het resultaat terug en noteert een handmatige afwijking als `overgeslagen`. De wijziging krijgt `failed`
+  met uitleg.
+- bij een ouder journaal zonder bewijs van een schrijfpoging volgt na één uur overdracht aan de beheerder.
+  Ook als de bron op de gewenste waarde staat, blijft de operatie dan open voor handmatige controle.
 - bron onbereikbaar of een schrijfactie na een time-out nog onbevestigd → MSO leest de bron periodiek zonder de
   oorspronkelijke opdracht opnieuw te versturen. Blijft bevestiging uit bij een controle meer dan één uur na de start,
   dan volgt `failed` met de uitkomst `onduidelijk` en één item in "Wacht op jou". De achtergrondcontrole stopt.

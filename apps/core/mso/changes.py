@@ -9,9 +9,8 @@ Apply semantics:
 1. Requires beheermodus (manage). ``toestemming_nodig`` requires prior approval by an admin.
 2. For every op the current value is read first. If it differs from the previewed ``before`` the
    apply is refused (drift — somebody else, e.g. MediaGuard's own reconcile, changed it) unless forced.
-3. Crash-safe journal (1.6.0): before the first external write the change moves to ``applying`` with
-   ``observed_before`` stored per op; every op's result is stored right after its write + read-back. An apply that
-   is cut off (restart, crash) is finished or undone by :func:`reconcile_interrupted` (worker start + periodically).
+3. MSO bewaart de beginwaarden bij de overgang naar ``applying`` en markeert elke schrijfpoging vóór verzending.
+   Na teruglezen legt MSO het resultaat vast. :func:`reconcile_interrupted` handelt onderbroken wijzigingen af.
 4. MSO leest elke schrijfactie terug. Bij een bevestigde fout zet MSO de eerder geschreven waarden terug.
    Een onbevestigde actie blijft in het journaal voor de achtergrondcontrole.
 5. Rollback (1.6.0) checks drift per op first: a value that is neither MSO's value nor the original any more was
@@ -385,6 +384,11 @@ def _restore(applier: Applier, written: list[dict[str, Any]]) -> list[str]:
             op["restore_note"] = DELETE_NOTE
             continue
         try:
+            current = applier.read(op["path"])
+            if not _same(applier, op["path"], current, op["after"]):
+                op.update(result="overgeslagen", skip_reason="buiten MSO gewijzigd", current=current,
+                          checked_at=_now_iso())
+                continue
             applier.write(op["path"], op["observed_before"])
             check = applier.read(op["path"])
             if not _same(applier, op["path"], check, op["observed_before"]):
@@ -455,7 +459,11 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
         except Exception as exc:
             raise HTTPException(502, detail=(f"Huidige waarde van '{op['label']}' niet te lezen: "
                                              f"{redact(str(exc))[:300]}")) from exc
-        op["observed_before"] = current
+        op.update(observed_before=current, write_started=False)
+        if current == op["after"]:
+            op.update(result="al_ingesteld", observed_after=current)
+        else:
+            op.pop("result", None)
         if applier.validate:
             try:
                 applier.validate(op["path"], op["after"])
@@ -478,16 +486,14 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
     written: list[dict[str, Any]] = []
     try:
         for op in ops:
-            if op["observed_before"] == op["after"]:
-                op["result"] = "al_ingesteld"
-                op["observed_after"] = op["observed_before"]
-            else:
-                check = _write_and_read(applier, op, written)
-                if not _same(applier, op["path"], check, op["after"]):
-                    raise RuntimeError(f"verificatie mislukt voor '{op['label']}': {check!r}")
-                op["result"] = "toegepast"
-                op["observed_after"] = check
-                op["verified_at"] = _now_iso()
+            if op.get("result") == "al_ingesteld":
+                continue
+            op["write_started"] = True
+            _persist_ops(db, change_id, ops, "applying")
+            check = _write_and_read(applier, op, written)
+            if not _same(applier, op["path"], check, op["after"]):
+                raise RuntimeError(f"verificatie mislukt voor '{op['label']}': {check!r}")
+            op.update(result="toegepast", observed_after=check, verified_at=_now_iso())
             _persist_ops(db, change_id, ops, "applying")
     except ChangeUncertain:
         op["result"] = "onbevestigd"
@@ -499,6 +505,7 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
         rollback_errors = _restore(applier, written)
         kept = [op for op in written if op.get("restore_note")]
         restored = [o["label"] for o in written if o.get("result") == "teruggedraaid"]
+        skipped = [o["label"] for o in written if o.get("result") == "overgeslagen"]
         err = str(exc)
         if rollback_errors:
             err += f" · herstel mislukt: {rollback_errors}"
@@ -506,6 +513,8 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
             err += " · automatisch hersteld" if not kept else " · terugdraaibare waarden hersteld"
         for op in kept:
             err += f" · {op['label']} blijft staan: {op['restore_note']}"
+        if skipped:
+            err += f" · buiten MSO gewijzigd en overgeslagen: {', '.join(skipped)}"
         err = redact(err)
         db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s, applied_by=NULL, applied_auto=false "
                    "WHERE id=%s AND status='applying'", (err, jsonb(ops), change_id))
@@ -516,8 +525,9 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
                   (f"Automatisch hersteld na mislukte wijziging: {ch['title']}" if not rollback_errors
                    else f"Automatisch herstel deels mislukt: {ch['title']}"),
                   target=ch["target"], change_id=change_id,
-                  detail={"restored": restored, "errors": rollback_errors,
-                          "values": [{"label": o["label"], "back_to": o["observed_before"]} for o in written]})
+                  detail={"restored": restored, "errors": rollback_errors, "skipped": skipped,
+                          "values": [{"label": o["label"], "back_to": o["observed_before"]} for o in written
+                                     if o.get("result") == "teruggedraaid"]})
         raise ChangeFailed(f"Toepassen mislukt: {err}") from exc
     return _finish(db, ch, "status='applied', applied_by=%s, applied_at=now(), ops=%s, error=NULL",
                    (actor, jsonb(ops)), ("applying",), actor, "change.applied", f"Toegepast: {ch['title']}",
@@ -754,6 +764,19 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
         for op in ops:
             if op.get("result") == "al_ingesteld":
                 continue
+            if op.get("write_started") is False:
+                op["result"] = "niet_uitgevoerd"
+                continue
+            if op.get("write_started") is not True:
+                # Een oud journaal kan 'toegepast' ook uit alleen een achtergrondmeting hebben afgeleid.
+                if op.get("result") == "onbevestigd" or (
+                    op.get("result") == "toegepast" and op.get("verified_at") and not op.get("checked_at")
+                ):
+                    op["write_started"] = True
+                else:
+                    op["result"] = "onduidelijk"
+                    unconfirmed.append(f"{op['label']}: schrijfpoging niet aantoonbaar in het oude journaal")
+                    continue
             try:
                 cur = applier.read(op["path"])
             except Exception as exc:
@@ -808,6 +831,7 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
                       "geschreven waarden terug naar hoe ze waren.", "wacht_op_beheermodus", db, once=True)
         return "wacht_op_beheermodus"
     errors = _restore(applier, written) if applier is not None else []
+    unclear.extend(o["label"] for o in written if o.get("result") == "overgeslagen")
     for op in ops:
         if op.get("result") == "niet_toegepast":
             op["result"] = "niet_uitgevoerd"

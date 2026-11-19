@@ -26,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 from mso.allinone_privileges import lower_privileges, runtime_identity
@@ -46,11 +47,16 @@ def log(msg: str) -> None:
     print(f"[mso] {msg}", flush=True)
 
 
-def fail(msg: str, code: int = 78) -> None:
+class StartupError(Exception):
+    """De bewaker kan niet veilig verder."""
+
+
+def fail(msg: str, *, pause: bool = False) -> None:
     log("FOUT: " + msg)
-    # keep the message visible in the TrueNAS app log instead of a fast crash loop
-    time.sleep(30)
-    sys.exit(code)
+    if pause:
+        # Houd de melding zichtbaar zonder een snelle herstartlus.
+        time.sleep(30)
+    sys.exit(78)
 
 
 # ------------------------------------------------------------------ privileges & folders
@@ -62,9 +68,16 @@ def demote() -> None:
         raise
 
 
+def secure_supervisor() -> None:
+    try:
+        demote()
+    except (OSError, ValueError) as exc:
+        raise StartupError("bewaker stopte omdat de rechtenwissel mislukte.") from exc
+
+
 def prepare_dirs(*, database_only: bool = False) -> None:
     if not DATA.exists():
-        fail(f"{DATA} bestaat niet. Koppel een host-map (dataset) aan {DATA} in de app-instellingen.")
+        raise StartupError(f"{DATA} bestaat niet. Koppel een host-map (dataset) aan {DATA} in de app-instellingen.")
     root = os.getuid() == 0
     managed = {"postgres"} if database_only else {"postgres", "secrets", "backups", "work", "logs"}
     if root:
@@ -95,19 +108,19 @@ def prepare_dirs(*, database_only: bool = False) -> None:
             sub.mkdir(parents=True, exist_ok=True)
             if root and (sub.stat().st_uid, sub.stat().st_gid) != (UID, GID):
                 os.chown(sub, UID, GID)
-        except PermissionError:
-            fail(
+        except PermissionError as exc:
+            raise StartupError(
                 f"geen schrijfrechten op {sub}. Geef gebruiker {UID} (apps) schrijfrechten op de dataset, "
                 f"of laat de app als root starten zodat MSO dit zelf regelt."
-            )
+            ) from exc
     try:
         if PGDATA.stat().st_mode & 0o777 != 0o700:
             os.chmod(PGDATA, 0o700)  # PostgreSQL weigert te ruime databaserechten
-    except PermissionError:
-        fail(
+    except PermissionError as exc:
+        raise StartupError(
             f"{PGDATA} is niet van gebruiker {UID}; start de app als root (MSO regelt dan de rechten) "
             f"of maak {UID} eigenaar van de dataset."
-        )
+        ) from exc
     SOCKET_DIR.mkdir(parents=True, exist_ok=True)
     if root and (SOCKET_DIR.stat().st_uid, SOCKET_DIR.stat().st_gid) != (UID, GID):
         os.chown(SOCKET_DIR, UID, GID)
@@ -125,7 +138,9 @@ def prepare_dirs(*, database_only: bool = False) -> None:
         check=False,
     )
     if probe.returncode != 0:
-        fail(f"gebruiker {UID} kan niet schrijven in {DATA}. Pas de rechten van de dataset aan (Apps-gebruiker).")
+        raise StartupError(
+            f"gebruiker {UID} kan niet schrijven in {DATA}. Pas de rechten van de dataset aan (Apps-gebruiker)."
+        )
 
 
 # ------------------------------------------------------------------ processes
@@ -185,7 +200,9 @@ def init_database() -> None:
     if (PGDATA / "PG_VERSION").exists():
         major = (PGDATA / "PG_VERSION").read_text().strip()
         if major != "16":
-            fail(f"database in {PGDATA} is PostgreSQL {major}; deze image gebruikt 16. Zie docs/MIGRATION.md.")
+            raise StartupError(
+                f"database in {PGDATA} is PostgreSQL {major}; deze image gebruikt 16. Zie docs/MIGRATION.md."
+            )
         pid = PGDATA / "postmaster.pid"
         if pid.exists():
             log("oude postmaster.pid van een onderbroken stop verwijderd")
@@ -208,7 +225,7 @@ def init_database() -> None:
         ],
     )
     if rc != 0:
-        fail("initdb mislukt (zie log hierboven)")
+        raise StartupError("initdb mislukt (zie log hierboven)")
 
 
 def postgres_child() -> Child:
@@ -241,7 +258,7 @@ def wait_for_db(pg: Child, timeout: float = 90) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not pg.alive():
-            fail("database stopte tijdens het opstarten (zie log hierboven)")
+            raise StartupError("database stopte tijdens het opstarten (zie log hierboven)")
         rc = subprocess.run(
             ["pg_isready", "-h", str(SOCKET_DIR), "-U", "mso", "-d", "postgres", "-q"],
             env=env_for(),
@@ -252,7 +269,7 @@ def wait_for_db(pg: Child, timeout: float = 90) -> None:
             break
         time.sleep(1)
     else:
-        fail("database niet klaar binnen 90 s")
+        raise StartupError("database niet klaar binnen 90 s")
     exists = subprocess.run(
         [
             "psql",
@@ -278,7 +295,7 @@ def wait_for_db(pg: Child, timeout: float = 90) -> None:
             )
             != 0
         ):
-            fail("database 'mso' aanmaken mislukt")
+            raise StartupError("database 'mso' aanmaken mislukt")
 
 
 def wait_on_newer_schema(pg: Child, children: list[Child] | None = None) -> None:
@@ -314,17 +331,11 @@ def reap_children(children: list[Child]) -> None:
             os.waitpid(exited.si_pid, 0)
 
 
-def main() -> None:
-    def shutdown(signum: int, _frame: object) -> None:
-        log(f"signaal {signum}: netjes stoppen")
-        STOP.set()
-
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
-    log(f"Media Source Optimizer (alles-in-één) · data {DATA} · poort {PORT}")
+def prepare_database(cleanup: ExitStack) -> tuple[Child, bool]:
     prepare_dirs(database_only=True)
     init_database()
     pg = postgres_child()
+    cleanup.callback(pg.stop, 60)
     pg.start()
     wait_for_db(pg)
     newer_schema = False
@@ -336,19 +347,16 @@ def main() -> None:
             db.close()
     except NewerDatabaseError:
         newer_schema = True
-    except Exception:
-        pg.stop()
-        fail("databaseschemacontrole mislukt; zie het databaselog en probeer de app opnieuw te starten.")
+    except Exception as exc:
+        raise StartupError(
+            "databaseschemacontrole mislukt; zie het databaselog en probeer de app opnieuw te starten."
+        ) from exc
     if not newer_schema:
         prepare_dirs()  # Pas na de alleen-lezen schemacontrole applicatiemappen voorbereiden.
-    try:
-        demote()
-    except (OSError, ValueError):
-        pg.stop(60)
-        fail("bewaker stopte omdat de rechtenwissel mislukte.")
-    if newer_schema:
-        wait_on_newer_schema(pg)
-        return
+    return pg, newer_schema
+
+
+def run_services(pg: Child, cleanup: ExitStack) -> None:
     # safety net for upgrades: a dump before pending migrations (only when there are any and the disk has room).
     # Een dumpfout blokkeert niet; een database van een nieuwere versie wel.
     rc = run_once("back-up vóór upgrade", [sys.executable, "-m", "mso", "backup", "--pre-upgrade"])
@@ -362,8 +370,9 @@ def main() -> None:
         wait_on_newer_schema(pg)
         return
     if rc != 0:
-        pg.stop()
-        fail("databasemigratie mislukt; de vorige versie van de database is ongewijzigd. Zie docs/MIGRATION.md.")
+        raise StartupError(
+            "databasemigratie mislukt; de vorige versie van de database is ongewijzigd. Zie docs/MIGRATION.md."
+        )
 
     py = sys.executable
     children = [
@@ -385,6 +394,7 @@ def main() -> None:
         ),
     ]
     for c in children:
+        cleanup.callback(c.stop)
         c.start()
 
     backoff: dict[str, float] = {}
@@ -423,6 +433,36 @@ def main() -> None:
     log("gestopt")
 
 
+def main() -> None:
+    def shutdown(signum: int, _frame: object) -> None:
+        log(f"signaal {signum}: netjes stoppen")
+        STOP.set()
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+    root_start = os.geteuid() == 0
+    safe_to_pause = False
+    try:
+        with ExitStack() as cleanup:
+            if not root_start:
+                secure_supervisor()
+                safe_to_pause = True
+            log(f"Media Source Optimizer (alles-in-één) · data {DATA} · poort {PORT}")
+            pg, newer_schema = prepare_database(cleanup)
+            if root_start:
+                secure_supervisor()
+                safe_to_pause = True
+            if newer_schema:
+                wait_on_newer_schema(pg)
+            else:
+                run_services(pg, cleanup)
+            cleanup.pop_all()  # De normale stop en schemaweigering hebben hun eigen stopvolgorde.
+    except StartupError as exc:
+        fail(str(exc), pause=safe_to_pause)
+    except (OSError, subprocess.SubprocessError):
+        fail("een start- of stopopdracht is mislukt; zie het app-log.", pause=safe_to_pause)
+
+
 if __name__ == "__main__":
     try:
         UID, GID = runtime_identity()
@@ -436,7 +476,4 @@ if __name__ == "__main__":
         fail(f"gebruiker {UID}:{GID} bestaat niet in de image")
     if shutil.which("postgres") is None:
         fail("postgres ontbreekt in de image")
-    try:
-        main()
-    except subprocess.SubprocessError:
-        fail("een start- of stopopdracht is mislukt; zie het app-log.")
+    main()

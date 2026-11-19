@@ -54,7 +54,7 @@ def supervisor(monkeypatch: pytest.MonkeyPatch) -> Any:
             if self.name == "database":
                 stopped.set()
 
-    def fail(message: str, *_: Any) -> None:
+    def fail(message: str, **_: Any) -> None:
         raise RuntimeError(message)
 
     def run_once(_name: str, cmd: list[str]) -> int:
@@ -194,6 +194,7 @@ def test_supervisor_preflight_error_stops_database_and_delays_exit(
 ) -> None:
     """Elke andere fout in de voorcontrole volgt de bestaande nette stop met pauze en code 78."""
     module, trace = supervisor.module, supervisor.trace
+    monkeypatch.setattr(module.os, "geteuid", lambda: 568)
 
     def broken() -> None:
         raise error("synthetische databasefout")
@@ -223,3 +224,51 @@ def test_supervisor_preflight_error_stops_database_and_delays_exit(
     if stage != "open":
         expected.append("db-close")
     assert trace == [*expected, "stop database", "slaap-30"]
+
+
+def test_supervisor_568_weigert_map_pas_na_rechtencontrole(
+    supervisor: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, trace = supervisor.module, supervisor.trace
+    monkeypatch.setattr(module.os, "geteuid", lambda: 568)
+    monkeypatch.setattr(module, "demote", lambda: trace.append("rechten geverifieerd"))
+
+    def deny(**_: Any) -> None:
+        assert trace == ["rechten geverifieerd"]
+        raise PermissionError("synthetische niet-schrijfbare map")
+
+    monkeypatch.setattr(module, "prepare_dirs", deny)
+    with pytest.raises(RuntimeError, match="een start- of stopopdracht is mislukt"):
+        module.main()
+    assert trace == ["rechten geverifieerd"]
+
+
+@pytest.mark.parametrize(
+    ("stage", "safe"),
+    [("laatste rechtenwissel", False), ("subprocess vóór wissel", False), ("subprocess na wissel", True)],
+)
+def test_supervisor_ruimt_op_zonder_bevoorrechte_foutpauze(
+    supervisor: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stage: str, safe: bool,
+) -> None:
+    module, trace = supervisor.module, supervisor.trace
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module, "fail", supervisor.real_fail)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: trace.append(f"slaap-{seconds}"))
+
+    def deny_drop() -> None:
+        raise PermissionError("synthetische rechtenweigering")
+
+    def deny_subprocess(*_: Any) -> None:
+        raise module.subprocess.SubprocessError("synthetische weigering in preexec_fn")
+
+    if stage == "subprocess vóór wissel":
+        monkeypatch.setattr(module, "wait_for_db", deny_subprocess)
+    elif safe:
+        monkeypatch.setattr(module, "run_once", deny_subprocess)
+    else:
+        monkeypatch.setattr(module, "demote", deny_drop)
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+    assert exc.value.code == 78
+    assert trace == ["start database", "stop database"] + (["slaap-30"] if safe else [])
+    assert "[mso] FOUT:" in capsys.readouterr().out

@@ -1,20 +1,16 @@
 # Echte-hardware acceptatiechecklist
 
-Deze checklist beschrijft wat op de **echte TrueNAS SCALE-server** met de **echte** Prowlarr, SABnzbd,
-qBittorrent, MediaGuard Ultimate, Usenet-providers en trackers geverifieerd moet worden voordat Media Source
-Optimizer (MSO) als productierijp geldt.
+> **P-INSTALLATIE staat open.** De installatie en alle acceptatiestappen op TrueNAS in dit document
+> niet uitvoeren tot de poort is gehaald. Na vrijgave geldt
+> [TRUENAS_CUSTOM_APP.md](TRUENAS_CUSTOM_APP.md) voor installatie via het standaard Custom App-formulier.
+
+Deze checklist beschrijft wat op TrueNAS SCALE met Prowlarr, SABnzbd, qBittorrent, MediaGuard Ultimate,
+Usenet-providers en trackers geverifieerd moet worden voordat Media Source Optimizer (MSO) als productierijp geldt.
 
 > **Status van elk punt: NIET GEVERIFIEERD.**
-> Tijdens de ontwikkeling is alleen getest in een Linux-sandbox/CI met Docker en met mock-diensten
-> (`apps/mocks/msomocks`, container-stack `tests/stack`). Er is géén TrueNAS-hardware, géén echte
-> Prowlarr/SABnzbd/qBittorrent/MediaGuard-installatie en zijn géén echte provider- of trackeraccounts gebruikt.
-> Vink een punt pas af nadat je het zelf op je eigen systeem hebt uitgevoerd, en noteer datum, versie en
-> eventuele afwijkingen.
-
-> **Let op: hoofdstuk 0–1 beschrijven nog de oude installatie met *Install via YAML* en terminalcommando's.** Dat is
-> geen installatiemethode meer (contract §2.3 regel 4). Installeer voor de acceptatie als standaard Custom App volgens
-> [TRUENAS_CUSTOM_APP.md](TRUENAS_CUSTOM_APP.md) en sla de YAML-stappen over. Deze checklist wordt in P3-05
-> herschreven naar de Custom App (`docs/platform-v2/DELTA_MATRIX.md`).
+> Tijdens de ontwikkeling is getest in een Linux/Docker-sandbox en op CI met simulatiediensten
+> (`apps/mocks/msomocks`, container-stack `tests/stack`). Noteer na vrijgave per uitgevoerde
+> praktijkproef de datum, versie en eventuele afwijkingen.
 
 Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 
@@ -22,22 +18,22 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
-| 0.1 | Noteer TrueNAS-versie (`System → General`), pool-naam, CPU, RAM. | TrueNAS SCALE 24.10 of nieuwer (Docker-apps met "Install via YAML"). | NIET GEVERIFIEERD |
+| 0.1 | Noteer de TrueNAS-versie (`System → General`), CPU en RAM. | TrueNAS SCALE 24.10 of nieuwer met het standaard Custom App-formulier. | NIET GEVERIFIEERD |
 | 0.2 | Maak een ZFS-snapshot van de datasets van MediaGuard, Prowlarr, SABnzbd en qBittorrent. | Snapshots bestaan; terugvalpunt aanwezig. | NIET GEVERIFIEERD |
 | 0.3 | Noteer in de MediaGuard-repo/installatie `git rev-parse HEAD` en `git status --porcelain` (of de image-tags). | Referentie voor criterium "MediaGuard bit-voor-bit ongewijzigd". | NIET GEVERIFIEERD |
 
-## 1. Installatie op TrueNAS (docs/TRUENAS_INSTALL.md)
+## 1. Installatie op TrueNAS na vrijgave
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
-| 1.1 | Datasets `apps/media-source-optimizer` en `apps/media-source-optimizer-work` aanmaken, quota op WORK, eigenaar 568:568. | `ls -ln /mnt/<pool>/apps` toont `568 568`; `zfs get quota` toont de quota. | NIET GEVERIFIEERD |
-| 1.2 | Apps → Discover Apps → ⋮ → Install via YAML, `deploy/truenas/compose.yaml` plakken (paden aangepast). | App wordt "Running"; geen foutmelding in de TrueNAS-UI. | NIET GEVERIFIEERD |
-| 1.3 | `sudo docker ps -a --format '{{.Names}} {{.Status}}'` | `init` en `migrate`: `Exited (0)`; `postgres`, `api`, `worker`, `web`: `Up … (healthy)`. | NIET GEVERIFIEERD |
-| 1.4 | `ls -ln` op APPDATA na eerste start. | Mappen `postgres/ db/ secrets/ backups/` van 568:568; `db/password` modus `-r--------`. | NIET GEVERIFIEERD |
-| 1.5 | Controleer dat `init` op deze dataset-ACL de eigenaar mocht zetten (logs van de init-container). | Geen regel `LET OP: … controleer de ACL`. | NIET GEVERIFIEERD |
-| 1.6 | `sudo docker inspect` op elke container: `HostConfig.Privileged=false`, `CapDrop=[ALL]`, `ReadonlyRootfs=true` (behalve init), geen `/var/run/docker.sock` mount, `NetworkMode` ≠ `host`. | Zoals beschreven. | NIET GEVERIFIEERD |
-| 1.7 | Vanaf een ander LAN-apparaat `http://<truenas-ip>:38081` openen. | Setupwizard verschijnt. | NIET GEVERIFIEERD |
-| 1.8 | Vanaf buiten het LAN (bijv. mobiel netwerk) poort 38081 proberen. | Niet bereikbaar (geen port-forward op de router). | NIET GEVERIFIEERD |
+| 1.1 | Controleer de opslagvelden vóór installatie. | Eén dataset is gekoppeld aan `/appdata`. | NIET GEVERIFIEERD |
+| 1.2 | Volg na vrijgave het [standaard Custom App-formulier](TRUENAS_CUSTOM_APP.md). | Eén alles-in-één-image met vaste versie draait. | NIET GEVERIFIEERD |
+| 1.3 | Bekijk de appstatus en het opstartlog. | App meldt Running en vervolgens Healthy. | NIET GEVERIFIEERD |
+| 1.4 | Controleer de mappen die MSO heeft aangemaakt. | `postgres/`, `secrets/`, `backups/` en `work/` zijn van 568:568. | NIET GEVERIFIEERD |
+| 1.5 | Controleer de app-log op fouten bij de rechtenwissel en de schrijftest. | De rechtenwissel en de schrijftest zijn afgerond zonder foutmelding. | NIET GEVERIFIEERD |
+| 1.6 | Controleer de instellingen van de Custom App. | Privileged en Host Network staan uit. De enige gepubliceerde poort is de webpoort. | NIET GEVERIFIEERD |
+| 1.7 | Open de app vanaf een ander LAN-apparaat. | Setupwizard verschijnt. | NIET GEVERIFIEERD |
+| 1.8 | Controleer bereikbaarheid vanaf buiten het LAN. | De app blijft onbereikbaar vanaf internet. | NIET GEVERIFIEERD |
 
 ## 2. Eerste start, login, persistentie
 
@@ -46,7 +42,7 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 | 2.1 | Setupwizard: beheerder aanmaken. | Ingelogd; tweede setup-poging geweigerd. | NIET GEVERIFIEERD |
 | 2.2 | Uitloggen en opnieuw inloggen; fout wachtwoord proberen. | Login werkt; fout wachtwoord → melding, na te veel pogingen rate limit. | NIET GEVERIFIEERD |
 | 2.3 | App in TrueNAS stoppen en starten. | Login werkt nog; instellingen en koppelingen behouden. | NIET GEVERIFIEERD |
-| 2.4 | TrueNAS-host herstarten. | App komt vanzelf op (restart `unless-stopped`), alle containers healthy. | NIET GEVERIFIEERD |
+| 2.4 | TrueNAS-host herstarten. | De Custom App komt vanzelf op en meldt Healthy. | NIET GEVERIFIEERD |
 | 2.5 | Achter je reverse proxy (TLS) met `MSO_SECURE_COOKIES=true`. | Login werkt via https; cookie heeft `Secure`; geen mixed-content. | NIET GEVERIFIEERD |
 
 ## 3. Prowlarr (echt)
@@ -97,18 +93,18 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 | 7.1 | Back-up maken in de UI. | Bestand `APPDATA/backups/mso-*.dump` + `.sha256`. | NIET GEVERIFIEERD |
 | 7.2 | Instelling wijzigen, daarna de back-up herstellen. | Wijziging teruggedraaid; opnieuw inloggen nodig; koppelingsgeheimen intact. | NIET GEVERIFIEERD |
 | 7.3 | Een kopie van een back-up beschadigen (bytes wijzigen) en herstel proberen. | Herstel geweigerd ("Checksum klopt niet"), database ongewijzigd. | NIET GEVERIFIEERD |
-| 7.4 | Update naar een nieuwere image-tag volgens de handleiding. | `migrate` exit 0, nieuwe versie in Systeem. | NIET GEVERIFIEERD |
+| 7.4 | Update naar een nieuwere image-tag volgens [de Custom App-handleiding](TRUENAS_CUSTOM_APP.md#updaten-en-terugdraaien). | De log meldt een afgeronde migratie. De nieuwe versie staat in Systeem. | NIET GEVERIFIEERD |
 | 7.5 | Rollback met `mso migrate --down <versie>` en oude tag. | Oude versie start, data bruikbaar. | NIET GEVERIFIEERD |
 | 7.6 | ZFS-snapshot-rollback van APPDATA (app gestopt). | App start op de toestand van de snapshot. | NIET GEVERIFIEERD |
-| 7.7 | Worker-container hard stoppen (`docker kill`) tijdens een lopende taak, daarna starten. | Taak wordt na maximaal ~2 minuten (lease) hervat of opnieuw uitgevoerd, niet dubbel. | NIET GEVERIFIEERD |
+| 7.7 | Onderbreek in de testinstallatie het workerproces tijdens een lopende taak en wacht tot de bewaker de worker herstart. | Taak wordt na maximaal ~2 minuten (lease) hervat of opnieuw uitgevoerd, niet dubbel. | NIET GEVERIFIEERD |
 
 ## 8. Resources en opslag
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
-| 8.1 | `sudo docker stats --no-stream` in rust en tijdens zoekacties. | Binnen de limieten uit compose.yaml; vergelijk met de sandbox-meting in docs/OPERATIONS.md. | NIET GEVERIFIEERD |
+| 8.1 | `sudo docker stats --no-stream` in rust en tijdens zoekacties. | Binnen de limieten uit het Custom App-formulier; vergelijk met de sandbox-meting in docs/OPERATIONS.md. | NIET GEVERIFIEERD |
 | 8.2 | WORK-quota bereiken (bijv. tijdelijk kleine quota). | MSO meldt schijfdruk in Systeem; geen crash-loop; andere apps onaangetast. | NIET GEVERIFIEERD |
-| 8.3 | Logrotatie: `docker inspect … LogConfig`. | json-file, max 20 MB × 5 per container. | NIET GEVERIFIEERD |
+| 8.3 | Logrotatie: `docker inspect … LogConfig`. | De ingestelde logrotatie begrenst het ruimtegebruik. | NIET GEVERIFIEERD |
 
 ## 9. UI op echte apparaten
 
@@ -120,7 +116,7 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 ## 10. Nieuw in 1.6.0
 
 1.6.0 is getest in een Linux/Docker-sandbox met mock-diensten; het SABnzbd-gedrag is nagekeken in de broncode van
-SABnzbd 5.1.3. Deze punten laten zien of het op jouw installatie net zo werkt. Doe ze in de eerste dagen na de update.
+SABnzbd 5.1.3. Deze punten laten zien of het op jouw installatie net zo werkt. Deze controles vallen onder de vrijgave bovenaan dit document.
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|

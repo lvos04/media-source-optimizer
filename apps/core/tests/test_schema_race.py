@@ -219,6 +219,7 @@ def test_supervisor_refusal_closes_pool_and_drops_privileges(tmp_path: Path, mon
     from mso.db import NewerDatabaseError
 
     module, _, trace = _supervisor(SimpleNamespace(url=""), tmp_path, monkeypatch)
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
     monkeypatch.setattr(module, "init_database", lambda: None)
     monkeypatch.setattr(module, "Database", lambda *_a, **_k: SimpleNamespace(close=lambda: trace.append("db-close")))
     monkeypatch.setattr(module, "demote", lambda: trace.append("demote"))

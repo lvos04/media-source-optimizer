@@ -219,7 +219,10 @@ class QbitAdapter:
             if t is None:
                 raise ValueError("torrent niet (meer) aanwezig in qBittorrent")
             if field_ in ("up_limit", "dl_limit"):
-                return int(t.get(field_) or 0)
+                value = t.get(field_)
+                if value is None:
+                    raise ValueError("qBittorrent heeft de gevraagde snelheidslimiet niet teruggegeven.")
+                return int(value)
             if field_ == "share_limits":
                 return {
                     "ratio_limit": t.get("ratio_limit", -2),

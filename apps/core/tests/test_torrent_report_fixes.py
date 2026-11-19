@@ -101,6 +101,18 @@ def test_upload_limit_proposal_applies_without_verification_failure(
     assert qb.st.prefs["up_limit"] == 0
 
 
+def test_ontbrekende_torrentlimiet_telt_niet_als_nul(qb: Qb) -> None:
+    from mso.features.torrent.adapters import QbitAdapter
+
+    h = qb.hash("Gewone.Film")
+    adapter = QbitAdapter()
+    qb.st.torrents[h]["up_limit"] = 0
+    assert adapter.read_value(f"torrent:{h}:up_limit") == 0
+    del qb.st.torrents[h]["up_limit"]
+    with pytest.raises(ValueError, match="limiet"):
+        adapter.read_value(f"torrent:{h}:up_limit")
+
+
 def test_every_rate_path_tolerates_kib_rounding(qb: Qb, admin: Any, manage_mode: None) -> None:
     """Change sets created elsewhere (non-multiples of 1024) still verify: global, alt and per-torrent limits."""
     set_settings(admin, line_up_mbit=2000.0)
@@ -119,6 +131,10 @@ def test_every_rate_path_tolerates_kib_rounding(qb: Qb, admin: Any, manage_mode:
     assert qb.st.prefs["alt_up_limit"] == 150_000_000 // 1024 * 1024
     assert qb.st.prefs["alt_dl_limit"] == 3_000_001 // 1024 * 1024
     assert qb.st.torrents[h]["up_limit"] == 999_424 and qb.st.torrents[h]["dl_limit"] == 2_500_000 // 1024 * 1024
+    assert [op["observed_after"] for op in out["ops"]] == [
+        qb.st.prefs["alt_up_limit"], qb.st.prefs["alt_dl_limit"], qb.st.prefs["dl_limit"],
+        qb.st.torrents[h]["up_limit"], qb.st.torrents[h]["dl_limit"],
+    ]
     changes.rollback(ch["id"], "test")
     assert qb.st.prefs["alt_up_limit"] == 10240 and qb.st.torrents[h]["dl_limit"] == 0
 

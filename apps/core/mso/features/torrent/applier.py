@@ -20,11 +20,9 @@ path).
 
 Validation (``policy.validate``) does not need a reachable client, so guardrails also hold at preview time.
 
-Speed limits (``pref:up_limit|dl_limit|alt_up_limit|alt_dl_limit``, ``torrent:<hash>:up_limit|dl_limit``) are
-kept by qBittorrent in whole KiB/s: a written 200000000 reads back as 199999488. ``read`` therefore reports
-the value that was just written (by this applier instance) when qBittorrent's value is that same limit rounded
-to KiB (difference < 1024 bytes/s), so verify-after-write does not fail and auto-roll back a correct write.
-MSO itself proposes limits as multiples of 1024 already (``settings.kib_floor``).
+qBittorrent bewaart snelheidslimieten in hele KiB/s. ``read`` levert de gemeten waarde voor het journaal en
+de eindhash. ``same`` houdt bij de verificatie rekening met de afronding. MSO stelt zelf veelvouden van
+1024 voor (``settings.kib_floor``).
 """
 
 from __future__ import annotations
@@ -73,7 +71,6 @@ def _refresh_snapshot_pref(key: str, value: Any) -> None:
 
 def build() -> Applier:
     state: dict[str, Any] = {}
-    written: dict[str, Any] = {}  # rate path → value this applier wrote (for KiB-tolerant read-back)
 
     def adapter() -> Any:
         if "a" not in state:
@@ -103,8 +100,6 @@ def build() -> Applier:
         if path == "pref:excluded_file_names" and value is not None:
             # qBittorrent keeps a list (one glob per line); compare the normalised text
             return policy.join_patterns(policy.split_patterns(value))
-        if path in written and policy.rate_matches(written[path], value):
-            return written[path]  # same limit, rounded by qBittorrent to whole KiB/s
         return value
 
     def write(path: str, value: Any) -> None:
@@ -146,8 +141,6 @@ def build() -> Applier:
             )
             return
         adapter().write_value(path, value)
-        if policy.is_rate_path(path):
-            written[path] = value
         if kind == "pref":
             _refresh_snapshot_pref(rest, adapter().read_value(path))
 

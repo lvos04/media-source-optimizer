@@ -296,7 +296,7 @@ def evaluate_due(db: Database | None = None) -> dict[str, Any]:
         blocker = _no_auto_rollback(ch, ev)
         if enabled and blocker is None and state.automation_allowed():
             try:
-                changes.rollback(ch["id"], ACTOR, reason=reason[:300], db=db)
+                changes.rollback(ch["id"], ACTOR, reason=reason[:300], db=db, automatic=True)
             except changes.RollbackSkipped as exc:
                 record |= {"action": "overgeslagen", "reason": reason,
                            "message": "Slechter gemeten, maar niet teruggedraaid: de waarde is inmiddels buiten MSO "

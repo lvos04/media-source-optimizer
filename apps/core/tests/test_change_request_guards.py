@@ -8,7 +8,7 @@ import test_connector_api
 import test_maintenance
 from conftest import USER_FIXTURE_PASSWORD
 from fastapi import HTTPException
-from test_change_safety import HUB_RATE_PATH, _hub_key
+from test_change_safety import HUB_RATE_PATH, Crash, _hub_key
 from test_connector_api import PREFIX, _connector_headers, _execution, _pin, fout
 
 from mso import backups, changes, machine_keys, state
@@ -331,7 +331,7 @@ def test_vertraagde_bronactie_wordt_eenmaal_bevestigd(timeout, client, db, signe
     assert _applied_count(db, ch) == 1 and changes.reconcile_interrupted()["checked"] == 0
 
 
-def _vertraagde_limieten(client, signed_change, monkeypatch, extra_ops):
+def _vertraagde_limieten(client, signed_change, monkeypatch, extra_ops, *, schrijfantwoord=False):
     ch, source, key = signed_change
     _pin(key, monkeypatch)
     source.values.update({op["path"]: op["before"] for op in extra_ops})
@@ -342,36 +342,204 @@ def _vertraagde_limieten(client, signed_change, monkeypatch, extra_ops):
     def write(path, value):
         received.append((path, value))
         if (path, value) == (HUB_RATE_PATH, 80):
+            if schrijfantwoord:
+                return  # De bron bevestigt de ontvangst en verwerkt de opdracht later.
             raise TimeoutError("De lokale bron verwerkt de eerste opdracht later.")
         original.write(path, value)
 
-    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(original.read, write))
+    def read(path):
+        if schrijfantwoord and received and not source.writes:
+            raise TimeoutError("De eindwaarde is nog niet leesbaar.")
+        return original.read(path)
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(read, write))
     assert client.post(PREFIX + "/apply", json=_execution(ch, key), headers=_connector_headers()).status_code == 502
     assert received == [(HUB_RATE_PATH, 80)] and changes.get(ch["id"])["status"] == "applying"
     original.write(*received[0])
     return ch, source, received
 
 
+@pytest.mark.parametrize("bron_ontving,handmatig,oude_meting", [
+    (False, 40, False), (True, 40, False), (False, 50, False), (False, 40, True),
+])
+def test_startmarkering_zonder_schrijfantwoord_draagt_over(
+    bron_ontving, handmatig, oude_meting, db, signed_change, monkeypatch,
+):
+    voorbeeld, bron, _ = signed_change
+    tweede = "pref:up_limit"
+    bron.values[tweede] = 50
+    ch = changes.create(voorbeeld["target"], "Twee limieten", [
+        *voorbeeld["ops"], {"path": tweede, "before": 50, "after": 40},
+    ], risk=voorbeeld["risk"])
+    lokaal = bron.applier()
+
+    def schrijf(pad, waarde):
+        if pad != tweede or bron_ontving:
+            lokaal.write(pad, waarde)
+        if pad == tweede:
+            raise Crash()
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(lokaal.read, schrijf))
+    changes.approve(ch["id"], "beheerder")
+    with pytest.raises(Crash):
+        changes.apply(ch["id"], "beheerder")
+    ops = changes.get(ch["id"])["ops"]
+    assert ops[1]["write_started"] is True
+    if oude_meting:
+        # Ook een oude achtergrondmeting na de startmarkering levert geen schrijfantwoord op.
+        ops[1].update(result="toegepast", observed_after=40, checked_at=changes._now_iso(),
+                      verified_at=changes._now_iso())
+        db.execute("UPDATE change_sets SET ops=%s WHERE id=%s", (jsonb(ops), ch["id"]))
+    bron.values[tweede] = handmatig
+    verstuurd = list(bron.writes)
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], bron.applier)
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "onduidelijk"}
+    assert bron.values[tweede] == handmatig and bron.writes == verstuurd
+    einde = changes.get(ch["id"])
+    assert einde["status"] == "failed" and einde["ops"][1]["result"] == "onduidelijk"
+    assert _applied_count(db, ch) == 0 and changes.reconcile_interrupted()["checked"] == 0
+    assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key=%s AND status='open'",
+                     (f"change.interrupted:{ch['id']}",)) == 1
+
+
+@pytest.mark.parametrize("vertraagd", [False, True], ids=["direct", "na-timeout"])
+@pytest.mark.parametrize("eindmeting", [
+    "gelijkwaardig", "handmatig", "tijdelijk_onleesbaar", "ontbrekend_onleesbaar", "uur_onleesbaar",
+])
+def test_eindmeting_van_al_ingestelde_limiet(vertraagd, eindmeting, client, db, signed_change, monkeypatch):
+    voorbeeld, bron, sleutel = signed_change
+    _pin(sleutel, monkeypatch)
+    tweede = "pref:up_limit"
+    bron.values[tweede] = 40
+    ch = changes.create(voorbeeld["target"], "Twee limieten", [
+        *voorbeeld["ops"], {"path": tweede, "before": 50, "after": 40},
+    ], risk=voorbeeld["risk"])
+    lokaal = bron.applier()
+    onleesbaar = eindmeting.endswith("onleesbaar")
+    herlezingen = []
+    aanvragen = []
+
+    def verwerk():
+        lokaal.write(HUB_RATE_PATH, 80)
+        bron.values[tweede] = 37 if eindmeting == "handmatig" else 41
+
+    def schrijf(pad, waarde):
+        aanvragen.append((pad, waarde))
+        if (pad, waarde) == (HUB_RATE_PATH, 80):
+            if vertraagd:
+                raise TimeoutError("Bron antwoordt later.")
+            verwerk()
+        else:
+            lokaal.write(pad, waarde)
+
+    def lees(pad):
+        if pad == tweede and bron.writes:
+            herlezingen.append(pad)
+            if onleesbaar:
+                if eindmeting == "ontbrekend_onleesbaar":
+                    return None
+                raise TimeoutError("Limiet tijdelijk onleesbaar.")
+        return lokaal.read(pad)
+
+    def zelfde(pad, gemeten, gevraagd):
+        return pad == tweede and (gemeten, gevraagd) == (41, 40)
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(lees, schrijf, same=zelfde))
+    route = PREFIX + "/apply"
+    bericht, koppen = _execution(ch, sleutel), _connector_headers()
+    antwoord = client.post(route, json=bericht, headers=koppen)
+    if vertraagd:
+        assert antwoord.status_code == 502 and changes.get(ch["id"])["status"] == "applying"
+        verwerk()
+        changes.reconcile_interrupted()
+    elif onleesbaar or eindmeting == "handmatig":
+        assert antwoord.status_code == 502
+    if onleesbaar:
+        assert changes.get(ch["id"])["status"] == "applying" and _applied_count(db, ch) == 0
+        db.execute("UPDATE change_sets SET apply_started_at=now()-interval '59 minutes' WHERE id=%s", (ch["id"],))
+        assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "wacht"}
+        if eindmeting == "uur_onleesbaar":
+            db.execute("UPDATE change_sets SET apply_started_at=now()-interval '61 minutes' WHERE id=%s", (ch["id"],))
+            assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "onduidelijk"}
+            assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key=%s AND status='open'",
+                             (f"change.interrupted:{ch['id']}",)) == 1
+        else:
+            onleesbaar = False
+            assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "afgerond"}
+    assert herlezingen and all(pad != tweede for pad, _ in aanvragen)
+    antwoord = client.post(route, json=bericht, headers=koppen)
+    if eindmeting in ("handmatig", "uur_onleesbaar"):
+        assert antwoord.status_code == 502 and "after_hash" not in antwoord.json()
+        assert changes.get(ch["id"])["status"] == "failed" and _applied_count(db, ch) == 0
+        if eindmeting == "handmatig":
+            assert bron.values[tweede] == 37
+    else:
+        assert antwoord.status_code == 200 and antwoord.headers["Idempotent-Replay"] == "true"
+        assert antwoord.json()["readback"]["verified"] and antwoord.json()["after_hash"] == digest([80, 41])
+        assert changes.get(ch["id"])["ops"][1]["observed_after"] == 41 and _applied_count(db, ch) == 1
+        assert aanvragen == [(HUB_RATE_PATH, 80)]
+    assert changes.reconcile_interrupted()["checked"] == 0
+
+
+def test_eindmeting_bewaakt_ook_eerder_geschreven_limieten(client, db, signed_change, monkeypatch):
+    voorbeeld, bron, sleutel = signed_change
+    _pin(sleutel, monkeypatch)
+    tweede = "pref:up_limit"
+    bron.values[tweede] = 50
+    ch = changes.create(voorbeeld["target"], "Twee schrijfacties", [
+        *voorbeeld["ops"], {"path": tweede, "before": 50, "after": 40},
+    ], risk=voorbeeld["risk"])
+    lokaal = bron.applier()
+
+    def schrijf(pad, waarde):
+        lokaal.write(pad, waarde)
+        if (pad, waarde) == (tweede, 40):
+            bron.values[HUB_RATE_PATH] = 37
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(lokaal.read, schrijf))
+    antwoord = client.post(PREFIX + "/apply", json=_execution(ch, sleutel), headers=_connector_headers())
+    assert antwoord.status_code == 502 and "after_hash" not in antwoord.json()
+    assert bron.values[HUB_RATE_PATH] == 37 and bron.values[tweede] == 50
+    assert bron.writes == [(HUB_RATE_PATH, 80), (tweede, 40), (tweede, 50)]
+    assert _applied_count(db, ch) == 0 and changes.get(ch["id"])["status"] == "failed"
+
+
+def test_eindmeting_na_timeout_is_geen_schrijfantwoord_voor_automatische_rollback(client, signed_change, monkeypatch):
+    ch, bron, ontvangen = _vertraagde_limieten(client, signed_change, monkeypatch, [])
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "afgerond"}
+    with pytest.raises(HTTPException) as fout:
+        changes.rollback(ch["id"], "automatisering", automatic=True)
+    assert fout.value.status_code == 409 and bron.values[HUB_RATE_PATH] == 80
+    assert bron.writes == ontvangen == [(HUB_RATE_PATH, 80)]
+
+
 @pytest.mark.parametrize("derde_waarde", [30, 20])
-def test_herstel_slaat_onverstuurde_limieten_over(derde_waarde, client, signed_change, monkeypatch):
+@pytest.mark.parametrize("schrijfantwoord", [True, False])
+def test_herstel_slaat_onverstuurde_limieten_over(derde_waarde, schrijfantwoord, client, signed_change, monkeypatch):
     upload, alternatief = "pref:up_limit", "pref:alt_dl_limit"
     ch, source, received = _vertraagde_limieten(client, signed_change, monkeypatch, [
         {"path": upload, "before": 50, "after": 40}, {"path": alternatief, "before": 30, "after": 20},
-    ])
+    ], schrijfantwoord=schrijfantwoord)
     source.values.update({upload: 40, alternatief: derde_waarde})
     uitkomst = changes.reconcile_interrupted()
     assert source.values[upload] == 40 and source.values[alternatief] == derde_waarde
-    assert received == [(HUB_RATE_PATH, 80), (HUB_RATE_PATH, 100)]
-    assert uitkomst["outcomes"] == {str(ch["id"]): "teruggezet"}
     einde = changes.get(ch["id"])
     assert einde["status"] == "failed"
-    assert [op["result"] for op in einde["ops"]] == ["teruggedraaid", "niet_uitgevoerd", "niet_uitgevoerd"]
+    if schrijfantwoord:
+        assert received == [(HUB_RATE_PATH, 80), (HUB_RATE_PATH, 100)]
+        assert uitkomst["outcomes"] == {str(ch["id"]): "teruggezet"}
+        assert [op["result"] for op in einde["ops"]] == ["teruggedraaid", "niet_uitgevoerd", "niet_uitgevoerd"]
+    else:
+        assert received == [(HUB_RATE_PATH, 80)] and source.values[HUB_RATE_PATH] == 80
+        assert uitkomst["outcomes"] == {str(ch["id"]): "onduidelijk"}
+        assert [op["result"] for op in einde["ops"]] == ["onduidelijk", "niet_uitgevoerd", "niet_uitgevoerd"]
 
 
-def test_herstel_bewaart_handmatige_waarde_na_eerste_lezing(client, signed_change, monkeypatch):
+@pytest.mark.parametrize("schrijfantwoord", [True, False])
+def test_herstel_bewaart_handmatige_waarde_na_eerste_lezing(schrijfantwoord, client, signed_change, monkeypatch):
     ch, source, received = _vertraagde_limieten(client, signed_change, monkeypatch, [
         {"path": "pref:up_limit", "before": 50, "after": 40},
-    ])
+    ], schrijfantwoord=schrijfantwoord)
     applier = changes.APPLIERS[ch["target"]]()
     metingen = []
 
@@ -430,6 +598,7 @@ def test_oud_journaal_zonder_schrijfbewijs_laat_handmatige_limiet_staan(
     ops = changes.get(ch["id"])["ops"]
     for op in ops:
         op.pop("write_started", None)
+        op.pop("write_acknowledged", None)
     if achtergrondmeting:
         # Een oude controle in leesmodus kon beide gelijke bronwaarden als toegepast opslaan.
         for op in ops[:2]:
@@ -451,6 +620,7 @@ def test_oud_journaal_met_schrijfbewijs_bevestigt_de_bronactie(resultaat, client
     ch, source, received = _vertraagde_limieten(client, signed_change, monkeypatch, [])
     ops = changes.get(ch["id"])["ops"]
     ops[0].pop("write_started", None)
+    ops[0].pop("write_acknowledged", None)
     if resultaat == "toegepast":
         ops[0].update(result=resultaat, observed_after=80, verified_at=changes._now_iso())
     db.execute("UPDATE change_sets SET ops=%s WHERE id=%s", (jsonb(ops), ch["id"]))

@@ -6,7 +6,7 @@ from typing import Any
 
 JOURNAL_FIELDS = frozenset({
     "observed_before", "observed_after", "verified_at", "result", "restore_note", "restore_error",
-    "rollback_note", "rollback_error", "skip_reason", "current", "checked_at", "write_started",
+    "rollback_note", "rollback_error", "skip_reason", "current", "checked_at", "write_started", "write_acknowledged",
 })
 
 

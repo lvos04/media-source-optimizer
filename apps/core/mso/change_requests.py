@@ -93,11 +93,13 @@ def resource_etag(row: dict[str, Any]) -> str:
 def connector_result(row: dict[str, Any]) -> dict[str, Any]:
     rollback = row["status"] == "rolled_back"
     before = [op.get("observed_before") for op in row["ops"]]
-    after = [op.get("observed_after", op["after"]) for op in row["ops"]]
+    if not rollback and (row["status"] != "applied" or not changes.has_apply_readback(row["ops"])):
+        raise changes.ChangeUncertain()
+    after = [op["observed_after"] for op in row["ops"]]
     if rollback:
         before, after = after, [
             op.get("current") if op.get("result") == "overgeslagen"
-            else op.get("observed_before") if op.get("result") == "teruggedraaid" else op["after"]
+            else op.get("observed_before") if op.get("result") == "teruggedraaid" else op["observed_after"]
             for op in row["ops"]
         ]
     return {

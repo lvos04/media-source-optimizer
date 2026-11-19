@@ -9,10 +9,10 @@ Apply semantics:
 1. Requires beheermodus (manage). ``toestemming_nodig`` requires prior approval by an admin.
 2. For every op the current value is read first. If it differs from the previewed ``before`` the
    apply is refused (drift — somebody else, e.g. MediaGuard's own reconcile, changed it) unless forced.
-3. MSO bewaart de beginwaarden bij de overgang naar ``applying`` en markeert elke schrijfpoging vóór verzending.
-   Na teruglezen legt MSO het resultaat vast. :func:`reconcile_interrupted` handelt onderbroken wijzigingen af.
-4. MSO leest elke schrijfactie terug. Bij een bevestigde fout zet MSO de eerder geschreven waarden terug.
-   Een onbevestigde actie blijft in het journaal voor de achtergrondcontrole.
+3. MSO markeert elke schrijfpoging vóór verzending en bewaart het schrijfantwoord vóór het teruglezen.
+   Automatisch herstel vereist een bevestigd schrijfantwoord en een overeenkomende actuele bronwaarde.
+4. Voor afronding meet MSO alle eindwaarden, ook bij :func:`reconcile_interrupted` na een onderbreking.
+   Een onleesbare eindwaarde blijft in het journaal voor de achtergrondcontrole.
 5. Rollback (1.6.0) checks drift per op first: a value that is neither MSO's value nor the original any more was
    changed outside MSO and is skipped ("overgeslagen"), never overwritten. Every written op is read back; a failed
    read-back keeps the change ``applied`` with the error — there is no "teruggedraaid" without verification.
@@ -41,7 +41,7 @@ from psycopg import Connection
 
 from mso import state
 from mso.audit import audit
-from mso.change_preview import preview_hash
+from mso.change_preview import JOURNAL_FIELDS, preview_hash
 from mso.db import Database, get_db, jsonb
 from mso.machine_keys import ADMIN_LOCK, RESTORE_PENDING, MachineKeyError, restore_pending
 from mso.security import redact
@@ -117,6 +117,11 @@ def deletes_on_write(applier: Applier | None, path: str, value: Any) -> bool:
 
 
 DELETE_NOTE = "niet automatisch teruggezet: terugzetten zou iets verwijderen; verwijder het zo nodig zelf"
+NO_WRITE_ACK = "Het journaal bevat geen schrijfbevestiging van de bron."
+
+
+def _acknowledged(op: dict[str, Any]) -> bool:
+    return op.get("write_acknowledged") is True
 
 
 def _same(applier: Applier, path: str, a: Any, b: Any) -> bool:
@@ -385,9 +390,12 @@ def _restore(applier: Applier, written: list[dict[str, Any]]) -> list[str]:
             continue
         try:
             current = applier.read(op["path"])
-            if not _same(applier, op["path"], current, op["after"]):
+            if not _same(applier, op["path"], current, op.get("observed_after", op["after"])):
                 op.update(result="overgeslagen", skip_reason="buiten MSO gewijzigd", current=current,
                           checked_at=_now_iso())
+                continue
+            if not _acknowledged(op):
+                op.update(result="onduidelijk", restore_note=NO_WRITE_ACK)
                 continue
             applier.write(op["path"], op["observed_before"])
             check = applier.read(op["path"])
@@ -401,7 +409,14 @@ def _restore(applier: Applier, written: list[dict[str, Any]]) -> list[str]:
     return errors
 
 
-def _write_and_read(applier: Applier, op: dict[str, Any], written: list[dict[str, Any]]) -> Any:
+def _read_apply_value(applier: Applier, op: dict[str, Any]) -> Any:
+    value = applier.read(op["path"])
+    if value is None and type(op.get("before")) is int and type(op["after"]) is int:
+        raise ValueError("De bronmeting bevat geen waarde voor de limiet.")
+    return value
+
+
+def _write_and_read(applier: Applier, op: dict[str, Any], persist: Callable[[], None]) -> Any:
     """Ook bij een verloren schrijfantwoord bepaalt de teruggelezen waarde het resultaat."""
     path = op["path"]
     try:
@@ -409,19 +424,23 @@ def _write_and_read(applier: Applier, op: dict[str, Any], written: list[dict[str
     except SourceWriteRefused:
         raise
     except Exception as exc:
+        op["write_acknowledged"] = False
         try:
-            observed = applier.read(path)
+            observed = _read_apply_value(applier, op)
         except Exception:
             raise ChangeUncertain() from exc
         if _same(applier, path, observed, op["after"]) and reversible(op):
-            written.append(op)
             return observed
         timed_out = isinstance(exc, (TimeoutError, TimeoutException)) or getattr(exc, "code", None) == "timeout"
         if not timed_out and reversible(op) and _same(applier, path, observed, op["observed_before"]):
             raise
         raise ChangeUncertain() from exc
-    written.append(op)
-    return applier.read(path)
+    op["write_acknowledged"] = True
+    persist()
+    try:
+        return _read_apply_value(applier, op)
+    except Exception as exc:
+        raise ChangeUncertain() from exc
 
 
 def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = False,
@@ -449,11 +468,11 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
         raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
             from exc
 
-    ops = [dict(op) for op in ch["ops"]]
+    ops = [{key: value for key, value in op.items() if key not in JOURNAL_FIELDS} for op in ch["ops"]]
     # 1) drift detection on everything before writing anything
     for op in ops:
         try:
-            current = applier.read(op["path"])
+            current = _read_apply_value(applier, op)
         except HTTPException:
             raise
         except Exception as exc:
@@ -461,9 +480,7 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
                                              f"{redact(str(exc))[:300]}")) from exc
         op.update(observed_before=current, write_started=False)
         if current == op["after"]:
-            op.update(result="al_ingesteld", observed_after=current)
-        else:
-            op.pop("result", None)
+            op["result"] = "al_ingesteld"
         if applier.validate:
             try:
                 applier.validate(op["path"], op["after"])
@@ -483,25 +500,28 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
             raise _conflict(change_id, db)
         check_deadline()
     # 3) write + verify one op at a time; each result is stored right away
-    written: list[dict[str, Any]] = []
+    def persist() -> None:
+        _persist_ops(db, change_id, ops, "applying")
+
     try:
         for op in ops:
             if op.get("result") == "al_ingesteld":
                 continue
             op["write_started"] = True
-            _persist_ops(db, change_id, ops, "applying")
-            check = _write_and_read(applier, op, written)
+            persist()
+            check = _write_and_read(applier, op, persist)
             if not _same(applier, op["path"], check, op["after"]):
                 raise RuntimeError(f"verificatie mislukt voor '{op['label']}': {check!r}")
             op.update(result="toegepast", observed_after=check, verified_at=_now_iso())
-            _persist_ops(db, change_id, ops, "applying")
+            persist()
     except ChangeUncertain:
         op["result"] = "onbevestigd"
-        _persist_ops(db, change_id, ops, "applying")
+        persist()
         audit(actor, "change.unconfirmed", f"Uitkomst van de bronactie nog onbekend: {ch['title']}",
               target=ch["target"], change_id=change_id)
         raise
     except Exception as exc:
+        written = [o for o in ops if _acknowledged(o) or o.get("result") == "toegepast"]
         rollback_errors = _restore(applier, written)
         kept = [op for op in written if op.get("restore_note")]
         restored = [o["label"] for o in written if o.get("result") == "teruggedraaid"]
@@ -518,6 +538,8 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
         err = redact(err)
         db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s, applied_by=NULL, applied_auto=false "
                    "WHERE id=%s AND status='applying'", (err, jsonb(ops), change_id))
+        if any(o.get("result") == "onduidelijk" for o in written):
+            _waiting_item(ch, f"Wijziging controleren: {ch['title']}", NO_WRITE_ACK, "onduidelijk", db)
         audit(actor, "change.failed", f"Toepassen mislukt: {ch['title']}", target=ch["target"],
               change_id=change_id, detail={"error": err, "automatic": automatic})
         if restored or rollback_errors:
@@ -529,10 +551,13 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
                           "values": [{"label": o["label"], "back_to": o["observed_before"]} for o in written
                                      if o.get("result") == "teruggedraaid"]})
         raise ChangeFailed(f"Toepassen mislukt: {err}") from exc
-    return _finish(db, ch, "status='applied', applied_by=%s, applied_at=now(), ops=%s, error=NULL",
-                   (actor, jsonb(ops)), ("applying",), actor, "change.applied", f"Toegepast: {ch['title']}",
-                   detail={"ops": [{"label": o["label"], "before": o["observed_before"], "after": o["after"]}
-                                   for o in ops], "automatic": automatic}, request_id=request_id)
+    outcome = _settle_apply(get(change_id, db), db, applier)
+    if outcome in ("wacht", "wacht_op_beheermodus"):
+        raise ChangeUncertain()
+    result = get(change_id, db)
+    if outcome != "afgerond":
+        raise ChangeFailed(result["error"])
+    return result
 
 
 # ------------------------------------------------------------------ rollback
@@ -556,7 +581,7 @@ def is_person(actor: str, db: Database | None = None) -> bool:
 
 
 def rollback(change_id: int, actor: str, reason: str = "", db: Database | None = None, *,
-             allow_delete: bool = False) -> dict[str, Any]:
+             allow_delete: bool = False, automatic: bool = False) -> dict[str, Any]:
     """Write ``observed_before`` back for every applied, reversible op (reverse order).
 
     Per op: read the current value first — still MSO's value → write back + read back (verified); already the
@@ -570,6 +595,9 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
     state.require_manage_mode()
     with _lock(change_id, db):
         ch = get(change_id, db, persist_hash=False)
+        if automatic and any(op.get("result") == "toegepast" and reversible(op) and not _acknowledged(op)
+                             for op in ch["ops"]):
+            raise HTTPException(409, detail=NO_WRITE_ACK + " Controleer de wijziging handmatig.")
         return rollback_locked(ch, actor, db, reason=reason, allow_delete=allow_delete)
 
 
@@ -623,7 +651,8 @@ def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str
     if check_deadline is not None:
         # De handtekening bindt de hele wijziging. Een afwijking vóór de uitvoering weigert het hele verzoek.
         for op in ops:
-            _checked_rollback_value(applier, op, change_id, resuming)
+            current = _checked_rollback_value(applier, op, change_id, resuming)
+            op.setdefault("observed_after", current)
     start_request = request_id is not None or check_deadline is not None
     errors: list[str] = []
     skipped = [op for op in ops if resuming and op.get("result") == "overgeslagen"]
@@ -747,78 +776,104 @@ def _resolve_item(change_id: int, db: Database) -> None:
                (f"change.interrupted:{change_id}",))
 
 
-def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
-    """Finish or undo one interrupted apply (lock held by the caller). Returns the outcome."""
-    ops = [dict(op) for op in ch["ops"]]
-    started = ch.get("apply_started_at") or ch.get("created_at") or datetime.now(UTC)
-    grace_over = datetime.now(UTC) - started > RECONCILE_GRACE
-    try:
-        applier = APPLIERS[ch["target"]]()
-    except Exception as exc:
-        applier = None
-        unconfirmed = [f"koppeling niet beschikbaar: {redact(str(exc))[:160]}"]
-    else:
-        unconfirmed = []
-    unclear: list[str] = []
-    if applier is not None:
-        for op in ops:
-            if op.get("result") == "al_ingesteld":
-                continue
+def _measure_apply(applier: Applier, ops: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    """Meet de eindwaarden in één ronde. Een meting bewijst de waarde, een schrijfantwoord de herkomst."""
+    pending: list[str] = []
+    missing_proof: list[str] = []
+    for op in ops:
+        path = op["path"]
+        preset = op.get("result") == "al_ingesteld" or (
+            "observed_before" in op and op["observed_before"] == op["after"]
+        )
+        if not preset:
             if op.get("write_started") is False:
                 op["result"] = "niet_uitgevoerd"
                 continue
-            if op.get("write_started") is not True:
-                # Een oud journaal kan 'toegepast' ook uit alleen een achtergrondmeting hebben afgeleid.
+            if "write_acknowledged" not in op:
+                # Een oud schrijfresultaat kan na een verloren antwoord zijn afgeleid uit een bronlezing.
                 if op.get("result") == "onbevestigd" or (
                     op.get("result") == "toegepast" and op.get("verified_at") and not op.get("checked_at")
                 ):
-                    op["write_started"] = True
+                    op["write_acknowledged"] = False
                 else:
                     op["result"] = "onduidelijk"
-                    unconfirmed.append(f"{op['label']}: schrijfpoging niet aantoonbaar in het oude journaal")
+                    reason = f"{op['label']}: {NO_WRITE_ACK}"
+                    if op.get("write_started") is True:
+                        missing_proof.append(reason)
+                    else:
+                        pending.append(reason)
                     continue
-            try:
-                cur = applier.read(op["path"])
-            except Exception as exc:
-                unconfirmed.append(f"{op['label']}: {redact(str(exc))[:160]}")
-                continue
-            op["checked_at"] = _now_iso()
-            op["observed_after"] = cur
-            if op.get("observed_before") == op["after"]:
-                op["result"] = "al_ingesteld"
-            elif _same(applier, op["path"], cur, op["after"]):
-                op["result"] = "toegepast"
-                op.setdefault("verified_at", _now_iso())
-            elif op.get("result") == "onbevestigd":
-                # De bron kan de verstuurde opdracht nog verwerken na een eerder verloren antwoord.
-                unconfirmed.append(f"{op['label']}: bronactie nog niet bevestigd")
-            elif _same(applier, op["path"], cur, op.get("observed_before")):
-                op["result"] = "niet_toegepast"
-            else:
-                op["result"] = "afwijkend"
-                op["current"] = cur
-                unclear.append(f"{op['label']}: nu {_short(cur, 60)}")
-    if unconfirmed and not grace_over:
-        return "wacht"
+        try:
+            current = _read_apply_value(applier, op)
+        except Exception as exc:
+            op.pop("observed_after", None)
+            op.pop("verified_at", None)
+            op.pop("checked_at", None)
+            pending.append(f"{op['label']}: {redact(str(exc))[:160]}")
+            continue
+        expected = op["observed_after"] if op.get("result") == "toegepast" and "observed_after" in op else op["after"]
+        op.update(checked_at=_now_iso(), observed_after=current)
+        if _same(applier, path, current, op["after"]) and _same(applier, path, current, expected):
+            op["result"] = "al_ingesteld" if preset else "toegepast"
+            op["verified_at"] = op["checked_at"]
+        elif op.get("result") == "onbevestigd":
+            pending.append(f"{op['label']}: bronactie nog niet bevestigd")
+        elif not preset and _same(applier, path, current, op.get("observed_before")):
+            op["result"] = "niet_toegepast"
+        else:
+            op.update(result="afwijkend", current=current)
+    return pending, missing_proof
+
+
+def has_apply_readback(ops: list[dict[str, Any]]) -> bool:
+    return bool(ops) and all(
+        op.get("checked_at") and "observed_after" in op and op.get("result") in ("toegepast", "al_ingesteld")
+        for op in ops
+    )
+
+
+def _settle_apply(ch: dict[str, Any], db: Database, applier: Applier | None = None) -> str:
+    """Rond de uitvoering onder het wijzigingsslot af, direct of na een onderbreking."""
+    interrupted = applier is None
+    ops = [dict(op) for op in ch["ops"]]
     title = ch["title"]
-    if unconfirmed:
-        err = redact("Uitkomst na één uur niet te controleren. " + "; ".join(unconfirmed))
+    try:
+        if applier is None:
+            applier = APPLIERS[ch["target"]]()
+    except Exception as exc:
+        pending = [f"koppeling niet beschikbaar: {redact(str(exc))[:160]}"]
+        missing_proof = []
+    else:
+        pending, missing_proof = _measure_apply(applier, ops)
+    if pending:
+        started = ch.get("apply_started_at") or ch["created_at"]
+        if _now() - started <= RECONCILE_GRACE:
+            _persist_ops(db, ch["id"], ops, "applying")
+            return "wacht"
+    if pending or missing_proof:
+        reason = "Uitkomst na één uur niet te controleren. " if pending else ""
+        err = redact(reason + "; ".join(pending + missing_proof))
         _waiting_item(ch, f"Onderbroken wijziging controleren: {title}",
-                      f"De bron heeft de uitkomst van '{title}' binnen één uur niet bevestigd. "
-                      "Controleer de instellingen zelf en maak zo nodig een nieuw voorstel.", "onduidelijk", db)
+                      f"{err} Controleer de instellingen zelf en maak zo nodig een nieuw voorstel.", "onduidelijk", db)
         db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s WHERE id=%s AND status='applying'",
                    (err[:1000], jsonb(ops), ch["id"]))
         return "onduidelijk"
-    if all(op.get("result") in ("toegepast", "al_ingesteld") for op in ops):
+    if has_apply_readback(ops):
+        detail = {"ops": [{"label": o["label"], "before": o.get("observed_before"), "after": o["observed_after"]}
+                          for o in ops], "automatic": bool(ch.get("applied_auto"))}
+        summary = f"Toegepast: {title}"
+        if interrupted:
+            summary = f"Toegepast (afgerond na onderbreking): {title}"
+            detail["interrupted"] = True
         _finish(db, ch, "status='applied', applied_at=now(), ops=%s, error=NULL", (jsonb(ops),), ("applying",),
-                ch.get("applied_by") or "systeem", "change.applied", f"Toegepast (afgerond na onderbreking): {title}",
-                detail={"ops": [{"label": o["label"], "before": o.get("observed_before"), "after": o["after"]}
-                                for o in ops], "automatic": bool(ch.get("applied_auto")), "interrupted": True},
+                ch.get("applied_by") or "systeem", "change.applied", summary, detail=detail,
                 request_id=ch["apply_request_id"])
-        _resolve_item(ch["id"], db)
+        if interrupted:
+            _resolve_item(ch["id"], db)
         return "afgerond"
+    unclear = [f"{o['label']}: nu {_short(o['current'], 60)}" for o in ops if o.get("result") == "afwijkend"]
     written = [op for op in ops if op.get("result") == "toegepast"]
-    restorable = [op for op in written if reversible(op)
+    restorable = [op for op in written if _acknowledged(op) and reversible(op)
                   and not deletes_on_write(applier, str(op["path"]), op.get("observed_before"))]
     if restorable and state.mode() not in ("manage", "autopilot"):
         # something MSO can put back was written, but alleen-lezen never writes: wait (one item) for beheermodus.
@@ -832,6 +887,7 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
         return "wacht_op_beheermodus"
     errors = _restore(applier, written) if applier is not None else []
     unclear.extend(o["label"] for o in written if o.get("result") == "overgeslagen")
+    unowned = [o["label"] for o in written if o.get("result") == "onduidelijk"]
     for op in ops:
         if op.get("result") == "niet_toegepast":
             op["result"] = "niet_uitgevoerd"
@@ -839,8 +895,8 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
     kept = [o["label"] for o in written if o.get("result") == "toegepast" and o.get("restore_note") != DELETE_NOTE]
     kept_delete = [o["label"] for o in written if o.get("result") == "toegepast"
                    and o.get("restore_note") == DELETE_NOTE]
-    parts = ["Onderbroken tijdens toepassen (herstart)"]
-    if not written:
+    parts = ["Onderbroken tijdens toepassen (herstart)" if interrupted else "Eindcontrole van de wijziging mislukt"]
+    if not written and not unclear:
         parts.append("onderbroken vóór de eerste schrijfactie; niets ingesteld")
     if any(o.get("result") == "teruggedraaid" for o in written):
         parts.append("al geschreven waarden teruggezet en gecontroleerd")
@@ -854,14 +910,18 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
         parts.append(f"terugzetten mislukt: {'; '.join(errors)}")
     if unclear:
         parts.append(f"buiten MSO gewijzigd, niet aangeraakt: {'; '.join(unclear)}")
+    if unowned:
+        parts.append(f"{NO_WRITE_ACK} Controleer {', '.join(unowned)}.")
     err = " · ".join(parts)
     db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s WHERE id=%s AND status='applying'",
                (err[:1000], jsonb(ops), ch["id"]))
     outcome = "deels" if (errors or unclear or kept_delete) else ("niets_ingesteld" if not written else "teruggezet")
-    if errors or unclear or kept or not ch.get("applied_auto"):
+    if unowned:
+        outcome = "onduidelijk"
+    if errors or unclear or unowned or kept or not ch.get("applied_auto"):
         _waiting_item(ch, f"Wijziging onderbroken: {title}",
-                      f"MSO werd herstart terwijl '{title}' werd toegepast. {err}. "
-                      + ("Controleer de genoemde instellingen." if errors or unclear
+                      f"{err}. "
+                      + ("Controleer de genoemde instellingen." if errors or unclear or unowned
                          else "Pas de wijziging opnieuw toe als je haar nog wilt."), outcome, db)
     else:  # an automatic change MSO proposes again by itself: no item needed
         _resolve_item(ch["id"], db)
@@ -882,7 +942,7 @@ def reconcile_interrupted(db: Database | None = None) -> dict[str, Any]:
                 ch = get(row["id"], db)
                 if ch["status"] != "applying":
                     continue  # finished between our query and the lock
-                outcome = _reconcile_one(ch, db)
+                outcome = _settle_apply(ch, db)
         except ChangeBusy:
             out["running"] += 1
             continue

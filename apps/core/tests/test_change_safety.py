@@ -43,12 +43,17 @@ class Fake:
         self.writes: list[tuple[str, Any]] = []
 
     def applier(self) -> Applier:
+        last_written = None
+
         def read(path: str) -> Any:
+            if path == last_written == self.crash_after:
+                raise Crash()  # Schrijfantwoord ontvangen, proces valt uit bij het teruglezen.
             if self.read_fail:
                 raise RuntimeError("bron offline (apikey=geheim999)")
             return self.values.get(path)
 
         def write(path: str, value: Any) -> None:
+            nonlocal last_written
             if self.crash_before == path:
                 raise Crash()
             self.writes.append((path, value))
@@ -56,8 +61,7 @@ class Fake:
                 raise RuntimeError("schrijven geweigerd")
             if path not in self.ignore:
                 self.values[path] = value
-            if self.crash_after == path:
-                raise Crash()
+            last_written = path
 
         return Applier(read=read, write=write)
 
@@ -635,7 +639,9 @@ def _srv(sab: Any, name: str) -> dict[str, Any]:
 NH, BLOCK, EWEKA = "news.newshosting.test", "block.example.test", "news.eweka.test"
 
 
-def test_sab_crash_mid_apply_reconciled_over_http(app: Any, db: Any, admin: Any, serve: Any) -> None:
+@pytest.mark.parametrize("schrijfantwoord", [True, False])
+def test_sab_crash_mid_apply_reconciled_over_http(schrijfantwoord: bool, app: Any, db: Any, admin: Any,
+                                                  serve: Any) -> None:
     sab = _start(serve, admin)
     state.set_state("mode", "manage")
     ch = changes.create("sabnzbd", "Prioriteiten", [
@@ -647,11 +653,18 @@ def test_sab_crash_mid_apply_reconciled_over_http(app: Any, db: Any, admin: Any,
     def crashing() -> Applier:
         a = real()
 
+        def read(path: str) -> Any:
+            value = a.read(path)
+            if path == f"servers/{NH}/priority" and value == 3:
+                raise Crash()
+            return value
+
         def write(path: str, value: Any) -> None:
             a.write(path, value)
-            raise Crash()
+            if not schrijfantwoord:
+                raise Crash()
 
-        return Applier(read=a.read, write=write, validate=a.validate)
+        return Applier(read=read, write=write, validate=a.validate)
 
     changes.APPLIERS["sabnzbd"] = crashing
     try:
@@ -661,7 +674,14 @@ def test_sab_crash_mid_apply_reconciled_over_http(app: Any, db: Any, admin: Any,
         changes.APPLIERS["sabnzbd"] = real
     assert _srv(sab, NH)["priority"] == 3 and _srv(sab, BLOCK)["priority"] == 0  # half applied in SABnzbd
     assert changes.get(ch["id"])["status"] == "applying"
-    out = changes.reconcile_interrupted()  # reads SABnzbd's config over HTTP and writes the old value back
+    out = changes.reconcile_interrupted()
+    if not schrijfantwoord:
+        assert out["outcomes"] == {str(ch["id"]): "onduidelijk"}
+        assert _srv(sab, NH)["priority"] == 3 and _srv(sab, BLOCK)["priority"] == 0
+        assert changes.get(ch["id"])["status"] == "failed"
+        assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key=%s AND status='open'",
+                         (f"change.interrupted:{ch['id']}",)) == 1
+        return
     assert out["outcomes"] == {str(ch["id"]): "teruggezet"}
     assert _srv(sab, NH)["priority"] == 1 and _srv(sab, BLOCK)["priority"] == 0
     c = changes.get(ch["id"])
@@ -799,13 +819,19 @@ def test_parked_again_after_reset_reopens_the_inbox_item(operator: Any, db: Any,
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='automation.parked'") == 2
 
 
-def test_reconcile_in_read_only_with_nothing_written_finishes(db: Any, fake: Fake, manage_mode: None) -> None:
+def test_reconcile_in_read_only_with_nothing_written_finishes(db: Any, fake: Fake, manage_mode: None,
+                                                             monkeypatch: Any) -> None:
     ch = _create(TWO, key="twee")
-    fake.crash_before = "speed"  # cut off after the 'applying' journal, before the first write
-    with pytest.raises(Crash):
-        changes.apply(ch["id"], "beheerder")
+
+    def stop_before_start(*args):
+        raise Crash()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(changes, "_persist_ops", stop_before_start)
+        with pytest.raises(Crash):
+            changes.apply(ch["id"], "beheerder")
     assert changes.get(ch["id"])["status"] == "applying" and fake.writes == []
-    fake.crash_before = None
+    assert all(op["write_started"] is False for op in changes.get(ch["id"])["ops"])
     state.set_state("mode", "read_only")
     assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "niets_ingesteld"}
     c = changes.get(ch["id"])

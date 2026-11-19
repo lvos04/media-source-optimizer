@@ -608,8 +608,9 @@ class _Crash(BaseException):
     """The process dies right after a write (not caught by ``except Exception``)."""
 
 
+@pytest.mark.parametrize("schrijfantwoord", [True, False])
 def test_reconciler_never_deletes_a_category_of_an_interrupted_apply(
-    app: Any, serve: Any, admin: Any, db: Any
+    schrijfantwoord: bool, app: Any, serve: Any, admin: Any, db: Any
 ) -> None:
     from mso import changes, state
     from mso.connectors.sabnzbd import CATEGORY_TARGET
@@ -625,12 +626,18 @@ def test_reconciler_never_deletes_a_category_of_an_interrupted_apply(
     def crashing() -> Any:
         a = real()
 
+        def read(path: str) -> Any:
+            value = a.read(path)
+            if path == "categories/movies-anime" and sab.category("movies-anime") is not None:
+                raise _Crash()
+            return value
+
         def write(path: str, value: Any) -> None:
             a.write(path, value)
-            if path == "categories/movies-anime":
+            if not schrijfantwoord:
                 raise _Crash()
 
-        return changes.Applier(read=a.read, write=write, validate=a.validate, rollback_deletes=a.rollback_deletes)
+        return changes.Applier(read=read, write=write, validate=a.validate, rollback_deletes=a.rollback_deletes)
 
     changes.APPLIERS[CATEGORY_TARGET] = crashing
     try:
@@ -640,12 +647,16 @@ def test_reconciler_never_deletes_a_category_of_an_interrupted_apply(
         changes.APPLIERS[CATEGORY_TARGET] = real
     assert changes.get(ch["id"])["status"] == "applying"
     out = changes.reconcile_interrupted()  # the worker, unattended
-    assert out["outcomes"] == {str(ch["id"]): "deels"}
     assert sab.category("movies-anime") is not None  # NOT deleted
     row = changes.get(ch["id"])
     by_path = {o["path"]: o for o in row["ops"]}
-    assert row["status"] == "failed" and by_path["categories/movies-anime"]["result"] == "toegepast"
-    assert "verwijderen" in row["error"]
+    assert row["status"] == "failed"
+    if schrijfantwoord:
+        assert out["outcomes"] == {str(ch["id"]): "deels"}
+        assert by_path["categories/movies-anime"]["result"] == "toegepast" and "verwijderen" in row["error"]
+    else:
+        assert out["outcomes"] == {str(ch["id"]): "onduidelijk"}
+        assert by_path["categories/movies-anime"]["result"] == "onduidelijk"
     rec = db.fetchone("SELECT * FROM recommendations WHERE dedupe_key=%s", (f"change.interrupted:{ch['id']}",))
     assert rec["status"] == "open"
 

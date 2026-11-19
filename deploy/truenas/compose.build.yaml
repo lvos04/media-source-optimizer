@@ -8,8 +8,6 @@
 #
 # Achter een TLS-inspecterende proxy: geef de CA als build-secret mee (komt niet in het image):
 #   MSO_BUILD_CA=/pad/naar/ca.crt docker compose … build
-# (TrueNAS "Install via YAML" bouwt zelf niets; gebruik dit via de shell/een andere Docker-host en
-#  zet daarna MSO_CORE_IMAGE/MSO_WEB_IMAGE op de lokaal gebouwde tags.)
 
 x-core-build: &core-build
   context: ../../apps/core

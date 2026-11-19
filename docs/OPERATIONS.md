@@ -1,47 +1,30 @@
 # Beheer en operatie
 
-Dagelijks beheer van een draaiende Media Source Optimizer-installatie (MSO): gezondheid, logs, back-ups,
-herstel, taakherstel, onderhoud, koppelingsbewaking, de noodrem en resources. Installatie: [TRUENAS_INSTALL.md](TRUENAS_INSTALL.md); schema-upgrades:
-[MIGRATION.md](MIGRATION.md).
-
-Containernamen krijgen van TrueNAS een voorvoegsel. In de voorbeelden hieronder:
-
-```sh
-c() { sudo docker ps -a --format '{{.Names}}' | grep -E "media-source-optimizer.*-$1-" | head -1; }
-API=$(c api); WORKER=$(c worker); PG=$(c postgres); WEB=$(c web)
-```
+Dagelijks beheer van de standaard TrueNAS Custom App van Media Source Optimizer (MSO).
+Gebruik het [Custom App-formulier](../deploy/truenas/CUSTOM_APP.md) voor installatie en
+[het migratiepad](MIGRATION.md#updaten-via-truenas) voor upgrades.
 
 ## Gezondheid
 
-| Waar | Wat | Gezond |
-|---|---|---|
-| `docker ps` | container-healthchecks | `postgres`, `api`, `worker`, `web`: `(healthy)`; `init`, `migrate`: `Exited (0)` |
-| `postgres` | `pg_isready` elke 10 s | accepting connections |
-| `api` | `GET /healthz` (pingt de database) elke 30 s | HTTP 200 `{"status":"ok"}` |
-| `worker` | hartslag in `system_state` jonger dan 90 s (de worker schrijft elke 20 s) | exit 0 |
-| `web` | `GET /login` elke 30 s | HTTP 200 |
-| UI → Systeem | `GET /api/v1/system/health`: database, worker, vrije ruimte APPDATA/WORK, elke ingeschakelde koppeling | `healthy`; `degraded` als bijv. een koppeling een waarschuwing heeft of de vrije ruimte onder `MSO_DISK_RESERVE_GB` (standaard 2 GB) zakt |
-| UI → Overzicht → Koppelingen | status van SABnzbd, qBittorrent en Prowlarr volgens de achtergrondtaken (zie *Koppelingsbewaking*) | geen "Onbereikbaar / Sleutel geweigerd / Reageert niet (time-out) sinds …" |
-| bovenbalk / Automatisering → Veiligheid | noodrem (zie *Noodrem*) | geen rode banner "Autopilot heeft zichzelf gepauzeerd" |
+| Waar | Controle |
+|---|---|
+| TrueNAS → Apps → MSO | De container is **Running**. De ingebouwde healthcheck controleert de interne API en webpagina. |
+| Webpoort → `/readyz` | HTTP 200 als de controles van MSO slagen. Gebruik het monitorplan uit het manifest. |
+| MSO → Systeem | Bekijk de database, worker, vrije ruimte en status van ingeschakelde koppelingen. |
+| MSO → Overzicht → Koppelingen | Bekijk of een koppeling onbereikbaar is, een sleutel weigert of een time-out meldt. |
+| MSO → Automatisering → Veiligheid | Controleer pauze en noodrem voordat je automatisch beheer hervat. |
 
-Handmatig: `sudo docker exec "$API" mso-healthcheck api; echo $?` en idem met `"$WORKER" mso-healthcheck worker`.
-
-Afhankelijkheden bij het starten: `init` → `postgres` (gezond) → `migrate` (exit 0) → `api` + `worker` → `web`
-(na gezonde `api`). Bij een herstart van alleen PostgreSQL wachten `api`/`worker` maximaal 60 s
-(`MSO_DB_WAIT_S`) op de database bij hun eigen start. Herstart je alleen `postgres` terwijl `api`/`worker`
-doorlopen, controleer dan Systeem → Gezondheid; herstart bij databasefouten ook `api` en `worker` (het
-herstel van bestaande pool-verbindingen na een losse PostgreSQL-herstart is niet apart getest; de test dekt
-`docker compose restart` en `down`/`up` van de hele stack). Alle diensten hebben `restart: unless-stopped`: een gecrasht proces wordt door Docker herstart.
+Bij starten controleert de bewaker PostgreSQL en het schema. Als een migratie nodig is, controleert hij
+eerst het pre-upgrade-archief. Daarna starten API, worker en web. De app-log toont de voortgang.
 
 ## Logs
 
-- `sudo docker logs --tail 200 -f "$API"` (idem `$WORKER`, `$WEB`, `$PG`). Of in TrueNAS: Apps → app → Logs.
-- Rotatie: json-file, max. 20 MB × 5 bestanden per container (`logging` in compose.yaml).
+- Bekijk via **TrueNAS → Apps → MSO → Logs** de uitvoer van de alles-in-één-container.
 - Alle Python-logregels lopen door een redactiefilter: API-sleutels, wachtwoorden, passkeys, cookies, tokens en
   inloggegevens in URL's worden vervangen door `***`. In de container-stacktest
   (`tests/stack/smoke.py`) wordt gecontroleerd dat het beheerderswachtwoord, het databasewachtwoord en alle
   koppelingsgeheimen in géén enkele MSO-containerlog voorkomen.
-- Elke API-fout heeft een `correlation_id`, ook zichtbaar in de UI; zoek daarop in de `api`-log.
+- Elke API-fout heeft een `correlation_id`, ook zichtbaar in de UI; zoek daarop in de app-log.
 - Functionele gebeurtenissen (inloggen, wijzigingen, back-ups, koppelingstests) staan in het auditlogboek:
   UI → Logs, of `GET /api/v1/audit`.
 - Normaal bij herstart/stop van de app: PostgreSQL logt per open verbinding
@@ -51,9 +34,9 @@ herstel van bestaande pool-verbindingen na een losse PostgreSQL-herstart is niet
 
 - **Automatisch:** worker-job `backup.create` elke 24 uur (instelling `backup.auto_daily`, standaard aan);
   bewaard: de nieuwste `backup.keep` (standaard 14) automatische + handmatige back-ups.
-- **Handmatig:** UI → Systeem → Back-ups, of `sudo docker exec "$API" mso backup` (drukt de bestandsnaam af).
+- **Handmatig:** **MSO → Systeem → Back-ups**.
 - **Formaat:** `APPDATA/backups/mso-<UTC-tijd>-<soort>.dump` (`pg_dump -Fc`, PostgreSQL 16-client in het
-  core-image) plus `<naam>.sha256`. Sessies zitten er nooit in; versleutelde koppelingsgeheimen alleen bij de
+  alles-in-één-image) plus `<naam>.sha256`. Sessies zitten er nooit in; versleutelde koppelingsgeheimen alleen bij de
   expliciete keuze "inclusief geheimen". De vault-sleutel zit er nooit in.
 - **Lichter (sinds 1.6.0):** van tabellen die MSO zelf opnieuw ophaalt, gaat alleen de structuur mee, niet de inhoud
   (`--exclude-table-data`): `release_cache` (zoekcache), `mg_wanted_cache` en `mg_snapshots` (MediaGuard-cache),
@@ -69,9 +52,8 @@ herstel van bestaande pool-verbindingen na een losse PostgreSQL-herstart is niet
 - **Opruimen van vangnet-back-ups:** `pre-restore` ouder dan 30 dagen wordt verwijderd, de nieuwste 2 blijven altijd;
   van `pre-upgrade` blijven de nieuwste 3. De dump van een upgrade die nog niet gelukt is (een migratie die blijft
   mislukken), wordt nooit opgeruimd.
-- **Buiten de server bewaren:** neem de dataset `apps/media-source-optimizer` (inclusief `secrets/vault.key`
-  en `db/password`) op in je ZFS-snapshot- en replicatietaken. Back-ups in dezelfde dataset beschermen niet
-  tegen verlies van de pool.
+- **Buiten de server bewaren:** neem de volledige APPDATA-dataset op in je ZFS-snapshot- en replicatietaken,
+  met afgeschermde toegang. Back-ups in dezelfde dataset beschermen niet tegen verlies van de pool.
 
 ## Herstel
 
@@ -90,21 +72,13 @@ Getest in de container-stack: herstel van een geldige back-up (gebruikers terug 
 ongeldig, geheimen behouden), en weigering van een beschadigde (bytes overschreven → "Checksum klopt niet") en
 een ontbrekende back-up (→ "Back-upbestand ontbreekt") zonder wijziging van de database.
 
-**Noodherstel zonder werkende UI** (bijv. database corrupt): stop de app, zet de APPDATA-dataset terug met
-`zfs rollback` naar een snapshot, start de app. Of, met draaiende `postgres` en gestopte `api`/`worker`:
-
-```sh
-sudo docker exec -i "$PG" pg_restore -U mso -d mso --clean --if-exists --no-owner --single-transaction \
-  < /mnt/tank/apps/media-source-optimizer/backups/<bestand>.dump
-```
-
-Is de dump van een oudere schemaversie (kolom `schema_version` in de back-uplijst, of de naam
-`…-pre-upgrade.dump`), draai dan vóór de `pg_restore` met het huidige image
-`mso migrate --down <schemaversie van de dump>`. `--clean` verwijdert alleen wat in de dump staat; tabellen van
-nieuwere migraties blijven anders staan en de volgende start (`migrate`) loopt erop vast.
+**Noodherstel zonder werkende MSO-interface:** stop de app via TrueNAS en herstel de volledige APPDATA-snapshot
+met de bijpassende imageversie via [het terugvalpad](MIGRATION.md#terugdraaien-via-truenas).
 
 ## Back-up vóór upgrade
 
+Bewaar vóór elke upgrade de herstelbare snapshot van de volledige APPDATA-dataset van de gestopte app,
+de huidige formulierwaarden en de vorige imagepin. Zie [updaten via TrueNAS](MIGRATION.md#updaten-via-truenas).
 MSO weigert een database waarvan het hoogste migratienummer nieuwer is dan deze image kent, vóór de
 back-up en vóór API of worker iets schrijven. In de log verschijnt: "database is van een nieuwere MSO-versie;
 zet de bijpassende snapshot/back-up terug". De opdrachtregel eindigt dan met code 79. Er volgt geen migratie,
@@ -136,9 +110,9 @@ Systeem → Back-ups):
 - **Bewaard:** de nieuwste 3. Herstellen kan gewoon in de app (zie *Herstel*, punt 5) of, voor terug naar de vorige
   versie, zoals in [MIGRATION.md](MIGRATION.md) → *Terug naar 1.5.0*.
 
-Controle na een update: `sudo docker logs "$(c migrate)" 2>&1 | grep -i "vóór upgrade"` (losse containers: de
-`migrate`-container maakt de back-up; alles-in-één: de log van de enige container) en Systeem → Back-ups toont een
-nieuwe "Vóór upgrade".
+Controleer na een update de volgorde in **TrueNAS → Apps → MSO → Logs** en kijk in **Systeem → Back-ups**
+naar het archief **Vóór upgrade** wanneer er schemamigraties waren. Controleer daarna aanmelding,
+koppelingen en gegevens zoals beschreven in het migratiepad.
 
 ## Taken (jobs) en herstel na uitval
 
@@ -231,6 +205,8 @@ De dagelijkse taak `system.retention` houdt MSO's eigen database klein. Instelli
 
 ## Koppelingsbewaking
 
+Zie bij bronuitval het [runbook MSO provider outage](runbooks/MSO_PROVIDER_OUTAGE.md).
+
 De achtergrondtaken houden zelf de status van SABnzbd, qBittorrent en Prowlarr bij (niet alleen de knop *Test*):
 
 - Per taak kijkt MSO naar de antwoorden van die koppelingen. Een geweigerde sleutel (HTTP 401/403), een geweigerde
@@ -256,22 +232,11 @@ taak uit.
 
 ## Resources
 
-### Ingestelde limieten (compose.yaml, aanpasbaar via variabelen)
+### Limieten en opslag van de Custom App
 
-| Container | CPU | Geheugen | PIDs |
-|---|---|---|---|
-| postgres | 2 (`MSO_PG_CPUS`) | 1 GB (`MSO_PG_MEM`) | 256 |
-| api | 2 (`MSO_API_CPUS`) | 768 MB (`MSO_API_MEM`) | 256 |
-| worker | 2 (`MSO_WORKER_CPUS`) | 768 MB (`MSO_WORKER_MEM`) | 256 |
-| web | 1 (`MSO_WEB_CPUS`) | 512 MB (`MSO_WEB_MEM`) | 128 |
-| migrate / init | 1 / 0,5 | 256 / 128 MB | 64 / 32 |
-
-Schijf: APPDATA groeit met de database en de back-ups (één dump was in de test ±125 kB met een lege
-installatie; reken op groei met indexer-cache, uitkomsten en audit). Sinds 1.6.0 ruimt MSO zijn eigen geschiedenis
-dagelijks op (zie *Onderhoud*); vooral het auditlogboek blijft groeien. WORK is voor cache en zoek-/header-index en
-moet een **ZFS-dataset-quota** hebben (installatie: `zfs create -o quota=50G …`; aanpassen:
-`sudo zfs set quota=100G tank/apps/media-source-optimizer-work`). MSO meldt `degraded` zodra de vrije ruimte op
-APPDATA of WORK onder `MSO_DISK_RESERVE_GB` zakt.
+Het formulier stelt 2 CPU en 1536 MiB voor. Controleer het verbruik in TrueNAS. APPDATA bevat
+PostgreSQL, de kluis, back-ups, werkbestanden en logs. De database en het auditlogboek groeien met
+het gebruik. MSO geeft een waarschuwing als de vrije ruimte onder `MSO_DISK_RESERVE_GB` zakt.
 
 ### Gemeten benchmark (sandbox, géén TrueNAS)
 
@@ -292,41 +257,26 @@ dezelfde waarden (123,7 req/s, p95 120 ms).
 
 (CPU-% is per kern; 100 % = één volledige kern.)
 
-**Afgeleide ondergrens** (alleen op basis van deze meting): de stack draait met ruim onder 512 MiB RAM en minder
-dan anderhalve CPU-kern bij deze belasting. Aanbevolen minimum voor een echte installatie: **1 GiB RAM vrij en
-2 CPU-threads**, omdat echte zoekopdrachten over vele indexers, een gevulde database en een eventuele
-NNTP-header-index meer geheugen en CPU vragen dan deze lege testinstallatie. Dit is **niet** gemeten op
-TrueNAS-hardware of met echte data; herhaal de meting op je eigen systeem (HARDWARE_ACCEPTANCE 8.1):
-
-```sh
-sudo docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.PIDs}}' | grep media-source-optimizer
-```
+De cijfers gelden voor de lokale ontwikkelstack. Vergelijk voor de Custom App het gemeten verbruik
+in de TrueNAS-interface met de limieten in het formulier.
 
 ## Netwerk en beveiliging in bedrijf
 
-- Alleen `web` publiceert een poort (standaard `0.0.0.0:38081`). `api` is alleen bereikbaar voor `web` en
-  `worker`; PostgreSQL alleen op het interne `db`-netwerk zonder uitgaand verkeer.
-- `api` vertrouwt `X-Forwarded-For` van elke afzender in het interne netwerk (`MSO_FORWARDED_ALLOW_IPS=*`),
-  zodat rate limits per echte client gelden. Omdat `api` niet gepubliceerd is, kan alleen `web` die header
-  zetten; `web` geeft een door de client meegestuurde `X-Forwarded-For` wel door, dus een LAN-client kan zijn
-  IP-adres voor de IP-rate-limit vervalsen (bekend aandachtspunt; de limiet per gebruikersnaam blijft gelden).
-- Uitgaande verbindingen van koppelingen gaan door een SSRF-controle: alleen http(s), geen inloggegevens in
-  de URL, nooit link-local/metadata (169.254.0.0/16 e.d.), geen loopback. Getest in de container-stack
-  (6 onveilige URL's → 422).
+De alles-in-één-image publiceert alleen de webpoort. PostgreSQL gebruikt een interne Unix-socket
+en de API luistert intern. De webserver geeft verzoeken aan de API door. Gebruik het vertrouwde
+lokale netwerk en beheer eventuele TLS-terminatie via de eigen reverse proxy. De koppelingen
+controleren het ingevoerde adres en weigeren onder meer loopback en link-local bestemmingen.
 
 ## Probleemoplossing
 
 | Symptoom | Oorzaak / actie |
 |---|---|
-| `init` stopt met fout "is niet gemount" | Pad in de YAML bestaat niet of is verkeerd gespeld; controleer `APPDATA`/`WORK`. |
-| `init`-log: `LET OP: … controleer de ACL` | Map is van een andere eigenaar dan 568; zet eigenaar `apps` (568) op de dataset. |
-| `postgres` start niet: "data directory has wrong ownership" | `APPDATA/postgres` niet van 568:568 of niet modus 0700; `init` herstelt dit bij lege of root-eigen mappen, anders handmatig `chown -R 568:568`. |
-| `migrate` `Exited (1)` | Zie `docker logs` van migrate; schema bleef op de vorige versie. Bij een update: terug naar de vorige tag (MIGRATION.md). |
-| `api` unhealthy, log "databasewachtwoordbestand … ontbreekt" | `APPDATA/db/password` weg; herstel uit snapshot. Een nieuw wachtwoord genereren werkt alleen met een nieuwe (lege) database. |
-| Koppelingstest "Loopback-adressen zijn uitgeschakeld" | Gebruik het LAN-IP van TrueNAS i.p.v. `localhost`. |
-| Prowlarr-downloadlinks naar `http://api:8200/…` | Zet `MSO_PUBLIC_URL` of instelling `newznab.public_url` (TRUENAS_INSTALL.md). |
-| Opgeslagen geheimen onleesbaar na verhuizing | `APPDATA/secrets/vault.key` niet meegekopieerd; kopieer de sleutel of voer de geheimen opnieuw in. |
-| Log: `back-up vóór upgrade overgeslagen: Te weinig vrije schijfruimte …` | Ruimte vrijmaken in de dataset van APPDATA; de migratie is gewoon doorgegaan. Maak daarna zelf een back-up. |
+| Ontbrekende mount of schrijfrechten | Controleer de bestaande APPDATA-dataset en de mount op `/appdata` in **Apps → Edit**. |
+| MSO meldt een nieuwer databaseschema | Start de bijpassende image of volg het [terugvalpad](MIGRATION.md#terugdraaien-via-truenas). |
+| Koppeling weigert een loopback-adres | Gebruik het adres waarop de dienst vanaf MSO bereikbaar is. |
+| Prowlarr-downloadlinks gebruiken een onbereikbaar adres | Stel het bereikbare adres in via `newznab.public_url` in MSO. |
+| Opgeslagen geheimen onleesbaar na verhuizing | Controleer of de volledige APPDATA-snapshot met de bijpassende kluissleutel is teruggezet. |
+| De back-up vóór upgrade mislukt | Lees de oorzaak in het app-log, controleer de vrije ruimte en herstel de back-upvoorwaarde vóór een nieuwe poging. |
 | "Wacht op jou": *Back-up overgeslagen: te weinig vrije schijfruimte* | Er is niets weggeschreven. Ruimte vrijmaken of `backup.keep` verlagen; het item verdwijnt bij de volgende geslaagde back-up. |
 | Herstel geweigerd: *komt van een nieuwere MSO-versie* | De back-up is gemaakt met een nieuwere versie. Herstel hem met die versie (of nieuwer). |
 | Rode banner *Autopilot heeft zichzelf gepauzeerd* | Noodrem (zie hierboven). Bekijk Automatisering → Controle en Wijzigingen en klik **Hervatten**. |

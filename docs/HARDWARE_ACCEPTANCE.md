@@ -19,7 +19,7 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
 | 0.1 | Noteer de TrueNAS-versie (`System → General`), CPU en RAM. | TrueNAS SCALE 24.10 of nieuwer met het standaard Custom App-formulier. | NIET GEVERIFIEERD |
-| 0.2 | Maak een ZFS-snapshot van de datasets van MediaGuard, Prowlarr, SABnzbd en qBittorrent. | Snapshots bestaan; terugvalpunt aanwezig. | NIET GEVERIFIEERD |
+| 0.2 | Leg de bestaande versie en digest, formulierwaarden en APPDATA-dataset vast. Verifieer bij een upgrade de snapshot van de gestopte app. | Herstelbare APPDATA-snapshot en exacte vorige imagepin beschikbaar. | NIET GEVERIFIEERD |
 | 0.3 | Noteer in de MediaGuard-repo/installatie `git rev-parse HEAD` en `git status --porcelain` (of de image-tags). | Referentie voor criterium "MediaGuard bit-voor-bit ongewijzigd". | NIET GEVERIFIEERD |
 
 ## 1. Installatie op TrueNAS na vrijgave
@@ -27,7 +27,7 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
 | 1.1 | Controleer de opslagvelden vóór installatie. | Eén dataset is gekoppeld aan `/appdata`. | NIET GEVERIFIEERD |
-| 1.2 | Volg na vrijgave het [standaard Custom App-formulier](TRUENAS_CUSTOM_APP.md). | Eén alles-in-één-image met vaste versie draait. | NIET GEVERIFIEERD |
+| 1.2 | Volg na vrijgave het [standaard Custom App-formulier](../deploy/truenas/CUSTOM_APP.md). | Eén alles-in-één-image draait met de vrijgegeven tag en gecontroleerde digest. | NIET GEVERIFIEERD |
 | 1.3 | Bekijk de appstatus en het opstartlog. | App meldt Running en vervolgens Healthy. | NIET GEVERIFIEERD |
 | 1.4 | Controleer de mappen die MSO heeft aangemaakt. | `postgres/`, `secrets/`, `backups/` en `work/` zijn van 568:568. | NIET GEVERIFIEERD |
 | 1.5 | Controleer de app-log op fouten bij de rechtenwissel en de schrijftest. | De rechtenwissel en de schrijftest zijn afgerond zonder foutmelding. | NIET GEVERIFIEERD |
@@ -49,7 +49,7 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
-| 3.1 | Koppeling Prowlarr: URL (bijv. `http://<truenas-ip>:9696`) + API-sleutel in de wizard, *Test*. | Status gezond, versie getoond; API-sleutel nergens zichtbaar (UI, logs). | NIET GEVERIFIEERD |
+| 3.1 | Koppeling Prowlarr: bevestigde koppelings-URL + API-sleutel in de wizard, *Test*. | Status gezond, versie getoond; API-sleutel nergens zichtbaar (UI, logs). | NIET GEVERIFIEERD |
 | 3.2 | Indexerlijst, statistieken en indexerstatus uitlezen. | Komen overeen met de Prowlarr-UI. | NIET GEVERIFIEERD |
 | 3.3 | MSO als *Generic Newznab* in Prowlarr toevoegen (`http://<truenas-ip>:38081/newznab`, API-pad `/api`, sleutel uit MSO). Prowlarr *Test*. | Test slaagt; caps tonen de vier categorieën (tv, tv-anime, movies, movies-anime). | NIET GEVERIFIEERD |
 | 3.4 | Idem *Generic Torznab* (`…/torznab`). | Test slaagt. | NIET GEVERIFIEERD |
@@ -93,17 +93,17 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 | 7.1 | Back-up maken in de UI. | Bestand `APPDATA/backups/mso-*.dump` + `.sha256`. | NIET GEVERIFIEERD |
 | 7.2 | Instelling wijzigen, daarna de back-up herstellen. | Wijziging teruggedraaid; opnieuw inloggen nodig; koppelingsgeheimen intact. | NIET GEVERIFIEERD |
 | 7.3 | Een kopie van een back-up beschadigen (bytes wijzigen) en herstel proberen. | Herstel geweigerd ("Checksum klopt niet"), database ongewijzigd. | NIET GEVERIFIEERD |
-| 7.4 | Update naar een nieuwere image-tag volgens [de Custom App-handleiding](TRUENAS_CUSTOM_APP.md#updaten-en-terugdraaien). | De log meldt een afgeronde migratie. De nieuwe versie staat in Systeem. | NIET GEVERIFIEERD |
-| 7.5 | Rollback met `mso migrate --down <versie>` en oude tag. | Oude versie start, data bruikbaar. | NIET GEVERIFIEERD |
-| 7.6 | ZFS-snapshot-rollback van APPDATA (app gestopt). | App start op de toestand van de snapshot. | NIET GEVERIFIEERD |
+| 7.4 | Voer in de proefinstallatie de [upgrade via het Custom App-formulier](MIGRATION.md#updaten-via-truenas) uit na een herstelbare volledige APPDATA-snapshot. | De log toont de back-up vóór de migratie en daarna de afgeronde migratie. Gebruikers, instellingen, audit en koppelingen zijn behouden. | NIET GEVERIFIEERD |
+| 7.5 | Bewaar de bijgewerkte APPDATA-toestand apart. Zet via de TrueNAS-interface de volledige snapshot van vóór de upgrade terug en kies daarna de vorige tag met digest. | De vorige image start op het bijpassende schema en de vooraf gecontroleerde gegevens zijn bruikbaar. | NIET GEVERIFIEERD |
+| 7.6 | Controleer na de terugval de aanmelding, koppelingsstatus, instellingen, audit en taken. | De versleutelde kluis en sleutel horen bij elkaar. De voor-en-na-vergelijking toont de verwachte stand. | NIET GEVERIFIEERD |
 | 7.7 | Onderbreek in de testinstallatie het workerproces tijdens een lopende taak en wacht tot de bewaker de worker herstart. | Taak wordt na maximaal ~2 minuten (lease) hervat of opnieuw uitgevoerd, niet dubbel. | NIET GEVERIFIEERD |
 
 ## 8. Resources en opslag
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
-| 8.1 | `sudo docker stats --no-stream` in rust en tijdens zoekacties. | Binnen de limieten uit het Custom App-formulier; vergelijk met de sandbox-meting in docs/OPERATIONS.md. | NIET GEVERIFIEERD |
-| 8.2 | WORK-quota bereiken (bijv. tijdelijk kleine quota). | MSO meldt schijfdruk in Systeem; geen crash-loop; andere apps onaangetast. | NIET GEVERIFIEERD |
+| 8.1 | Bekijk het appverbruik in TrueNAS in rust en tijdens zoekacties. | Binnen de limieten uit het Custom App-formulier; vergelijk met de sandbox-meting in docs/OPERATIONS.md. | NIET GEVERIFIEERD |
+| 8.2 | Benader het APPDATA-quotum in de geïsoleerde proefinstallatie. | MSO meldt schijfdruk in Systeem; geen crash-loop; andere apps onaangetast. | NIET GEVERIFIEERD |
 | 8.3 | Logrotatie: `docker inspect … LogConfig`. | De ingestelde logrotatie begrenst het ruimtegebruik. | NIET GEVERIFIEERD |
 
 ## 9. UI op echte apparaten
@@ -116,11 +116,11 @@ Legenda kolom *Resultaat*: vul in `OK`, `AFWIJKING: …` of `N.v.t.`.
 ## 10. Nieuw in 1.6.0
 
 1.6.0 is getest in een Linux/Docker-sandbox met mock-diensten; het SABnzbd-gedrag is nagekeken in de broncode van
-SABnzbd 5.1.3. Deze punten laten zien of het op jouw installatie net zo werkt. Deze controles vallen onder de vrijgave bovenaan dit document.
+SABnzbd 5.1.3. Deze punten laten zien of het op jouw installatie net zo werkt. Deze controles vallen onder de vrijgave bovenaan dit document. Gebruik voor dit historische versiepad een afzonderlijke proefinstallatie.
 
 | # | Stap | Verwacht resultaat | Resultaat |
 |---|---|---|---|
-| 10.1 | Update van 1.5.0 naar 1.6.0 (Custom App: Edit → Tag `1.6.0` → Update). Bekijk daarna de app-log en in MSO de pagina Back-up & updates (kaart MSO-core en de back-uplijst). | Log: `back-up vóór upgrade gemaakt: …-pre-upgrade.dump (…; schema 501 → 607)`. De back-uplijst toont een nieuwe "Vóór upgrade"; Schemaversie 607; audit `backup.pre_upgrade`. App start gewoon. | NIET GEVERIFIEERD |
+| 10.1 | Update van 1.5.0 naar 1.6.0 (na volledige APPDATA-snapshot, met de bijbehorende imagepin in het Custom App-formulier). Bekijk daarna de app-log en in MSO de pagina Back-up & updates (kaart MSO-core en de back-uplijst). | Log: `back-up vóór upgrade gemaakt: …-pre-upgrade.dump (…; schema 501 → 607)`. De back-uplijst toont een nieuwe "Vóór upgrade"; Schemaversie 607; audit `backup.pre_upgrade`. App start gewoon. | NIET GEVERIFIEERD |
 | 10.2 | Usenet-providers → Serverprioriteit: kolom "Artikelen gevonden" voor Eweka. Vergelijk met SABnzbd → Config → Servers, regel 'Article availability' bij die server. | Eweka rond 99 % (was "0,4 %"), ongeveer hetzelfde percentage als SABnzbd daar toont (SABnzbd rekent over de periode die je daar kiest). | NIET GEVERIFIEERD |
 | 10.3 | Downloads → Usenet, bovenaan de historie. | Regel "Laatst opnieuw beoordeeld …: X van Y kregen een andere oorzaak" (automatisch na de upgrade); audit `usenet.reclassified`. | NIET GEVERIFIEERD |
 | 10.4 | Kies 3–5 echt mislukte downloads. Vergelijk per download de regel in Downloads → Usenet met de details in SABnzbd → Geschiedenis (het verwerkingslog per fase). | Dezelfde feiten: "Data compleet · uitpakken mislukt: …" of "N artikelen ontbraken", met het juiste probleem. Bij complete data géén kapotte server als oorzaak. Geen volledige paden of setnamen in MSO. Werkt ook als SABnzbd in het Nederlands staat. | NIET GEVERIFIEERD |
@@ -135,4 +135,4 @@ SABnzbd 5.1.3. Deze punten laten zien of het op jouw installatie net zo werkt. D
 | 10.13 | Stop qBittorrent in TrueNAS langer dan 15 minuten en start hem weer. | Overzicht → Koppelingen: "qBittorrent onbereikbaar sinds …" in plaats van een stapel mislukte taken; na de start binnen een kwartier weer gezond (zolang hij weg is, probeert MSO het elk kwartier), daarna haalt MSO meteen alles bij. Geen melding in "Wacht op jou" (die komt pas na 24 uur). | NIET GEVERIFIEERD |
 | 10.14 | Na 24 uur: Systeem → Onderhoud en Systeem → Database. | Een geslaagde opruimronde, termijnen zoals ingesteld, databasegrootte zichtbaar. Het auditlogboek is niet ingekort. | NIET GEVERIFIEERD |
 | 10.15 | Zoeken op een titel waarvan nep-releases (met `.exe` in de naam) bestaan. | Rode badge "Nep-release (uitvoerbaar bestand)", onderaan, knop Verstuur uitgeschakeld. Komt het niet voor: `N.v.t.` | NIET GEVERIFIEERD |
-| 10.16 | (Optioneel, alleen als je terug wilt) Terug naar 1.5.0 volgens `docs/MIGRATION.md` → *Terug naar 1.5.0*. | `mso migrate --down 501` meldt de teruggedraaide migraties; 1.5.0 start met schemaversie 501. | NIET GEVERIFIEERD |
+| 10.16 | (Optioneel, alleen als je terug wilt) Terug naar 1.5.0 volgens `docs/MIGRATION.md` → *Terug naar 1.5.0*. | Na APPDATA-rollback en keuze van de vorige tag met digest start 1.5.0 met schemaversie 501. | NIET GEVERIFIEERD |

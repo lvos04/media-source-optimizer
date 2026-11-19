@@ -33,11 +33,9 @@ Screenshots: [docs/screenshots/](docs/screenshots/).
 
 > **P-INSTALLATIE staat open.** De installatie op TrueNAS niet uitvoeren tot de poort is gehaald.
 
-De beoogde installatie gebruikt het standaard Custom App-formulier met één alles-in-één-image voor database, API,
-worker en web. De formulierwaarden staan ter referentie in de [Custom App-handleiding](docs/TRUENAS_CUSTOM_APP.md).
-
-De compose-bestanden in `deploy/truenas/` en [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) zijn **alleen voor
-ontwikkeling, CI en de end-to-end-tests**, nooit een installatiemethode (geen *Install via YAML*, contract §2.3 regel 4).
+Gebruik na vrijgave het [standaard Custom App-formulier](deploy/truenas/CUSTOM_APP.md) voor de alles-in-één-image
+met PostgreSQL, API, worker en web. Gebruik bij een upgrade de bestaande APPDATA-dataset en maak een herstelbare
+snapshot voordat je migreert. Zie [updaten en terugdraaien](docs/TRUENAS_CUSTOM_APP.md#updaten-en-terugdraaien).
 
 ## Documentatie
 
@@ -46,8 +44,8 @@ ontwikkeling, CI en de end-to-end-tests**, nooit een installatiemethode (geen *I
 | [ARCHITECTURE.md](ARCHITECTURE.md) | componenten, engines, change sets, jobs, anti-loop, data |
 | [INTEGRATION_MEDIAGUARD.md](INTEGRATION_MEDIAGUARD.md) | eigenaarschap, compatibiliteitsmatrix, grenzen |
 | [SECURITY.md](SECURITY.md) | beveiligingsmodel en bijbehorende tests |
-| [docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md) | referentie voor de standaard Custom App (P-INSTALLATIE open) |
-| [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) | **alleen ontwikkeling/CI:** de stack met losse containers (compose), Prowlarr-koppeling, updates, rollback |
+| [docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md) | installatie, upgrade en terugval met behoud van APPDATA |
+| [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) | **alleen ontwikkeling/CI:** lokale stack met losse containers en simulatiediensten |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | beheer, logs, back-ups, resources (gemeten) |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | schema-migraties, upgrade (1.5.0 → 1.6.0), terugdraaien |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | gebruikershandleiding |
@@ -66,6 +64,15 @@ make e2e                  # verse stack voorbereid (beheerder, koppelingen, back
                           #   + alle Playwright-tests; een overgeslagen test laat de run falen
 cd apps/web && npm ci && npm run dev
 ```
+
+Valideer het manifest lokaal vanaf de hoofdmap met de validator van
+`appstore-en-fork` op commit `a994c2a51f45b81b2c48c6533b0ccf51ba857f5a`:
+
+```sh
+jl-manifest validate --strict deploy/manifest/media-source-optimizer.manifest.yaml
+```
+
+De CI-job **manifest** haalt dezelfde broncommit op en voert deze controle uit.
 
 CI: `.github/workflows/ci.yaml` start vanzelf bij elke push op `main` en op de werkbranches `ccr-*` (alleen bouwen
 en testen; publiceren naar ghcr.io alleen bij een tag `v*` of met `release_version`), dus niet ook met de hand starten.

@@ -1,23 +1,18 @@
-# Media Source Optimizer — alles-in-één image als compose-bestand: ALLEEN ONTWIKKELING EN TESTS.
-# GEEN INSTALLATIEMETHODE: installeer op de NAS met het standaard Custom App-formulier (docs/TRUENAS_CUSTOM_APP.md);
-# nooit "Install via YAML" (contract §2.3 regel 4).
-#
-# Eén container (database + API + worker + web), één map, één poort. Geen wachtwoorden of geheimen hier:
-# die voer je in de setup-wizard van de app in. Pas alleen het pad en eventueel de poort aan.
+# Alles-in-één-image voor lokale ontwikkeling en tests. Zie .env.example.
+# Deze proef gebruikt een aparte datamap zodat zij geen data met de losse stack deelt.
 services:
   media-source-optimizer:
     image: ghcr.io/lvos04/media-source-optimizer:1.6.0
     restart: unless-stopped
     ports:
-      - "38081:38081"            # http://<truenas>:38081
+      - "${MSO_WEB_PORT:-38081}:38081"
     volumes:
-      - /mnt/tank/apps/media-source-optimizer:/appdata    # ← vervang 'tank' door jouw pool
+      - ${MSO_AIO_APPDATA:-../../var/mso-dev/allinone}:/appdata
       # optioneel, alleen-lezen, voor hardlink-/vrije-ruimtediagnose:
-      # - /mnt/tank/media:/media:ro
+      # - ../../var/mso-dev/media:/media:ro
     environment:
       TZ: Europe/Amsterdam
       # MSO_MEDIA_DIR: /media
-      # MSO_PUBLIC_URL: http://192.168.1.10:38081   # alleen als Prowlarr MSO via een ander adres bereikt
     security_opt:
       - no-new-privileges:true
     cpus: 2

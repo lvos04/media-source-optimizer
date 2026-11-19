@@ -1,19 +1,10 @@
-# Media Source Optimizer — ontwikkel-/CI-stack met losse containers (tests/stack, make stack, make e2e).
-# ALLEEN ONTWIKKELING, CI EN E2E — GEEN INSTALLATIEMETHODE. Installeren op de NAS = standaard Custom App met het
-# formulier (docs/TRUENAS_CUSTOM_APP.md); nooit "Install via YAML" (contract §2.3 regel 4). Het kader hieronder is
-# de oude YAML-route en blijft alleen als ontwikkelnotitie staan; 'tank' en IP-adressen zijn voorbeelden.
-#
-# ┌─ INSTALLEREN (volledige handleiding: docs/TRUENAS_INSTALL.md) ───────────────────────────────┐
-# │ 1. Maak twee datasets: tank/apps/media-source-optimizer (APPDATA) en                       │
-# │    tank/apps/media-source-optimizer-work (WORK, met quota). Eigenaar: apps (568:568).       │
-# │ 2. Install via YAML → naam "media-source-optimizer" → plak dit bestand.                     │
-# │ 3. Pas ALLEEN de paden hieronder aan als jouw pool niet 'tank' heet (zoek op /mnt/tank).    │
-# │ 4. Open http://<truenas-ip>:38081 → de setupwizard maakt de beheerder en de koppelingen.   │
-# └──────────────────────────────────────────────────────────────────────────────────────────────┘
+# Media Source Optimizer. Lokale ontwikkel- en CI-stack met losse containers.
+# APPDATA en WORK zijn lokale paden, relatief aan deze map. Zie .env.example.
+# Gebruik tests/stack/run.sh voor de proef met simulatiediensten.
 #
 # Instelbare variabelen (standaardwaarde achter ':-'; pas desnoods direct in dit bestand aan):
-#   APPDATA   /mnt/tank/apps/media-source-optimizer        config, PostgreSQL, vault-sleutel, back-ups
-#   WORK      /mnt/tank/apps/media-source-optimizer-work   cache/index (dataset-quota zetten!)
+#   APPDATA   ../../var/mso-dev/appdata        config, PostgreSQL, vault-sleutel, back-ups
+#   WORK      ../../var/mso-dev/work   cache/index (dataset-quota zetten!)
 #   DATA      (uit)  optionele alleen-lezen media-mount voor diagnose — zie 'api' hieronder
 #   MSO_WEB_PORT 38081 · MSO_WEB_BIND 0.0.0.0 · TZ Europe/Amsterdam · MSO_PUBLIC_URL (leeg)
 #   MSO_SECURE_COOKIES false (zet op true achter een TLS reverse proxy)
@@ -63,12 +54,12 @@ x-core-env: &core-env
   MSO_DISK_RESERVE_GB: ${MSO_DISK_RESERVE_GB:-2}
 
 x-core-volumes: &core-volumes
-  - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}:/appdata
-  - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}/db:/run/mso-db:ro
-  - ${WORK:-/mnt/tank/apps/media-source-optimizer-work}:/work
+  - ${APPDATA:-../../var/mso-dev/appdata}:/appdata
+  - ${APPDATA:-../../var/mso-dev/appdata}/db:/run/mso-db:ro
+  - ${WORK:-../../var/mso-dev/work}:/work
   # Optioneel, alleen-lezen media voor diagnose (MSO werkt bij voorkeur alleen via API's).
   # Inschakelen: haal het commentaarteken weg en zet in 'environment' MSO_MEDIA_DIR: /data/media
-  # - ${DATA:-/mnt/tank/data/media}:/data/media:ro
+  # - ${DATA:-../../var/mso-dev/media}:/data/media:ro
 
 services:
   init:
@@ -85,8 +76,8 @@ services:
       MSO_UID: "568"
       MSO_GID: "568"
     volumes:
-      - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}:/bootstrap/appdata
-      - ${WORK:-/mnt/tank/apps/media-source-optimizer-work}:/bootstrap/work
+      - ${APPDATA:-../../var/mso-dev/appdata}:/bootstrap/appdata
+      - ${WORK:-../../var/mso-dev/work}:/bootstrap/work
     cpus: 0.5
     mem_limit: 128m
     pids_limit: 32
@@ -104,8 +95,8 @@ services:
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=trust --encoding=UTF8"
       PGDATA: /var/lib/postgresql/data
     volumes:
-      - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}/postgres:/var/lib/postgresql/data
-      - ${APPDATA:-/mnt/tank/apps/media-source-optimizer}/db:/run/mso-db:ro
+      - ${APPDATA:-../../var/mso-dev/appdata}/postgres:/var/lib/postgresql/data
+      - ${APPDATA:-../../var/mso-dev/appdata}/db:/run/mso-db:ro
     tmpfs: ["/var/run/postgresql:uid=568,gid=568,mode=0775", "/tmp:uid=568,gid=568,mode=1777"]
     shm_size: 128m
     stop_grace_period: 60s

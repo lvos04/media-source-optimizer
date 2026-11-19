@@ -1,126 +1,61 @@
-# Installeren als standaard TrueNAS Custom App (de enige installatiemanier)
+# Installeren als standaard TrueNAS Custom App
 
-> **P-INSTALLATIE staat open.** De stappen hieronder niet uitvoeren tot de poort is gehaald.
-> Het manifest en de formuliercontrole volgen in S-P3-290. De praktijkproef na vrijgave staat in
-> [HARDWARE_ACCEPTANCE.md](HARDWARE_ACCEPTANCE.md).
+> **P-INSTALLATIE en de release zijn vrijgavevoorwaarden.** De stappen hieronder vóór vrijgave niet uitvoeren.
+> **NIET GEVALIDEERD (echte NAS).** De [hardwarechecklist](HARDWARE_ACCEPTANCE.md) beschrijft de praktijkproef.
 
-De alles-in-één-image bevat database, API, worker en webinterface. De waarden hieronder beschrijven ter referentie
-hoe de beoogde installatie via het standaard **Custom App**-formulier van TrueNAS SCALE eruitziet.
+Installeer Media Source Optimizer (MSO) via het [standaard Custom App-formulier](../deploy/truenas/CUSTOM_APP.md).
+De alles-in-één-image bevat PostgreSQL, API, worker en webinterface. De app gebruikt één webpoort en één
+APPDATA-dataset. Kies bij een eerste installatie een eigen dataset en open MSO op de poort die je in het formulier
+hebt bevestigd. Maak de beheerder aan in de MSO-wizard, test de koppelingen vanuit de app en begin in
+**Alleen-lezen**.
 
-| Wat | Waarde |
-|---|---|
-| Image | `ghcr.io/lvos04/media-source-optimizer` |
-| Tag | `1.6.0@sha256:9bcdec69f7af0bc1747c42326d65f70eda28e6d00d2559d884e00a58ebfbf3da` (vaste versie plus digest, nooit `latest`; zie stap 2) |
-| Poort | `38081` → `38081` |
-| Opslag | één map (dataset) → `/appdata` |
-| Gebruiker | niets invullen: MSO regelt de rechten zelf |
-
-> **Verificatiestatus.** Het containerbewijs voor S-P3-250 geldt voor lokale en CI-builds van bronrevisies
-> `7d9d065` en `2c9c924`. De gepubliceerde tag `1.6.0` en de bijbehorende digest vallen buiten dat bewijs.
-> Het formulier op echte TrueNAS-hardware is **NIET GEVALIDEERD**. De veldnamen volgen TrueNAS SCALE 24.10/25.04.
-> [Alles-in-één-containerproef](test-evidence/allinone-report.md)
-
-> **Onderhoudsnotitie (niet voor de installatie).** Het image-pakket is openbaar: op 2026-11-10 gaf een anonieme
-> pull van het manifest van `ghcr.io/lvos04/media-source-optimizer:1.6.0` `200` (zonder inloggen). Je hebt dus geen
-> registry-login nodig (contract §2.1). Alleen als een **nieuw** pakket ooit privé blijkt (GitHub maakt een nieuw pakket
-> eerst privé), zet de eigenaar het op GitHub om: *Packages* → **media-source-optimizer** → **Package settings** →
-> **Change visibility** → **Public**. Een registry-login in TrueNAS met een token dat alleen pakketten mag lezen is
-> alleen een noodoplossing (NIET GEVALIDEERD op een echte NAS).
-
-## 1. Dataset maken
-
-**Datasets** → kies je pool → **Add Dataset**:
-- Name: `media-source-optimizer` (bijv. onder een eigen dataset `apps` op jouw pool)
-- Dataset Preset: **Apps**
-
-Rechten hoef je niet aan te passen: bij de eerste start maakt MSO gebruiker `568` (apps) eigenaar van zijn eigen
-submappen (`postgres`, `secrets`, `backups`, `work`) en verder niets.
-
-## 2. Custom App aanmaken
-
-**Apps** → **Discover Apps** → **Custom App**. Vul in:
-
-| Sectie | Veld | Waarde |
-|---|---|---|
-| Application Name | | `media-source-optimizer` |
-| Image Configuration | Repository | `ghcr.io/lvos04/media-source-optimizer` |
-| | Tag | `1.6.0@sha256:9bcdec69f7af0bc1747c42326d65f70eda28e6d00d2559d884e00a58ebfbf3da` (versie + digest, contract §2.2). Weigert het formulier het `@`-deel, vul dan alleen `1.6.0` in (de digest staat dan alleen hier ter controle). Of het formulier de digest accepteert, is **NIET GEVALIDEERD** op een echte NAS. |
-| | Pull Policy | *Pull the image if it is not already present on host* |
-| Container Configuration | Timezone | jouw tijdzone (bijv. `Europe/Amsterdam`; de doelenkaart en "Wat MSO deed" tellen in lokale dagen) |
-| | Restart Policy | *Unless Stopped* |
-| | Environment Variables | leeg laten |
-| Security Context | Privileged | **uit** |
-| | Custom User | **uit** (niet aanvinken) |
-| Network Configuration | Host Network | **uit** |
-| | Ports → Add | Container Port `38081`, Host Port `38081`, Protocol TCP |
-| Storage Configuration | Add → Type | **Host Path** |
-| | Mount Path | `/appdata` |
-| | Host Path | het pad van de dataset uit stap 1: `/mnt/<jouw pool>/…/media-source-optimizer` (kies hem met de mapkiezer) |
-| Resources (optioneel) | CPUs / Memory | 2 / 1536 MiB is ruim (gemeten gebruik in rust ± 200 MiB) |
-
-**Install**. De eerste start duurt ongeveer 10–20 seconden (database aanmaken). Daarna staat de app op *Running* en
-na de healthcheck op *Healthy*.
-
-## 3. Openen en instellen
-
-Open `http://<ip-van-truenas>:38081`. De setup-wizard vraagt om:
-1. een beheerdersaccount;
-2. de URL en sleutel van Prowlarr, SABnzbd, qBittorrent en optioneel MediaGuard. Gebruik het **LAN-IP van TrueNAS**
-   met de poort van die app: `http://<LAN-IP van TrueNAS>:<poort van die app>` (de poort staat bij die app in
-   TrueNAS → Apps). Gebruik geen `localhost`: dat wijst naar de MSO-container zelf;
-3. de modus: **Alleen-lezen** om eerst rond te kijken, of meteen **Autopilot** voor set it and forget it (zie USER_GUIDE §4).
-
-## Optioneel
-
-| Wens | Hoe |
-|---|---|
-| Hardlink- en vrije-ruimtediagnose van je media | extra Host Path: je mediamap → `/media`, **Read Only** aan, en Environment Variable `MSO_MEDIA_DIR=/media` |
-| Prowlarr bereikt MSO via een ander adres | Environment Variable `MSO_PUBLIC_URL=http://<ip>:38081` |
-| Andere poort | Host Port aanpassen (Container Port blijft `38081`) |
+Het formulier gebruikt de tag en registerdigest van de vrijgegeven image. Controleer de digest vóór ingebruikname.
+De eerder gepubliceerde tags zijn ouder dan de bronstand van het manifest. Het
+[containerbewijs](test-evidence/allinone-report.md) hoort bij de bronrevisies die daarin zijn genoemd.
 
 ## Updaten en terugdraaien
 
-Alles hieronder gaat via de TrueNAS-web-UI, zonder terminal. De menunamen volgen TrueNAS SCALE 24.10/25.04 en zijn
-**NIET GEVALIDEERD** op een echte NAS.
+Doorloop eerst [Updaten via TrueNAS](#updaten-via-truenas). Gebruik het terugvalpad als de applicatie,
+migratie of gegevenscontrole faalt.
 
-- **Updaten**:
-  1. Stop de app en maak een ZFS-snapshot van de dataset uit stap 1 (**Datasets** → de dataset → **Snapshots** →
-     maak een snapshot). Dat is je terugval.
-  2. App → **Edit** → Tag naar de nieuwe versie (met digest, zoals in stap 2) → **Update**.
+## Updaten via TrueNAS
 
-  Sinds 1.6.0 maakt MSO bij de start eerst automatisch een back-up ("Vóór upgrade" in *Back-up & updates*; de nieuwste
-  3 blijven) als er databasewijzigingen zijn, en voert daarna de migraties uit. In images met upgradeslot
-  en archiefcontrole stopt de start vóór migratie bij ruimtegebrek of een onbruikbare back-up. Raadpleeg het
-  app-log en [het upgradepad](MIGRATION.md#updaten-via-truenas).
-- **Terugdraaien** (bijv. 1.6.0 → 1.5.0): terugzetten = de vorige image **én** de snapshot samen, nooit alleen de
-  image. Een oudere versie werkt niet betrouwbaar met het nieuwere databaseschema.
-  1. App → **Stop**.
-  2. **Datasets** → de dataset → **Snapshots** → de snapshot van vóór de update → **Rollback**.
-  3. App → **Edit** → Tag terug naar de vorige versie → **Update** en start de app.
+1. Plan een onderhoudsvenster. Leg de huidige formulierwaarden, imageversie met digest, schemaversie en de
+   stand van gebruikers, instellingen, koppelingen, taken en audit vast. Leg geen geheime waarden vast.
+2. Pauzeer automatisering, stop MSO via **Apps → Stop** en maak via **Datasets → Snapshots** een snapshot
+   van de volledige APPDATA-dataset. Deze bevat onder meer PostgreSQL, de versleutelde kluis met het bijbehorende
+   sleutelbestand, audit, back-ups en werkbestanden. Verifieer het herstelpunt vóór de update en bewaar een
+   beschermde kopie buiten de oorspronkelijke dataset. Stop als de snapshot of de vorige imagepin ontbreekt.
+3. Open de bestaande app met **Edit**. Behoud de huidige formulierwaarden en de bestaande koppeling van APPDATA
+   aan `/appdata`. Kies de vrijgegeven versie met bijbehorende digest, sla op met **Update** en start MSO.
+4. Controleer het app-log op de geverifieerde databaseback-up **Vóór upgrade**, gevolgd door de migraties als
+   er schemaveranderingen zijn. Bij een onbruikbaar archief stopt de huidige bronstand vóór de migratie.
+   Controleer daarna de schemaversie, aanmelding, instellingen, koppelingsstatus en de stand van taken en audit
+   aan de hand van stap 1. Hervat automatisering na akkoord op de voor-en-na-vergelijking.
 
-  Een teruggezette dataset-snapshot kan machine-sleutels opnieuw toegang geven.
-  Hun intrekkingen kunnen ook uit het auditlog verdwijnen. Loop in een versie met
-  sleutelbeheer **Instellingen → Machine-sleutels** na en trek opnieuw de sleutels
-  in die na de snapshot zijn ingetrokken. Herstel via **Systeem → Back-ups** in
-  MSO behoudt de actuele intrekkingen.
+## Terugdraaien via TrueNAS
 
-  Wat je sinds de update in MSO hebt gedaan, gaat daarbij verloren. Controleer na terugval naar 1.5.0
-  of je kunt inloggen en schemaversie 501 ziet. [Terug naar 1.5.0 via TrueNAS](MIGRATION.md#terug-naar-150-via-truenas)
+1. Pauzeer automatisering en kies **Apps → Stop**. Bewaar de actuele APPDATA-toestand en de logs apart,
+   zodat ook wijzigingen sinds de upgrade bewaard blijven. Een snapshot terugzetten brengt de actieve app
+   terug naar de stand van vóór de update.
+2. Open **Datasets → Snapshots** en kies **Rollback** bij de vooraf gemaakte volledige APPDATA-snapshot.
+   Deze zet de versleutelde kluis en de bijbehorende sleutel samen terug. Stop bij twijfel over het herstelpunt.
+3. Open de app via **Apps** met **Edit**. Kies de vorige imageversie met digest en bewaar de bestaande mount.
+   Sla op met **Update** en start MSO pas nadat de snapshot is teruggezet. Alleen de tag wijzigen laat de
+   bijgewerkte database achter en is onveilig.
+4. Controleer aanmelding, schemaversie, instellingen, koppelingen, taken en audit tegen de stand van vóór
+   de upgrade. Houd rekening met intrekkingen van machine-sleutels sinds de snapshot. Trek die sleutels opnieuw
+   in vóór je toegang voor afnemers herstelt. Hervat automatisering na akkoord op de gegevenscontrole.
 
 ## Problemen
 
-| Melding in de app-log | Oplossing |
+| Melding of probleem | Oplossing |
 |---|---|
-| `FOUT: /appdata bestaat niet` | Storage-regel ontbreekt of Mount Path is niet precies `/appdata`. |
-| `FOUT: geen schrijfrechten op /appdata/...` | Je hebt *Custom User* aangezet met een andere gebruiker. Zet het uit (MSO regelt de rechten), of geef gebruiker 568 schrijfrechten op de dataset. |
-| `oude postmaster.pid ... verwijderd` | Geen fout: de vorige stop was onverwacht (stroom/kill); de database start gewoon. |
-| Poort bezet / "port is already in use" bij opslaan | Een andere app gebruikt die host-poort. TrueNAS-catalogus-apps zitten meestal tussen 30000 en 31000; MSO gebruikt daarom 38081. Kies anders een andere vrije **Host Port** (Container Port blijft `38081`). |
-| Image kan niet worden opgehaald (`denied`/`unauthorized`) | Controleer repository en tag (met digest) letter voor letter. Het pakket is openbaar; blijkt het toch privé, zie de onderhoudsnotitie bovenaan. |
-| Koppeling: "Loopback-adressen zijn uitgeschakeld" | Gebruik het LAN-IP van TrueNAS in plaats van `localhost`/`127.0.0.1`. |
+| `FOUT: /appdata bestaat niet` | Controleer **Storage Configuration** en de mount op `/appdata`. |
+| `FOUT: geen schrijfrechten op /appdata/…` | Controleer **Custom User** en of de eigen dataset toegankelijk is voor gebruiker 568. |
+| Poort bezet | Bevestig een andere vrije **Host Port**. De **Container Port** blijft 38081. |
+| Image kan niet worden opgehaald | Controleer de vrijgegeven repository, tag en digest. Houd bij een upgrade het herstelpunt intact. |
+| Koppeling weigert een loopback-adres | Gebruik het adres waarop de betreffende dienst vanaf MSO bereikbaar is. |
 
-## Geen andere installatiemanieren
-
-De compose-bestanden in `deploy/truenas/` (`compose.yaml`, `compose.allinone.yaml`, `compose.build.yaml`) en
-[TRUENAS_INSTALL.md](TRUENAS_INSTALL.md) zijn **alleen voor ontwikkeling, CI en de end-to-end-tests**. Ze zijn geen
-installatiemethode: installeer MSO nooit via *Install via YAML* of met `docker compose` op de NAS (contract §2.3
-regel 4). Het formulier hierboven is de enige manier.
+Zie [Schemamigraties, upgrades en rollback](MIGRATION.md) voor het versievoorbeeld met schema 501 en de
+expertprocedures met `docker exec`.

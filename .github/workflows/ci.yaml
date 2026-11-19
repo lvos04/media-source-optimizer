@@ -3,6 +3,7 @@
 # python   ruff + pinned copies (contract 1.3 and Peil 1.1.1: offline + against the source on GitHub, scripts/bronkopie.py)
 #          + pytest (unit/contract/integration incl. mocks over real HTTP, contract drift test, EVIDENCE test §11)
 #          against a PostgreSQL 16 service, with pg_dump/pg_restore 16 via MSO_PG_BIN (as release.yaml)
+# manifest strikte validatie van het Custom App-manifest met de gepinde gedeelde validator
 # web      Peil drift check + typecheck + lint + unit tests (vitest) + production build of the Next.js UI
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
 # allinone docker build of the all-in-one image (deploy/allinone, the TrueNAS Custom App) + tests/stack/allinone_test.py
@@ -86,6 +87,32 @@ jobs:
         with:
           name: pytest-results
           path: test-results/
+
+  manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ASF_COMMIT: a994c2a51f45b81b2c48c6533b0ccf51ba857f5a
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4.2.2
+        with:
+          repository: lvos04/appstore-en-fork
+          ref: ${{ env.ASF_COMMIT }}
+          path: .appstore-validator
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Installeer de gepinde manifestvalidator
+        run: |
+          test "$(git -C .appstore-validator rev-parse HEAD)" = "$ASF_COMMIT"
+          python -m venv "$RUNNER_TEMP/validator"
+          "$RUNNER_TEMP/validator/bin/pip" install --require-hashes -r .appstore-validator/apps/api/requirements.lock
+          "$RUNNER_TEMP/validator/bin/pip" install --no-deps .appstore-validator/apps/api
+      - name: Valideer het Custom App-manifest strikt
+        run: >-
+          "$RUNNER_TEMP/validator/bin/jl-manifest" validate --strict deploy/manifest/media-source-optimizer.manifest.yaml
 
   web:
     runs-on: ubuntu-24.04

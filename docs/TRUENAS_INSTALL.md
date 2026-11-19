@@ -1,11 +1,13 @@
 # Media Source Optimizer — lokale ontwikkel- en teststack
 
+> **Alleen voor ontwikkeling.**
 > **P-INSTALLATIE staat open.** De installatie op TrueNAS niet uitvoeren tot de poort is gehaald.
 > Het formulier voor de standaard Custom App is beschreven in [TRUENAS_CUSTOM_APP.md](TRUENAS_CUSTOM_APP.md).
 > De hardwareproef na vrijgave staat in [HARDWARE_ACCEPTANCE.md](HARDWARE_ACCEPTANCE.md).
 
 De stack in `deploy/truenas/compose.yaml` dient voor ontwikkeling, CI en end-to-end-tests op een lokale
-Docker-host. De proef in `tests/stack/` gebruikt testgegevens en simulatiediensten.
+Docker-host. De proef in `tests/stack/` gebruikt testgegevens en simulatiediensten. De lokale variabelen staan in
+[`.env.example`](../.env.example).
 
 ## Wat er draait
 
@@ -30,8 +32,7 @@ de database met de sleutel `APPDATA/secrets/vault.key` (wordt bij de eerste star
 ## Lokale proef
 
 Draai vanaf de hoofdmap van de repo `tests/stack/run.sh`. De proef bouwt de losse containers, start de
-simulatiediensten en schrijft de resultaten onder `tests/stack/results/`. De gemeten limieten en het
-beheer van de lokale stack staan in [OPERATIONS.md](OPERATIONS.md).
+simulatiediensten en schrijft de resultaten onder `tests/stack/results/`. Een eerdere meting van de lokale stack staat in [Beheer en operatie](OPERATIONS.md#gemeten-benchmark-sandbox-géén-truenas).
 
 Voor dagelijks gebruik van MSO, inclusief de setupwizard, koppelingen en back-ups, zie
 [USER_GUIDE.md](USER_GUIDE.md).

@@ -78,8 +78,8 @@ testgegevens en een SABnzbd-simulator. De upgrade- en herstelbron was de openbar
 
 | Scenario | Meting |
 |---|---|
-| 17 Upgrade vanaf 1.5.0 | Schema 501 → 610, alle 25 migraties geregistreerd. Het log bevestigde het pre-upgrade-archief vóór de eerste migratie. Gebruiker, nieuwe inlog, uitgeschakelde proefkoppeling en wijzigingsvoorstel kwamen overeen met de uitgangssituatie. |
-| 18 Herstel in een lege 1.5.0-installatie | SHA-256 uit de back-upregistratie en het controlebestand geverifieerd. De proef herstelde het archief met `pg_restore` voordat de app startte. Schema 501, migratiehistorie en dezelfde proefgegevens kwamen terug. Opnieuw inloggen lukte. |
+| 17 Upgrade vanaf 1.5.0 | Schema 501 → 610, alle 25 migraties geregistreerd. In de samengevoegde logstroom stond de archiefbevestiging vóór de eerste migratie. Gebruiker, inlog, ingeschakelde proefkoppeling en wijzigingsvoorstel bleven behouden. Dezelfde geauthenticeerde SABnzbd-wachtrijlezing werkte vóór en na de upgrade. |
+| 18 Gedeeltelijk archiefherstel en volledige terugval op 1.5.0 | Het SHA-256-gecontroleerde archief gaf gedeeltelijk herstel op schema 501. De wachtrijlezing werd geweigerd. Uit de gestopte APPDATA-snapshot kwamen vóór de appstart alle tabelinhoud en applicatiebestanden ongewijzigd terug, inclusief de versleutelde kluisrijen en de bijbehorende sleutel. Na de terugval lukten de inlog en dezelfde geauthenticeerde wachtrijlezing. |
 | 19 Weigering van een nieuwer schema | De weigerimage kende schema 607 en weigerde schema 610 met de Nederlandse melding. De healthcheck gaf exitcode 1. De logische dump van de complete database en de inhoud en metadata van de applicatiebestanden waren vóór en na de proef gelijk. |
 
 De gepubliceerde 1.5.0-image heeft geen schemaweigering. Daarom bouwt
@@ -92,8 +92,8 @@ WAL-bestanden bijwerken.
 
 Bij een onbereikbare 1.5.0-digest meldt de suite de betreffende scenario’s als overgeslagen en geeft
 zij exitcode 1. De CI-job `allinone` draait dezelfde suite en publiceert de resultaten per scenario.
-De CI-uitkomst op de eindcommit staat in `RAPPORT-A-BOUW.md` van keten S-P3-260.
+De CI-uitkomst op de herstelcommit staat in `RAPPORT-A-HERSTEL.md` van keten S-P3-260.
 
-**NIET GEVALIDEERD (echte NAS).** De upgradeproef gebruikt een proefkoppeling zonder geheim.
-De APPDATA-snapshot en het formulier worden getoetst in de praktijkproef. Het integrale EX15-bewijs
-volgt in S-P6-20.
+**NIET GEVALIDEERD (echte NAS).** De Docker-proef simuleerde de APPDATA-snapshot met een kopie van de
+gestopte testinstallatie en gebruikte een willekeurig aangemaakte proefsleutel. De ZFS-snapshot en het
+formulier worden getoetst in de praktijkproef. Het integrale EX15-bewijs volgt in S-P6-20.

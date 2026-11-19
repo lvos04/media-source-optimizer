@@ -21,7 +21,7 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
 15  rechtenproef weigert een healthcheck met overgeslagen wissel of extra capabilities
 16  PID 1 ruimt een overgenomen zombie op
 17  upgrade van de gepubliceerde 1.5.0-image met gegevens en pre-upgrade-archief
-18  pre-upgrade-archief herstellen in een lege 1.5.0-installatie
+18  gedeeltelijk herstel uit archief en volledige terugval met gestopte APPDATA op 1.5.0
 19  gepinde S-P3-205-image weigert het inmiddels nieuwere schema zonder gegevenswijziging
 """
 
@@ -47,7 +47,7 @@ PREVIOUS_IMAGE = ("ghcr.io/lvos04/media-source-optimizer"
 GUARD_REVISION = "2512cd761ad30f42a4787935687388e9a3f0d428"
 UPGRADE_SCENARIOS = (
     "17 upgrade vanaf de gepubliceerde 1.5.0-image",
-    "18 pre-upgrade-archief herstellen met de 1.5.0-image",
+    "18 gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.5.0",
     "19 oudere image met schemabewaking weigert nieuwer schema",
 )
 SCENARIO_COUNT = 16 + len(UPGRADE_SCENARIOS)
@@ -246,8 +246,16 @@ def login() -> tuple[httpx.Client, str]:
 
 
 def container_logs() -> str:
-    result = subprocess.run(["docker", "logs", NAME], capture_output=True, text=True, check=True)
-    return result.stdout + result.stderr
+    # Docker levert beide stromen op volgorde. Lees ze via dezelfde pijp.
+    return subprocess.run(
+        ["docker", "logs", NAME], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True,
+    ).stdout
+
+
+def assert_backup_before_migration(logs: str, filename: str, first_migration: list) -> None:
+    marker = "back-up vóór upgrade gemaakt: " + filename
+    applied = f"migratie {first_migration[0]:04d}_{first_migration[1]} toegepast"
+    assert 0 <= logs.find(marker) < logs.find(applied), "het archief moet klaar zijn vóór de eerste migratie"
 
 
 def stop_cleanly() -> None:
@@ -270,6 +278,19 @@ def upgrade_data(client: httpx.Client, change_id: int) -> tuple:
     )
 
 
+def check_sab_read(client: httpx.Client, csrf: str, *, expect_access: bool = True) -> None:
+    # Geef enkel de sessie mee. MSO moet de proefsleutel uit de eigen kluis lezen.
+    result = client.post("/api/v1/connectors/sabnzbd/test", headers={"X-CSRF-Token": csrf}).raise_for_status().json()
+    if expect_access:
+        assert result["ok"] is True and result["capabilities"].get("modes", {}).get("queue") is True, (
+            "de geauthenticeerde SABnzbd-wachtrijlezing mislukte"
+        )
+    else:
+        assert result["ok"] is False and result["status"] == "auth_failed", (
+            "de SABnzbd-wachtrijlezing moet zonder de opgeslagen proefsleutel worden geweigerd"
+        )
+
+
 def known_migrations(image: str) -> list[list]:
     return json.loads(sh(
         "docker", "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "python", image, "-c",
@@ -282,7 +303,7 @@ def migration_history(info: dict) -> list[tuple[int, str, datetime]]:
     return [(row["version"], row["name"], datetime.fromisoformat(row["applied_at"])) for row in info["migrations"]]
 
 
-def restore_pre_upgrade(data: Path, backups: Path, filename: str, digest: str) -> None:
+def restore_partial_archive(data: Path, backups: Path, filename: str, digest: str) -> None:
     # Alleen PostgreSQL draait tijdens het herstel. De oude app start pas met schema 501.
     sh(
         "docker", "run", "--rm", "--pull=never", "--network", "none", "-v", f"{data}:/appdata",
@@ -315,6 +336,15 @@ try:
 finally:
     pg.stop()
 """, filename, digest,
+    )
+
+
+def snapshot_stopped_appdata(data: Path, snapshot: Path) -> None:
+    snapshot.mkdir()
+    sh(
+        "docker", "run", "--rm", "--pull=never", "--network", "none", "-v", f"{data}:/source:ro",
+        "-v", f"{snapshot}:/snapshot", "--entrypoint", "sh", PREVIOUS_IMAGE, "-ec",
+        "test ! -e /source/postgres/postmaster.pid; test -s /source/secrets/vault.key; cp -a /source/. /snapshot/",
     )
 
 
@@ -416,10 +446,13 @@ def previous_image_upgrade(tmp: Path) -> None:
         assert wait_healthy() == "healthy", "1.5.0 startte niet op de lege map"
         with httpx.Client(base_url=BASE, timeout=30) as client:
             initial = client.post("/api/v1/setup/admin", json={"username": ADMIN, "password": ADMIN_PW})
-            csrf = {"X-CSRF-Token": initial.raise_for_status().json()["csrf_token"]}
-            connector = {"url": "http://sabnzbd:8080", "enabled": False, "options": {"probe": "upgrade"}}
-            client.put("/api/v1/connectors/sabnzbd", headers=csrf, json=connector).raise_for_status()
-            client.post("/api/v1/setup/complete", headers=csrf, json={"mode": "read_only"}).raise_for_status()
+            csrf = initial.raise_for_status().json()["csrf_token"]
+            headers = {"X-CSRF-Token": csrf}
+            connector = {"url": "http://sabnzbd:8080", "enabled": True, "options": {"probe": "upgrade"}}
+            client.put("/api/v1/connectors/sabnzbd", headers=headers,
+                       json={**connector, "secrets": {"api_key": SAB_KEY}}).raise_for_status()
+            client.post("/api/v1/setup/complete", headers=headers, json={"mode": "read_only"}).raise_for_status()
+            check_sab_read(client, csrf)
             change_id = int(sh(
                 "docker", "exec", "-u", "568:568", "-e", "MSO_DATABASE_URL=postgresql://mso@/mso?host=/tmp/mso-pg",
                 NAME, "python", "-c",
@@ -437,11 +470,16 @@ def previous_image_upgrade(tmp: Path) -> None:
             assert old_info["schema_version"] == 501, "de upgrade moet op schema 501 beginnen"
             old_history = migration_history(old_info)
         stop_cleanly()
+        before_db, before_files = json.loads(stopped_data_fingerprint(data))
+        snapshot = tmp / "snapshot"
+        snapshot_stopped_appdata(data, snapshot)
 
         run(data)
         assert wait_healthy() == "healthy", "de nieuwe image startte niet op de 1.5.0-map"
-        with closing(login()[0]) as client:
+        client, csrf = login()
+        with closing(client):
             assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij upgrade"
+            check_sab_read(client, csrf)
             info = api_data(client, "system/info")
             expected = known_migrations(IMAGE)
             assert [[row["version"], row["name"]] for row in info["migrations"]] == expected, "migraties ontbreken"
@@ -451,31 +489,45 @@ def previous_image_upgrade(tmp: Path) -> None:
                 "verwacht één aanwezig pre-upgrade-archief van schema 501"
             )
         archive = archives[0]
-        logs = container_logs()
-        marker = "back-up vóór upgrade gemaakt: " + archive["file"]
         first_migration = next(row for row in expected if row[0] > 501)
-        applied = f"migratie {first_migration[0]:04d}_{first_migration[1]} toegepast"
-        assert 0 <= logs.find(marker) < logs.find(applied), "het archief moet klaar zijn vóór de eerste migratie"
+        assert_backup_before_migration(container_logs(), archive["file"], first_migration)
         stop_cleanly()
         record(UPGRADE_SCENARIOS[0], True, f"501 → {info['schema_version']}; {len(expected)} migraties; "
-               "archief vooraf; gebruiker, koppeling, voorstel en inlog behouden")
+               "archief vooraf; gebruiker, koppeling, voorstel, inlog en SABnzbd-wachtrijlezing behouden")
         scenario = 1
 
-        restored = tmp / "restored"
-        restored.mkdir()
+        partial = tmp / "partial"
+        partial.mkdir()
         filename = archive["file"]
         assert filename == Path(filename).name and filename.endswith("-pre-upgrade.dump"), "ongeldige archiefnaam"
-        restore_pre_upgrade(restored, data / "backups", filename, archive["sha256"])
-        run(restored, image=PREVIOUS_IMAGE)
-        assert wait_healthy() == "healthy", "1.5.0 startte niet na herstel"
-        with closing(login()[0]) as client:
-            restored_info = api_data(client, "system/info")
-            assert migration_history(restored_info) == old_history, "de herstelde migratiehistorie wijkt af"
-            assert restored_info["schema_version"] == 501, "het herstel kwam niet terug op schema 501"
-            assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij herstel"
+        restore_partial_archive(partial, data / "backups", filename, archive["sha256"])
+        run(partial, image=PREVIOUS_IMAGE)
+        assert wait_healthy() == "healthy", "1.5.0 startte niet na gedeeltelijk archiefherstel"
+        client, csrf = login()
+        with closing(client):
+            partial_info = api_data(client, "system/info")
+            assert migration_history(partial_info) == old_history, "de migratiehistorie uit het archief wijkt af"
+            assert partial_info["schema_version"] == 501, "het gedeeltelijke herstel kwam niet terug op schema 501"
+            assert upgrade_data(client, change_id) == original, "proefgegevens uit het archief wijken af"
+            check_sab_read(client, csrf, expect_access=False)
         stop_cleanly()
-        record(UPGRADE_SCENARIOS[1], True, "SHA-256 gecontroleerd; schema 501; "
-               "gebruiker, koppeling, voorstel en inlog hersteld")
+
+        # Vergelijk vóór de appstart: een nieuwe inlog en de worker mogen daarna rijen wijzigen.
+        restored_db, restored_files = json.loads(stopped_data_fingerprint(snapshot))
+        assert restored_db == before_db, "de tabelinhoud inclusief versleutelde kluisrijen wijkt af na APPDATA-herstel"
+        assert restored_files == before_files, "APPDATA-bestanden inclusief vault-sleutel wijken af na herstel"
+        run(snapshot, image=PREVIOUS_IMAGE)
+        assert wait_healthy() == "healthy", "1.5.0 startte niet na volledige APPDATA-terugval"
+        client, csrf = login()
+        with closing(client):
+            restored_info = api_data(client, "system/info")
+            assert migration_history(restored_info) == old_history, "de migratiehistorie na volledige terugval wijkt af"
+            assert restored_info["schema_version"] == 501, "de volledige terugval kwam niet terug op schema 501"
+            assert upgrade_data(client, change_id) == original, "proefgegevens wijken af na volledige terugval"
+            check_sab_read(client, csrf)
+        stop_cleanly()
+        record(UPGRADE_SCENARIOS[1], True, "gedeeltelijk: SHA-256 gecontroleerd, schema 501, wachtrijlezing geweigerd; "
+               "volledig: schema 501, alle tabelinhoud en APPDATA-bestanden gelijk, SABnzbd-wachtrijlezing werkt")
         scenario = 2
 
         guard = os.environ.get("MSO_SCHEMA_GUARD_IMAGE", "")

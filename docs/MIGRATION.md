@@ -29,12 +29,13 @@ Sonarr/Radarr, Prowlarr, SABnzbd of qBittorrent.
 2. `api` en `worker` roepen bij het opstarten ook `migrate_up` aan (no-op als alles al is toegepast). Dat
    maakt een handmatige `docker run` zonder `migrate`-container veilig.
 
-**Back-up vóór upgrade (sinds 1.6.0).** Zijn er openstaande migraties en bestaat er al een database, dan maakt MSO
-eerst een back-up van soort `pre-upgrade`. In Systeem → Back-ups staan de drie meest recente onder "Vóór upgrade".
-De startprocessen delen een upgradeslot. Onder dat slot controleert MSO de SHA-256 en de leesbaarheid van het
-PostgreSQL-archief. Bij ruimtegebrek, een dumpfout of een onbruikbaar archief stopt de upgrade vóór de volgende
-migratie. De oorzaak staat in het app-log. Een nieuwe installatie kan direct starten.
-`mso migrate --no-backup` controleert het bestaande archief voor deze upgrade.
+**Back-up vóór upgrade (sinds 1.6.0).** Zijn er openstaande migraties en bestaat er al een database, dan probeert
+MSO eerst een back-up van soort `pre-upgrade` te maken. In Systeem → Back-ups staan de drie meest recente onder
+"Vóór upgrade".
+In images met verplichte archiefcontrole delen de startprocessen een upgradeslot. Onder dat slot controleert MSO
+de SHA-256 en de leesbaarheid van het PostgreSQL-archief. Bij ruimtegebrek, een dumpfout of een onbruikbaar archief
+stopt zo'n image vóór de volgende migratie en meldt de oorzaak in het app-log. Een nieuwe installatie kan direct
+starten. `mso migrate --no-backup` controleert in deze images het bestaande archief voor de upgrade.
 
 ## Commando's
 
@@ -71,15 +72,16 @@ ouder image gebruikt), dan stopt het commando met een fout en blijft de rest ong
    de naam van de snapshot en de vorige imageversie met digest.
 2. Open onder **Apps** het bestaande Custom App-formulier met **Edit**. Kies de nieuwe versie met de
    bijbehorende image-digest, sla op met **Update** en start de app.
-3. Tijdens een schema-update zie je in het app-log eerst de bevestiging van de pre-upgrade-back-up en daarna
-   de toegepaste migraties. Na de start staat het archief als **Vóór upgrade** onder **Systeem → Back-ups**.
-   Controleer de schemaversie onder **Systeem → MSO-core**. Bij een onbruikbaar terugvalarchief stopt de start
-   vóór de migratie. Het app-log geeft de oorzaak.
+3. Controleer het app-log en de schemaversie onder **Systeem → MSO-core**. Bij een gemaakte back-up zie je in
+   het log eerst de bevestiging van de pre-upgrade-back-up en daarna de toegepaste migraties. Het archief staat
+   als **Vóór upgrade** onder **Systeem → Back-ups**. Bij een image met verplichte archiefcontrole stopt de start
+   vóór de migratie als het archief onbruikbaar is. Het app-log geeft de oorzaak.
 
 ## 1.5.0 → 1.6.0
 
-Volg het updatepad hierboven. De release 1.6.0 maakt eerst de back-up **Vóór upgrade** op schema 501 en past
-daarna de migraties 0600–0607 toe. Latere images passen ook hun volgende migraties toe.
+Volg het updatepad hierboven, inclusief de verplichte APPDATA-snapshot van de gestopte app. De gepubliceerde
+1.6.0 probeert eerst de back-up **Vóór upgrade** op schema 501 te maken. Bij ruimtegebrek kan die release
+zonder archief doorgaan met de migraties 0600–0607. Latere images passen ook hun volgende migraties toe.
 
 **Wat de migraties doen:**
 
@@ -110,22 +112,24 @@ daarna de migraties 0600–0607 toe. Latere images passen ook hun volgende migra
 
 ## Terug naar 1.5.0 via TrueNAS
 
-**Zet altijd de back-up van vóór de upgrade terug voordat je 1.5.0 start. Start de 1.5.0-image nooit op
+**Zet altijd de volledige APPDATA-snapshot van vóór de upgrade terug voordat je 1.5.0 start. Start de 1.5.0-image nooit op
 het nieuwere schema.** 1.5.0 heeft geen schemaweigering en kan op de bijgewerkte database starten.
 Een image met schemabewaking meldt in het app-log: „database is van een nieuwere MSO-versie; zet de
 bijpassende snapshot/back-up terug”.
 
 1. Stop MSO onder **Apps**.
 2. Open **Datasets → Snapshots** en kies **Rollback** bij de APPDATA-snapshot van vóór de upgrade.
-   Die snapshot zet ook de lokale bestanden terug die nodig zijn om versleutelde koppelingsgeheimen te lezen.
+   Die snapshot zet zowel de versleutelde kluisgegevens in PostgreSQL als het bijbehorende sleutelbestand terug.
    Wijzigingen in MSO sinds de snapshot gaan verloren.
 3. Open het Custom App-formulier met **Edit**, kies de vorige imageversie met de bijbehorende digest en
    sla op met **Update**. Start de app pas nadat de snapshot is teruggezet.
-4. Log opnieuw in en controleer onder **Systeem → MSO-core** dat de schemaversie voor 1.5.0 weer 501 is.
+4. Log opnieuw in, controleer onder **Systeem → MSO-core** dat de schemaversie weer 501 is en voer bij de
+   ingeschakelde koppelingen de verbindingstest uit.
 
-De automatische databaseback-up **Vóór upgrade** kan ook dienen voor herstel naar een lege,
-afzonderlijke 1.5.0-installatie. De containerproef herstelt dat archief met `pg_restore` vóór de eerste
-appstart. Voor terugval van de bestaande Custom App gebruik je de volledige dataset-snapshot.
+Met alleen de automatische databaseback-up **Vóór upgrade** kun je een lege, afzonderlijke 1.5.0-installatie
+gedeeltelijk herstellen. Het archief bevat geen versleutelde kluisgegevens of bijbehorend sleutelbestand.
+De containerproef controleert dit gedeeltelijke herstel met `pg_restore` vóór de eerste appstart. Voor
+volledige terugval van de bestaande Custom App gebruik je de volledige APPDATA-snapshot.
 
 ## Back-ups en schemaversies
 

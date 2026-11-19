@@ -157,8 +157,10 @@ def _history_for(scenario: str) -> list[dict[str, Any]]:
 
 
 class SabState:
-    def __init__(self, scenario: str = "mixed", categories: list[str] | None = None) -> None:
+    def __init__(self, scenario: str = "mixed", categories: list[str] | None = None, *,
+                 ignore_set_config: bool = False) -> None:
         self.lock = threading.Lock()
+        self.ignore_set_config = ignore_set_config
         names = ["*", *(c for c in (categories if categories is not None else CATEGORIES) if c != "*")]
         self.categories: list[dict[str, Any]] = [_category(n, i) for i, n in enumerate(names)]
         self.complete_dir = COMPLETE_DIR
@@ -476,9 +478,9 @@ def create_app(**faults: Any) -> FastAPI:
     state = SabState(
         str(faults.get("scenario", "mixed")),
         [c.strip() for c in str(cat_fault).split(",") if c.strip()] if cat_fault is not None else None,
+        ignore_set_config=str(faults.get("ignore_set_config", "0")) in ("1", "true"),
     )
     config_locked = str(faults.get("config_locked", "0")) in ("1", "true")
-    ignore_set = str(faults.get("ignore_set_config", "0")) in ("1", "true")
     broken = str(faults.get("broken_mode", ""))
     status_mode = str(faults.get("status_mode", "status"))
     retry_new_id = str(faults.get("retry_new_id", "0")) in ("1", "true")
@@ -538,7 +540,7 @@ def create_app(**faults: Any) -> FastAPI:
             return JSONResponse({"error": "internal"}, status_code=500)
         with state.lock:
             if mode in ("get_config", "set_config", "del_config") and params.get("section") in ("categories", "misc"):
-                return ok(_category_config(state, mode, params, ignore=ignore_set, locked=config_locked))
+                return ok(_category_config(state, mode, params, ignore=state.ignore_set_config, locked=config_locked))
             if mode == "queue":
                 slots = state.queue[int(params.get("start", 0)) :][: int(params.get("limit", 100))]
                 return ok(
@@ -602,7 +604,7 @@ def create_app(**faults: Any) -> FastAPI:
                 srv = next((s for s in state.servers if s["name"] == name), None)
                 if srv is None:
                     return ok({"status": False, "error": "server not found"})
-                if not ignore_set:
+                if not state.ignore_set_config:
                     for field in ("priority", "enable", "optional"):
                         if field in params:
                             srv[field] = int(params[field])

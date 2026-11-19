@@ -30,8 +30,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -42,6 +43,7 @@ from psycopg import Connection
 from mso import state
 from mso.audit import audit
 from mso.change_preview import JOURNAL_FIELDS, preview_hash
+from mso.connectors import base as connectors
 from mso.db import Database, get_db, jsonb
 from mso.machine_keys import ADMIN_LOCK, RESTORE_PENDING, MachineKeyError, restore_pending
 from mso.security import redact
@@ -105,6 +107,8 @@ class Applier:
     # (path, value) → writing ``value`` back removes something at the source (e.g. deleting a SABnzbd category):
     # never unattended (hard rule 1), and a person's rollback needs the admin role
     rollback_deletes: Callable[[str, Any], bool] | None = None
+    # Voor een API die een heel document vereist, draagt de preview de hash van de overige velden.
+    payload_hashes: dict[str, str] | None = None
 
 
 def deletes_on_write(applier: Applier | None, path: str, value: Any) -> bool:
@@ -143,6 +147,21 @@ def register_applier(target: str, factory: Callable[[], Applier]) -> None:
     APPLIERS[target] = factory
 
 
+def _bound_applier(factory: Callable[[], Applier], ops: list[dict[str, Any]], *, existing: bool) -> Applier:
+    """Bewaar de gebruikte koppelingen bij de operaties, ook voor een nieuwe adapter na een herstart."""
+    # Eén register per wijziging. Dynamische doelen staan hierin onder hun volledige operatiepad.
+    targets = ops[0].setdefault("source_bindings", {}) if ops else {}
+
+    def bound(call, *args):
+        with connectors.write_targets(targets, existing=existing):
+            return call(*args)
+
+    applier = bound(factory)
+    if applier.payload_hashes is not None:
+        applier.payload_hashes.update({op["path"]: op["payload_hash"] for op in ops if "payload_hash" in op})
+    return replace(applier, read=partial(bound, applier.read), write=partial(bound, applier.write))
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -161,32 +180,23 @@ def reversible(op: dict[str, Any]) -> bool:
 
 
 @contextmanager
-def _lock(change_id: int, db: Database) -> Iterator[Connection]:
-    """Session-level advisory lock on a dedicated pool connection for the whole apply/rollback. PostgreSQL releases
-    it when that connection closes, so a crashed process never leaves it behind — which is how the reconciler tells
-    an interrupted apply from one that is still running. Raises :class:`ChangeBusy` when someone else holds it."""
+def _lock(
+    change_id: int, db: Database, claim_request: Callable[[Connection], None] | None = None,
+) -> Iterator[Connection]:
+    """Houd de sloten op één verbinding tot het einde van de uitvoering, ook bij procesuitval."""
     key = int(change_id) % 2147483647
-    with db.pool.connection() as conn:
-        conn.autocommit = True
-        try:
-            got = conn.execute("SELECT pg_try_advisory_lock(%s, %s) AS ok", (LOCK_CLASS, key)).fetchone()
-            if not got or not got["ok"]:
-                raise ChangeBusy()
-            try:
-                guarded = conn.execute("SELECT pg_try_advisory_lock_shared(%s) AS ok", (ADMIN_LOCK,)).fetchone()
-                if not guarded["ok"]:
-                    raise HTTPException(503, detail="Sleutelbeheer of gegevensherstel is bezig",
-                                        headers={"Retry-After": "1"})
-                try:
-                    if restore_pending(conn):
-                        raise MachineKeyError(503, "dependency_unavailable", RESTORE_PENDING)
-                    yield conn
-                finally:
-                    conn.execute("SELECT pg_advisory_unlock_shared(%s)", (ADMIN_LOCK,))
-            finally:
-                conn.execute("SELECT pg_advisory_unlock(%s, %s)", (LOCK_CLASS, key))
-        finally:
-            conn.autocommit = False
+    with db.tx() as conn:
+        if claim_request is not None:
+            claim_request(conn)
+        got = conn.execute("SELECT pg_try_advisory_xact_lock(%s, %s) AS ok", (LOCK_CLASS, key)).fetchone()
+        if not got["ok"]:
+            raise ChangeBusy()
+        guarded = conn.execute("SELECT pg_try_advisory_xact_lock_shared(%s) AS ok", (ADMIN_LOCK,)).fetchone()
+        if not guarded["ok"]:
+            raise HTTPException(503, detail="Sleutelbeheer of gegevensherstel is bezig", headers={"Retry-After": "1"})
+        if restore_pending(conn):
+            raise MachineKeyError(503, "dependency_unavailable", RESTORE_PENDING)
+        yield conn
 
 
 def _persist_ops(db: Database, change_id: int, ops: list[dict[str, Any]], status: str) -> None:
@@ -462,13 +472,13 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
     factory = APPLIERS.get(ch["target"])
     if factory is None:
         raise HTTPException(409, detail=f"Geen schrijfkoppeling voor '{ch['target']}'")
+    ops = [{key: value for key, value in op.items() if key not in JOURNAL_FIELDS} for op in ch["ops"]]
     try:
-        applier = factory()
+        applier = _bound_applier(factory, ops, existing=False)
     except Exception as exc:
         raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
             from exc
 
-    ops = [{key: value for key, value in op.items() if key not in JOURNAL_FIELDS} for op in ch["ops"]]
     # 1) drift detection on everything before writing anything
     for op in ops:
         try:
@@ -635,8 +645,9 @@ def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str
     factory = APPLIERS.get(ch["target"])
     if factory is None:
         raise HTTPException(409, detail=f"Geen schrijfkoppeling voor '{ch['target']}'")
+    ops = [dict(op) for op in ch["ops"]]
     try:
-        applier = factory()
+        applier = _bound_applier(factory, ops, existing=True)
     except Exception as exc:
         raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
             from exc
@@ -647,7 +658,6 @@ def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str
             f"Terugdraaien verwijdert hier iets ({', '.join(deleting)[:200]}); dat mag alleen een beheerder, "
             "en nooit automatisch"))
     person = is_person(actor, db)
-    ops = [dict(op) for op in ch["ops"]]
     if check_deadline is not None:
         # De handtekening bindt de hele wijziging. Een afwijking vóór de uitvoering weigert het hele verzoek.
         for op in ops:
@@ -839,7 +849,7 @@ def _settle_apply(ch: dict[str, Any], db: Database, applier: Applier | None = No
     title = ch["title"]
     try:
         if applier is None:
-            applier = APPLIERS[ch["target"]]()
+            applier = _bound_applier(APPLIERS[ch["target"]], ops, existing=True)
     except Exception as exc:
         pending = [f"koppeling niet beschikbaar: {redact(str(exc))[:160]}"]
         missing_proof = []

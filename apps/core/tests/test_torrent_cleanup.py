@@ -291,6 +291,7 @@ def test_recommendation_accept_creates_cleanup_proposal(
 def _mg_app(download_id: str) -> FastAPI:
     app = FastAPI()
     app.state.calls = []
+    app.state.instances = [{"id": "sonarr", "name": "Sonarr", "archived": False}]
     app.state.queue = [{"id": 77, "downloadId": download_id.upper(), "title": "x", "protocol": "torrent"}]
 
     @app.middleware("http")
@@ -305,7 +306,7 @@ def _mg_app(download_id: str) -> FastAPI:
     async def instances(request: Request) -> Any:
         if not ok(request):
             return JSONResponse({"detail": "Ongeldige of ingetrokken API-sleutel"}, 401)
-        return [{"id": "sonarr", "name": "Sonarr", "archived": False}]
+        return app.state.instances
 
     @app.get("/api/v1/instances/{iid}/queue")
     async def queue(iid: str, request: Request) -> Any:
@@ -325,8 +326,11 @@ def _mg_app(download_id: str) -> FastAPI:
     return app
 
 
+@pytest.mark.parametrize("situatie", [
+    "zelfde", "vooraf-verplaatst", "nadien-verdwenen", "nadien-gearchiveerd", "nadien-ander-doel",
+])
 def test_mediaguard_blocklist_when_route_allowed(
-    qb: Qb, admin: Any, operator: Any, serve: Any, manage_mode: None, monkeypatch: Any
+    qb: Qb, admin: Any, operator: Any, serve: Any, manage_mode: None, monkeypatch: Any, situatie: str
 ) -> None:
 
     from mso.features.torrent import cleanup
@@ -344,7 +348,27 @@ def test_mediaguard_blocklist_when_route_allowed(
     ch = operator.post("/api/v1/torrent/suspicious/cleanup-preview", json={"hashes": [hs["exe"]]}).json()
     assert [o["path"].split(":")[0] for o in ch["ops"]] == ["cleanup", "arrblock", "blacklist", "torrent"]
     assert "via MediaGuard" in ch["impact"]["Blokkeren"]
+    if situatie == "vooraf-verplaatst":
+        mg.state.instances[0]["id"] = "andere"
+    elif situatie.startswith("nadien"):
+        blokkeren = cleanup.mediaguard_block
+
+        def na_ontvangst(client, rec):
+            blokkeren(client, rec)
+            if situatie == "nadien-gearchiveerd":
+                mg.state.instances[0]["archived"] = True
+            elif situatie == "nadien-ander-doel":
+                mg.state.queue.append({"id": rec["queue_id"], "downloadId": hs["file"]})
+            else:
+                mg.state.instances.clear()
+
+        monkeypatch.setattr(cleanup, "mediaguard_block", na_ontvangst)
     res = _approve_apply(admin, ch["id"])
+    if situatie != "zelfde":
+        assert res.status_code == 502
+        assert qb.st.deletes == []
+        assert len([c for c in mg.state.calls if c[0] == "DELETE"]) == int(situatie.startswith("nadien"))
+        return
     assert res.status_code == 200, res.text
     assert ("DELETE", "/api/v1/instances/sonarr/queue/77", "remove_from_client=false&blocklist=true") in mg.state.calls
     assert qb.st.deletes == [([hs["exe"]], True)]

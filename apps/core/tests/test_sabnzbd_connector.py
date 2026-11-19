@@ -28,6 +28,38 @@ NZB = b"""<?xml version="1.0" encoding="utf-8"?>
 SAB_KEY = "SABGEHEIM-0123456789"
 
 
+@pytest.mark.parametrize("mode", ["set_config", "del_config", "retry", "addurl", "addfile"])
+@pytest.mark.parametrize("versie,ondersteund", [
+    ("3.7.2", True), ("4.3.3", True), ("5.1.3", True), ("onbekend", False), ("6.0.0", False),
+])
+def test_sab_schrijfmodus_verifieert_api(monkeypatch, mode, versie, ondersteund):
+    import httpx
+
+    from mso import changes
+    from mso.connectors import base
+    from mso.connectors.sabnzbd import SabClient
+
+    aanvragen = []
+
+    def antwoord(request):
+        opdracht = request.url.params["mode"]
+        aanvragen.append(opdracht)
+        return httpx.Response(200, json={"version": versie} if opdracht == "version" else {"status": True})
+
+    with httpx.Client(base_url="https://sab.example", transport=httpx.MockTransport(antwoord)) as http:
+        monkeypatch.setattr(base, "http_client", lambda *_args, **_kwargs: http)
+        client = SabClient("https://sab.example", SAB_KEY)
+        with base.write_targets({}, existing=False):
+            base.bind_write_target("sabnzbd", "proef")
+            if ondersteund:
+                client._call(mode)
+                assert aanvragen == ["version", mode]
+            else:
+                with pytest.raises(changes.SourceWriteRefused):
+                    client._call(mode)
+                assert aanvragen == ["version"]
+
+
 @pytest.fixture()
 def sab(app: Any, serve: Any, admin: Any) -> Any:
     from msomocks import sabnzbd as mock

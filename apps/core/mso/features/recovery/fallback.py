@@ -48,6 +48,8 @@ from fastapi import HTTPException
 from mso import changes, state
 from mso import settings_registry as sr
 from mso.audit import audit
+from mso.change_preview import digest
+from mso.connectors import base as cb
 from mso.db import get_db, jsonb
 from mso.domain import categories
 from mso.domain.outcomes import FAILURE_REASONS, outcome_at, recommend
@@ -146,8 +148,7 @@ def _read(path: str) -> str:
         return BEFORE
     if row["status"] == "pending":
         return "bezig met versturen"
-    if row["status"] in ("download_ok", "download_failed"):
-        return AFTER
+    cb.bind_write_target(path, digest([row["client"], row["client_ref"]]))
     label = CLIENT_LABEL.get(row["client"], row["client"])
     return AFTER if _client_has(dict(row)) else f"niet gevonden in {label}"
 
@@ -160,7 +161,9 @@ def _write(path: str, value: Any) -> None:
             "download zo nodig zelf in de downloadclient"
         )
     try:
-        actions.send(media_ref, key, actor=ACTOR, via="change")
+        result = actions.send(media_ref, key, actor=ACTOR, via="change")
+        sent = result["send"]
+        cb.bind_write_target(path, digest([sent["client"], sent["client_ref"]]))
     except HTTPException as exc:
         if 400 <= exc.status_code < 500:
             raise changes.SourceWriteRefused(str(exc.detail)) from exc

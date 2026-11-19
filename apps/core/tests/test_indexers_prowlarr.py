@@ -187,6 +187,42 @@ def test_registration_change_set_flow(
     assert key not in caplog.text and PROWLARR_KEY not in caplog.text
 
 
+@pytest.mark.parametrize("afwijking", ["extra-veld", "dubbel-id", "ander-id"])
+def test_registratie_weigert_gewijzigde_veldset_of_identiteit(admin, prowlarr, own_sources, manage_mode,
+                                                             monkeypatch, afwijking):
+    from mso.connectors.prowlarr import ProwlarrClient
+
+    simulator, url = prowlarr
+    set_settings({"newznab.public_url": url})
+    voorstel = admin.post("/api/v1/indexers/prowlarr/register", json={"kinds": ["newznab"]}).json()["change"]
+    route = f"/api/v1/changes/{voorstel['id']}"
+    assert admin.post(route + "/approve").status_code == 200
+    if afwijking == "extra-veld":
+        schema = ProwlarrClient.indexer_schema
+
+        def extra_veld(client):
+            templates = schema(client)
+            for template in templates:
+                template["fields"].append({"name": "extraGrens", "value": 45})
+            return templates
+
+        monkeypatch.setattr(ProwlarrClient, "indexer_schema", extra_veld)
+        antwoord = admin.post(route + "/apply")
+        assert antwoord.status_code == 502
+        assert not [c for c in simulator.state.calls if c["method"] in ("POST", "PUT")]
+        return
+
+    assert admin.post(route + "/apply").status_code == 200
+    indexers = simulator.state.data["indexers"]
+    eigen = next(r for r in indexers if r["name"].startswith("Media Source Optimizer"))
+    if afwijking == "ander-id":
+        eigen["id"] += 100
+    else:
+        indexers[0]["id"] = eigen["id"]
+    assert admin.post(route + "/rollback").status_code == 502
+    assert not [c for c in simulator.state.calls if c["method"] == "DELETE"]
+
+
 def test_duplicate_registration_detected(
     admin: Any, viewer: Any, prowlarr: tuple[Any, str], own_sources: None
 ) -> None:

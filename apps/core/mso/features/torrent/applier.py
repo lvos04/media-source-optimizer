@@ -31,7 +31,9 @@ import base64
 from typing import Any
 
 from mso import changes
+from mso.change_preview import digest
 from mso.changes import Applier
+from mso.connectors import base as cb
 from mso.db import get_db, jsonb
 from mso.features.torrent import cleanup, policy
 from mso.vault import get_vault
@@ -43,14 +45,21 @@ def crossseed_secret(cid: int) -> str:
     return f"torrent.crossseed.{cid}"
 
 
-def _action_done(h: str, action: str) -> bool:
-    return bool(
-        get_db().scalar(
-            "SELECT count(*) FROM torrent_actions WHERE hash=%s AND action=%s AND ts > now() - "
-            "make_interval(mins => %s)",
-            (h, action, ACTION_WINDOW_MIN),
-        )
-    )
+def crossseed_payload_hash(row: dict[str, Any], blob: str | None) -> str:
+    return digest([row["candidate_hash"], row["category"], row["save_path"], blob])
+
+
+def _action_done(path: str) -> bool:
+    if cb.recorded_target(path) == "ontvangen":
+        return True
+    instance = cb.recorded_target("qbittorrent")
+    if instance is None:
+        return False
+    return bool(get_db().scalar(
+        "SELECT EXISTS (SELECT 1 FROM change_sets WHERE target='qbittorrent' AND "
+        "apply_started_at > now() - make_interval(mins => %s) AND ops->0->'source_bindings' @> %s)",
+        (ACTION_WINDOW_MIN, jsonb({"qbittorrent": instance, path: "ontvangen"})),
+    ))
 
 
 def _record_action(h: str, action: str) -> None:
@@ -71,6 +80,7 @@ def _refresh_snapshot_pref(key: str, value: Any) -> None:
 
 def build() -> Applier:
     state: dict[str, Any] = {}
+    payload_hashes: dict[str, str] = {}
 
     def adapter() -> Any:
         if "a" not in state:
@@ -88,14 +98,20 @@ def build() -> Applier:
         if kind == "torrent":
             h, _, field_ = rest.partition(":")
             if field_ in ("recheck", "reannounce"):
-                return "uitgevoerd" if _action_done(h, field_) else "niet_uitgevoerd"
+                if not adapter().has_torrent(h):
+                    raise ValueError("De torrent voor de aangevraagde actie ontbreekt op de bron")
+                return "uitgevoerd" if _action_done(path) else "niet_uitgevoerd"
         if kind == "crossseed":
             row = get_db().fetchone(
                 "SELECT candidate_hash FROM torrent_crossseed_candidates WHERE id=%s", (int(rest),)
             )
             if row is None:
                 raise ValueError("cross-seed-kandidaat bestaat niet")
-            return "toegevoegd_gepauzeerd" if adapter().has_torrent(row["candidate_hash"]) else "afwezig"
+            cb.bind_write_target(path, row["candidate_hash"])
+            status = adapter().torrent_state(row["candidate_hash"])
+            if status is None:
+                return "afwezig"
+            return "toegevoegd_gepauzeerd" if status in ("pausedDL", "pausedUP", "stoppedDL", "stoppedUP") else "actief"
         value = adapter().read_value(path)
         if kind == "pref" and state.get("refresh_pref") == rest:
             _refresh_snapshot_pref(rest, value)
@@ -118,6 +134,7 @@ def build() -> Applier:
                 if value == "niet_uitgevoerd":
                     return  # nothing to undo: a recheck/reannounce does not change data
                 getattr(adapter(), field_)(h)
+                cb.bind_write_target(path, "ontvangen")
                 _record_action(h, field_)
                 return
         if kind == "crossseed":
@@ -131,6 +148,9 @@ def build() -> Applier:
             blob = get_vault().get(crossseed_secret(cid))
             if row is None or not blob:
                 raise ValueError("torrentbestand van de kandidaat ontbreekt")
+            cb.bind_write_target(path, row["candidate_hash"])
+            if crossseed_payload_hash(row, blob) != payload_hashes.get(path):
+                raise changes.SourceWriteRefused("De torrent of de opslaginstellingen wijken af van de goedkeuring")
             adapter().add_torrent(
                 data=base64.b64decode(blob),
                 category=row["category"] or "",
@@ -162,7 +182,8 @@ def build() -> Applier:
         # a recheck/reannounce changes no data: its rollback is a harmless no-op (see ``write``)
         return path.startswith("torrent:") and path.endswith((":recheck", ":reannounce"))
 
-    return Applier(read=read, write=write, validate=validate, same=same, noop_rollback=noop_rollback)
+    return Applier(read=read, write=write, validate=validate, same=same,
+                   noop_rollback=noop_rollback, payload_hashes=payload_hashes)
 
 
 changes.register_applier("qbittorrent", build)

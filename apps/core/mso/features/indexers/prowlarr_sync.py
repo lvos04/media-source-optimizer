@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 from mso import changes, jobs
+from mso.change_preview import digest
 from mso.connectors import base as cb
 from mso.connectors.prowlarr import (
     MSO_INDEXER_PREFIX,
@@ -593,8 +594,24 @@ def _translate_prowlarr_refusal(exc: ProwlarrError, kind: str) -> ProwlarrError:
     )
 
 
+def _payload_hash(body: dict[str, Any], template: dict[str, Any] | None) -> str:
+    """Bind ook de velden die Prowlarr naast de getoonde registratie in het volledige bericht vereist."""
+    if not template or not isinstance(template.get("fields"), list):
+        raise ProwlarrError("De veldset van het Prowlarr-schema is onleesbaar", "malformed")
+    other = copy.deepcopy(body)
+    for key in ("name", "enable"):
+        other.pop(key, None)
+    for field in other["fields"]:
+        if field["name"] in ("baseUrl", "apiPath", "apiKey"):
+            field.pop("value", None)
+    return digest([other, template["fields"]])
+
+
 def _applier() -> changes.Applier:
     client = ProwlarrClient.from_config()
+    targets: dict[str, int | None] = {}
+    removed: dict[str, int] = {}
+    payload_hashes: dict[str, str] = {}
 
     def kind_of(path: str) -> str:
         kind = path.split(":", 1)[1] if path.startswith("indexer:") else ""
@@ -603,9 +620,22 @@ def _applier() -> changes.Applier:
         return kind
 
     def registration(kind: str) -> dict[str, Any] | None:
-        found = find_registrations(client.indexers(), kind)
+        indexers = client.indexers()
+        ids = [idx.get("id") for idx in indexers]
+        if any(type(i) is not int or i <= 0 for i in ids):
+            raise ProwlarrError("Prowlarr-indexer-ID is onleesbaar", "malformed")
+        found = find_registrations(indexers, kind)
         if len(found) > 1:
             raise ProwlarrError("Prowlarr-indexermeting is onleesbaar door dubbele registraties", "malformed")
+        ident = found[0]["id"] if found else None
+        if len(set(ids)) != len(ids):
+            raise ProwlarrError("Prowlarr-indexer-ID is onleesbaar door dubbele toewijzing", "malformed")
+        if targets.setdefault(kind, ident) != ident or removed.get(kind) in ids:
+            raise ProwlarrError("De identiteit van de aangeschreven Prowlarr-registratie is gewijzigd", "malformed")
+        if ident is not None:
+            cb.bind_write_target(f"indexer:{kind}", str(ident))
+        elif (saved := cb.recorded_target(f"indexer:{kind}")) is not None and int(saved) in ids:
+            raise ProwlarrError("Het aangeschreven Prowlarr-ID hoort bij een andere registratie", "malformed")
         return found[0] if found else None
 
     def read(path: str) -> Any:
@@ -616,15 +646,16 @@ def _applier() -> changes.Applier:
         rec = registration(kind)
         if rec is not None:
             _normalize(rec)
-            if type(rec.get("id")) is not int or rec["id"] <= 0:
-                raise ProwlarrError("Prowlarr-indexer-ID is onleesbaar", "malformed")
         if value is None:  # rollback of a registration MSO created
             if rec is not None and rec["name"].startswith(MSO_INDEXER_PREFIX):
                 client.delete_indexer(rec["id"])
+                removed[kind] = rec["id"]
+                targets[kind] = None
             return
         reg = parse_registration(value)
         key = keys.default_key()
         try:
+            template = pick_template(client.indexer_schema(), REGISTRATIONS[kind]["implementation"])
             if rec is not None:
                 body = copy.deepcopy(rec)
                 body["name"] = reg["name"]
@@ -632,9 +663,20 @@ def _applier() -> changes.Applier:
                 _set_field(body, "baseUrl", reg["baseUrl"])
                 _set_field(body, "apiPath", reg["apiPath"])
                 _set_field(body, "apiKey", key)
-                client.update_indexer(body)  # tags untouched (MediaGuard may manage them)
+            else:
+                body = create_payload(kind, None, tag_ids=_scope_tag_ids(client), api_key=key, template=template)
+            if _normalize(body) != reg or _payload_hash(body, template) != payload_hashes.get(path):
+                raise changes.SourceWriteRefused(
+                    "Het Prowlarr-bericht wijkt af van de goedkeuring. Maak een nieuw voorstel."
+                )
+            if rec is not None:
+                client.update_indexer(body)
                 return
-            client.create_indexer(create_payload(kind, client, tag_ids=_scope_tag_ids(client), api_key=key))
+            created = client.create_indexer(body)
+            if not isinstance(created, dict) or type(created.get("id")) is not int or created["id"] <= 0:
+                raise ProwlarrError("Prowlarr heeft geen geldig ID voor de aangemaakte registratie gemeld", "malformed")
+            targets[kind] = created["id"]
+            cb.bind_write_target(path, str(created["id"]))
         except ProwlarrError as exc:
             raise _translate_prowlarr_refusal(exc, kind) from exc
 
@@ -653,7 +695,7 @@ def _applier() -> changes.Applier:
             if not ready["ready"]:
                 raise ValueError(ready["reason"])
 
-    return changes.Applier(read=read, write=write, validate=validate)
+    return changes.Applier(read=read, write=write, validate=validate, payload_hashes=payload_hashes)
 
 
 changes.register_applier(PROWLARR_ID, _applier)
@@ -734,10 +776,10 @@ def propose_registration(actor: str, kinds: list[str] | None = None) -> dict[str
         if not ready["ready"]:
             not_ready[kind] = ready["reason"]
             continue
+        if schema is None:
+            schema = client.indexer_schema()
+        template = pick_template(schema, REGISTRATIONS[kind]["implementation"])
         if cur is None:
-            if schema is None:
-                schema = client.indexer_schema()
-            template = pick_template(schema, REGISTRATIONS[kind]["implementation"])
             body = create_payload(kind, None, tag_ids=tag_ids, api_key="x", template=template)
         else:
             body = {**found[0], "fields": found[0].get("fields")}
@@ -750,6 +792,7 @@ def propose_registration(actor: str, kinds: list[str] | None = None) -> dict[str
                 "label": f"{label}-indexer in Prowlarr " + ("aanmaken" if cur is None else "bijwerken"),
                 "before": summary(cur),
                 "after": summary(want),
+                "payload_hash": _payload_hash(body, template),
             }
         )
     if not ops:

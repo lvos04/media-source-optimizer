@@ -36,6 +36,7 @@ from fastapi import HTTPException
 from mso import changes, state
 from mso import settings_registry as sr
 from mso.audit import audit
+from mso.connectors import base as cb
 from mso.connectors.sabnzbd import RETRY_AFTER, RETRY_BEFORE, RETRY_TARGET, SabClient, SabError, measured_download_slots
 from mso.db import get_db
 from mso.domain import outcomes
@@ -230,7 +231,8 @@ def candidates(client: SabClient, servers: list[dict[str, Any]] | None = None) -
 # ------------------------------------------------------------------ applier helpers (called by the connector)
 def read_state(client: SabClient, nzo_id: str) -> str:
     row = _row(nzo_id)
-    ids = {nzo_id} | ({row["new_nzo_id"]} if row and row.get("new_nzo_id") else set())
+    returned = cb.recorded_target(op_path(nzo_id))
+    ids = {returned} if returned is not None else {nzo_id, (row or {}).get("new_nzo_id")}
     q = measured_download_slots(client.queue, limit=1000)
     if any(s["nzo_id"] in ids for s in q):
         return RETRY_AFTER
@@ -256,6 +258,7 @@ def do_retry(client: SabClient, nzo_id: str) -> None:
         )
     try:
         new = client.retry(nzo_id)
+        cb.bind_write_target(op_path(nzo_id), new)
     except SabError as exc:
         get_db().execute(
             "UPDATE usenet_retries SET status='failed', error=%s WHERE nzo_id=%s", (redact(str(exc))[:300], nzo_id)

@@ -78,6 +78,10 @@ class SabClient:
         data: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
     ) -> Any:
+        if mode in {"set_config", "del_config", "retry", "addurl", "addfile"} and cb.recorded_target(CONNECTOR_ID):
+            # Deze modi gebruiken dezelfde velden in de ondersteunde SABnzbd-API's.
+            if not re.fullmatch(r"[345]\.\d+(?:\.\d+)?", self.version()):
+                raise changes.SourceWriteRefused("De actuele SABnzbd-versie heeft geen bekende schrijfveldset")
         q: dict[str, Any] = {"mode": mode, "output": "json", "apikey": self._api_key}
         for k, v in (params or {}).items():
             if v is not None:

@@ -49,6 +49,16 @@ class ChangeRequest:
     nonce: UUID | None = None
     approval_nonce: UUID | None = None
 
+    def claim(self, conn: Connection) -> None:
+        """Herken een lopende aanvraag zolang de voorcontrole nog geen rij of nonce mag reserveren."""
+        key = str(self.request_id)
+        identity = digest([key, self.change_id, self.route, self.actor, self.body_hash])
+        lock = "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0)) AS ok"
+        if not conn.execute(lock, (identity,)).fetchone()["ok"]:
+            raise ChangeRequestError(409, "idempotency_in_progress", "Dit verzoek is nog bezig.")
+        if not conn.execute(lock, (key,)).fetchone()["ok"]:
+            raise ChangeRequestError(422, "idempotency_key_reused", "Deze sleutel hoort bij een ander verzoek.")
+
     def saved(self, db: Database) -> dict[str, Any] | None:
         row = db.fetchone(
             "SELECT change_id,route,actor,body_hash,response FROM connector_idempotency WHERE request_id=%s",
@@ -139,7 +149,7 @@ def run(
                                else request.url.path.rsplit("/", 1)[-1], actor, digest(body), nonce, approval_nonce)
                  if request_id is not None else None)
     try:
-        with changes._lock(change_id, db) as conn:
+        with changes._lock(change_id, db, operation.claim if operation else None) as conn:
             saved = operation.saved(db) if operation else None
             ch = changes.get(change_id, db, persist_hash=False)
             check(conn, ch)

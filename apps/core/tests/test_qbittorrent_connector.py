@@ -23,6 +23,94 @@ def mock(**faults: Any) -> Any:
     return create_app(**faults)
 
 
+@pytest.mark.parametrize("versie", ["2.11.4", "3.0", "onleesbaar"])
+def test_voorkeur_verifieert_webapi_bij_verzending(monkeypatch, versie):
+    import httpx
+
+    from mso.connectors.qbittorrent import QbitUnsupported
+
+    aanvragen = []
+
+    def antwoord(request):
+        aanvragen.append(request.method)
+        return httpx.Response(200, text=versie if request.method == "GET" else "Ok.")
+
+    with httpx.Client(base_url="https://qbit.example", transport=httpx.MockTransport(antwoord)) as http:
+        monkeypatch.setattr(cb, "http_client", lambda *_args, **_kwargs: http)
+        client = QbitClient("https://qbit.example")
+        monkeypatch.setattr(client, "authenticate", lambda: None)
+        with cb.write_targets({}, existing=False):
+            cb.bind_write_target("qbittorrent", "proef")
+            if versie == "2.11.4":
+                client.set_preferences({"up_limit": 1024})
+                assert aanvragen == ["GET", "POST"]
+            else:
+                with pytest.raises(QbitUnsupported):
+                    client.set_preferences({"up_limit": 1024})
+                assert aanvragen == ["GET"]
+
+
+def test_deelgrenzen_bij_opnieuw_aanmelden(monkeypatch):
+    import httpx
+
+    from mso.connectors.qbittorrent import QbitUnsupported
+
+    versies = iter(["2.8.3", "2.16.2"])
+    methoden = []
+
+    def antwoord(request):
+        methoden.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, text=next(versies))
+        return httpx.Response(401)
+
+    with httpx.Client(base_url="https://qbit.example", transport=httpx.MockTransport(antwoord)) as http:
+        monkeypatch.setattr(cb, "http_client", lambda *_args, **_kwargs: http)
+        client = QbitClient("https://qbit.example")
+        client.auth_method = "session"
+        monkeypatch.setattr(client, "authenticate", lambda: None)
+        monkeypatch.setattr(client, "_login", lambda: None)
+        with pytest.raises(QbitUnsupported):
+            client.set_share_limits(["a" * 40], ratio_limit=2, seeding_time_limit=30)
+        assert methoden == ["GET", "POST", "GET"]
+
+
+@pytest.mark.parametrize("versie,actueel,veld", [
+    ("2.8.3", "2.8.3", "paused"), ("2.16.2", "2.16.2", "stopped"), ("2.8.3", "2.16.2", None),
+])
+def test_torrent_toevoegen_met_een_pauzeveld(monkeypatch, versie, actueel, veld):
+    from urllib.parse import parse_qs
+
+    import httpx
+
+    from mso.connectors.qbittorrent import QbitUnsupported
+
+    metingen = iter([versie, actueel])
+    berichten = []
+
+    def antwoord(request):
+        if request.method == "GET":
+            return httpx.Response(200, text=next(metingen))
+        berichten.append(parse_qs(request.content.decode()))
+        return httpx.Response(200, text="Ok.")
+
+    with httpx.Client(base_url="https://qbit.example", transport=httpx.MockTransport(antwoord)) as http:
+        monkeypatch.setattr(cb, "http_client", lambda *_args, **_kwargs: http)
+        client = QbitClient("https://qbit.example")
+        monkeypatch.setattr(client, "authenticate", lambda: None)
+        with cb.write_targets({}, existing=False):
+            cb.bind_write_target("qbittorrent", "proef")
+            params = {"url": "https://bron.example/torrent", "category": "proef", "paused": True}
+            if veld is None:
+                with pytest.raises(QbitUnsupported):
+                    client.add_torrent(**params)
+                assert berichten == []
+            else:
+                client.add_torrent(**params)
+                assert berichten == [{"urls": [params["url"]], "category": ["proef"], "skip_checking": ["false"],
+                                      veld: ["true"]}]
+
+
 def configure(admin: Any, url: str, **secrets: str) -> dict[str, Any]:
     r = admin.put("/api/v1/connectors/qbittorrent", json={"url": url, "secrets": secrets})
     assert r.status_code == 200, r.text

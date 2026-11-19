@@ -16,6 +16,14 @@ HASH = "a" * 40
 STATUS = ("ontbreekt", "ongeldig", "expliciet")
 
 
+@pytest.mark.parametrize("actie", ["recheck", "reannounce"])
+def test_qbittorrent_actie_vergt_aanwezige_torrent(monkeypatch, actie):
+    monkeypatch.setattr(adapters, "get_adapter", lambda _: SimpleNamespace(has_torrent=lambda _: False))
+    monkeypatch.setattr(torrent_applier, "_action_done", lambda *_: True)
+    with pytest.raises(ValueError):
+        torrent_applier.build().read(f"torrent:{HASH}:{actie}")
+
+
 def bronwaarde(document, veld, geval, geldig, ongeldig):
     if geval == "ontbreekt":
         document.pop(veld, None)
@@ -109,6 +117,7 @@ def test_prowlarrmeting(monkeypatch, veld, ongeldig, geval):
     monkeypatch.setattr(prowlarr_sync.keys, "public_base_url", lambda: "https://mso.example")
     reg = prowlarr_sync.desired_registration("newznab") | {"enable": False}
     record = {k: reg[k] for k in ("name", "implementation", "enable")}
+    record["id"] = 1
     velden = {k: {"name": k, "value": reg[k]} for k in ("baseUrl", "apiPath")}
     if veld in velden:
         bronwaarde(velden, veld, geval, velden[veld], {"name": veld, "value": ongeldig})
@@ -121,14 +130,15 @@ def test_prowlarrmeting(monkeypatch, veld, ongeldig, geval):
     meet(changes.APPLIERS["prowlarr"]().read, "indexer:newznab", geval, prowlarr_sync.summary(reg))
 
 
+@pytest.mark.parametrize("status", ["sent", "download_ok", "download_failed"])
 @pytest.mark.parametrize("geval", STATUS)
-def test_herstelverzendingmeting(monkeypatch, geval):
+def test_herstelverzendingmeting(monkeypatch, geval, status):
     slot = {}
     bronwaarde(slot, "nzo_id", geval, "0", 0)
     antwoorden = {"queue": {"queue": {"slots": [slot], "noofslots": 1}},
                   "history": {"history": {"slots": [], "noofslots": 0}}}
     sab_bron(monkeypatch, lambda mode, *_: antwoorden[mode])
-    rij = {"status": "sent", "client": "sabnzbd", "client_ref": "0"}
+    rij = {"status": status, "client": "sabnzbd", "client_ref": "0"}
     monkeypatch.setattr(fallback, "get_db", lambda: SimpleNamespace(fetchone=lambda *_: rij))
     monkeypatch.setattr(fallback, "parse_path", lambda _: ("proef", "kandidaat"))
     meet(changes.APPLIERS[fallback.TARGET]().read, "proef", geval, fallback.AFTER)
@@ -438,6 +448,7 @@ def test_qbittorrent_ongeldige_journaalwaarde_geeft_geen_terugzetopdracht(pad, w
 
 @pytest.mark.parametrize(("versie", "inactief", "schrijven"), [
     ("", None, False), ("2.8.3", None, True), ("2.8.3", 4, False), ("2.9.2", 4, True),
+    ("2.16.2", None, False), ("2.16.2", 0, True),
 ])
 def test_qbittorrent_schrijft_alle_gevraagde_deelgrenzen(monkeypatch, versie, inactief, schrijven):
     bron = object.__new__(qbittorrent.QbitClient)

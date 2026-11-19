@@ -101,6 +101,39 @@ def test_upload_limit_proposal_applies_without_verification_failure(
     assert qb.st.prefs["up_limit"] == 0
 
 
+@pytest.mark.parametrize("wissel", [None, "voorbereiden", "verzenden"])
+def test_deelgrenzen_bij_verzending(qb, admin, db, manage_mode, monkeypatch, wissel):
+    h = qb.hash("Gewone.Film")
+    torrent = qb.st.torrents[h]
+    qb.st.webapi = "2.8.3"
+    torrent.pop("inactive_seeding_time_limit", None)
+    voor = {k: torrent[k] for k in ("ratio_limit", "seeding_time_limit")}
+    na = {"ratio_limit": 2, "seeding_time_limit": 30}
+    ch = changes.create("qbittorrent", "Twee deelgrenzen", [
+        {"path": f"torrent:{h}:share_limits", "before": voor, "after": na},
+    ], risk="toestemming_nodig")
+    route = f"/api/v1/changes/{ch['id']}"
+    assert admin.post(route + "/approve").status_code == 200
+    methode = "_post" if wissel == "verzenden" else "set_share_limits"
+    verstuur = getattr(QbitClient, methode)
+
+    def bij_verzending(client, *args, **kwargs):
+        if wissel:
+            qb.st.webapi = "2.16.2"
+            torrent["inactive_seeding_time_limit"] = 45
+        return verstuur(client, *args, **kwargs)
+
+    monkeypatch.setattr(QbitClient, methode, bij_verzending)
+    antwoord = admin.post(route + "/apply")
+    assert antwoord.status_code == (502 if wissel else 200)
+    assert len(qb.calls("setShareLimits")) == (0 if wissel else 1)
+    verwacht = voor if wissel else na
+    assert {k: torrent[k] for k in verwacht} == verwacht
+    assert torrent.get("inactive_seeding_time_limit") == (45 if wissel else None)
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'",
+                     (ch["id"],)) == (0 if wissel else 1)
+
+
 def test_ontbrekende_torrentlimiet_telt_niet_als_nul(qb: Qb) -> None:
     from mso.features.torrent.adapters import QbitAdapter
 

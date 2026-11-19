@@ -9,13 +9,16 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
 
+from mso.change_preview import digest
 from mso.connectors import monitor
 from mso.db import get_db, jsonb
 from mso.security import UnsafeTarget, check_url, redact
@@ -69,6 +72,41 @@ class ConnectorSpec:
 
 SPECS: dict[str, ConnectorSpec] = {}
 
+# Alleen actief bij het uitvoeren, terugdraaien of herstellen van een change set.
+_write_targets: ContextVar[tuple[dict[str, str], bool] | None] = ContextVar("write_targets", default=None)
+
+
+@contextmanager
+def write_targets(targets: dict[str, str], *, existing: bool) -> Iterator[None]:
+    # Een al geopende client kan nog bereikbaar zijn nadat de beheerder de koppeling heeft vervangen.
+    configured = targets.keys() & SPECS.keys()
+    if configured:
+        rows = get_db().fetchall("SELECT id,url FROM connectors WHERE enabled AND id = ANY(%s)", (list(configured),))
+        current = {r["id"]: digest(r["url"].rstrip("/")) for r in rows if r["url"]}
+        if current != {k: targets[k] for k in configured}:
+            raise ValueError("De aangeschreven koppeling ontbreekt, is uitgeschakeld of verwijst naar een andere bron")
+    token = _write_targets.set((targets, existing))
+    try:
+        yield
+    finally:
+        _write_targets.reset(token)
+
+
+def recorded_target(name: str) -> str | None:
+    active = _write_targets.get()
+    return active[0].get(name) if active is not None else None
+
+
+def bind_write_target(name: str, identity: str) -> None:
+    active = _write_targets.get()
+    if active is None:
+        return
+    targets, existing = active
+    if not existing:
+        targets.setdefault(name, identity)
+    if targets.get(name) != identity:
+        raise ValueError("De aangeschreven bron of doelidentiteit kan niet worden bevestigd")
+
 
 def register(spec: ConnectorSpec) -> None:
     SPECS[spec.id] = spec
@@ -97,6 +135,8 @@ def load_config(cid: str, *, require_enabled: bool = True) -> ConnectorConfig:
     spec = SPECS.get(cid)
     if row is None or spec is None or not row["url"] or (require_enabled and not row["enabled"]):
         raise ConnectorNotConfigured(cid)
+    if _write_targets.get() is not None:
+        bind_write_target(cid, digest(row["url"].rstrip("/")))
     _remember_url(cid, row["url"])
     vault = get_vault()
     secrets = {f.name: v for f in spec.secret_fields if (v := vault.get(secret_name(cid, f.name)))}

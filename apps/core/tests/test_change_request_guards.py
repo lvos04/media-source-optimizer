@@ -14,6 +14,7 @@ from test_connector_api import PREFIX, _connector_headers, _execution, _pin, fou
 from mso import backups, changes, machine_keys, state
 from mso.app import init_runtime
 from mso.change_preview import digest
+from mso.connectors import base as connectors
 from mso.connectors.sabnzbd import SabError
 from mso.db import jsonb, migrate_down, migrate_up, schema_version
 
@@ -24,6 +25,61 @@ swap_db = test_maintenance.swap_db
 
 def _applied_count(db, ch):
     return db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'", (ch["id"],))
+
+
+@pytest.mark.parametrize("moment", ["voor-schrijven", "na-schrijven", "herstart"])
+@pytest.mark.parametrize(("target", "connector"), [
+    ("sabnzbd", "sabnzbd"), ("sabnzbd_categories", "sabnzbd"), ("sabnzbd_retry", "sabnzbd"),
+    ("qbittorrent", "qbittorrent"), ("prowlarr", "prowlarr"), ("download_send", "qbittorrent"),
+])
+def test_herstel_meet_de_aangeschreven_instantie(db, manage_mode, monkeypatch, target, connector, moment):
+    # De tweede instantie heeft dezelfde doelwaarde. Alleen de eerste kreeg een opdracht.
+    eerste, tweede = "https://een.example", "https://twee.example"
+    waarden = {eerste: 10, tweede: 20}
+    metingen, opdrachten = [], []
+
+    def instantie(url):
+        db.execute("UPDATE connectors SET url=%s, enabled=true WHERE id=%s", (url, connector))
+
+    def adapter():
+        url = connectors.load_config(connector).url
+
+        def lees(pad):
+            metingen.append(url)
+            if moment == "voor-schrijven":
+                instantie(tweede)
+            return waarden[url]
+
+        def schrijf(pad, waarde):
+            opdrachten.append((url, pad, waarde))
+            waarden[url] = waarde
+            if moment == "na-schrijven":
+                instantie(tweede)
+
+        return changes.Applier(lees, schrijf)
+
+    instantie(eerste)
+    monkeypatch.setitem(changes.APPLIERS, target, adapter)
+    ch = changes.create(target, "Instantiemeting", [{"path": "proef", "before": 10, "after": 20}], risk="advies")
+    if moment != "herstart":
+        with pytest.raises(changes.ChangeUncertain):
+            changes.apply(ch["id"], "beheerder")
+        assert opdrachten == ([] if moment == "voor-schrijven" else [(eerste, "proef", 20)])
+        assert metingen == [eerste] and _applied_count(db, ch) == 0
+        return
+    with monkeypatch.context() as onderbreking:
+        def stop(*args, **kwargs):
+            raise Crash()
+
+        onderbreking.setattr(changes, "_finish", stop)
+        with pytest.raises(Crash):
+            changes.apply(ch["id"], "beheerder")
+    instantie(tweede)
+    assert changes.reconcile_interrupted()["outcomes"][str(ch["id"])] == "wacht"
+    assert tweede not in metingen and _applied_count(db, ch) == 0
+    instantie(eerste)
+    assert changes.reconcile_interrupted()["outcomes"][str(ch["id"])] == "afgerond"
+    assert opdrachten == [(eerste, "proef", 20)] and _applied_count(db, ch) == 1
 
 
 @pytest.mark.parametrize("route", ["apply", "rollback"])

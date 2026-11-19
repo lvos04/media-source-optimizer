@@ -4,7 +4,7 @@ A media download that contains a program/script/shortcut (``diagnostics.payload_
 ``suspicious_payload`` finding) is a fake release. MSO proposes to remove it with ONE approval:
 
 ``cleanup:<token>``                         guard: the previewed list is still exactly what a fresh scan finds
-``arrblock:<token>:<hash>``                 (optional) Sonarr/Radarr blocklist via MediaGuard's queue route
+``arrblock:<token>:<hash>:<instantie>:<id>`` optionele Sonarr/Radarr-blocklist via de MediaGuard-wachtrij
 ``blacklist:<token>:<release_key>``         MSO's own release blacklist (``recovery.blacklist``, ~permanent)
 ``torrent:<hash>:delete_with_files:<token>`` ``POST torrents/delete hashes=<h>&deleteFiles=true``
 
@@ -48,7 +48,8 @@ _HASH = r"[0-9a-f]{40}|[0-9a-f]{64}"
 GUARD_RE = re.compile(rf"^cleanup:({_TOKID})$")
 DELETE_RE = re.compile(rf"^torrent:({_HASH}):delete_with_files:({_TOKID})$")
 BLACKLIST_RE = re.compile(rf"^blacklist:({_TOKID}):((?:btih|btmh):[0-9a-f]{{40,64}})$")
-ARRBLOCK_RE = re.compile(rf"^arrblock:({_TOKID}):({_HASH})$")
+_INSTANCE = r"[A-Za-z0-9_.-]+"
+ARRBLOCK_RE = re.compile(rf"^arrblock:({_TOKID}):({_HASH})(?::({_INSTANCE}):([1-9][0-9]*))?$")
 BLACKLIST_TTL_H = 24 * 365 * 10  # effectively permanent: a fake release never becomes good
 IRREVERSIBLE_LINE = "Niet terug te draaien: torrent en bestanden worden verwijderd"
 DRIFT_MSG = "lijst gewijzigd, maak een nieuw voorstel"
@@ -183,21 +184,25 @@ def _queue_records(client: Any, iid: str) -> Iterator[dict[str, Any]]:
     raise PolicyError("MediaGuard-wachtrij is niet volledig gemeten")
 
 
-def mediaguard_find(client: Any, h: str) -> dict[str, Any] | None:
+def mediaguard_find(client: Any, h: str, target: tuple[str, int] | None = None) -> dict[str, Any] | None:
     """Zoek de download in de volledige wachtrij van elke actieve instantie."""
     instances = client.get("/api/v1/instances")
     if not isinstance(instances, list):
         raise PolicyError("MediaGuard-instantielijst is onleesbaar")
     found = None
+    seen: set[str] = set()
+    active: set[str] = set()
     for inst in instances:
         iid = inst.get("id") if isinstance(inst, dict) else None
-        if not isinstance(iid, str) or not iid.strip():
+        if not isinstance(iid, str) or not re.fullmatch(_INSTANCE, iid) or iid in (".", "..") or iid in seen:
             raise PolicyError("MediaGuard-instantie-ID is onleesbaar")
+        seen.add(iid)
         archived = inst.get("archived", False)
         if not isinstance(archived, bool):
             raise PolicyError("MediaGuard-instantiestatus is onleesbaar")
         if archived:
             continue
+        active.add(iid)
         for rec in _queue_records(client, iid):
             if "downloadId" in rec and rec["downloadId"] is None:  # expliciet nog geen download gekoppeld
                 continue
@@ -205,10 +210,16 @@ def mediaguard_find(client: Any, h: str) -> dict[str, Any] | None:
             if not isinstance(download_id, str) or not download_id.strip():
                 raise PolicyError("Download-ID in de MediaGuard-wachtrij is onleesbaar")
             if download_id.lower() == h.lower():
+                if target is not None and (iid, rec["id"]) != target:
+                    raise PolicyError("De download staat onder een andere instantie of een ander wachtrij-ID")
                 if found is not None:
                     raise PolicyError("MediaGuard-wachtrij is onleesbaar door meerdere items voor deze download")
                 found = {"instance_id": iid, "instance": inst.get("name") or iid, "queue_id": rec["id"],
                          "title": rec.get("title")}
+            elif target == (iid, rec["id"]):
+                raise PolicyError("Het wachtrij-ID hoort bij een andere download")
+    if target is not None and target[0] not in active:
+        raise PolicyError("De aangeschreven MediaGuard-instantie is niet actief of ontbreekt")
     return found
 
 
@@ -228,6 +239,7 @@ class CleanupOps:
         self.scan_focus: set[str] = set()
         self.tokens: dict[str, list[str]] = {}
         self.blocked: set[str] = set()
+        self.queue_targets: dict[str, tuple[str, int]] = {}
         self._mg: Any = None
 
     def _scan(self, focus: set[str]) -> dict[str, Any]:
@@ -248,6 +260,19 @@ class CleanupOps:
             self._mg = _mg_client()
         return self._mg
 
+    def _queue_item(self, op: re.Match[str]) -> dict[str, Any] | None:
+        # Oude voorstellen hebben nog geen instantie en wachtrij-ID in hun pad.
+        target = (op[3], int(op[4])) if op[3] is not None else self.queue_targets.get(op[0])
+        saved = cb.recorded_target(op[0])
+        if target is None and saved is not None:
+            iid, qid = saved.rsplit(":", 1)
+            target = (iid, int(qid))
+        rec = mediaguard_find(self.mg(), op[2], target)
+        if rec is not None:
+            self.queue_targets[op[0]] = (rec["instance_id"], rec["queue_id"])
+            cb.bind_write_target(op[0], f"{rec['instance_id']}:{rec['queue_id']}")
+        return rec
+
     # ---- read
     def read(self, path: str) -> Any:
         if m := GUARD_RE.match(path):
@@ -262,10 +287,11 @@ class CleanupOps:
 
             return "geblokkeerd" if blacklist.is_blacklisted(m[2]) else "niet_geblokkeerd"
         if m := ARRBLOCK_RE.match(path):
-            h = m[2]
-            if mediaguard_find(self.mg(), h) is not None:
+            if self._queue_item(m) is not None:
                 return "in_wachtrij"
-            return "geblokkeerd" if h in self.blocked else "niet_in_wachtrij"
+            if path in self.blocked or cb.recorded_target(path + ":ontvangen") is not None:
+                return "geblokkeerd"
+            return "niet_in_wachtrij"
         raise ValueError(f"onbekend pad {path}")
 
     # ---- validate
@@ -358,12 +384,12 @@ class CleanupOps:
         if m := ARRBLOCK_RE.match(path):
             if value != "geblokkeerd":
                 raise ValueError("een blokkade in Sonarr/Radarr wordt niet door MSO opgeheven")
-            h = m[2]
-            rec = mediaguard_find(self.mg(), h)
+            rec = self._queue_item(m)
             if rec is None:
                 raise ValueError("release staat niet (meer) in de wachtrij van Sonarr/Radarr")
             mediaguard_block(self.mg(), rec)
-            self.blocked.add(h)
+            self.blocked.add(path)
+            cb.bind_write_target(path + ":ontvangen", f"{rec['instance_id']}:{rec['queue_id']}")
             return
         raise ValueError(f"onbekend pad {path}")
 
@@ -423,7 +449,7 @@ def build_ops(
             rec = mg_blocks[it["hash"]]
             ops.append(
                 {
-                    "path": f"arrblock:{token}:{it['hash']}",
+                    "path": f"arrblock:{token}:{it['hash']}:{rec['instance_id']}:{rec['queue_id']}",
                     "label": f"Blokkeren in {rec.get('instance') or 'Sonarr/Radarr'} (blocklist, via MediaGuard): "
                     f"{it['name'][:120]}",
                     "before": "in_wachtrij",

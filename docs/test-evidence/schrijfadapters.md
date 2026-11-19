@@ -1,0 +1,48 @@
+# Meetgeldigheid van schrijfopdrachten
+
+Deze regels gelden bij toepassen, terugdraaien en herstel voor alle zes geregistreerde schrijfadapters van MSO. De proeven gebruiken lokale simulatoren en een eigen PostgreSQL-database.
+
+| Regel | Voorwaarde voor schrijven en bevestigen | Negatieve en positieve proef |
+|---|---|---|
+| A. Identiteitsbinding | Leg de instantie en het doel-ID van de opdracht vast. Meet de eindwaarde op dezelfde actieve instantie en hetzelfde doel. Bij een verdwenen, gearchiveerde, vervangen of dubbelzinnige bestemming blijft de actie onbevestigd. Een volgende verwijderopdracht blijft uit. | Een andere instantie met dezelfde doelwaarde kan de wijziging ook na een herstart niet bevestigen. Bij terugkeer van de oorspronkelijke instantie volstaat een eindmeting. Een verplaatst wachtrijitem en twee Prowlarr-registraties met hetzelfde ID leveren nul verwijderaanroepen voor dat doel op. |
+| B. Exacte veldset | Verzend uitsluitend de velden en waarden van de goedgekeurde opdracht. Als de actuele API extra of andere velden vereist, weiger vóór verzending. Dit geldt ook bij opnieuw aanmelden en bij terugdraaien. | WebAPI 2.8.3 accepteert twee goedgekeurde deelgrenzen. Na een wissel naar 2.16.2 volgen nul schrijfopdrachten en blijft de bestaande inactiviteitslimiet 45. Een nieuw veld in het Prowlarr-schema houdt het volledige registratiebericht tegen. |
+
+| Schrijfadapter | Doel en meetbron | Veldset |
+|---|---|---|
+| `sabnzbd` | De geconfigureerde SABnzbd-instantie en de unieke servernaam in de configuratie | Het serverpad wijst één van `priority`, `enable` en `optional` aan. |
+| `sabnzbd_categories` | De categorienaam en de gemeten map op dezelfde instantie. Verwijderen vereist een volledige controle van wachtrij en historie. | Aanmaken gebruikt de categorienaam, de gelijknamige map en de volgende volgorde. Verwijderen adresseert alleen die categorie. |
+| `sabnzbd_retry` | Het operatiepad bevat het oorspronkelijke download-ID. De eindmeting zoekt het door SABnzbd teruggegeven `nzo_id` op dezelfde instantie. | De retry-opdracht adresseert één download-ID. |
+| `qbittorrent` | De voorkeur, modus of torrenthash op de aangeschreven client. Een MediaGuard-blokkade bindt bovendien instantie, wachtrij-ID en downloadhash. | Het pad kiest de voorkeur of torrentinstelling. Voor deelgrenzen bepaalt de WebAPI bij verzending of de twee of drie goedgekeurde waarden passen. |
+| `prowlarr` | De eigen registratie op dezelfde instantie. Vergelijk het numerieke ID met de hele registratielijst, ook buiten het gevraagde type. | De preview bindt de registratie en het volledige Prowlarr-bericht aan het indexerschema. De consumer-sleutel wordt pas bij verzending ingevuld. |
+| `download_send` | De verzending bindt de kandidaat, de downloadclient en het teruggegeven download-ID of de torrenthash. De eindmeting leest de client ook na een lokale eindstatus. | Het protocol kiest de vaste NZB- of torrentopdracht met de categorie uit de verzending. |
+
+Het uitvoeringsjournaal bewaart een vingerafdruk van het koppelingsadres. Het bewaart de dynamische doel-ID’s onder het operatiepad. Een oud voorstel kan bij een nieuwe uitvoering een doel binden. Ontbreekt het bewijs van de aangeschreven instantie bij herstel van een oude uitvoering, dan kan die uitvoering geen bevestiging aan een nieuwe koppeling ontlenen.
+
+`test_sab_rollback_drift_and_failed_verification_over_http` controleert dit bij terugdraaien. Bij een tweede SABnzbd-instantie met dezelfde serverlijst en prioriteit meet de proef nul terugzetopdrachten. Accepteert de oorspronkelijke instantie de opdracht en blijft de prioriteit ongewijzigd, dan geeft de eindcontrole HTTP 502.
+
+Bij de vaste SABnzbd-opdrachten controleert MSO vóór verzending de versie voor `set_config`, `del_config`, `retry`, `addurl` en `addfile`. De adapter kent de veldset van SABnzbd 3, 4 en 5. qBittorrent controleert de actuele WebAPI v2. Toevoegen van een torrent gebruikt één pauzeveld, `paused` vóór 2.11 en `stopped` vanaf 2.11. De versie wordt bij een nieuwe aanmelding opnieuw gelezen.
+
+Bij cross-seed bindt de preview het torrentbestand, de categorie en het opslagpad. De eindmeting controleert de pauzestatus van de kandidaat bij qBittorrent. Voor `recheck` en `reannounce` bevestigt de adapter de ontvangst van de opdracht op die instantie en meet hij of de torrent daar nog aanwezig is.
+
+## Regressietabel S-P3-240
+
+De testnamen verwijzen naar `apps/core/tests`. Het herstelrapport bevat de gemeten uitkomsten en de commando’s voor de oorspronkelijke reviewproeven.
+
+| Bevinding | Verwacht resultaat | Regressieproef |
+|---|---|---|
+| R-VEILIG-1 | Verval tijdens de broncontrole geeft 409 en nul schrijfacties. | `test_verval_tijdens_broncontrole` |
+| R-VEILIG-2 | Een ongebruikte goedkeuring van vóór gegevensherstel wordt geweigerd. | `test_ongebruikte_goedkeuring_vervalt_bij_herstel` |
+| R-VEILIG-3 | Een vooraf geweigerd verzoek reserveert geen sleutel of nonce. | `test_vooraf_geweigerd_zonder_reservering` |
+| R-VEILIG-4 | Weigering bewaart de oorspronkelijke lege previewhash. | `test_oude_hash_blijft_ongewijzigd_bij_weigering` |
+| R-VEILIG-5 | Een bronfout houdt de testmarkering buiten antwoord, opslag en log. | `test_definitieve_bronfout_bewaart_alleen_geredigeerd_antwoord` |
+| R-VEILIG-6 | Een bevoegde operator krijgt bij herhaling hetzelfde antwoord met één uitvoering. | `test_operator_herhaalt_alleen_met_actueel_recht` |
+| R-VEILIG-7 | Terugdraaien behoudt een tussentijds handmatig gewijzigde waarde. | `test_rollback_behoudt_tussentijdse_bronwijziging` |
+| R-VEILIG-8 | Een vertraagde bronactie wordt eenmaal bevestigd. | `test_vertraagde_bronactie_wordt_eenmaal_bevestigd` |
+| R-VEILIG-9 | Na 59 minuten wacht de wijziging nog. Na 61 minuten volgt één beheeritem. | `test_overdracht_na_een_uur_zonder_bronbevestiging` |
+| R-VEILIG-10 | Een identieke aanvraag tijdens de eerste bronlezing krijgt 409 `idempotency_in_progress`. Een andere inhoud met dezelfde sleutel krijgt 422. | `test_machine_apply_parallel_and_replay` |
+| R-VEILIG-11 | Een startmarkering zonder schrijfbewijs laat een handmatige limiet staan. | `test_startmarkering_zonder_schrijfantwoord_draagt_over` |
+| R-VEILIG-12 | Herstel controleert de actuele waarde opnieuw vóór het terugschrijven. | `test_herstel_bewaart_handmatige_waarde_na_eerste_lezing` |
+| R-VEILIG-13 | Elke bevestiging vereist een geldige volledige bronmeting. Een andere instantie, afgekorte pagina of dubbel registratie-ID levert geen bevestiging op. | `test_write_adapter_readback.py`, `test_herstel_meet_de_aangeschreven_instantie`, `test_mediaguard_blocklist_when_route_allowed`, `test_registratie_weigert_gewijzigde_veldset_of_identiteit` |
+| R-VEILIG-14 | Een ontbrekende inactiviteitslimiet is alleen verklaard op een gemeten oudere WebAPI. | `test_qbittorrent_oude_webapi_meet_alleen_ondersteunde_deelgrenzen` |
+| R-VEILIG-15 | Een tegenstrijdige categorie bij een actieve download verhindert verwijderen. | `test_sab_categorie_verwijdering` |
+| R-VEILIG-16 | De ontvanger moet de exact goedgekeurde veldset accepteren. Een derde deelgrens, een andere pauzeparameter of een nieuw Prowlarr-veld verhindert verzending. | `test_deelgrenzen_bij_verzending`, `test_deelgrenzen_bij_opnieuw_aanmelden`, `test_torrent_toevoegen_met_een_pauzeveld`, `test_sab_schrijfmodus_verifieert_api`, `test_registratie_weigert_gewijzigde_veldset_of_identiteit` |

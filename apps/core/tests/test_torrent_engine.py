@@ -614,8 +614,9 @@ def _torrent_bytes(name: str, files: list[tuple[str, int]], announce: str) -> by
     return bencode({"announce": announce, "info": info})
 
 
+@pytest.mark.parametrize("map_gewijzigd", [False, True])
 def test_cross_seed_only_identical_payload_allowed_tracker(
-    qb: Qb, admin: Any, operator: Any, db: Any, manage_mode: None
+    qb: Qb, admin: Any, operator: Any, db: Any, manage_mode: None, map_gewijzigd: bool
 ) -> None:
     from mso.features.torrent.crossseed import parse_torrent
 
@@ -661,7 +662,12 @@ def test_cross_seed_only_identical_payload_allowed_tracker(
     assert ch["risk"] == "toestemming_nodig"
     assert operator.post(f"/api/v1/changes/{ch['id']}/apply").status_code in (403, 409)
     admin.post(f"/api/v1/changes/{ch['id']}/approve")
+    if map_gewijzigd:
+        db.execute("UPDATE torrent_crossseed_candidates SET save_path='andere-map' WHERE id=%s", (cand["id"],))
     r = operator.post(f"/api/v1/changes/{ch['id']}/apply")
+    if map_gewijzigd:
+        assert r.status_code == 502 and not qb.calls("torrents/add")
+        return
     assert r.status_code == 200, r.text
     new_hash = parse_torrent(data)["infohash"]
     added = qb.st.torrents[new_hash]

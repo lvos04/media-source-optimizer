@@ -113,6 +113,7 @@ class TorrentClientAdapter(Protocol):
     def recheck(self, h: str) -> None: ...
     def reannounce(self, h: str) -> None: ...
     def has_torrent(self, h: str) -> bool: ...
+    def torrent_state(self, h: str) -> str | None: ...
     def live_torrents(self) -> list[dict[str, Any]]: ...  # torrents/info rows (fresh, not the sync cache)
     def delete_with_files(self, h: str) -> None: ...  # cleanup applier only
 
@@ -283,7 +284,15 @@ class QbitAdapter:
                 self.qb.set_download_limit([h], _measured_value(value, (int,), "snelheidslimiet"))
                 return
             if field_ == "share_limits":
-                self.qb.set_share_limits([h], **self._share_limits(value))
+                from mso.changes import SourceWriteRefused
+                from mso.connectors.qbittorrent import QbitUnsupported
+
+                if not isinstance(value, dict) or value.keys() - SHARE_LIMIT_TYPES.keys():
+                    raise SourceWriteRefused("De goedgekeurde veldset voor deelgrenzen is onleesbaar")
+                try:
+                    self.qb.set_share_limits([h], **self._share_limits(value))
+                except QbitUnsupported as exc:
+                    raise SourceWriteRefused(str(exc)) from exc
                 return
         raise ValueError(f"onbekend pad {path}")
 
@@ -302,6 +311,15 @@ class QbitAdapter:
 
     def has_torrent(self, h: str) -> bool:
         return self.qb.torrent(h) is not None
+
+    def torrent_state(self, h: str) -> str | None:
+        torrent = self.qb.torrent(h)
+        if torrent is None:
+            return None
+        value = torrent.get("state")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("De torrentstatus op de bron is onleesbaar")
+        return value
 
     def live_torrents(self) -> list[dict[str, Any]]:
         return list(self.qb.torrents() or [])

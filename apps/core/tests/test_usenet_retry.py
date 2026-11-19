@@ -181,6 +181,23 @@ def test_day_cap_and_new_nzo_id(app: Any, db: Any, admin: Any, serve: Any) -> No
     assert retry.propose()["status"] == "quota"
 
 
+def test_retry_meet_het_teruggegeven_download_id(monkeypatch):
+    from types import SimpleNamespace
+
+    from mso.connectors import base
+    from mso.features.usenet import retry
+
+    rij = {"retried_at": True, "new_nzo_id": "ander"}
+    monkeypatch.setattr(retry, "_row", lambda _: rij)
+    items = [{"nzo_id": "ander"}]
+    client = SimpleNamespace(queue=lambda **_: {"slots": items, "noofslots": len(items)},
+                             history=lambda **_: {"slots": [], "noofslots": 0})
+    with base.write_targets({"retry/oud": "nieuw"}, existing=True):
+        assert retry.read_state(client, "oud") == "niet gevonden in SABnzbd"
+        items[0]["nzo_id"] = "nieuw"
+        assert retry.read_state(client, "oud") == retry.RETRY_AFTER
+
+
 def test_verification_failure_marks_change_failed(app: Any, db: Any, admin: Any, serve: Any) -> None:
     from mso import state
     from mso.features.usenet import retry

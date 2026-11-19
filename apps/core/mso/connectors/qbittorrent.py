@@ -63,6 +63,12 @@ def _webapi_tuple(version: str | None) -> tuple[int, ...]:
     return tuple(map(int, version.split(".")))
 
 
+def _pause_field(version: tuple[int, ...]) -> str:
+    if version[:1] != (2,):
+        raise QbitUnsupported("De actuele WebAPI heeft geen bekende veldset voor deze schrijfopdracht")
+    return "stopped" if version >= (2, 11) else "paused"
+
+
 def capabilities_for(app_version: str | None, webapi: str | None, *, build_info: bool) -> dict[str, Any]:
     """Feature flags by WebAPI version (documented in the qBittorrent WebUI API changelog)."""
     w = _webapi_tuple(webapi)
@@ -235,6 +241,14 @@ class QbitClient:
 
     def _request(self, method: str, path: str, *, retry: bool = True, **kw: Any) -> httpx.Response:
         self.authenticate()
+        if method == "POST" and path == "torrents/setShareLimits" and (cb.recorded_target(CONNECTOR_ID) or not retry):
+            self._check_share_limit_fields(kw["data"])
+        elif method == "POST" and path == "torrents/add":
+            if _pause_field(_webapi_tuple(self._read_webapi_version())) not in kw["data"]:
+                raise QbitUnsupported("De actuele WebAPI vereist een ander pauzeveld voor deze torrent")
+        elif method == "POST" and path != "torrents/setShareLimits" and cb.recorded_target(CONNECTOR_ID):
+            if _webapi_tuple(self._read_webapi_version())[:1] != (2,):
+                raise QbitUnsupported("De actuele WebAPI heeft geen bekende veldset voor deze schrijfopdracht")
         extra = dict(kw.pop("headers", None) or {})
         headers = extra | self._headers()
         r = self._http.request(method, "/api/v2/" + path.lstrip("/"), headers=headers, **kw)
@@ -376,23 +390,22 @@ class QbitClient:
         seeding_time_limit: int,
         inactive_seeding_time_limit: int | None = None,
     ) -> None:
-        version = _webapi_tuple(self._read_webapi_version())
-        if version < (2, 0, 1):
-            raise QbitUnsupported(
-                "Deelgrenzen per torrent worden door deze qBittorrent-versie niet ondersteund"
-            )
         data: dict[str, Any] = {
             "hashes": "|".join(hashes),
             "ratioLimit": ratio_limit,
             "seedingTimeLimit": int(seeding_time_limit),
         }
-        if version >= INACTIVE_LIMIT_SINCE:
-            data["inactiveSeedingTimeLimit"] = int(
-                -2 if inactive_seeding_time_limit is None else inactive_seeding_time_limit
-            )
-        elif inactive_seeding_time_limit is not None:
-            raise QbitUnsupported("Deze WebAPI ondersteunt de gevraagde inactiviteitslimiet niet")
+        if inactive_seeding_time_limit is not None:
+            data["inactiveSeedingTimeLimit"] = int(inactive_seeding_time_limit)
+        self._check_share_limit_fields(data)
         self._post("torrents/setShareLimits", data)
+
+    def _check_share_limit_fields(self, data: dict[str, Any]) -> None:
+        version = _webapi_tuple(self._read_webapi_version())
+        if not (2, 0, 1) <= version < (3,):
+            raise QbitUnsupported("Deze WebAPI ondersteunt geen bekende veldset voor deelgrenzen")
+        if (version >= INACTIVE_LIMIT_SINCE) != ("inactiveSeedingTimeLimit" in data):
+            raise QbitUnsupported("De actuele WebAPI vereist andere deelgrenzen dan de goedgekeurde veldset")
 
     def recheck(self, hashes: list[str]) -> None:
         self._post("torrents/recheck", {"hashes": "|".join(hashes)})
@@ -435,15 +448,12 @@ class QbitClient:
         skip_checking: bool = False,
         filename: str = "release.torrent",
     ) -> None:
-        """Add a torrent (URL/magnet or .torrent bytes). Paused uses both the old (``paused``) and the new
-        (``stopped``) parameter names so every version honours it. ``skip_checking`` defaults to False:
-        existing data is always hash-verified before it is seeded."""
+        """Gebruik het pauzeveld van deze WebAPI. Bestaande data worden standaard op hash gecontroleerd."""
         if not url and not data:
             raise ValueError("url of data is verplicht")
         form: dict[str, Any] = {
             "category": category,
-            "paused": "true" if paused else "false",
-            "stopped": "true" if paused else "false",
+            _pause_field(_webapi_tuple(self._read_webapi_version())): "true" if paused else "false",
             "skip_checking": "true" if skip_checking else "false",
         }
         if tags:

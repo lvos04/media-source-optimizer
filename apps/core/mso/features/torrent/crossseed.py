@@ -24,7 +24,7 @@ from mso.db import get_db, jsonb
 from mso.features.torrent import policy
 from mso.features.torrent import settings as ts
 from mso.features.torrent.adapters import get_adapter, tracker_host
-from mso.features.torrent.applier import crossseed_secret
+from mso.features.torrent.applier import crossseed_payload_hash, crossseed_secret
 from mso.security import redact
 from mso.vault import get_vault
 
@@ -315,6 +315,7 @@ def preview(cid: int, actor: str) -> dict[str, Any]:
                 "label": f"Torrent voor {row['tracker_host']}",
                 "before": "afwezig",
                 "after": "toegevoegd_gepauzeerd",
+                "payload_hash": crossseed_payload_hash(row, get_vault().get(crossseed_secret(cid))),
             }
         ],
         risk="toestemming_nodig",

@@ -706,15 +706,30 @@ def test_sab_rollback_drift_and_failed_verification_over_http(app: Any, db: Any,
         {"path": f"servers/{BLOCK}/priority", "label": "Blok: prioriteit", "before": 0, "after": 4}],
         risk="automatisch_veilig")
     assert admin.post(f"/api/v1/changes/{ch2['id']}/apply").json()["status"] == "applied"
-    # same SABnzbd config behind a mock that accepts set_config without changing anything
-    deaf = mock.create_app(api_key=SAB_KEY, ignore_set_config="1")
-    deaf.state.sab.servers = [dict(s) for s in sab.servers]
-    assert admin.put("/api/v1/connectors/sabnzbd", json={"url": serve(deaf)}).status_code == 200
+    oorspronkelijk = db.scalar("SELECT url FROM connectors WHERE id='sabnzbd'")
+    tweede = mock.create_app(api_key=SAB_KEY)
+    tweede.state.sab.servers = [dict(s) for s in sab.servers]
+    schrijfopdrachten = []
+
+    @tweede.middleware("http")
+    async def tel(request, call_next):
+        if request.query_params.get("mode") == "set_config":
+            schrijfopdrachten.append("set_config")
+        return await call_next(request)
+
+    assert admin.put("/api/v1/connectors/sabnzbd", json={"url": serve(tweede)}).status_code == 200
+    r = admin.post(f"/api/v1/changes/{ch2['id']}/rollback")
+    assert r.status_code == 409 and not schrijfopdrachten
+    assert _srv(tweede.state.sab, BLOCK)["priority"] == 4
+
+    # De oorspronkelijke instantie accepteert de opdracht, maar verandert de waarde niet.
+    assert admin.put("/api/v1/connectors/sabnzbd", json={"url": oorspronkelijk}).status_code == 200
+    sab.ignore_set_config = True
     r = admin.post(f"/api/v1/changes/{ch2['id']}/rollback")
     assert r.status_code == 502 and "controle na terugzetten" in r.json()["detail"]
     c = changes.get(ch2["id"])
     assert c["status"] == "applied" and c["ops"][0]["result"] == "toegepast"
-    assert _srv(deaf.state.sab, BLOCK)["priority"] == 4
+    assert _srv(sab, BLOCK)["priority"] == 4
 
 
 def _evaluate_now(db: Any, change_id: int) -> dict[str, Any]:
@@ -915,8 +930,9 @@ def _idempotency():
     return {"Idempotency-Key": str(uuid4())}
 
 
+@pytest.mark.parametrize("fase", ["bronlezing", "schrijven"])
 def test_machine_apply_parallel_and_replay(admin, client, app, db, database_url, manage_mode, hub_change,
-                                           monkeypatch):
+                                           monkeypatch, fase):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
@@ -937,12 +953,21 @@ def test_machine_apply_parallel_and_replay(admin, client, app, db, database_url,
     entered, release = Event(), Event()
     original = source.applier()
 
-    def write(path, value):
+    def wacht():
         entered.set()
         assert release.wait(10)
+
+    def read(path):
+        if fase == "bronlezing":
+            wacht()
+        return original.read(path)
+
+    def write(path, value):
+        if fase == "schrijven":
+            wacht()
         original.write(path, value)
 
-    monkeypatch.setitem(changes.APPLIERS, "qbittorrent", lambda: Applier(original.read, write))
+    monkeypatch.setitem(changes.APPLIERS, "qbittorrent", lambda: Applier(read, write))
     second = TestClient(app)
     with ThreadPoolExecutor(max_workers=1) as work:
         first = work.submit(client.post, base + "/apply", headers=headers, json=body)
@@ -951,6 +976,10 @@ def test_machine_apply_parallel_and_replay(admin, client, app, db, database_url,
             assert not first.done()
             busy = second.post(base + "/apply", headers=headers, json=body)
             assert (busy.status_code, busy.json()["code"]) == (409, "idempotency_in_progress")
+            ander = second.post(base + "/apply", headers=headers, json={"expected_preview_hash": "sha256:" + "c" * 64})
+            assert (ander.status_code, ander.json()["code"]) == (422, "idempotency_key_reused")
+            los = second.post(base + "/apply", headers={**key, **_idempotency()}, json=body)
+            assert (los.status_code, los.json()["code"]) == (409, "conflict")
             assert not first.done()
         finally:
             release.set()

@@ -7,20 +7,22 @@ import { Button, Card, InlineState, StatusChip } from "@/components/mg/primitive
 import { ResourceView, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { useAction } from "@/lib/api/actions";
-import { type Resource, useResource } from "@/lib/api/hooks";
+import type { Resource } from "@/lib/api/hooks";
 import type { MaintenanceStatus } from "@/lib/api/maintenance";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
+import { ResourceGrowthCard } from "./resource-growth-card";
+
 const ENDPOINT = "GET /api/v1/system/maintenance";
 
 /** Systeem → "Onderhoud" (daily retention: what was cleaned, the periods) and "Database" (size, largest tables). */
-export function MaintenanceCards() {
-  const res = useResource<MaintenanceStatus>("/system/maintenance", undefined, 60_000);
+export function MaintenanceCards({ resource: res }: { resource: Res }) {
   return (
     <>
       <RetentionCard res={res} />
       <DatabaseCard res={res} />
+      <ResourceGrowthCard resource={res} />
     </>
   );
 }
@@ -77,6 +79,7 @@ function RetentionCard({ res }: { res: Res }) {
                   done: num(s["retention.jobs_done_days"]), failed: num(s["retention.jobs_failed_days"]),
                   raw: num(r.raw.effective_days), hourly: num(s["retention.observations_hourly_days"]),
                   auto: num(s["retention.automation_log_days"]), login: num(s["retention.login_attempts_days"]),
+                  samples: num(s["retention.resource_samples_days"]),
                 })}</dd>
               </dl>
               {last && !last.complete ? <InlineState tone="info">{t("maintenance.incomplete")}</InlineState> : null}
@@ -125,9 +128,8 @@ function DatabaseCard({ res }: { res: Res }) {
 }
 
 /** One line under the back-up card: free space vs. what a safe dump needs (+ what is left out and pruning). */
-export function BackupSpaceNote() {
+export function BackupSpaceNote({ resource: res }: { resource: Res }) {
   const { t, bytes, num } = useI18n();
-  const res = useResource<MaintenanceStatus>("/system/maintenance", undefined, 60_000);
   const b = res.data?.backups;
   if (!b) return null;
   const vars = { free: bytes(b.space.free_bytes), needed: bytes(b.space.needed_bytes), path: b.space.path };

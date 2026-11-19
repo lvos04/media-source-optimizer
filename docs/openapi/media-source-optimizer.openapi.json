@@ -2176,6 +2176,44 @@
     "title": "MachineKeyView",
     "type": "object"
    },
+   "MaintenanceStatus": {
+    "properties": {
+     "backups": {
+      "additionalProperties": true,
+      "title": "Backups",
+      "type": "object"
+     },
+     "database": {
+      "additionalProperties": true,
+      "title": "Database",
+      "type": "object"
+     },
+     "growth": {
+      "$ref": "#/components/schemas/ResourceGrowth"
+     },
+     "provenance": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ResourceSource"
+      },
+      "title": "Provenance",
+      "type": "object"
+     },
+     "retention": {
+      "additionalProperties": true,
+      "title": "Retention",
+      "type": "object"
+     }
+    },
+    "required": [
+     "retention",
+     "database",
+     "backups",
+     "growth",
+     "provenance"
+    ],
+    "title": "MaintenanceStatus",
+    "type": "object"
+   },
    "ManualWanted": {
     "properties": {
      "absolute_episode_number": {
@@ -2975,6 +3013,197 @@
     "title": "RegisterBody",
     "type": "object"
    },
+   "ResourceDay": {
+    "properties": {
+     "day": {
+      "format": "date",
+      "title": "Day",
+      "type": "string"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "values": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "anyOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Values"
+     }
+    },
+    "required": [
+     "day",
+     "observed_at",
+     "values"
+    ],
+    "title": "ResourceDay",
+    "type": "object"
+   },
+   "ResourceGrowth": {
+    "properties": {
+     "days": {
+      "items": {
+       "$ref": "#/components/schemas/ResourceDay"
+      },
+      "title": "Days",
+      "type": "array"
+     },
+     "latest": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ResourceDay"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "per_day": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ResourceTrend"
+      },
+      "title": "Per Day",
+      "type": "object"
+     },
+     "tables": {
+      "items": {
+       "$ref": "#/components/schemas/TableGrowth"
+      },
+      "title": "Tables",
+      "type": "array"
+     }
+    },
+    "required": [
+     "latest",
+     "days",
+     "per_day",
+     "tables"
+    ],
+    "title": "ResourceGrowth",
+    "type": "object"
+   },
+   "ResourceSource": {
+    "properties": {
+     "observed_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "quality": {
+      "enum": [
+       "gemeten",
+       "geschat",
+       "onbekend"
+      ],
+      "title": "Quality",
+      "type": "string"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "source",
+     "quality",
+     "observed_at"
+    ],
+    "title": "ResourceSource",
+    "type": "object"
+   },
+   "ResourceTrend": {
+    "description": "Gemiddeld verschil per UTC-kalenderdag tussen de eerste en laatste bruikbare waarde.",
+    "properties": {
+     "from_day": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "From Day"
+     },
+     "quality": {
+      "default": "onbekend",
+      "enum": [
+       "gemeten",
+       "geschat",
+       "onbekend"
+      ],
+      "title": "Quality",
+      "type": "string"
+     },
+     "to_day": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "To Day"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     }
+    },
+    "title": "ResourceTrend",
+    "type": "object"
+   },
    "RollbackBody": {
     "properties": {
      "reason": {
@@ -3406,6 +3635,28 @@
      "applied_at"
     ],
     "title": "SystemMigration",
+    "type": "object"
+   },
+   "TableGrowth": {
+    "properties": {
+     "bytes": {
+      "title": "Bytes",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "per_day": {
+      "$ref": "#/components/schemas/ResourceTrend"
+     }
+    },
+    "required": [
+     "name",
+     "bytes",
+     "per_day"
+    ],
+    "title": "TableGrowth",
     "type": "object"
    },
    "TogglesBody": {
@@ -10114,9 +10365,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "title": "Response Maintenance Api V1 System Maintenance Get",
-         "type": "object"
+         "$ref": "#/components/schemas/MaintenanceStatus"
         }
        }
       },

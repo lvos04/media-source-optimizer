@@ -116,6 +116,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   "prowlarr.sync": "Prowlarr synchroniseren",
   "recovery.analyze": "Ontbrekende items analyseren",
   "system.retention": "Onderhoud (opruimen)",
+  "system.resource_sample": "Opslagmeting",
   "torrent.cross_seed_scan": "Cross-seed zoeken",
   "torrent.ingest": "Torrents inlezen",
   "torrent.storage_scan": "Opslag scannen",

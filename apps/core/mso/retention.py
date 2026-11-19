@@ -10,7 +10,7 @@ What it cleans (settings under Instellingen → Systeem; defaults in brackets):
   (``raw_retention``), so no evaluation ever loses its baseline. Informational readers that accept longer periods
   read the rollup for the older part (usenet NNTP-check failures, SABnzbd byte counter) or say over which window
   they measured (cost latency percentiles need individual measurements);
-- ``automation_log`` [180 d] and ``login_attempts`` [90 d];
+- ``automation_log`` [180 d], ``login_attempts`` [90 d] and daily ``resource_samples`` [400 UTC days];
 - safety backups (``backups.prune_safety``) and stale connector alerts.
 
 The audit log is evidence and is never cleaned. Afterwards ``VACUUM (ANALYZE)`` runs on the cleaned tables (outside a
@@ -28,7 +28,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from mso import backups, jobs, state
+from mso import backups, jobs, resource_usage, state
 from mso import settings_registry as sr
 from mso.audit import audit
 from mso.auth import Principal, require
@@ -39,7 +39,25 @@ router = APIRouter(prefix="/api/v1/system", tags=["systeem"])
 STATE_KEY = "system.retention_last"
 CAT = "systeem"
 MAX_RUN_S = 20 * 60  # one run never takes longer; the rest follows the next day
-VACUUM_TABLES = ("jobs", "observations", "observations_hourly", "automation_log", "login_attempts")
+RESOURCE_SAMPLE_DAYS = 400
+VACUUM_TABLES = ("jobs", "observations", "observations_hourly", "automation_log", "login_attempts",
+                 "resource_samples")
+
+# Bewijs en geschiedenis die al zonder termijn werden bewaard. Opruimen vraagt een apart besluit.
+PRESERVED_GROWING_TABLES = {
+    "usenet_sab_server_events": "Geschiedenis van serverfouten",
+    "torrent_actions": "Bewijs van torrentacties",
+    "torrent_tuning_runs": "Bewijs van afstelling en evaluatie",
+    "usenet_article_tests": "Uitkomsten van artikeltests",
+    "usenet_hi_runs": "Geschiedenis van header-indexrondes",
+    "ai_usage": "Verbruiksgeschiedenis",
+    "change_sets": "Wijzigingsbewijs en terugvalgegevens",
+    "recovery_manual_wanted": "Handmatige herstelverzoeken",
+    "download_outcomes": "Geschiedenis van downloaduitkomsten",
+    "mg_search_requests": "Geschiedenis van zoekverzoeken voor MediaGuard",
+    "search_sends": "Geschiedenis en ontdubbeling van verzonden zoekopdrachten",
+    "recovery_sends": "Geschiedenis en ontdubbeling van herstelacties",
+}
 
 sr.define("retention.enabled", "Dagelijks opruimen", "bool", True, category=CAT, risk="automatisch_veilig",
           help="Ruimt elke dag MSO's eigen oude taken, metingen en logregels op en houdt de database klein. Raakt "
@@ -207,13 +225,18 @@ def run(db: Database | None = None, *, actor: str = "systeem", ctx: jobs.JobCont
     deleted |= purge_jobs(db)
     deleted |= rollup_observations(db, deadline=deadline, ctx=ctx)
     deleted |= purge_logs(db)
+    deleted["resource_samples"] = db.execute(
+        "DELETE FROM resource_samples WHERE day <= (statement_timestamp() AT TIME ZONE 'UTC')::date - %s",
+        (RESOURCE_SAMPLE_DAYS,),
+    )
     deleted["backups"] = backups.prune_safety(db)
     _sweep_connector_alerts(db)
     touched = [t for t, keys in (("jobs", ("jobs_done", "jobs_failed")),
                                  ("observations", ("observations_raw",)),
                                  ("observations_hourly", ("observations_hourly_written", "observations_hourly")),
                                  ("automation_log", ("automation_log",)),
-                                 ("login_attempts", ("login_attempts",)))
+                                 ("login_attempts", ("login_attempts",)),
+                                 ("resource_samples", ("resource_samples",)))
                if any(deleted.get(k) for k in keys)]
     vacuumed: list[str] = []
     if touched and bool(_setting("retention.vacuum", True)):
@@ -259,22 +282,19 @@ def _job(ctx: jobs.JobContext) -> dict[str, Any]:
 jobs.every("system.retention", 24 * 3600, enabled=lambda: bool(_setting("retention.enabled", True)))
 
 
+@jobs.handler("system.resource_sample")
+def _sample_job(_ctx: jobs.JobContext) -> dict[str, bool]:
+    return {"recorded": resource_usage.sample(get_db())}
+
+
+jobs.every("system.resource_sample", 24 * 3600)
+
+
 # ------------------------------------------------------------------ API
-def database_usage(db: Database) -> dict[str, Any]:
-    tables = db.fetchall(
-        "SELECT c.relname AS name, pg_total_relation_size(c.oid) AS bytes, c.reltuples::bigint AS rows "
-        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-        "WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 2 DESC LIMIT 6")
-    return {"size_bytes": int(db.scalar("SELECT pg_database_size(current_database())") or 0),
-            "tables": [{"name": t["name"], "bytes": int(t["bytes"] or 0), "rows": max(int(t["rows"] or 0), 0)}
-                       for t in tables]}
-
-
-@router.get("/maintenance")
+@router.get("/maintenance", response_model=resource_usage.MaintenanceStatus)
 def maintenance(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
     db = get_db()
-    kinds = {r["kind"]: {"count": int(r["n"]), "bytes": int(r["bytes"] or 0)}
-             for r in db.fetchall("SELECT kind, count(*) AS n, sum(size_bytes) AS bytes FROM backups GROUP BY kind")}
+    growth, provenance = resource_usage.history(db)
     return {
         "retention": {
             "enabled": bool(_setting("retention.enabled", True)),
@@ -283,13 +303,17 @@ def maintenance(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
             "settings": {k: _setting(k, None) for k in (
                 "retention.jobs_done_days", "retention.jobs_keep_per_kind", "retention.jobs_failed_days",
                 "retention.observations_raw_days", "retention.observations_hourly_days",
-                "retention.automation_log_days", "retention.login_attempts_days")},
+                "retention.automation_log_days", "retention.login_attempts_days")}
+            | {"retention.resource_samples_days": RESOURCE_SAMPLE_DAYS},
+            "preserved_tables": PRESERVED_GROWING_TABLES,
         },
-        "database": database_usage(db),
-        "backups": {"space": backups.space_status(db), "kinds": kinds,
+        "database": resource_usage.database_usage(db),
+        "backups": {"space": backups.space_status(db), "kinds": resource_usage.backup_kinds(db),
                     "excluded_tables": list(backups.REFETCHABLE),
                     "safety": {"pre_restore_days": backups.SAFETY_DAYS, "pre_restore_keep": backups.SAFETY_KEEP,
                                "pre_upgrade_keep": backups.UPGRADE_KEEP}},
+        "growth": growth,
+        "provenance": provenance,
     }
 
 

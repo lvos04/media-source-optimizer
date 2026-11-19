@@ -237,6 +237,24 @@ Het formulier stelt 2 CPU en 1536 MiB voor. Controleer het verbruik in TrueNAS. 
 PostgreSQL, de kluis, back-ups, werkbestanden en logs. De database en het auditlogboek groeien met
 het gebruik. MSO geeft een waarschuwing als de vrije ruimte onder `MSO_DISK_RESERVE_GB` zakt.
 
+### Opslag en groei
+
+Op Systeem → Opslag en groei staat de laatste dagmeting, met herkomst en eenheid. MSO registreert één meting
+per UTC-kalenderdag. De reeksen omvatten de database en haar tabellen, databaseverbindingen, geregistreerde back-ups,
+vrije ruimte, de header-index en de laatste bruikbare momentopname van de torrentclient. Het containerlogvolume staat
+op Onbekend, omdat dit buiten MSO valt.
+
+`GET /api/v1/system/maintenance` levert de afgelopen 30 UTC-dagen in `growth.days`. Een ontbrekende dag heeft
+`observed_at: null` en `values: null`. Een trend gebruikt per reeks het eerste en laatste beschikbare meetpunt
+over die periode. Eén meetpunt levert een onbekende trend op. `provenance` vermeldt de bron, kwaliteit en meettijd.
+
+De dagelijkse opslagmeting draait ook als dagelijks opruimen uitstaat. Met opruimen aan bewaart het
+bestaande onderhoud de laatste 400 UTC-dagen. De bestaande geschiedenis en het bewijs in de twaalf groeitabellen
+behouden hun bewaarbeleid. Een genoteerde bewaartermijn voor een oudere tabel vereist een apart besluit.
+
+Migratie `0611_resource_samples` voegt de meetreeks toe na de automatische back-up vóór upgrade.
+Zie [het stappenplan voor upgrade en terugval](MIGRATION.md) voor volledig herstel met een gestopte APPDATA-snapshot.
+
 ### Gemeten benchmark (sandbox, géén TrueNAS)
 
 Gemeten met `docker stats --no-stream` door `tests/stack/smoke.py` (zie

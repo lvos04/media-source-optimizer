@@ -2,6 +2,8 @@
 
 /** `GET /system/maintenance` */
 export interface MaintenanceStatus {
+  growth: ResourceGrowth;
+  provenance: Record<string, ResourceSource>;
   retention: {
     enabled: boolean;
     last: RetentionRun | null;
@@ -35,4 +37,33 @@ export interface BackupSpace {
   reference: string;
   reserve_bytes: number;
   ok: boolean;
+}
+
+export type ResourceQuality = "gemeten" | "geschat" | "onbekend";
+
+export interface ResourceDay {
+  day: string;
+  observed_at: string | null;
+  values: Record<string, number | null> | null;
+}
+
+export interface ResourceTrend {
+  value: number | null;
+  from_day: string | null;
+  to_day: string | null;
+  quality: ResourceQuality;
+}
+
+export interface ResourceSource {
+  source: string;
+  quality: ResourceQuality;
+  observed_at: string | null;
+  reason?: string | null;
+}
+
+export interface ResourceGrowth {
+  latest: ResourceDay | null;
+  days: ResourceDay[];
+  per_day: Record<string, ResourceTrend>;
+  tables: Array<{ name: string; bytes: number; per_day: ResourceTrend }>;
 }

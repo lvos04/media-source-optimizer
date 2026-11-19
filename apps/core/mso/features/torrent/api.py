@@ -46,7 +46,7 @@ def _connector() -> dict[str, Any]:
 
 
 def _stale(snap: dict[str, Any] | None) -> bool:
-    return snap is None or (datetime.now(UTC) - snap["updated_at"]).total_seconds() > 600
+    return snap is None or (datetime.now(UTC) - snap["updated_at"]).total_seconds() > storage.SNAPSHOT_MAX_AGE_S
 
 
 def torrent_view(r: dict[str, Any], *, full: bool = False) -> dict[str, Any]:

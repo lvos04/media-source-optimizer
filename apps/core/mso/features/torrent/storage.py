@@ -29,6 +29,7 @@ from mso.security import redact
 LOGGER = logging.getLogger(__name__)
 
 GB = 1024**3
+SNAPSHOT_MAX_AGE_S = 600
 MAX_SCAN_TORRENTS = 300
 MAX_SCAN_FILES = 20000
 

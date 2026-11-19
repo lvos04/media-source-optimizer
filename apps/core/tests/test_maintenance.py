@@ -585,3 +585,149 @@ def test_failing_upgrade_in_a_restart_loop_keeps_the_first_pre_upgrade_dump(app:
     backups.prune_safety(old_db)
     files = {r["file"] for r in old_db.fetchall("SELECT file FROM backups WHERE kind='pre-upgrade'")}
     assert first["file"] in files and len(files) == 3
+
+
+def test_resource_growth_over_thirty_utc_days(viewer: Any, db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mso import resource_usage
+
+    start = datetime(2026, 10, 15, 0, 30, tzinfo=UTC)
+    clock = start
+    readings = {"database_bytes": 1000, "header_index_estimated_bytes": 50}
+    monkeypatch.setattr(resource_usage, "_database_clock", lambda _: clock)
+    monkeypatch.setattr(resource_usage, "_measure", lambda *_: {
+        "values": readings, "tables": {"audit_log": readings["database_bytes"]}, "torrent_observed_at": None,
+    })
+
+    assert viewer.get("/api/v1/system/maintenance").json()["growth"]["latest"] is None
+    for i in range(30):
+        clock = start + timedelta(days=i)
+        if i == 8:
+            continue
+        readings["database_bytes"] = 1000 + i * 20
+        readings["header_index_estimated_bytes"] = 50 + i * 3
+        assert resource_usage.sample(db) is True
+        assert resource_usage.sample(db) is False
+        if i == 0:
+            first = viewer.get("/api/v1/system/maintenance").json()
+            assert first["growth"]["per_day"]["database_bytes"]["value"] is None
+
+    clock -= timedelta(days=30)
+    assert resource_usage.sample(db) is False
+    clock = start + timedelta(days=29)
+    body = viewer.get("/api/v1/system/maintenance").json()
+    growth = body["growth"]
+    assert len(growth["days"]) == 30
+    assert db.scalar("SELECT count(*) FROM resource_samples") == 29
+    gap = next(day for day in growth["days"] if day["day"] == (start + timedelta(days=8)).date().isoformat())
+    assert gap["observed_at"] is None and gap["values"] is None
+    assert growth["per_day"]["database_bytes"] == {
+        "value": 20, "from_day": start.date().isoformat(), "to_day": clock.date().isoformat(), "quality": "gemeten",
+    }
+    assert growth["per_day"]["header_index_estimated_bytes"]["value"] == 3
+    assert growth["tables"][0]["per_day"]["value"] == 20
+    assert body["provenance"]["database_bytes"]["quality"] == "gemeten"
+    assert body["provenance"]["header_index_estimated_bytes"]["quality"] == "geschat"
+    assert body["provenance"]["container_log_bytes"]["quality"] == "onbekend"
+
+
+def test_resource_sample_uses_existing_sources_and_never_publishes_paths(
+    viewer: Any, db: Any, worker: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mso import resource_usage
+    from mso.features.torrent import storage
+    from mso.features.usenet.headerindex import engine
+
+    now = db.scalar("SELECT clock_timestamp()")
+    monkeypatch.setattr(resource_usage, "_database_clock", lambda _: now)
+    monkeypatch.setattr(resource_usage, "_disk", lambda _: {"free": 444, "path": "/proef/appdata"})
+    monkeypatch.setattr(backups, "space_status", lambda _: {
+        "free_bytes": 555, "path": "/proef/backup", "needed_bytes": 666,
+    })
+    monkeypatch.setattr(engine, "usage", lambda: {"physical_bytes": 777, "estimated_bytes": 888})
+    monkeypatch.setattr(storage, "report", lambda: {
+        "client": {"available": True, "updated_at": now - timedelta(minutes=1)},
+        "disk": {"free": 999, "path": "/proef/torrent"},
+    })
+    job = jobs.enqueue("system.resource_sample", {})
+    worker.drain()
+    assert db.fetchone("SELECT status, result FROM jobs WHERE id=%s", (job["id"],)) == {
+        "status": "done", "result": {"recorded": True},
+    }
+    body = viewer.get("/api/v1/system/maintenance").json()
+    values = body["growth"]["latest"]["values"]
+    assert values["appdata_free_bytes"] == 444
+    assert values["backup_free_bytes"] == 555
+    assert values["header_index_bytes"] == 777 and values["header_index_estimated_bytes"] == 888
+    assert values["torrent_free_bytes"] == 999
+    assert values["database_connections"] > 0
+    assert values["backups_bytes"] == 0 and values["backups_count"] == 0
+    assert "/proef/" not in json.dumps(body["growth"])
+    assert "/proef/" not in json.dumps(body["provenance"])
+
+    monkeypatch.setattr(resource_usage, "_database_clock", lambda _: now + timedelta(days=1))
+    assert resource_usage.sample(db)
+    next_day = viewer.get("/api/v1/system/maintenance").json()
+    assert next_day["growth"]["latest"]["values"]["torrent_free_bytes"] is None
+    assert next_day["provenance"]["torrent_free_bytes"]["quality"] == "onbekend"
+
+
+def test_resource_history_retention_preserves_previous_data(app: Any, db: Any, database_bytes: Any) -> None:
+    db.execute(
+        "INSERT INTO resource_samples(day, observed_at, data) "
+        "SELECT (now() AT TIME ZONE 'UTC')::date - n, now() - n * interval '24 hours', '{}'::jsonb "
+        "FROM (VALUES (399), (400)) AS ages(n)",
+    )
+    db.execute("INSERT INTO audit_log(actor,action,summary,ts) VALUES ('test','proef','bewaren',"
+               "now() - interval '800 days')")
+    db.execute("INSERT INTO usenet_sab_server_events(server,status,first_at,last_at) "
+               "VALUES ('proef','fout',now()-interval '800 days',now()-interval '800 days')")
+    db.execute("INSERT INTO torrent_actions(hash,action,ts) VALUES ('proef','bewaren',now()-interval '800 days')")
+    db.execute("INSERT INTO torrent_tuning_runs(param,metric,evaluate_after_h,created_at) "
+               "VALUES ('proef','proef',1,now()-interval '800 days')")
+    nzb = db.scalar("INSERT INTO usenet_nzbs(origin,title) VALUES ('upload','proef') RETURNING id")
+    db.execute("INSERT INTO usenet_article_tests(nzb_id,trigger,providers,sample_size,created_at) "
+               "VALUES (%s,'manual',ARRAY[]::text[],0,now()-interval '800 days')", (nzb,))
+    db.execute("INSERT INTO usenet_hi_runs(started_at) VALUES (now()-interval '800 days')")
+    db.execute("INSERT INTO ai_usage(model,purpose,status,ts) "
+               "VALUES ('fixture','proef','ok',now()-interval '800 days')")
+    db.execute("INSERT INTO change_sets(target,title,risk,created_at) "
+               "VALUES ('proef','bewaren','advies',now()-interval '800 days')")
+    db.execute("INSERT INTO recovery_manual_wanted(title,media_category,created_by,created_at) "
+               "VALUES ('proef','tv','test',now()-interval '800 days')")
+    db.execute("INSERT INTO download_outcomes(protocol,client,client_ref,title,status,observed_at) "
+               "VALUES ('usenet','sabnzbd','proef','test','success',now()-interval '800 days')")
+    db.execute("INSERT INTO mg_search_requests(mg_id,idempotency_key,trigger,status,actor,requested_at) "
+               "VALUES (1,'proef','manual','sent','test',now()-interval '800 days')")
+    db.execute("INSERT INTO search_sends(release_key,client,category,title,status,actor,created_at) "
+               "VALUES ('proef','sabnzbd','tv','proef','sent','test',now()-interval '800 days')")
+    db.execute("INSERT INTO recovery_sends(idempotency_key,media_ref,release_key,protocol,client,title,status,actor,"
+               "created_at) VALUES ('proef','proef','proef','usenet','sabnzbd','proef','sent','test',"
+               "now()-interval '800 days')")
+    before = database_bytes(db)
+    result = retention.run(db)
+
+    assert result["deleted"]["resource_samples"] == 1
+    assert db.scalar("SELECT count(*) FROM resource_samples") == 1
+    assert "resource_samples" in result["vacuumed"]
+    after = database_bytes(db)
+    kept_tables = (
+        "usenet_sab_server_events", "torrent_actions", "torrent_tuning_runs", "usenet_article_tests",
+        "usenet_hi_runs", "ai_usage", "change_sets", "recovery_manual_wanted", "download_outcomes",
+        "mg_search_requests", "search_sends", "recovery_sends",
+    )
+    assert set(kept_tables) == retention.PRESERVED_GROWING_TABLES.keys()
+    assert all(before[table] != b"[]" and before[table] == after[table] for table in kept_tables)
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE action='proef' AND summary='bewaren'") == 1
+
+
+def test_resource_migration_reverts_only_the_new_table(app: Any, old_db: Any, database_bytes: Any) -> None:
+    from mso.db import migrate_down, migrate_up
+
+    migrate_up(old_db, 610)
+    old_db.execute("INSERT INTO users(username,password_hash,role) VALUES ('dagmeting','testhash','admin')")
+    old_db.execute("INSERT INTO audit_log(actor,action,summary) VALUES ('test','proef','bewaren')")
+    before = database_bytes(old_db)
+    assert migrate_up(old_db, 611) == [611]
+    assert old_db.scalar("SELECT count(*) FROM resource_samples") == 0
+    assert migrate_down(old_db, 610) == [611]
+    assert database_bytes(old_db) == before

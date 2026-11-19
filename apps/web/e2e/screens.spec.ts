@@ -251,3 +251,69 @@ test("alleen-lezen modus blokkeert schrijfknoppen met uitleg", async ({ page }) 
     await expect(apply.first()).toHaveAttribute("title", /alleen-lezen|beheermodus/i);
   }
 });
+
+test("Opslag en groei toont de laad-, lege, trend- en storingstoestanden", async ({ page }) => {
+  test.skip(!USER, "MSO_E2E_USER niet gezet");
+  await login(page);
+
+  const first = { day: "2026-10-19", observed_at: "2026-10-19T05:00:00Z", values: { database_bytes: 1000 } };
+  const last = { day: "2026-10-21", observed_at: "2026-10-21T05:00:00Z", values: { database_bytes: 1040 } };
+  const gap = { day: "2026-10-20", observed_at: null, values: null };
+  let scenario = "empty";
+  let releaseResponse!: () => void;
+  const loading = new Promise<void>((resolve) => { releaseResponse = resolve; });
+
+  await page.route("**/api/v1/system/maintenance", async (route) => {
+    await loading;
+    if (scenario === "error") {
+      await route.fulfill({ status: 500, json: { detail: "De proefmeting is onbereikbaar." } });
+      return;
+    }
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    const native = await response.json();
+    const days = scenario === "empty" ? [] : scenario === "single" ? [last] : [last, gap, first];
+    const databaseTrend = scenario === "trend"
+      ? { value: 20, from_day: first.day, to_day: last.day, quality: "gemeten" }
+      : { value: null, from_day: null, to_day: null, quality: "onbekend" };
+    await route.fulfill({
+      response,
+      json: {
+        ...native,
+        growth: { latest: days[0] ?? null, days, per_day: { database_bytes: databaseTrend }, tables: [] },
+        provenance: {
+          database_bytes: { source: "PostgreSQL", quality: "gemeten", observed_at: last.observed_at },
+        },
+      },
+    });
+  });
+
+  const section = page.getByRole("region", { name: "Opslag en groei" });
+  await page.goto("/systeem");
+  try {
+    await expect(section.locator(".skeleton").first()).toBeVisible();
+  } finally {
+    releaseResponse();
+  }
+  await expect(section.getByText("Nog geen metingen")).toBeVisible();
+
+  scenario = "single";
+  await page.reload();
+  await expect(section.getByText("Te weinig metingen voor een trend.")).toBeVisible();
+  await expect(section.getByText("PostgreSQL · Gemeten")).toBeVisible();
+
+  scenario = "trend";
+  await page.reload();
+  await expect(section.getByText("20 B per dag")).toBeVisible();
+  await section.getByText("Dagmetingen (UTC)", { exact: true }).click();
+  await expect(section.getByText("Geen meting", { exact: true })).toBeVisible();
+  await expect(section.getByText("19 okt 2026", { exact: true })).toBeVisible();
+
+  scenario = "error";
+  await page.reload();
+  const alert = section.getByRole("alert");
+  await expect(alert.getByText("Ophalen is mislukt.")).toBeVisible();
+  scenario = "empty";
+  await alert.getByRole("button", { name: "Opnieuw proberen" }).click();
+  await expect(section.getByText("Nog geen metingen")).toBeVisible();
+});

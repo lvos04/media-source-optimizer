@@ -13,8 +13,9 @@ import { useShell } from "@/components/shell/app-shell";
 import { useToast } from "@/components/mg/toast";
 import { useAction } from "@/lib/api/actions";
 import type { Backup, BackupList, Job, JobList, SystemInfo } from "@/lib/api/contracts";
-import { useResource } from "@/lib/api/hooks";
+import { type Resource, useResource } from "@/lib/api/hooks";
 import { waitForJob } from "@/lib/api/jobs";
+import type { MaintenanceStatus } from "@/lib/api/maintenance";
 import { useI18n } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 import { BARE_STATUS_WORDS, healthLabel, healthTone, jobIcon, jobKindLabel, jobLabel, jobTone } from "@/lib/status";
@@ -42,6 +43,7 @@ export default function SystemPage() {
   const { t, dateTime, duration, num } = useI18n();
   const { health, healthError, reloadHealth } = useShell();
   const info = useResource<SystemInfo>("/system/info");
+  const maintenance = useResource<MaintenanceStatus>("/system/maintenance", undefined, 60_000);
   const channelLabels = new Map([
     ["development", t("system.channelDevelopment")],
     ["release", t("system.channelRelease")],
@@ -123,8 +125,8 @@ export default function SystemPage() {
         </Card>
 
         <SchedulesCard />
-        <MaintenanceCards />
-        <BackupsCard />
+        <MaintenanceCards resource={maintenance} />
+        <BackupsCard maintenance={maintenance} />
         <JobsCard num={num} />
       </div>
     </>
@@ -148,7 +150,7 @@ const BACKUP_KINDS: Record<string, "system.backupKind.manual" | "system.backupKi
   "pre-upgrade": "maintenance.backupKind.preUpgrade",
 };
 
-function BackupsCard() {
+function BackupsCard({ maintenance }: { maintenance: Resource<MaintenanceStatus> }) {
   const { t, dateTime, bytes, pct } = useI18n();
   const { can } = useSession();
   const toast = useToast();
@@ -192,7 +194,7 @@ function BackupsCard() {
           <Switch checked={includeSecrets} onChange={setIncludeSecrets} label={t("system.backupIncludeSecrets")} disabled={!admin} />{t("system.backupIncludeSecrets")}
         </label>
         {includeSecrets ? <InlineState tone="warning">{t("system.backupIncludeSecretsHelp")}</InlineState> : <p className="hint" style={{ margin: 0 }}>{t("system.backupIncludeSecretsHelp")}</p>}
-        <BackupSpaceNote />
+        <BackupSpaceNote resource={maintenance} />
         {creating ? (
           <div className="stack-sm" role="status" data-testid="backup-progress">
             <span className="t-2">{t("system.backupRunning", { id: String(creating.jobId) })}{creating.progress ? ` · ${pct(creating.progress <= 1 ? creating.progress * 100 : creating.progress)}` : ""}</span>

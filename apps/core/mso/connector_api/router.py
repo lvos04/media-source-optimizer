@@ -38,7 +38,6 @@ from mso.connector_api.status import (
 )
 from mso.connectors.base import SPECS
 from mso.db import get_db
-from mso.machine_keys import ADMIN_LOCK
 
 router = APIRouter(prefix=PREFIX, tags=["connector"])
 Viewer = Annotated[Principal, Depends(require("viewer"))]
@@ -220,24 +219,29 @@ RequestKey = Annotated[str | None, Header(alias="Idempotency-Key",
 
 def _execute(request: Request, body: ExecutionRequest, pin: tuple, mode: Mode):
     verify_signature(body, pin)
-    approval = verify_approval(body, pin[1], mode)
+    approval = verify_approval(body, pin[1], mode, check_time=False)
     request_id = change_requests.parse_request_id(request.headers.getlist("Idempotency-Key"), required=True)
     actor = "hub:policy"
 
     def check(_conn, ch):
-        live_approval = verify_approval(body, pin[1], mode)
-        verify_change(body, live_approval, ch, mode)
+        live_pin = require_pin(request)
+        verify_signature(body, live_pin)
+        verify_approval(body, live_pin[1], mode, check_time=False)
 
     def check_deadline():
         verify_approval(body, pin[1], mode)
 
-    def execute(db, ch):
+    def execute(db, ch, reserve):
+        check_deadline()
+        verify_change(body, approval, ch, mode)
         if mode == "rollback":
-            return changes.rollback_locked(ch, actor, db, request_id=request_id, check_deadline=check_deadline)
-        return changes.apply_locked(ch, actor, db, verifies_approval=check_deadline, request_id=request_id)
+            return changes.rollback_locked(ch, actor, db, request_id=request_id, check_deadline=check_deadline,
+                                           reserve=reserve)
+        return changes.apply_locked(ch, actor, db, verifies_approval=check_deadline, request_id=request_id,
+                                    reserve=reserve)
 
     return change_requests.run(request, body.proposal.target.change_id, actor, body.model_dump(),
-                               request_id, check, execute, guard_lock=ADMIN_LOCK, **nonces(body, approval))
+                               request_id, check, execute, **nonces(body, approval))
 
 
 @router.post("/apply", response_model=ExecutionResult, responses=WRITE_ERRORS)

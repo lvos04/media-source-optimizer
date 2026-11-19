@@ -11,7 +11,7 @@ Robustness rules (each fixes a classic self-hosting failure):
 - A stale postmaster.pid from an unclean stop is removed (we are the only process in a fresh container).
 - The database password problem does not exist: PostgreSQL listens on a unix socket in /tmp only.
 - Bij uitval volgt herstart met uitstel. SIGTERM stopt web → worker → API → database.
-- Before pending migrations a ``pre-upgrade`` backup is made (if there is room); a failure never blocks the start.
+- Een bestaande database krijgt vóór migratie een geverifieerd terugvalarchief.
 - Een nieuwer databaseschema houdt de gewone diensten uit; de bewaker wacht zonder herstart tot de app stopt.
 """
 
@@ -357,14 +357,12 @@ def prepare_database(cleanup: ExitStack) -> tuple[Child, bool]:
 
 
 def run_services(pg: Child, cleanup: ExitStack) -> None:
-    # safety net for upgrades: a dump before pending migrations (only when there are any and the disk has room).
-    # Een dumpfout blokkeert niet; een database van een nieuwere versie wel.
     rc = run_once("back-up vóór upgrade", [sys.executable, "-m", "mso", "backup", "--pre-upgrade"])
     if rc == NEWER_DATABASE_EXIT_CODE:
         wait_on_newer_schema(pg)
         return
     if rc != 0:
-        log("back-up vóór upgrade mislukt (zie log hierboven); MSO start gewoon door")
+        raise StartupError("Back-up vóór upgrade mislukt. Controleer de vrije ruimte en het archief en start opnieuw.")
     rc = run_once("migraties", [sys.executable, "-m", "mso", "migrate", "--no-backup"])
     if rc == NEWER_DATABASE_EXIT_CODE:
         wait_on_newer_schema(pg)

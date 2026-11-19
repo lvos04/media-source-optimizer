@@ -15,12 +15,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mso import changes
 from mso.auth import current_principal
+from mso.backups import EVENT_HISTORY_KEY
 from mso.change_actions import require_action
 from mso.change_preview import canonical_json, digest
 from mso.change_requests import resource_etag
 from mso.config import get_settings
 from mso.connector_api.errors import ConnectorError
 from mso.connector_api.events import APP_ID
+from mso.db import get_db
 
 SHA = r"^sha256:[0-9a-f]{64}$"
 ISO = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
@@ -178,18 +180,19 @@ def verify_signature(body: ExecutionRequest, pin: tuple[Ed25519PublicKey, str]) 
         raise ConnectorError(401, "unauthorized") from None
 
 
-def verify_approval(body: ExecutionRequest, trusted_hash: str, mode: Mode) -> Approval:
-    now = changes._now()
+def verify_approval(body: ExecutionRequest, trusted_hash: str, mode: Mode, *, check_time: bool = True) -> Approval:
     issued, expires = _time(body.issued_at), _time(body.expires_at)
-    if not issued <= now < expires or expires - issued > changes.APPROVAL_TTL:
+    if not issued < expires or expires - issued > changes.APPROVAL_TTL:
         raise ConnectorError(409, "approval_expired")
     approval = body.approval
     if approval is None:
         raise ConnectorError(409, "approval_required")
     approved, approval_expires = _time(approval.approved_at), _time(approval.expires_at)
-    if not approved <= issued < approval_expires or not now < approval_expires:
+    if not approved <= issued < approval_expires:
         raise ConnectorError(409, "approval_expired")
     if approval_expires - approved > changes.APPROVAL_TTL:
+        raise ConnectorError(409, "approval_expired")
+    if check_time and not issued <= changes._now() < min(expires, approval_expires):
         raise ConnectorError(409, "approval_expired")
 
     proposal, decision = body.proposal, body.policy_decision
@@ -208,6 +211,10 @@ def verify_approval(body: ExecutionRequest, trusted_hash: str, mode: Mode) -> Ap
 
 
 def verify_change(body: ExecutionRequest, approval: Approval, ch: dict, mode: Mode) -> None:
+    # Het einde van elk herstel markeert atomair een nieuwe historie, ook na een onderbroken herstel.
+    restored_at = get_db().scalar("SELECT updated_at FROM system_state WHERE key=%s", (EVENT_HISTORY_KEY,))
+    if restored_at is not None and _time(approval.approved_at) <= restored_at:
+        raise ConnectorError(409, "approval_expired")
     proposal, params = body.proposal, body.proposal.parameters
     require_action(ch, proposal.action_id)
     changes.check_preview(ch, approval.preview_hash)

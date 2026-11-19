@@ -586,9 +586,12 @@ Bij toepassen bevat `proposal.parameters` uitsluitend `expected_preview_hash`. G
 `proposal.expected_version` en `approval.resource_etag`. Bij terugdraaien bevat `proposal.parameters` uitsluitend
 `expected_prev`, met de `resource_etag` van de toegepaste wijziging. Gebruik die waarde ook als `expected_version` en
 `approval.resource_etag`. `approval.preview_hash` blijft de oorspronkelijke previewhash. Gebruik een eigen
-`Idempotency-Key`, aanvraagnonce en goedkeuringsnonce per handeling. Bij herhaling van dezelfde nog geldige aanvraag
-levert MSO het opgeslagen antwoord. In P3 blijft voor de Hub-gebruiker de terugdraailink naar MSO gelden.
+`Idempotency-Key`, aanvraagnonce en goedkeuringsnonce per handeling. Na voltooiing levert een identieke aanvraag
+het opgeslagen antwoord met `Idempotent-Replay: true`, ook na afloop van de uitvoeringstermijn.
+MSO controleert de bevoegdheid en beleidspin bij elke aanvraag. Bij gebonden terugdraaiing controleert MSO alle
+bronwaarden vóór de eerste schrijfactie. In P3 blijft voor de Hub-gebruiker de terugdraailink naar MSO gelden.
 
 Bij een gegevensherstel vervallen gebonden goedkeuringen en eerder opgeslagen antwoorden. Verbruikte
 idempotentiesleutels en nonces blijven gereserveerd. Lees de actuele wijziging opnieuw en vraag bij een nog gewenste
-handeling een nieuwe goedkeuring aan.
+handeling een nieuwe goedkeuring aan. Bij een ondertekend verzoek moet het goedkeuringstijdstip na de afronding
+van het herstel liggen. Een teruggezette open goedkeuring staat weer ter beoordeling als voorvertoning.

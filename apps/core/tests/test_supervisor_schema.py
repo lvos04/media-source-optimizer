@@ -114,12 +114,18 @@ def test_supervisor_holds_on_newer_schema_without_restarting(supervisor: Any, ca
         assert not thread.is_alive()
 
 
-@pytest.mark.parametrize("backup_code", [0, 1])
-def test_supervisor_starts_normally_after_compatible_schema(supervisor: Any, backup_code: int) -> None:
-    supervisor.codes.update(backup=backup_code, stop_after_start=1)
+def test_supervisor_starts_normally_after_compatible_schema(supervisor: Any) -> None:
+    supervisor.codes.update(stop_after_start=1)
     supervisor.module.main()
     assert supervisor.trace == ["start database", "backup", "migrate", "start api", "start worker", "start web",
                                 "stop web", "stop worker", "stop api", "stop database"]
+
+
+def test_supervisor_stopt_voor_migratie_bij_dumpfout(supervisor: Any) -> None:
+    supervisor.codes.update(backup=1, stop_after_start=1)
+    with pytest.raises(RuntimeError, match="Back-up vóór upgrade mislukt"):
+        supervisor.module.main()
+    assert supervisor.trace == ["start database", "backup", "stop database"]
 
 
 def test_supervisor_keeps_other_migration_errors_separate(supervisor: Any) -> None:

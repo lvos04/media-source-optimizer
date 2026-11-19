@@ -12,10 +12,10 @@ from fastapi.responses import JSONResponse
 from psycopg import Connection
 
 from mso import changes
+from mso.audit import _clean
 from mso.change_preview import digest, public_change
 from mso.connector_api.errors import is_connector
 from mso.db import Database, get_db, jsonb
-from mso.machine_keys import RESTORE_PENDING, restore_pending
 
 
 class ChangeRequestError(HTTPException):
@@ -60,13 +60,22 @@ class ChangeRequest:
             raise ChangeRequestError(422, "idempotency_key_reused", "Deze Idempotency-Key hoort bij een ander verzoek.")
         return row
 
-    def reserve(self, db: Database) -> None:
-        inserted = db.execute(
+    def check_nonces(self, db: Database) -> None:
+        if self.nonce is not None and db.scalar(
+            "SELECT 1 FROM connector_idempotency WHERE nonce=%s OR approval_nonce=%s",
+            (self.nonce, self.approval_nonce),
+        ):
+            raise ChangeRequestError(409, "nonce_reused", "De nonce van dit uitvoeringsverzoek is al verbruikt.")
+
+    def reserve(self, conn: Connection) -> None:
+        inserted = conn.execute(
             "INSERT INTO connector_idempotency(request_id,change_id,route,actor,body_hash,nonce,approval_nonce) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
             (self.request_id, self.change_id, self.route, self.actor, self.body_hash, self.nonce, self.approval_nonce),
-        )
-        if not inserted and self.saved(db) is None:
+        ).rowcount
+        if not inserted:
+            if conn.execute("SELECT 1 FROM connector_idempotency WHERE request_id=%s", (self.request_id,)).fetchone():
+                raise ChangeRequestError(422, "idempotency_key_reused", "Deze sleutel hoort bij een ander verzoek.")
             raise ChangeRequestError(409, "nonce_reused", "De nonce van dit uitvoeringsverzoek is al verbruikt.")
 
 
@@ -101,7 +110,7 @@ def connector_result(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def change_view(row: dict[str, Any]) -> dict[str, Any]:
-    return {**public_change(row), "resource_etag": resource_etag(row)}
+    return {**_clean(public_change(row)), "resource_etag": resource_etag(row)}
 
 
 def complete(conn: Connection, request_id: UUID, row: dict[str, Any]) -> None:
@@ -114,48 +123,44 @@ def complete(conn: Connection, request_id: UUID, row: dict[str, Any]) -> None:
 
 
 def replay(saved: dict[str, Any]) -> JSONResponse:
-    return JSONResponse(saved["body"], status_code=saved["status"], headers={"Idempotent-Replay": "true"})
+    return JSONResponse(_clean(saved["body"]), status_code=saved["status"], headers={"Idempotent-Replay": "true"})
 
 
 def run(
     request: Request, change_id: int, actor: str, body: Any, request_id: UUID | None,
     check: Callable[[Connection, dict[str, Any]], None],
-    execute: Callable[[Database, dict[str, Any]], dict[str, Any]],
-    *, nonce: UUID | None = None, approval_nonce: UUID | None = None, guard_lock: int | None = None,
+    execute: Callable[[Database, dict[str, Any], Callable[[Connection], None] | None], dict[str, Any]],
+    *, nonce: UUID | None = None, approval_nonce: UUID | None = None,
 ) -> dict[str, Any] | JSONResponse:
     db = get_db()
     operation = (ChangeRequest(request_id, change_id, request.url.path if is_connector(request.url.path)
                                else request.url.path.rsplit("/", 1)[-1], actor, digest(body), nonce, approval_nonce)
                  if request_id is not None else None)
     try:
-        with changes._lock(change_id, db, guard_lock=guard_lock) as conn:
-            if guard_lock is not None and restore_pending(conn):
-                raise ChangeRequestError(503, "dependency_unavailable", RESTORE_PENDING)
+        with changes._lock(change_id, db) as conn:
             saved = operation.saved(db) if operation else None
-            ch = changes.get(change_id, db)
+            ch = changes.get(change_id, db, persist_hash=False)
             check(conn, ch)
             if saved and saved["response"] is not None:
                 if saved["response"].get("invalidated"):
                     raise ChangeRequestError(409, "conflict", "Maak na het gegevensherstel een nieuw verzoek aan.")
                 return replay(saved["response"])
-            if operation is not None and not saved:
-                operation.reserve(db)
+            if operation and not saved:
+                operation.check_nonces(db)
             if ch["status"] == "applying" and ch["apply_request_id"] == request_id and request_id is not None:
                 raise ChangeRequestError(409, "idempotency_in_progress", "Wacht op het herstel van de wijziging.")
             try:
-                result = execute(db, ch)
-            except HTTPException as exc:
-                if operation is None or isinstance(exc, changes.ChangeBusy) or exc.status_code >= 503:
+                if saved and ch["status"] == "failed" and ch["apply_request_id"] == request_id:
+                    raise changes.ChangeFailed(ch["error"] or "Toepassen van de wijziging is mislukt.")
+                result = execute(db, ch, operation.reserve if operation and not saved else None)
+            except changes.ChangeFailed as exc:
+                if operation is None:
                     raise
-                # Bewaar ook een definitieve weigering na het reserveren, met hetzelfde openbare foutformaat.
                 import json
 
                 from mso.app import _error
 
-                default = {403: "forbidden", 404: "not_found", 409: "conflict", 412: "precondition_failed",
-                           422: "validation_error", 502: "upstream_error"}
-                response = _error(exc.status_code, exc.detail, getattr(exc, "code", default.get(exc.status_code, "")),
-                                  request, safe_details=getattr(exc, "safe_details", None), headers=exc.headers)
+                response = _error(502, exc.detail, "upstream_error", request)
                 db.execute("UPDATE connector_idempotency SET response=%s WHERE request_id=%s",
                            (jsonb({"status": exc.status_code, "body": json.loads(response.body)}), request_id))
                 return response

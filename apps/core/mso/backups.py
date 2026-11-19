@@ -25,7 +25,7 @@
 - ``pre_upgrade_backup`` runs before pending migrations (all-in-one supervisor, ``mso migrate``, API/worker start).
   It runs new code against the OLD schema, so it only touches 0001-era tables/columns (``backups``,
   ``system_state``); the audit row and any "Wacht op jou" item are written after the migration
-  (``flush_pre_upgrade``). Een dumpfout blokkeert de start niet; een nieuwer schema wel.
+  (``flush_pre_upgrade``). Een bestaand schema wordt pas bijgewerkt na verificatie van het terugvalarchief.
 """
 
 from __future__ import annotations
@@ -188,7 +188,7 @@ def _space_resolve(db: Database) -> None:
 def _dump(*, kind: str, include_secrets: bool, timeout: int = 1800) -> Path:
     target_dir = get_settings().backup_dir
     target_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     path = target_dir / f"mso-{stamp}-{kind}.dump"
     args, env = _pg_env()
     cmd = [_bin("pg_dump"), *args, "-Fc", "--no-owner", "--no-privileges", "--exclude-table-data=sessions",
@@ -210,9 +210,10 @@ def _dump(*, kind: str, include_secrets: bool, timeout: int = 1800) -> Path:
     return path
 
 
-def _register(path: Path, kind: str, include_secrets: bool, db: Database) -> dict[str, Any]:
+def _register(path: Path, kind: str, include_secrets: bool, db: Database, *,
+              digest: str | None = None) -> dict[str, Any]:
     """Sidecar + ``backups`` row (0001-era columns only: also used against an old schema before an upgrade)."""
-    digest = sha256_file(path)
+    digest = digest or sha256_file(path)
     path.with_suffix(".sha256").write_text(f"{digest}  {path.name}\n")
     row = db.fetchone(
         "INSERT INTO backups(file,kind,size_bytes,sha256,includes_secrets,schema_version) "
@@ -239,16 +240,18 @@ def create_backup(*, include_secrets: bool = False, kind: str = "manual", actor:
     return row
 
 
-def verify_backup(path: Path, expected_sha: str | None) -> None:
+def verify_backup(path: Path, expected_sha: str | None, *, verify_data: bool = False) -> None:
     if not path.exists():
         raise BackupError("Back-upbestand ontbreekt")
     if path.stat().st_size == 0:
         raise BackupError("Back-upbestand is leeg")
     if expected_sha and sha256_file(path) != expected_sha:
         raise BackupError("Checksum klopt niet: back-up is beschadigd")
-    args, env = _pg_env()
-    proc = subprocess.run([_bin("pg_restore"), "--list", str(path)], env=env, capture_output=True, text=True,  # noqa: S603
-                          timeout=120, check=False)
+    _, env = _pg_env()
+    # --list leest alleen de inhoudsopgave. Vóór migratie ook alle gecomprimeerde gegevens uitlezen.
+    options = ["--file", os.devnull] if verify_data else ["--list"]
+    proc = subprocess.run([_bin("pg_restore"), *options, str(path)], env=env, capture_output=True,  # noqa: S603
+                          text=True, timeout=900 if verify_data else 120, check=False)
     if proc.returncode != 0:
         raise BackupError("Back-up is geen geldig pg_dump-archief (beschadigd)")
 
@@ -291,6 +294,7 @@ def _recover_machine_keys(db: Database) -> bool:
         machine_keys.restore_security_snapshot(snapshot, db)
         if db.scalar("SELECT to_regclass(%s)", (AUDIT_KEEP_TABLE,)):
             _restore_audit(db)
+        _settle_applying("onderbroken herstel", db)
         with db.tx() as conn:
             conn.execute("INSERT INTO audit_log(actor,action,summary,detail) VALUES (%s,%s,%s,%s)",
                          ("system", "backup.machine_keys_restore_recovered",
@@ -323,8 +327,9 @@ def _keep_change_requests(conn) -> None:
                      "SELECT request_id,change_id,route,actor,body_hash,nonce,approval_nonce "
                      "FROM connector_idempotency")
         conn.execute(f"CREATE TABLE {CHANGE_APPROVAL_KEEP_TABLE} AS "
-                     "SELECT tableoid AS source_table,id,approval_preview_hash FROM change_sets "
-                     "WHERE approval_preview_hash IS NOT NULL")
+                     "SELECT tableoid AS source_table,id,created_at,approval_preview_hash FROM change_sets "
+                     "WHERE approved_by IS NOT NULL OR approval_preview_hash IS NOT NULL "
+                     "OR apply_request_id IS NOT NULL")
 
 
 def _close_restored_change_requests(conn) -> None:
@@ -335,10 +340,16 @@ def _close_restored_change_requests(conn) -> None:
                  f"SELECT request_id,change_id,route,actor,body_hash,nonce,approval_nonce "
                  f"FROM {CHANGE_REQUEST_KEEP_TABLE} ON CONFLICT DO NOTHING")
     conn.execute("UPDATE connector_idempotency SET response=%s", (jsonb({"invalidated": True}),))
-    conn.execute(f"UPDATE change_sets c SET approval_preview_hash=k.approval_preview_hash "
-                 f"FROM {CHANGE_APPROVAL_KEEP_TABLE} k WHERE c.tableoid=k.source_table AND c.id=k.id "
-                 "AND c.approval_preview_hash IS NULL")
-    conn.execute("UPDATE change_sets SET approval_expires_at=clock_timestamp() WHERE approval_preview_hash IS NOT NULL")
+    # created_at identificeert dezelfde wijziging ook als pg_restore de tabel heeft vervangen.
+    # Een al lopend herstel van een vorige versie heeft alleen het oorspronkelijke tableoid.
+    conn.execute("UPDATE change_sets c SET "
+                 "approval_preview_hash=COALESCE(c.approval_preview_hash,k.approval_preview_hash), "
+                 "approval_expires_at=clock_timestamp() "
+                 f"FROM {CHANGE_APPROVAL_KEEP_TABLE} k WHERE c.id=k.id AND c.status IN ('preview','approved') "
+                 "AND (c.tableoid=k.source_table OR c.created_at=(to_jsonb(k)->>'created_at')::timestamptz)")
+    conn.execute("UPDATE change_sets SET approval_expires_at=clock_timestamp(), "
+                 "status=CASE WHEN status='approved' THEN 'preview' ELSE status END "
+                 "WHERE approval_preview_hash IS NOT NULL OR status='approved'")
     conn.execute(f"DROP TABLE {CHANGE_REQUEST_KEEP_TABLE}, {CHANGE_APPROVAL_KEEP_TABLE}")
 
 
@@ -598,23 +609,32 @@ def pending_migrations(db: Database) -> list[int]:
 
 
 def pre_upgrade_backup(db: Database | None = None, *, target: int | None = None,
-                       log: Callable[[str], None] | None = None) -> dict[str, Any]:
-    """Controleer na het wachten opnieuw, vóór iedere schrijfactie; schemaveiligheid blokkeert wel."""
+                       log: Callable[[str], None] | None = None, existing_only: bool = False) -> dict[str, Any]:
+    """Sta migratie van een bestaand schema alleen toe met een geverifieerd terugvalarchief."""
     db = db or get_db()
     check_schema_compatibility(db)
     with upgrade_lock(db):
         check_schema_compatibility(db)
-        return _pre_upgrade_backup(db, target=target, log=log)
+        result = _pre_upgrade_backup(db, target=target, log=log, existing_only=existing_only)
+        if result["status"] not in {"not_needed", "exists", "created"}:
+            raise BackupError(f"Upgrade gestopt: {result['reason']}")
+        return result
+
+
+def _verify_upgrade_file(db: Database, filename: str, version: int) -> None:
+    sha = db.scalar("SELECT sha256 FROM backups WHERE file=%s AND kind=%s AND schema_version=%s",
+                    (filename, UPGRADE_KIND, version))
+    if not sha or not filename or Path(filename).name != filename:
+        raise BackupError("Geregistreerd terugvalarchief met SHA-256 ontbreekt.")
+    verify_backup(get_settings().backup_dir / filename, sha, verify_data=True)
 
 
 def _pre_upgrade_backup(db: Database | None = None, *, target: int | None = None,
-                       log: Callable[[str], None] | None = None) -> dict[str, Any]:
-    """Dump the database before pending migrations run (kind ``pre-upgrade``). Never raises.
-
-    Status: ``not_needed`` (nothing pending / brand-new database), ``exists`` (another process just made it),
-    ``created``, ``skipped`` (too little free space) or ``failed``. The audit row follows after the migration."""
+                       log: Callable[[str], None] | None = None, existing_only: bool = False) -> dict[str, Any]:
+    """Controleer ook een eerder aangemaakt archief opnieuw onder het upgradeslot."""
     say = log or LOGGER.info
     warn = log or LOGGER.warning
+    marker = {}
     try:
         db = db or get_db()
         current = schema_version(db)
@@ -623,19 +643,17 @@ def _pre_upgrade_backup(db: Database | None = None, *, target: int | None = None
             return {"status": "not_needed", "reason": "geen openstaande migraties"}
         if current == 0:
             return {"status": "not_needed", "reason": "nieuwe installatie: nog niets om te bewaren"}
-        current = schema_version(db)
-        pending = [v for v in pending_migrations(db) if target is None or v <= target]
-        if not pending:
-            return {"status": "not_needed", "reason": "migraties al uitgevoerd door een ander proces"}
         # one dump per upgrade, not per start: a failing migration (each one commits on its own) leaves
         # a half-migrated schema and a restart loop; the marker lives until a migration run succeeds
         marker = _pending_marker(db) or {}
-        if marker.get("status") == "created" and int(marker.get("to") or 0) >= max(pending):
-            return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al",
-                    "file": marker.get("file")}
-        if db.scalar("SELECT count(*) FROM backups WHERE kind=%s AND schema_version=%s "
-                     "AND created_at > now() - interval '1 hour'", (UPGRADE_KIND, current)):
-            return {"status": "exists", "reason": "back-up vóór deze upgrade bestaat al"}
+        if marker.get("status") == "created":
+            _verify_upgrade_file(db, marker["file"], marker["from"])
+            if marker.get("origin_file"):
+                _verify_upgrade_file(db, marker["origin_file"], marker["origin_from"])
+            if int(marker["to"]) >= max(pending):
+                return {"status": "exists", "reason": "terugvalarchief opnieuw geverifieerd", "file": marker["file"]}
+        if existing_only:
+            raise BackupError("Een geverifieerd archief voor deze upgrade ontbreekt.")
         info: dict[str, Any] = {"from": current, "to": max(pending), "pending": pending}
         if marker.get("status") == "created":  # an even newer image on top of an unfinished upgrade
             info |= {"origin_file": marker.get("origin_file") or marker.get("file"),
@@ -643,14 +661,16 @@ def _pre_upgrade_backup(db: Database | None = None, *, target: int | None = None
         st = space_status(db)
         if not st["ok"]:
             msg = _space_message(st)
-            warn(f"back-up vóór upgrade overgeslagen: {msg}; MSO start gewoon door")
+            warn(f"Back-up vóór upgrade overgeslagen: {msg}. De migratie is gestopt.")
             _mark(db, info | {"status": "skipped", "reason": msg,
                               "space": {k: st[k] for k in ("free_bytes", "needed_bytes", "path",
                                                            "reference", "reference_bytes",
                                                            "reserve_bytes")}})
             return {"status": "skipped", "reason": msg}
         path = _dump(kind=UPGRADE_KIND, include_secrets=False, timeout=900)
-        row = _register(path, UPGRADE_KIND, False, db)
+        digest = sha256_file(path)
+        verify_backup(path, digest, verify_data=True)
+        row = _register(path, UPGRADE_KIND, False, db, digest=digest)
         _mark(db, info | {"status": "created", "file": row["file"], "size": row["size_bytes"]})
         prune_safety(db)
         say(f"back-up vóór upgrade gemaakt: {row['file']} ({_gb(row['size_bytes'])}; schema "
@@ -658,10 +678,10 @@ def _pre_upgrade_backup(db: Database | None = None, *, target: int | None = None
         return {"status": "created", "file": row["file"], "size_bytes": row["size_bytes"]}
     except Exception as exc:
         reason = redact(f"{exc}")[:400] or type(exc).__name__
-        warn(f"back-up vóór upgrade mislukt: {reason}; MSO start gewoon door (maak zelf een back-up of "
-            "ZFS-snapshot als je wilt terug kunnen)")
+        warn(f"Back-up vóór upgrade mislukt: {reason}. De migratie is gestopt.")
         try:
-            if db is not None:
+            if db is not None and (marker.get("status") != "created" or marker.get("from") == current
+                                   and not marker.get("origin_file")):
                 _mark(db, {"status": "failed", "reason": reason})
         except Exception as mark_exc:  # e.g. the database itself is unreachable: the log line above is all we have
             LOGGER.debug("markering back-up vóór upgrade niet opgeslagen: %s", type(mark_exc).__name__)
@@ -692,7 +712,7 @@ def flush_pre_upgrade(db: Database | None = None) -> dict[str, Any] | None:
         if v.get("space"):
             _space_alert(v["space"] | {"ok": False}, UPGRADE_KIND, db)
     else:
-        audit("systeem", "backup.pre_upgrade_failed", "Back-up vóór de upgrade mislukt; MSO is gewoon gestart",
+        audit("systeem", "backup.pre_upgrade_failed", "Back-up vóór de upgrade mislukt",
               detail={"reason": v.get("reason")})
     return v
 

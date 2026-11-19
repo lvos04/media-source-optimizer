@@ -165,6 +165,8 @@ def _write(path: str, value: Any) -> None:
     try:
         actions.send(media_ref, key, actor=ACTOR, via="change")
     except HTTPException as exc:
+        if 400 <= exc.status_code < 500:
+            raise changes.SourceWriteRefused(str(exc.detail)) from exc
         raise RuntimeError(str(exc.detail)) from exc
 
 

@@ -362,17 +362,17 @@ def test_pre_upgrade_backup_before_pending_migrations(app: Any, old_db: Any, swa
     assert backups.pre_upgrade_backup(old_db)["status"] == "not_needed"
 
 
-def test_pre_upgrade_backup_skips_or_fails_but_never_blocks(app: Any, old_db: Any, swap_db: Any,
-                                                           monkeypatch: pytest.MonkeyPatch) -> None:
-    from mso.db import migrate_up
+def test_pre_upgrade_backup_blocks_when_space_is_low(app: Any, old_db: Any, swap_db: Any,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    from mso.db import schema_version
 
     monkeypatch.setattr(backups.shutil, "disk_usage", lambda _p: Usage(10 * 1024**3, 0, 1024))
-    res = backups.pre_upgrade_backup(old_db, log=lambda _m: None)
-    assert res["status"] == "skipped" and "Te weinig vrije schijfruimte" in res["reason"]
+    with pytest.raises(backups.BackupError, match="Te weinig vrije schijfruimte"):
+        backups.pre_upgrade_backup(old_db, log=lambda _m: None)
     assert not old_db.scalar("SELECT count(*) FROM backups")
-    migrate_up(old_db)
+    assert schema_version(old_db) == 600
     swap_db(old_db)
-    backups.flush_pre_upgrade(old_db)
+    assert backups.flush_pre_upgrade(old_db)["status"] == "skipped"
     assert old_db.scalar("SELECT count(*) FROM audit_log WHERE action='backup.pre_upgrade_skipped'") == 1
     assert old_db.scalar("SELECT status FROM recommendations WHERE dedupe_key='backup.space'") == "open"
 
@@ -381,10 +381,12 @@ def test_pre_upgrade_backup_failure_is_a_log_line(app: Any, old_db: Any, monkeyp
                                                   tmp_path: Path) -> None:
     monkeypatch.setenv("MSO_PG_BIN", str(tmp_path / "bestaat-niet"))
     lines: list[str] = []
-    res = backups.pre_upgrade_backup(old_db, log=lines.append)
-    assert res["status"] == "failed" and "MSO start gewoon door" in lines[-1]
+    with pytest.raises(backups.BackupError, match="Upgrade gestopt"):
+        backups.pre_upgrade_backup(old_db, log=lines.append)
+    assert "migratie is gestopt" in lines[-1]
     assert not old_db.scalar("SELECT count(*) FROM backups")
-    assert old_db.fetchone("SELECT value FROM system_state WHERE key=%s", (backups.PRE_UPGRADE_STATE,))
+    marker = old_db.scalar("SELECT value FROM system_state WHERE key=%s", (backups.PRE_UPGRADE_STATE,))
+    assert marker["status"] == "failed"
 
 
 def test_pre_upgrade_keeps_newest_three(app: Any, old_db: Any) -> None:

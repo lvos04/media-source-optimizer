@@ -29,7 +29,7 @@ from mso.change_actions import require_action
 from mso.config import VERSION, get_settings
 from mso.connectors import base as connectors
 from mso.db import applied_migrations, get_db, jsonb, schema_version
-from mso.machine_keys import ADMIN_LOCK, require_change_key
+from mso.machine_keys import require_change_key
 from mso.security import UnsafeTarget, check_url, limiter
 from mso.vault import get_vault
 
@@ -545,26 +545,31 @@ def _change_write(request: Request, change_id: int, p: Principal, body: BoundCha
             raise change_requests.ChangeRequestError(422, "validation_error", "Onbekend veld in de aanvraag.")
 
     def check(conn, ch):
+        nonlocal p
         if p.machine:
             require_change_key(conn, p)
             require_action(ch)
+        else:
+            current = principal_from_request(request)
+            if current is None or current.user_id != p.user_id:
+                raise HTTPException(401, detail="De sessie is verlopen.")
+            if not current.can(role):
+                raise HTTPException(403, detail=f"Rol '{role}' of hoger vereist")
+            p = current
+
+    def execute(db, ch, reserve):
         if expected is not None:
             changes.check_preview(ch, expected)
-        if approve and expected is not None and ch["approved_by"] == p.actor:
-            changes.check_approval(ch)
-        if not approve:
-            changes.check_approval(ch, actor=p.actor if p.machine else None)
-            if (not p.machine and ch["risk"] == "toestemming_nodig"
-                    and not p.can("admin") and ch["status"] != "approved"):
-                raise HTTPException(403, detail="Goedkeuring door een beheerder vereist")
-
-    def execute(db, ch):
         if approve:
-            return changes.approve_locked(ch, p.actor, db, expected=expected, request_id=request_id)
-        return changes.apply_locked(ch, p.actor, db, request_id=request_id)
+            return changes.approve_locked(ch, p.actor, db, expected=expected, request_id=request_id, reserve=reserve)
+        changes.check_approval(ch, actor=p.actor if p.machine else None)
+        if (not p.machine and ch["risk"] == "toestemming_nodig"
+                and not p.can("admin") and ch["status"] != "approved"):
+            raise HTTPException(403, detail="Goedkeuring door een beheerder vereist")
+        return changes.apply_locked(ch, p.actor, db, request_id=request_id, reserve=reserve)
 
-    return change_requests.run(request, change_id, p.actor, {"expected_preview_hash": expected},
-                               request_id, check, execute, guard_lock=ADMIN_LOCK if p.machine or expected else None)
+    content = body.model_dump() if body else {"expected_preview_hash": None}
+    return change_requests.run(request, change_id, p.actor, content, request_id, check, execute)
 
 
 @router.post("/changes/{change_id}/approve", responses=CHANGE_WRITE_ERRORS | CHANGE_REPLAY_HEADER)

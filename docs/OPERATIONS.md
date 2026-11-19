@@ -128,11 +128,11 @@ Systeem → Back-ups):
   `mso migrate --no-backup`); in de losse-containerstack door `mso migrate` in de `migrate`-container; en voor de
   zekerheid ook bij de start van `api`/`worker`. Een advisory lock en een markering per upgrade zorgen dat er één dump
   per upgrade komt.
-- **Wanneer niet:** zonder openstaande migraties, bij een nieuwe (lege) installatie, of met `mso migrate --no-backup`.
-- **Nooit blokkerend:** te weinig ruimte of een mislukte dump (time-out 15 min) geeft een logregel
-  `back-up vóór upgrade overgeslagen/mislukt: …; MSO start gewoon door` en de migratie gaat door. Na de start staat het in
-  de audit (`backup.pre_upgrade`, `backup.pre_upgrade_skipped` of `backup.pre_upgrade_failed`), bij te weinig ruimte ook
-  in "Wacht op jou".
+- Een nieuwe installatie of een database op de huidige schemaversie kan direct starten.
+- Bij openstaande migraties controleert MSO de SHA-256 en de leesbaarheid van het PostgreSQL-archief.
+  `mso migrate --no-backup` gebruikt een eerder aangemaakt archief voor dezelfde upgrade en controleert het opnieuw.
+  Bij ruimtegebrek, een dumpfout of een onbruikbaar archief stopt de migratie. De oorzaak staat in het app-log.
+  Herstel de vrije ruimte of het terugvalarchief en start de app opnieuw.
 - **Bewaard:** de nieuwste 3. Herstellen kan gewoon in de app (zie *Herstel*, punt 5) of, voor terug naar de vorige
   versie, zoals in [MIGRATION.md](MIGRATION.md) → *Terug naar 1.5.0*.
 

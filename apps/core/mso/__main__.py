@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 
+from mso.backups import BackupError
 from mso.config import get_settings
 from mso.db import NEWER_DATABASE_EXIT_CODE, NewerDatabaseError
 from mso.security import configure_logging
@@ -77,9 +78,7 @@ def _migrate(args: argparse.Namespace) -> None:
             if args.down is not None:
                 print("teruggedraaid:", migrate_down(db, args.down))
             else:
-                if not args.no_backup:
-                    # De bewaker maakt de back-up als aparte stap; de ontwikkelstack gebruikt deze ingang.
-                    backups.pre_upgrade_backup(db, target=args.to, log=_say)
+                backups.pre_upgrade_backup(db, target=args.to, log=_say, existing_only=args.no_backup)
                 print("toegepast:", migrate_up(db, args.to))
                 try:
                     backups.flush_pre_upgrade(db)
@@ -108,7 +107,7 @@ def _backup(args: argparse.Namespace) -> None:
                     _say(f"back-up vóór upgrade: niet nodig ({res.get('reason')})")
         finally:
             db.close()
-        return  # Een mislukte dump blokkeert niet; een nieuwer schema wordt wél geweigerd.
+        return
     from mso.app import init_runtime
 
     init_runtime()
@@ -129,7 +128,7 @@ def main(argv: list[str] | None = None) -> None:
     m = sub.add_parser("migrate")
     m.add_argument("--to", type=int, default=None)
     m.add_argument("--down", type=int, default=None, help="draai terug tot en met deze versie")
-    m.add_argument("--no-backup", action="store_true", help="geen automatische back-up vóór openstaande migraties")
+    m.add_argument("--no-backup", action="store_true", help="gebruik uitsluitend het geverifieerde upgrade-archief")
     m.set_defaults(fn=_migrate)
     b = sub.add_parser("backup")
     b.add_argument("--include-secrets", action="store_true")
@@ -142,6 +141,9 @@ def main(argv: list[str] | None = None) -> None:
     except NewerDatabaseError as exc:
         print(f"[mso] FOUT: {exc}", file=sys.stderr, flush=True)
         raise SystemExit(NEWER_DATABASE_EXIT_CODE) from None
+    except BackupError as exc:
+        print(f"[mso] FOUT: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

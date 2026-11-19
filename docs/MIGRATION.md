@@ -30,12 +30,11 @@ Sonarr/Radarr, Prowlarr, SABnzbd of qBittorrent.
    maakt een handmatige `docker run` zonder `migrate`-container veilig.
 
 **Back-up vóór upgrade (sinds 1.6.0).** Zijn er openstaande migraties en bestaat er al een database, dan maakt MSO
-eerst een back-up van soort `pre-upgrade` (zichtbaar als "Vóór upgrade" in Systeem → Back-ups; de nieuwste 3 blijven
-bewaard). Dat gebeurt één keer per upgrade, ook als `migrate`, `api` en `worker` tegelijk starten. Is er te weinig
-vrije ruimte of mislukt de dump, dan schrijft MSO een duidelijke logregel ("… MSO start gewoon door") en migreert het
-toch; na de start staat het in de audit (`backup.pre_upgrade_skipped` / `backup.pre_upgrade_failed`) en bij te weinig
-ruimte ook in "Wacht op jou". Een nieuwe installatie krijgt geen back-up (er is nog niets te bewaren).
-`mso migrate --no-backup` slaat deze stap over.
+eerst een back-up van soort `pre-upgrade`. In Systeem → Back-ups staan de drie meest recente onder "Vóór upgrade".
+De startprocessen delen een upgradeslot. Onder dat slot controleert MSO de SHA-256 en de leesbaarheid van het
+PostgreSQL-archief. Bij ruimtegebrek, een dumpfout of een onbruikbaar archief stopt de upgrade vóór de volgende
+migratie. De oorzaak staat in het app-log. Een nieuwe installatie kan direct starten.
+`mso migrate --no-backup` controleert het bestaande archief voor deze upgrade.
 
 ## Commando's
 

@@ -69,8 +69,7 @@ def load_modules() -> list[ModuleType]:
 def init_runtime(db: Database | None = None, *, migrate: bool = True) -> Database:
     """Shared by API and worker: DB pool, migrations, vault, connector rows.
 
-    Pending migrations get a ``pre-upgrade`` backup first (only when there is something to keep and enough free
-    space; never blocks the start)."""
+    Bij openstaande migraties op een bestaande database is een geverifieerd archief vereist."""
     settings = get_settings()
     own_db = db is None
     db = db or Database(settings.database_url)
@@ -113,6 +112,8 @@ def _error(status: int, detail: Any, code: str, request: HTTPConnection, *,
                         if key.lower() in {"allow", "retry-after"}}
         return error_response(status, code, safe_details, safe_headers)
     cid = getattr(request.state, "correlation_id", None) or uuid.uuid4().hex[:12]
+    if request.url.path.startswith("/api/v1/changes/") and isinstance(detail, str):
+        detail = redact(detail)
     body = {"detail": detail, "code": code, "correlation_id": cid}
     if has_machine_header(request) or request.url.path.startswith("/api/v1/machine-keys"):
         body.update(message=detail, details={"reason": code} if status in {401, 403} else {},

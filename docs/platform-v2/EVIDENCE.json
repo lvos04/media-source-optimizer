@@ -33,11 +33,11 @@
   "id": "B05-004",
   "status": "Bezig",
   "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "code-HEAD 018b119 (= tag v1.6.0); pytest 789/789 + ruff schoon in deze sessie (INVENTARIS.md §15); retention.py:1-20, :247-275 (GET /api/v1/system/maintenance); tests/test_maintenance.py::test_retention_job_cleans_logs_vacuums_and_never_touches_audit, ::test_maintenance_api; DELTA_MATRIX.md §1 B05-004; ADR-0003 (naam Voetafdruk); header-index-opslag geschat/gemeten/budget: features/usenet/headerindex/engine.py:88-103, apps/web/components/mso/usenet/header-index.tsx:157-161, tests/test_usenet_headerindex.py::test_storage_budget_stops_and_alerts; tweede lezing: DELTA_MATRIX.md §11 (W3, P3, P4, P5)",
-  "blokkade": "30-daagse echte meting alleen op de NAS. Nog te bouwen: P3-10 (verloop en gemeten/geschat/onbekend voor DB, back-ups en /appdata, met hergebruik van de bestaande metingen) en een retentiebesluit in het bestaande retention.py voor 12 tabellen die nu onbeperkt groeien (o.a. usenet_sab_server_events, torrent_actions, torrent_tuning_runs, change_sets, download_outcomes).",
-  "opmerking": "Deels bestaand (retentie, DB-grootte, header-index-budget met geschat naast gemeten). 'Voetafdruk' in MSO 1.6.0 = bronwijzigingen door MSO; B05-004 bedoelt de resource-voetafdruk → Systeem › Opslag en groei (ADR-0003). Aanvulling 2026-11-12 (S-P2-890, besluit gebruiker 2026-11-11, STAPPEN_P2.md 3.2 punt 3b): naast de test op de echte NAS, hardware of met een account rest nog bouwwerk, dus geen NAS-aantekening. Nog te bouwen: S-P3-270 (media-source-optimizer, P3-10; geen resource_samples in apps/core/mso/migrations of retention.py, gemeten 2026-11-12).",
+  "bewijs": "commit 78ce1904c2c0105d1664ec6c9f57d5256d39e978; GitHub Actions ci 44584283240 (https://github.com/lvos04/media-source-optimizer/actions/runs/44584283240); apps/core/tests/test_maintenance.py::test_resource_growth_over_thirty_utc_days, ::test_resource_sample_uses_existing_sources_and_never_publishes_paths, ::test_resource_history_retention_preserves_previous_data, ::test_resource_migration_reverts_only_the_new_table; apps/web/e2e/screens.spec.ts (Opslag en groei); tests/stack/allinone_test.py (scenario's 20 en 21, upgrade en volledige terugval via de gepubliceerde 1.6.0-image)",
+  "blokkade": "30 UTC-dagen aan groei en ruimtegebruik op de echte installatie meten (NIET GEVALIDEERD (echte NAS), STAPPEN_P6.md onderdeel N-P6-05).",
+  "opmerking": "S-P3-270. Systeem → Opslag en groei toont dagmetingen met herkomst en een trend over maximaal 30 UTC-dagen. De bestaande onderhoudstaak bewaart de nieuwe dagmetingen 400 UTC-dagen. De twaalf bestaande groeitabellen behouden hun bewaarbeleid. Containerlogvolume blijft onbekend vanuit MSO.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-12"
+  "bijgewerkt": "2026-11-19"
  },
  {
   "id": "B05-005",

@@ -1,4 +1,4 @@
-"""Media Source Optimizer — all-in-one supervisor (PID 1 child of dumb-init).
+"""Media Source Optimizer — alles-in-één-bewaker als PID 1.
 
 One container runs everything: PostgreSQL 16 (unix socket only, no network, no password),
 database migrations, the API, the worker and the web UI. Only ONE host folder (/appdata) and ONE
@@ -10,7 +10,7 @@ Robustness rules (each fixes a classic self-hosting failure):
 - Clear Dutch error + exit when /appdata is not writable, instead of a crash loop.
 - A stale postmaster.pid from an unclean stop is removed (we are the only process in a fresh container).
 - The database password problem does not exist: PostgreSQL listens on a unix socket in /tmp only.
-- Children that crash are restarted with backoff; SIGTERM stops web → api → worker → database cleanly.
+- Bij uitval volgt herstart met uitstel. SIGTERM stopt web → worker → API → database.
 - Before pending migrations a ``pre-upgrade`` backup is made (if there is room); a failure never blocks the start.
 - Een nieuwer databaseschema houdt de gewone diensten uit; de bewaker wacht zonder herstart tot de app stopt.
 """
@@ -28,10 +28,10 @@ import threading
 import time
 from pathlib import Path
 
+from mso.allinone_privileges import lower_privileges, runtime_identity
 from mso.db import NEWER_DATABASE_EXIT_CODE, Database, NewerDatabaseError, check_schema_compatibility
 
-UID = int(os.environ.get("MSO_UID", "568"))
-GID = int(os.environ.get("MSO_GID", "568"))
+UID, GID = 568, 568
 DATA = Path(os.environ.get("MSO_DATA_DIR", "/appdata"))
 WORK = Path(os.environ.get("MSO_WORK_DIR", str(DATA / "work")))
 PGDATA = DATA / "postgres"
@@ -55,10 +55,11 @@ def fail(msg: str, code: int = 78) -> None:
 
 # ------------------------------------------------------------------ privileges & folders
 def demote() -> None:
-    if os.getuid() == 0:
-        os.setgroups([])
-        os.setgid(GID)
-        os.setuid(UID)
+    try:
+        lower_privileges(UID, GID)
+    except (OSError, ValueError) as exc:
+        log(f"FOUT: rechtenwissel naar {UID}:{GID} mislukt: {exc}")
+        raise
 
 
 def prepare_dirs(*, database_only: bool = False) -> None:
@@ -286,7 +287,31 @@ def wait_on_newer_schema(pg: Child, children: list[Child] | None = None) -> None
         child.stop()
     pg.stop(60)
     log(f"FOUT: {NewerDatabaseError()}; API en worker blijven uit; wacht op stoppen van de app.")
-    STOP.wait()
+    while not STOP.wait(2):
+        reap_children([])
+
+
+def reap_children(children: list[Child]) -> None:
+    """Ruim als PID 1 ook geadopteerde wezen op en behoud de exitcodes van beheerde kinderen."""
+    if os.getpid() != 1:
+        return
+    managed = {
+        child.proc.pid: child.proc
+        for child in children
+        if child.proc is not None and child.proc.returncode is None
+    }
+    while True:
+        try:
+            exited = os.waitid(os.P_ALL, 0, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        except ChildProcessError:
+            return
+        if exited is None:
+            return
+        process = managed.pop(exited.si_pid, None)
+        if process is not None:
+            process.poll()
+        else:
+            os.waitpid(exited.si_pid, 0)
 
 
 def main() -> None:
@@ -314,12 +339,16 @@ def main() -> None:
     except Exception:
         pg.stop()
         fail("databaseschemacontrole mislukt; zie het databaselog en probeer de app opnieuw te starten.")
-    if newer_schema:
+    if not newer_schema:
+        prepare_dirs()  # Pas na de alleen-lezen schemacontrole applicatiemappen voorbereiden.
+    try:
         demote()
+    except (OSError, ValueError):
+        pg.stop(60)
+        fail("bewaker stopte omdat de rechtenwissel mislukte.")
+    if newer_schema:
         wait_on_newer_schema(pg)
         return
-    prepare_dirs()
-    demote()  # Ook applicatiemappen pas na de alleen-lezen schemacontrole voorbereiden.
     # safety net for upgrades: a dump before pending migrations (only when there are any and the disk has room).
     # Een dumpfout blokkeert niet; een database van een nieuwere versie wel.
     rc = run_once("back-up vóór upgrade", [sys.executable, "-m", "mso", "backup", "--pre-upgrade"])
@@ -360,6 +389,7 @@ def main() -> None:
 
     backoff: dict[str, float] = {}
     while not STOP.is_set():
+        reap_children([pg, *children])
         if any(c.proc is not None and c.proc.poll() == NEWER_DATABASE_EXIT_CODE for c in children):
             wait_on_newer_schema(pg, children)
             return
@@ -394,6 +424,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    try:
+        UID, GID = runtime_identity()
+    except ValueError as exc:
+        fail(str(exc))
     # sanity: the runtime user must exist for postgres
     try:
         pwd.getpwuid(UID)
@@ -402,4 +436,7 @@ if __name__ == "__main__":
         fail(f"gebruiker {UID}:{GID} bestaat niet in de image")
     if shutil.which("postgres") is None:
         fail("postgres ontbreekt in de image")
-    main()
+    try:
+        main()
+    except subprocess.SubprocessError:
+        fail("een start- of stopopdracht is mislukt; zie het app-log.")

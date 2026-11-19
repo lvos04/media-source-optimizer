@@ -16,6 +16,10 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
     before the migrations, every migration is applied again, data and login intact
 11  bouwgegevens uit de alles-in-één-image
 12  readiness en connectorcontract via de publieke webpoort
+13  rechten van de PID 1-boom en de aparte healthcheck bij beide startmodi
+14  healthcheck weigert een onmogelijke rechtenwissel vóór HTTP
+15  rechtenproef weigert een healthcheck met overgeslagen wissel of extra capabilities
+16  PID 1 ruimt een overgenomen zombie op
 """
 
 from __future__ import annotations
@@ -38,6 +42,21 @@ BASE = f"http://127.0.0.1:{PORT}"
 ADMIN, ADMIN_PW = "beheerder", "Aio-" + secrets.token_urlsafe(16)
 SAB_KEY = "sab" + secrets.token_hex(16)
 RESULTS: list[tuple[str, bool, str]] = []
+HEALTHCHECK = ["python", "/usr/local/lib/mso/healthcheck.py"]
+ZERO_CAPS = "0000000000000000"
+PROCESS_STATUS = """
+import json
+from pathlib import Path
+
+processes = {}
+for entry in Path("/proc").iterdir():
+    if entry.name.isdecimal():
+        try:
+            processes[entry.name] = (entry / "status").read_text()
+        except (FileNotFoundError, ProcessLookupError):
+            pass  # Het proces is tussen de twee procfs-metingen afgelopen.
+print(json.dumps(processes))
+"""
 
 
 def sh(*cmd: str, check: bool = True) -> str:
@@ -81,6 +100,123 @@ def run(data: Path, *extra: str, name: str = NAME) -> None:
         *extra,
         IMAGE,
     )
+
+
+def parse_status(text: str) -> dict[str, str]:
+    return {key: value.strip() for key, _, value in (line.partition(":") for line in text.splitlines())}
+
+
+def privilege_errors(status: dict[str, str], bounding: str) -> list[str]:
+    expected = {
+        "Uid": "568 568 568 568",
+        "CapEff": ZERO_CAPS,
+        "CapPrm": ZERO_CAPS,
+        "CapAmb": ZERO_CAPS,
+        "CapBnd": bounding,
+        "NoNewPrivs": "1",
+    }
+    return [
+        f"{field}={status.get(field, 'ontbreekt')}"
+        for field, value in expected.items()
+        if " ".join(status.get(field, "").split()) != value
+    ]
+
+
+def privilege_probe(*, root_start: bool) -> tuple[bool, str]:
+    registered = json.loads(sh("docker", "inspect", "-f", "{{json .Config.Healthcheck.Test}}", NAME))
+    if registered != ["CMD", *HEALTHCHECK]:
+        return False, "Docker-healthcheck staat niet in de verwachte exec-vorm"
+    initial = parse_status(sh("docker", "exec", NAME, "cat", "/proc/self/status"))
+    bounding = ZERO_CAPS if root_start else initial["CapBnd"]
+    raw = json.loads(sh("docker", "exec", NAME, "python", "-c", PROCESS_STATUS))
+    processes = {pid: parse_status(status) for pid, status in raw.items()}
+    tree = {"1"}
+    while True:
+        descendants = {pid for pid, status in processes.items() if status["PPid"] in tree} - tree
+        if not descendants:
+            break
+        tree.update(descendants)
+    errors = []
+    if len(tree) < 5:
+        errors.append("onvolledige procesboom")
+    for pid in sorted(tree, key=int):
+        wrong = privilege_errors(processes.get(pid, {}), bounding)
+        if wrong:
+            errors.append(f"PID {pid}: {', '.join(wrong)}")
+    health = parse_status(sh("docker", "exec", NAME, *registered[1:], "--controle"))
+    wrong = privilege_errors(health, bounding)
+    if wrong:
+        errors.append(f"healthcheck: {', '.join(wrong)}")
+    if errors:
+        return False, "; ".join(errors)
+    return True, f"{len(tree)} processen incl. PID 1 plus healthcheck; CapBnd={bounding}"
+
+
+def healthcheck_refusals() -> None:
+    denied = subprocess.run(
+        ["docker", "run", "--rm", "--network", f"container:{NAME}", "--cap-drop", "SETUID",
+         "--entrypoint", HEALTHCHECK[0], IMAGE, HEALTHCHECK[1]],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    transition_failed = "Healthcheck: rechtenwissel" in denied.stderr
+    record("14 healthcheck zonder SETUID", denied.returncode == 1 and transition_failed,
+           f"exitcode {denied.returncode}; fout bij rechtenwissel={transition_failed}")
+
+    # Injecteer de fout in één diagnoseproces van de testcontainer. De image en de normale healthcheck draaien door.
+    skip_drop = """
+import runpy
+import sys
+from mso import allinone_privileges
+
+allinone_privileges.lower_privileges = lambda *_: None
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
+    bypassed = parse_status(sh("docker", "exec", NAME, "python", "-c", skip_drop, HEALTHCHECK[1], "--controle"))
+    ordinary = parse_status(sh("docker", "exec", NAME, *HEALTHCHECK, "--controle"))
+    failure_fields = [field.partition("=")[0] for field in privilege_errors(bypassed, ZERO_CAPS)]
+    # Isoleer UID 0 en elk extra capability-veld van de andere afwijkingen.
+    invalid = {"Uid": "0 0 0 0", **dict.fromkeys(("CapEff", "CapPrm", "CapAmb", "CapBnd"), "0000000000000001")}
+    refused = [
+        field for field, value in invalid.items()
+        if privilege_errors({**ordinary, field: value}, ZERO_CAPS) == [f"{field}={value}"]
+    ]
+    bypassed_as_root = bypassed.get("Uid", "").split() == ["0"] * 4
+    record("15 rechtenproef weigert overgeslagen wissel en afwijkende rechten",
+           bypassed_as_root and "Uid" in failure_fields and refused == list(invalid),
+           f"diagnose afgekeurd op {', '.join(failure_fields)}; afzonderlijk afgekeurd: {', '.join(refused)}")
+
+
+def orphan_probe() -> None:
+    orphan = """
+import os
+import time
+
+if os.fork() == 0:
+    deadline = time.monotonic() + 3
+    while os.getppid() != 1 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    print(os.getpid(), os.getppid(), flush=True)
+os._exit(0)
+"""
+    pid, parent = sh("docker", "exec", "--user", "568:568", NAME, "python", "-c", orphan).split()
+    wait_reaped = """
+import sys
+import time
+from pathlib import Path
+
+for _ in range(80):
+    if not Path('/proc', sys.argv[1]).exists():
+        sys.exit(0)
+    time.sleep(0.1)
+sys.exit(1)
+"""
+    reaped = subprocess.run(
+        ["docker", "exec", "--user", "568:568", NAME, "python", "-c", wait_reaped, pid],
+        check=False, timeout=15,
+    )
+    record("16 PID 1 ruimt overgenomen zombie op", parent == "1" and reaped.returncode == 0,
+           f"overgenomen door PID {parent}; opruimcontrole exitcode {reaped.returncode}")
 
 
 def login() -> tuple[httpx.Client, str]:
@@ -147,6 +283,9 @@ def main() -> int:
             st == "healthy" and all(line.startswith("568:568") for line in owners.splitlines()) and procs == "[568]",
             f"health={st}; {owners.replace(chr(10), ', ')}; proces-uids (excl. PID 1)={procs}",
         )
+        root_ok, root_details = privilege_probe(root_start=True)
+        healthcheck_refusals()
+        orphan_probe()
 
         # 2
         c = httpx.Client(base_url=BASE, timeout=30)
@@ -304,7 +443,7 @@ def main() -> int:
         sh("docker", "stop", "-t", "60", NAME)
         took = time.monotonic() - t0
         code = sh("docker", "inspect", "-f", "{{.State.ExitCode}}", NAME)
-        record("6 netjes stoppen", took < 30, f"{took:.1f} s, exitcode {code}")
+        record("6 netjes stoppen", took < 30 and code == "0", f"{took:.1f} s, exitcode {code}")
 
         # 9 (before the container is removed)
         all_logs = subprocess.run(["docker", "logs", NAME], capture_output=True, text=True, check=False)
@@ -318,10 +457,16 @@ def main() -> int:
         # 7
         d2 = tmp / "appdata568"
         d2.mkdir()
-        os.chown(d2, 568, 568)
-        run(d2, "--user", "568:568")
+        # Gebruik de UID van de lokale Docker-runtime voor de tijdelijke testmap.
+        sh("docker", "run", "--rm", "--network", "none", "-v", f"{d2}:/d",
+           "--entrypoint", "chown", IMAGE, "568:568", "/d")
+        # Lokale GET-controles blijven bereikbaar met een onbruikbare proxy in de omgeving.
+        run(d2, "--user", "568:568", "-e", "http_proxy=http://localhost:1", "-e", "no_proxy=")
         st = wait_healthy()
         record("7 --user 568 op map van 568 → gezond", st == "healthy", f"health={st}")
+        user_ok, user_details = privilege_probe(root_start=False)
+        record("13 procesboom en healthcheck bij beide startmodi", root_ok and user_ok,
+               f"root-start: {root_details}; gebruiker 568: {user_details}")
 
         # 8
         d3 = tmp / "appdata-root"
@@ -337,7 +482,7 @@ def main() -> int:
         sh("docker", "network", "rm", NET, check=False)
         sh("docker", "run", "--rm", "-v", f"{tmp}:/t", "--entrypoint", "sh", IMAGE, "-c", "rm -rf /t/*", check=False)
 
-    ok = all(r[1] for r in RESULTS)
+    ok = len(RESULTS) == 16 and all(r[1] for r in RESULTS)
     out = Path(os.environ.get("MSO_STACK_RESULTS_ROOT", Path(__file__).parent / "results"))
     out.mkdir(exist_ok=True)
     lines = [
@@ -353,6 +498,7 @@ def main() -> int:
     (out / "allinone-report.json").write_text(
         json.dumps([{"scenario": n, "ok": o, "detail": d} for n, o, d in RESULTS], indent=2, ensure_ascii=False)
     )
+    print(f"Alles-in-één: {sum(r[1] for r in RESULTS)}/16 scenario's groen", flush=True)
     return 0 if ok else 1
 
 

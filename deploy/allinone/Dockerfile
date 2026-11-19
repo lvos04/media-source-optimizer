@@ -46,8 +46,7 @@ COPY apps/core/pyproject.toml ./
 COPY apps/core/mso ./mso
 RUN --mount=type=secret,id=ca_bundle,required=false \
     if [ -s /run/secrets/ca_bundle ]; then export PIP_CERT=/run/secrets/ca_bundle; fi; \
-    pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore --prefix=/install \
-        . dumb-init==1.2.5.post1
+    pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore --prefix=/install .
 
 # ---------------------------------------------------------------- runtime
 FROM ${PYTHON_IMAGE}
@@ -88,5 +87,4 @@ VOLUME ["/appdata"]
 EXPOSE 38081
 HEALTHCHECK --interval=30s --timeout=8s --start-period=90s --retries=3 \
   CMD ["python", "/usr/local/lib/mso/healthcheck.py"]
-ENTRYPOINT ["/usr/local/bin/dumb-init", "--"]
-CMD ["python", "/usr/local/lib/mso/supervisor.py"]
+ENTRYPOINT ["python", "/usr/local/lib/mso/supervisor.py"]

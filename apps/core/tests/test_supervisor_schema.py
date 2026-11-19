@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import runpy
 import signal
 import threading
-import urllib.error
-import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,6 +14,7 @@ from typing import Any
 import psycopg
 import pytest
 
+from mso import allinone_privileges
 from mso.db import NEWER_DATABASE_EXIT_CODE
 
 DEPLOY = Path(__file__).resolve().parents[3] / "deploy" / "allinone"
@@ -130,13 +130,61 @@ def test_supervisor_keeps_other_migration_errors_separate(supervisor: Any) -> No
 
 
 def test_waiting_supervisor_is_not_application_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unavailable(*_: Any, **__: Any) -> Any:
-        raise urllib.error.URLError("API en web zijn niet gestart")
+    checked = []
 
-    monkeypatch.setattr(urllib.request, "urlopen", unavailable)
-    with pytest.raises(SystemExit) as exc:
-        runpy.run_path(str(DEPLOY / "healthcheck.py"))
-    assert exc.value.code == 1
+    def unavailable(_self: Any, method: str, path: str) -> None:
+        checked.append((method, path))
+        raise OSError("API en web zijn niet gestart")
+
+    monkeypatch.setattr(http.client.HTTPConnection, "request", unavailable)
+    main = runpy.run_path(str(DEPLOY / "healthcheck.py"))["main"]
+    monkeypatch.setitem(main.__globals__, "lower_privileges", lambda *_: None)
+    assert main([]) == 1
+    assert checked == [("GET", "/healthz")]
+
+
+@pytest.mark.parametrize("identity", ["0", "verkeerd", "568"])
+def test_healthcheck_stops_before_http_if_privileges_cannot_be_dropped(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], identity: str,
+) -> None:
+    def unexpected_http(*_: Any, **__: Any) -> Any:
+        pytest.fail("HTTP-controle vóór een geslaagde rechtenwissel")
+
+    def denied(*_: Any) -> None:
+        assert identity == "568"
+        raise PermissionError("synthetische rechtenweigering")
+
+    monkeypatch.setenv("MSO_UID", identity)
+    monkeypatch.setattr(http.client, "HTTPConnection", unexpected_http)
+    main = runpy.run_path(str(DEPLOY / "healthcheck.py"))["main"]
+    monkeypatch.setitem(main.__globals__, "lower_privileges", denied)
+    assert main([]) == 1
+    assert "rechtenwissel" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("field", "value"), [("Uid", "0 0 0 0"), ("CapEff", "0000000000000001")])
+def test_healthcheck_refuses_an_unexpected_privilege_profile(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], field: str, value: str,
+) -> None:
+    def unexpected_http(*_: Any, **__: Any) -> Any:
+        pytest.fail("HTTP-controle met een onveilig rechtenprofiel")
+
+    for name in ("MSO_UID", "MSO_GID"):
+        monkeypatch.setenv(name, "568")
+    status = {
+        "Uid": "568 568 568 568",
+        "Gid": "568 568 568 568",
+        "NoNewPrivs": "1",
+        **dict.fromkeys(("CapEff", "CapPrm", "CapInh", "CapAmb"), "0000000000000000"),
+    }
+    status[field] = value
+    monkeypatch.setattr(allinone_privileges.os, "geteuid", lambda: 568)
+    monkeypatch.setattr(allinone_privileges, "_set_process_control", lambda *_: None)
+    monkeypatch.setattr(allinone_privileges, "process_status", lambda: status)
+    monkeypatch.setattr(http.client, "HTTPConnection", unexpected_http)
+    main = runpy.run_path(str(DEPLOY / "healthcheck.py"))["main"]
+    assert main([]) == 1
+    assert "rechtenwissel" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("stage", ["open", "check", "close"])

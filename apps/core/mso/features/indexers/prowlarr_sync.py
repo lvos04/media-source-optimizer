@@ -411,13 +411,24 @@ CAT_NAMES_NL = {"Movies": "Films", "TV": "Series"}
 def _normalize(rec: dict[str, Any] | None) -> dict[str, Any] | None:
     if rec is None:
         return None
-    return {
+    result = {
         "name": rec.get("name"),
         "implementation": rec.get("implementation"),
-        "baseUrl": str(field_value(rec, "baseUrl") or "").rstrip("/"),
-        "apiPath": field_value(rec, "apiPath") or "/api",
-        "enable": bool(rec.get("enable")),
+        "baseUrl": field_value(rec, "baseUrl"),
+        "apiPath": field_value(rec, "apiPath"),
+        "enable": rec.get("enable"),
     }
+    for field in ("name", "implementation", "baseUrl", "apiPath"):
+        value = result[field]
+        if not isinstance(value, str) or (field != "apiPath" and not value.strip()):
+            raise ProwlarrError(f"Prowlarr-indexerveld '{field}' is onleesbaar", "malformed")
+    if not isinstance(result["enable"], bool):
+        raise ProwlarrError("Prowlarr-indexerveld 'enable' is onleesbaar", "malformed")
+    base = urlsplit(result["baseUrl"])
+    if base.scheme not in ("http", "https") or not base.hostname:
+        raise ProwlarrError("Prowlarr-indexerveld 'baseUrl' is onleesbaar", "malformed")
+    result["baseUrl"] = result["baseUrl"].rstrip("/")
+    return result
 
 
 def summary(reg: dict[str, Any] | None) -> str | None:
@@ -461,13 +472,18 @@ def find_registrations(
     target = pub + spec["path"] if pub else None
     out = []
     for idx in indexers:
-        if idx.get("implementation") != spec["implementation"]:
+        implementation = idx.get("implementation")
+        named = idx.get("name") == f"{MSO_INDEXER_PREFIX} ({spec['label']})"
+        if not named and isinstance(implementation, str) and implementation != spec["implementation"]:
             continue
         base = norm_url(field_value(idx, "baseUrl"))
-        if (target and base == target) or str(
-            idx.get("name") or ""
-        ) == f"{MSO_INDEXER_PREFIX} ({spec['label']})":
+        if named or (target and base == target):
+            if implementation != spec["implementation"]:
+                raise ProwlarrError("Prowlarr-indexerveld 'implementation' is onleesbaar voor deze registratie",
+                                    "malformed")
             out.append(idx)
+        elif not isinstance(implementation, str) or not isinstance(idx.get("name"), str) or not base:
+            raise ProwlarrError("Prowlarr-indexeridentiteit is onleesbaar", "malformed")
     return out
 
 
@@ -570,6 +586,8 @@ def _applier() -> changes.Applier:
 
     def read(path: str) -> Any:
         found = find_registrations(client.indexers(), kind_of(path))
+        if len(found) > 1:
+            raise ProwlarrError("Prowlarr-indexermeting is onleesbaar door dubbele registraties", "malformed")
         return summary(_normalize(found[0])) if found else None
 
     def write(path: str, value: Any) -> None:

@@ -18,17 +18,33 @@ approved malware-cleanup change (``features/torrent/cleanup.py``); nothing else 
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from mso.connectors import base as cb
+from mso.features.torrent import policy
 from mso.security import redact
 
 TRACKER_STATUS = {0: "disabled", 1: "not_contacted", 2: "working", 3: "updating", 4: "not_working"}
 # qBittorrent ≥ 5.1 (WebAPI 2.11.x) also reports 'tracker error' / 'unreachable' as distinct statuses 5/6
 TRACKER_STATUS.update({5: "tracker_error", 6: "unreachable"})
 PRIVATE_MSG = "this torrent is private"
+PREFERENCE_TYPES = {
+    "bool": (bool,), "int": (int,), "rate": (int,), "float": (int, float), "string": (str,),
+    "patterns": (str, list, tuple),
+}
+
+
+class MissingPreference(ValueError):
+    pass
+
+
+def _measured_value(value: Any, types: tuple[type, ...], field: str) -> Any:
+    if type(value) not in types or (type(value) is float and not math.isfinite(value)):
+        raise ValueError(f"qBittorrent-veld '{field}' is onleesbaar")
+    return value
 
 
 @dataclass
@@ -210,7 +226,14 @@ class QbitAdapter:
     def read_value(self, path: str) -> Any:
         kind, _, rest = path.partition(":")
         if kind == "pref":
-            return self.qb.preferences().get(rest)
+            meta = policy.ALLOWED_PREFS[rest]
+            value = self.qb.preferences().get(rest)
+            if value is None:
+                raise MissingPreference(f"qBittorrent-instelling '{rest}' is onleesbaar")
+            value = _measured_value(value, PREFERENCE_TYPES[meta["kind"]], rest)
+            if isinstance(value, (list, tuple)) and any(not isinstance(pattern, str) for pattern in value):
+                raise ValueError(f"qBittorrent-instelling '{rest}' is onleesbaar")
+            return value
         if kind == "transfer" and rest == "alt_speed":
             return bool(self.qb.speed_limits_mode())
         if kind == "torrent":
@@ -219,16 +242,16 @@ class QbitAdapter:
             if t is None:
                 raise ValueError("torrent niet (meer) aanwezig in qBittorrent")
             if field_ in ("up_limit", "dl_limit"):
-                value = t.get(field_)
-                if value is None:
-                    raise ValueError("qBittorrent heeft de gevraagde snelheidslimiet niet teruggegeven.")
-                return int(value)
+                return _measured_value(t.get(field_), (int,), "snelheidslimiet")
             if field_ == "share_limits":
-                return {
-                    "ratio_limit": t.get("ratio_limit", -2),
-                    "seeding_time_limit": t.get("seeding_time_limit", -2),
-                    "inactive_seeding_time_limit": t.get("inactive_seeding_time_limit", -2),
+                limits = {
+                    "ratio_limit": _measured_value(t.get("ratio_limit"), (int, float), "ratio_limit"),
+                    "seeding_time_limit": _measured_value(t.get("seeding_time_limit"), (int,), "seeding_time_limit"),
                 }
+                inactive = "inactive_seeding_time_limit"
+                if inactive in t or self.qb.cap(inactive):
+                    limits[inactive] = _measured_value(t.get(inactive), (int,), inactive)
+                return limits
         raise ValueError(f"onbekend pad {path}")
 
     def write_value(self, path: str, value: Any) -> None:

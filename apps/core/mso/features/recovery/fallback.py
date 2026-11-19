@@ -53,7 +53,6 @@ from mso.domain import categories
 from mso.domain.outcomes import FAILURE_REASONS, outcome_at, recommend
 from mso.domain.release import is_episodic, parse_title, title_part, title_similarity
 from mso.features.recovery import actions, blacklist, candidates
-from mso.security import redact
 
 LOGGER = logging.getLogger(__name__)
 TARGET = "download_send"
@@ -98,21 +97,23 @@ def parse_path(path: str) -> tuple[str, str]:
 def _client_has(row: dict[str, Any]) -> bool:
     """Read-back at the source: is the download really in the client?"""
     ref = row.get("client_ref")
-    if not ref:
-        return False
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError("Download-ID van de herstelverzending is onleesbaar")
     if row["client"] == "sabnzbd":
         mod = importlib.import_module("mso.connectors.sabnzbd")
         sab = mod.SabClient.from_config()
         try:
-            queue = sab.queue(limit=500) or {}
-            if any(str(s.get("nzo_id")) == ref for s in queue.get("slots") or []):
+            queue = mod.measured_download_slots(sab.queue(limit=500))
+            if any(s["nzo_id"] == ref for s in queue):
                 return True
-            hist = sab.history(limit=500) or {}
-            return any(str(s.get("nzo_id")) == ref for s in hist.get("slots") or [])
+            hist = mod.measured_download_slots(sab.history(limit=500))
+            return any(s["nzo_id"] == ref for s in hist)
         finally:
             close = getattr(sab, "close", None)
             if callable(close):
                 close()
+    if row["client"] != "qbittorrent":
+        raise ValueError("Downloadclient van de herstelverzending is onleesbaar")
     mod = importlib.import_module("mso.connectors.qbittorrent")
     qb = mod.QbitClient.from_config()
     for attempt in range(4):  # qBittorrent adds asynchronously: give it a moment
@@ -148,11 +149,7 @@ def _read(path: str) -> str:
     if row["status"] in ("download_ok", "download_failed"):
         return AFTER
     label = CLIENT_LABEL.get(row["client"], row["client"])
-    try:
-        found = _client_has(dict(row))
-    except Exception as exc:  # client unreachable: cannot confirm
-        return f"niet te controleren in {label}: {redact(str(exc))[:120]}"
-    return AFTER if found else f"niet gevonden in {label}"
+    return AFTER if _client_has(dict(row)) else f"niet gevonden in {label}"
 
 
 def _write(path: str, value: Any) -> None:

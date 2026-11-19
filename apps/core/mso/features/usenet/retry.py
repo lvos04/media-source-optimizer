@@ -36,7 +36,7 @@ from fastapi import HTTPException
 from mso import changes, state
 from mso import settings_registry as sr
 from mso.audit import audit
-from mso.connectors.sabnzbd import RETRY_AFTER, RETRY_BEFORE, RETRY_TARGET, SabClient, SabError
+from mso.connectors.sabnzbd import RETRY_AFTER, RETRY_BEFORE, RETRY_TARGET, SabClient, SabError, measured_download_slots
 from mso.db import get_db
 from mso.domain import outcomes
 from mso.domain.outcomes import FAILURE_REASONS
@@ -231,16 +231,19 @@ def candidates(client: SabClient, servers: list[dict[str, Any]] | None = None) -
 def read_state(client: SabClient, nzo_id: str) -> str:
     row = _row(nzo_id)
     ids = {nzo_id} | ({row["new_nzo_id"]} if row and row.get("new_nzo_id") else set())
-    q = client.queue(limit=1000) or {}
-    if any(str(s.get("nzo_id")) in ids for s in q.get("slots") or []):
+    q = measured_download_slots(client.queue(limit=1000))
+    if any(s["nzo_id"] in ids for s in q):
         return RETRY_AFTER
-    hist = client.history(limit=1000) or {}
+    hist = measured_download_slots(client.history(limit=1000))
     retried = bool(row and row.get("retried_at"))
-    for s in hist.get("slots") or []:
-        if str(s.get("nzo_id")) not in ids:
+    for s in hist:
+        if s["nzo_id"] not in ids:
             continue
-        if str(s.get("status")) == "Failed":
+        status = s.get("status")
+        if status == "Failed":
             return "opnieuw mislukt" if retried else RETRY_BEFORE
+        if status != "Completed":
+            raise SabError("SABnzbd-historystatus is onleesbaar of nog in behandeling", "invalid")
         return RETRY_AFTER if retried else "niet mislukt"
     return "niet gevonden in SABnzbd"
 

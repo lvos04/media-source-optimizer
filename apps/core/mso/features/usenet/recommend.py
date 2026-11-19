@@ -62,7 +62,7 @@ def _bad(p: dict[str, Any], sab: dict[str, dict[str, Any]]) -> str | None:
 
 def suggestions(period_days: int = 30) -> dict[str, Any]:
     with SabClient.from_config() as client:
-        servers = client.servers()
+        servers = client.servers(measure=("priority", "enable"))
         try:
             serverstatus.refresh(client)
         except Exception as exc:  # fall back to the last persisted SABnzbd status
@@ -291,7 +291,7 @@ def propose(actor: str, ops: list[dict[str, Any]] | None = None, period_days: in
         explanation = " ".join(s["notes"]) or explanation
     else:
         with SabClient.from_config() as client:
-            current = {sv["name"]: sv for sv in client.servers()}
+            current = {sv["name"]: sv for sv in client.servers(measure=tuple(SERVER_FIELDS))}
         clean = []
         for op in ops:
             path = str(op.get("path", ""))

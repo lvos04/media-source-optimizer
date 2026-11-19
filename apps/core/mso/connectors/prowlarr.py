@@ -112,7 +112,10 @@ class ProwlarrClient:
         return self.request("GET", "health") or []
 
     def indexers(self) -> list[dict[str, Any]]:
-        return self.request("GET", "indexer") or []
+        indexers = self.request("GET", "indexer")
+        if not isinstance(indexers, list) or any(not isinstance(row, dict) for row in indexers):
+            raise ProwlarrError("Prowlarr-indexerlijst is onleesbaar", "malformed")
+        return indexers
 
     def indexer_status(self) -> list[dict[str, Any]]:
         return self.request("GET", "indexerstatus") or []

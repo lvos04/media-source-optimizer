@@ -36,6 +36,7 @@ from mso.connectors import base as cb
 from mso.db import get_db
 from mso.features.torrent import policy
 from mso.features.torrent import settings as ts
+from mso.features.torrent.adapters import MissingPreference
 from mso.security import redact
 
 LOGGER = logging.getLogger(__name__)
@@ -278,14 +279,14 @@ def ensure_prevention(actor: str = ACTOR, *, manual: bool = False) -> dict[str, 
         ad = _adapter()
         enabled_raw = ad.read_value(f"pref:{PREF_ENABLED}")
         patterns_raw = ad.read_value(f"pref:{PREF_PATTERNS}")
-    except Exception as exc:
-        return {"reason": f"qBittorrent niet bereikbaar: {redact(str(exc))[:160]}"}
-    if enabled_raw is None or patterns_raw is None:
+    except MissingPreference:
         return {
             "reason": "Deze qBittorrent-versie heeft de instelling 'bestandsnamen uitsluiten' niet (pas vanaf "
             "4.6); werk qBittorrent bij",
             "supported": False,
         }
+    except Exception as exc:
+        return {"reason": f"qBittorrent niet bereikbaar: {redact(str(exc))[:160]}"}
     before = policy.join_patterns(policy.split_patterns(patterns_raw))
     merged, added = merged_patterns(patterns_raw)
     after = policy.join_patterns(merged)

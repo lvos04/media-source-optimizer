@@ -147,22 +147,40 @@ class SabClient:
     def server_stats(self) -> dict[str, Any]:
         return dict(self._call("server_stats"))
 
-    def _raw_servers(self) -> list[dict[str, Any]]:
-        """``get_config&section=servers`` as SABnzbd returns it (incl. username; the password is masked)."""
-        body = self._call("get_config", {"section": "servers"})
-        servers = (body.get("config") or {}).get("servers") or []
-        if isinstance(servers, dict):  # very old versions: {name: {...}}
-            servers = [dict(v, name=k) for k, v in servers.items()]
-        return [s for s in servers if isinstance(s, dict)]
+    def _config_rows(self, section: str) -> list[dict[str, Any]]:
+        body = self._call("get_config", {"section": section})
+        config = body.get("config") if isinstance(body, dict) else None
+        rows = config.get(section) if isinstance(config, dict) else None
+        if isinstance(rows, dict) and all(isinstance(v, dict) for v in rows.values()):  # old versions
+            rows = [dict(v, name=k) for k, v in rows.items()]
+        if not isinstance(rows, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("name"), str) or not row["name"].strip()
+            for row in rows
+        ):
+            raise SabError(f"SABnzbd-configuratie '{section}' is onleesbaar", "invalid")
+        return rows
 
-    def servers(self, *, fingerprint_key: bytes | None = None) -> list[dict[str, Any]]:
+    def _raw_servers(self) -> list[dict[str, Any]]:
+        """Serverconfiguratie zoals SABnzbd die teruggeeft, inclusief gebruikersnaam."""
+        return self._config_rows("servers")
+
+    def server_value(self, name: str, field: str) -> int:
+        for server in self._raw_servers():
+            if server["name"] == name:
+                return _measured_server_field(server, field)
+        raise SabError("SABnzbd-server niet gevonden", "invalid")
+
+    def servers(
+        self, *, fingerprint_key: bytes | None = None, measure: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
         """Server list from ``get_config&section=servers`` without credentials.
 
         Account fields (SABnzbd ≥ 3.2, only when the owner filled them in SABnzbd): ``expire_date`` (ISO date or
         ``None``; SABnzbd clears it on the day itself), ``quota_bytes`` (``quota`` in K/M/G/T notation, 1024-based
         like SABnzbd's ``from_units``) and ``usage_at_start`` (SABnzbd's byte total when the quota was set).
         With ``fingerprint_key`` every server also gets ``fingerprint``: a keyed hash of host/port/SSL/username/
-        expiry/quota, so a change in SABnzbd can be noticed without storing the username."""
+        expiry/quota, so a change in SABnzbd can be noticed without storing the username.
+        Fields in ``measure`` must be readable from the source when preparing a write."""
         out = []
         for s in self._raw_servers():
             item = {
@@ -181,6 +199,8 @@ class SabClient:
                 "quota_bytes": self._sab_units(s.get("quota")),
                 "usage_at_start": max(0, _int(s.get("usage_at_start"), 0)),
             }
+            for field in measure:
+                item[field] = _measured_server_field(s, field)
             if fingerprint_key:
                 item["fingerprint"] = self._fingerprint(fingerprint_key, s)
             out.append(item)
@@ -343,26 +363,23 @@ class SabClient:
         return [str(c) for c in cats if str(c) not in ("*", "")]
 
     # ---- categories in detail (1.6.0: '*' diagnosis and the ``sabnzbd_categories`` applier)
-    def category_config(self) -> list[dict[str, Any]]:
+    def category_config(self, *, measure: bool = False) -> list[dict[str, Any]]:
         """``get_config&section=categories`` → ``[{name, dir, pp, script, priority, order}]`` including '*'
         (SABnzbd lists it first, ``config.get_ordered_categories``). Categories carry no credentials."""
-        body = self._call("get_config", {"section": "categories"})
-        cats = (body.get("config") or {}).get("categories") or []
-        if isinstance(cats, dict):  # very old versions: {name: {...}}
-            cats = [dict(v, name=k) for k, v in cats.items()]
         out = []
-        for c in cats:
-            name = str(c.get("name") or "") if isinstance(c, dict) else ""
-            if not name:
-                continue
+        for c in self._config_rows("categories"):
+            folder = c.get("dir")
+            order = _source_integer(c.get("order")) if measure else _int(c.get("order"), 0)
+            if measure and not isinstance(folder, str):
+                raise SabError("SABnzbd-categoriemap is onleesbaar", "invalid")
             out.append(
                 {
-                    "name": name,
-                    "dir": str(c.get("dir") or ""),
+                    "name": c["name"],
+                    "dir": folder if measure else str(folder or ""),
                     "pp": "" if c.get("pp") is None else str(c.get("pp")),
                     "script": str(c.get("script") or ""),
                     "priority": _int(c.get("priority"), CATEGORY_DEFAULT_PRIORITY),
-                    "order": _int(c.get("order"), 0),
+                    "order": order,
                 }
             )
         return out
@@ -391,7 +408,7 @@ class SabClient:
     def set_server(self, name: str, **fields: int) -> None:
         for k, v in fields.items():
             _validate_server_field(k, v)
-        if not any(s["name"] == name for s in self.servers()):
+        if not any(s["name"] == name for s in self._raw_servers()):
             raise SabError(f"SABnzbd-server '{name}' bestaat niet", "invalid")
         self._call(
             "set_config", {"section": "servers", "keyword": name, **{k: int(v) for k, v in fields.items()}}
@@ -522,6 +539,33 @@ def _int(v: Any, default: int) -> int:
         return default
 
 
+def _source_integer(value: Any) -> int | None:
+    if type(value) is int:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value.strip()):
+        return int(value)
+    return None
+
+
+def _measured_server_field(server: dict[str, Any], field: str) -> int:
+    value = _source_integer(server.get(field))
+    try:
+        _validate_server_field(field, value)
+    except ValueError:
+        raise SabError(f"SABnzbd-serverveld '{field}' is onleesbaar", "invalid") from None
+    return value
+
+
+def measured_download_slots(page: dict[str, Any] | None) -> list[dict[str, Any]]:
+    slots = page.get("slots") if isinstance(page, dict) else None
+    if not isinstance(slots, list) or any(
+        not isinstance(slot, dict) or not isinstance(slot.get("nzo_id"), str) or not slot["nzo_id"].strip()
+        for slot in slots
+    ):
+        raise SabError("SABnzbd-downloadlijst is onleesbaar", "invalid")
+    return slots
+
+
 def _validate_server_field(field: str, value: Any) -> None:
     if field not in SERVER_FIELDS:
         raise ValueError(f"veld '{field}' mag niet worden gewijzigd (alleen priority/enable/optional)")
@@ -546,10 +590,7 @@ def _applier() -> changes.Applier:
 
     def read(path: str) -> Any:
         name, field = _split_path(path)
-        for s in client.servers():
-            if s["name"] == name:
-                return s[field]
-        raise SabError(f"SABnzbd-server '{name}' niet gevonden", "invalid")
+        return client.server_value(name, field)
 
     def write(path: str, value: Any) -> None:
         name, field = _split_path(path)
@@ -637,7 +678,16 @@ def _category_applier() -> changes.Applier:
     client = SabClient.from_config()
 
     def find(name: str) -> dict[str, Any] | None:
-        return next((c for c in client.category_config() if c["name"].lower() == name), None)
+        return next((c for c in client.category_config(measure=True) if c["name"].lower() == name), None)
+
+    def category_in_use(slot: dict[str, Any], name: str, *fields: str) -> bool:
+        for field in fields:
+            if field in slot:
+                category = slot[field]
+                if isinstance(category, str):
+                    return category.lower() == name
+                break
+        raise SabError("SABnzbd-downloadcategorie is onleesbaar", "invalid")
 
     def read(path: str) -> Any:
         cat = find(category_path_name(path))
@@ -651,15 +701,14 @@ def _category_applier() -> changes.Applier:
                 return
             if category_present(cat["dir"]) != category_present(name):
                 raise SabError(f"categorie '{name}' is buiten MSO gewijzigd; MSO verwijdert hem niet", "invalid")
-            queue = client.queue(limit=10_000)
-            using = [s for s in queue.get("slots") or [] if str(s.get("cat") or "").lower() == name]
+            queue = measured_download_slots(client.queue(limit=10_000))
+            using = [s for s in queue if category_in_use(s, name, "cat")]
             # jobs still in post-processing sit in the history with a non-final status and still need the
             # category: without it SABnzbd moves them to the '*' folder (postproc.get_complete_directory)
-            hist = client.history(limit=CATEGORY_HISTORY_LIMIT) or {}
+            hist = measured_download_slots(client.history(limit=CATEGORY_HISTORY_LIMIT))
             busy = [
-                s for s in hist.get("slots") or []
-                if str(s.get("category") or s.get("cat") or "").lower() == name
-                and str(s.get("status") or "") not in CATEGORY_FINAL_STATUSES
+                s for s in hist
+                if category_in_use(s, name, "category", "cat") and s.get("status") not in CATEGORY_FINAL_STATUSES
             ]
             if using or busy:
                 where = [
@@ -675,8 +724,10 @@ def _category_applier() -> changes.Applier:
             return
         if value != category_present(name):
             raise SabError("MSO maakt een categorie alleen aan met een eigen map met dezelfde naam", "invalid")
-        order = max((c["order"] for c in client.category_config()), default=0) + 1
-        client.create_category(name, name, order=order)
+        orders = [c["order"] for c in client.category_config(measure=True)]
+        if any(order is None for order in orders):
+            raise SabError("SABnzbd-categorievolgorde is onleesbaar", "invalid")
+        client.create_category(name, name, order=max(orders, default=0) + 1)
 
     def validate(path: str, value: Any) -> None:
         name = category_path_name(path)

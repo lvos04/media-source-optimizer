@@ -298,6 +298,11 @@ class QbitClient:
 
     def torrent(self, h: str) -> dict[str, Any] | None:
         items = self.torrents([h])
+        if not isinstance(items, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("hash"), str) or item["hash"].lower() != h.lower()
+            for item in items
+        ) or len(items) > 1:
+            raise QbitError("qBittorrent-torrentmeting is onleesbaar")
         return items[0] if items else None
 
     def properties(self, h: str) -> dict[str, Any]:
@@ -313,7 +318,10 @@ class QbitClient:
         return self._get_json("transfer/info")
 
     def speed_limits_mode(self) -> int:
-        return int(self._request("GET", "transfer/speedLimitsMode").text.strip() or 0)
+        mode = self._request("GET", "transfer/speedLimitsMode").text.strip()
+        if mode not in ("0", "1"):
+            raise QbitError("qBittorrent-modus voor snelheidslimieten is onleesbaar")
+        return int(mode)
 
     def preferences(self) -> dict[str, Any]:
         return self._get_json("app/preferences")

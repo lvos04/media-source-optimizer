@@ -157,21 +157,42 @@ def _mg_client() -> Any:
 
 def mediaguard_find(client: Any, h: str) -> dict[str, Any] | None:
     """The Sonarr/Radarr queue record (via MediaGuard) whose ``downloadId`` is this infohash."""
-    instances = client.get("/api/v1/instances") or []
+    instances = client.get("/api/v1/instances")
+    if not isinstance(instances, list):
+        raise PolicyError("MediaGuard-instantielijst is onleesbaar")
     for inst in instances:
-        iid = str(inst.get("id") or "")
-        if not iid or inst.get("archived"):
+        iid = inst.get("id") if isinstance(inst, dict) else None
+        if not isinstance(iid, str) or not iid.strip():
+            raise PolicyError("MediaGuard-instantie-ID is onleesbaar")
+        if inst.get("archived") is True:
             continue
         for page in range(1, MG_QUEUE_PAGES + 1):
-            data = client.get(f"/api/v1/instances/{iid}/queue", {"page": page, "page_size": 200}) or {}
+            data = client.get(f"/api/v1/instances/{iid}/queue", {"page": page, "page_size": 200})
             records = data.get("records") if isinstance(data, dict) else data
-            for rec in records or []:
-                if str(rec.get("downloadId") or "").lower() == h.lower():
-                    return {"instance_id": iid, "instance": inst.get("name") or iid, "queue_id": int(rec["id"]),
+            if not isinstance(records, list):
+                raise PolicyError("MediaGuard-wachtrij is onleesbaar")
+            for rec in records:
+                if not isinstance(rec, dict) or "downloadId" not in rec:
+                    raise PolicyError("Download-ID in de MediaGuard-wachtrij is onleesbaar")
+                download_id = rec["downloadId"]
+                if download_id is None:  # nog geen download gekoppeld
+                    continue
+                if not isinstance(download_id, str):
+                    raise PolicyError("Download-ID in de MediaGuard-wachtrij is onleesbaar")
+                if download_id.lower() == h.lower():
+                    if type(rec.get("id")) is not int:
+                        raise PolicyError("Item-ID in de MediaGuard-wachtrij is onleesbaar")
+                    return {"instance_id": iid, "instance": inst.get("name") or iid, "queue_id": rec["id"],
                             "title": rec.get("title")}
-            total = int(data.get("totalRecords") or 0) if isinstance(data, dict) else 0
-            if not records or page * 200 >= total:
+            if isinstance(data, list):
                 break
+            total = data.get("totalRecords")
+            if type(total) is not int or total < len(records) or (not records and total > (page - 1) * 200):
+                raise PolicyError("MediaGuard-wachtrijtotaal is onleesbaar")
+            if page * 200 >= total:
+                break
+        else:
+            raise PolicyError("MediaGuard-wachtrij is niet volledig gemeten")
     return None
 
 

@@ -547,7 +547,7 @@ def retry_server(server: str, actor: str) -> dict[str, Any]:
     """'Opnieuw proberen' by a user: switch the server on now and watch it (no test needed: the user decides)."""
     state.require_manage_mode()
     with SabClient.from_config() as client:
-        servers = {s["name"]: s for s in client.servers()}
+        servers = {s["name"]: s for s in client.servers(measure=("enable",))}
         if server not in servers:
             raise HTTPException(404, detail="SABnzbd-server niet gevonden")
         sab, labels = serverstatus.current(), _labels()
@@ -613,7 +613,7 @@ def tick(client: SabClient | None = None) -> dict[str, Any]:
 
 
 def _tick(c: SabClient) -> dict[str, Any]:
-    servers = c.servers(fingerprint_key=_fp_key())
+    servers = c.servers(fingerprint_key=_fp_key(), measure=("enable",))
     by_name = {s["name"]: s for s in servers}
     enabled_now = {s["name"] for s in servers if s["enable"]}
     sab, labels, state_rows = serverstatus.current(), _labels(), rows()

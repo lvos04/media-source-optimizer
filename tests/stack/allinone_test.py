@@ -23,6 +23,8 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
 17  upgrade van de gepubliceerde 1.5.0-image met gegevens en pre-upgrade-archief
 18  gedeeltelijk herstel uit archief en volledige terugval met gestopte APPDATA op 1.5.0
 19  gepinde S-P3-205-image weigert het inmiddels nieuwere schema zonder gegevenswijziging
+20  upgrade van de gepubliceerde 1.6.0-image met gegevens en pre-upgrade-archief
+21  gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.6.0
 """
 
 from __future__ import annotations
@@ -42,15 +44,21 @@ import httpx
 
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else "media-source-optimizer:local"
 MOCKS = os.environ.get("MSO_MOCKS_IMAGE", "mso-mocks:stack")
-PREVIOUS_IMAGE = ("ghcr.io/lvos04/media-source-optimizer"
-                  "@sha256:7ee5cb5e3c37d8ca6e3c8445cd6ef24f8b175e2f3167ccd40541737564866be2")
+PUBLISHED_150 = ("ghcr.io/lvos04/media-source-optimizer"
+                 "@sha256:7ee5cb5e3c37d8ca6e3c8445cd6ef24f8b175e2f3167ccd40541737564866be2")
+PUBLISHED_160 = ("ghcr.io/lvos04/media-source-optimizer"
+                 "@sha256:9bcdec69f7af0bc1747c42326d65f70eda28e6d00d2559d884e00a58ebfbf3da")
 GUARD_REVISION = "2512cd761ad30f42a4787935687388e9a3f0d428"
-UPGRADE_SCENARIOS = (
+UPGRADE_150 = (
     "17 upgrade vanaf de gepubliceerde 1.5.0-image",
     "18 gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.5.0",
-    "19 oudere image met schemabewaking weigert nieuwer schema",
 )
-SCENARIO_COUNT = 16 + len(UPGRADE_SCENARIOS)
+SCHEMA_GUARD = "19 oudere image met schemabewaking weigert nieuwer schema"
+UPGRADE_160 = (
+    "20 upgrade vanaf de gepubliceerde 1.6.0-image",
+    "21 gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.6.0",
+)
+SCENARIO_COUNT = 17 + len(UPGRADE_150) + len(UPGRADE_160)
 NAME = f"mso-aio-{secrets.token_hex(6)}"
 NET, MOCK_NAME = f"{NAME}-net", f"{NAME}-sab"
 PORT = int(os.environ.get("MSO_AIO_TEST_PORT", "48091"))
@@ -252,7 +260,7 @@ def container_logs() -> str:
     ).stdout
 
 
-def assert_backup_before_migration(logs: str, filename: str, first_migration: list) -> None:
+def assert_backup_before_migration(logs: str, filename: str, first_migration: list | tuple[int, str]) -> None:
     marker = "back-up vóór upgrade gemaakt: " + filename
     applied = f"migratie {first_migration[0]:04d}_{first_migration[1]} toegepast"
     assert 0 <= logs.find(marker) < logs.find(applied), "het archief moet klaar zijn vóór de eerste migratie"
@@ -303,11 +311,11 @@ def migration_history(info: dict) -> list[tuple[int, str, datetime]]:
     return [(row["version"], row["name"], datetime.fromisoformat(row["applied_at"])) for row in info["migrations"]]
 
 
-def restore_partial_archive(data: Path, backups: Path, filename: str, digest: str) -> None:
-    # Alleen PostgreSQL draait tijdens het herstel. De oude app start pas met schema 501.
+def restore_partial_archive(data: Path, backups: Path, filename: str, digest: str, image: str) -> None:
+    # Alleen PostgreSQL draait tijdens het herstel. De oude app start pas na herstel van het oude schema.
     sh(
         "docker", "run", "--rm", "--pull=never", "--network", "none", "-v", f"{data}:/appdata",
-        "-v", f"{backups}:/archive:ro", "--entrypoint", "python", PREVIOUS_IMAGE, "-c",
+        "-v", f"{backups}:/archive:ro", "--entrypoint", "python", image, "-c",
         """
 import hashlib
 import subprocess
@@ -339,11 +347,11 @@ finally:
     )
 
 
-def snapshot_stopped_appdata(data: Path, snapshot: Path) -> None:
+def snapshot_stopped_appdata(data: Path, snapshot: Path, image: str) -> None:
     snapshot.mkdir()
     sh(
         "docker", "run", "--rm", "--pull=never", "--network", "none", "-v", f"{data}:/source:ro",
-        "-v", f"{snapshot}:/snapshot", "--entrypoint", "sh", PREVIOUS_IMAGE, "-ec",
+        "-v", f"{snapshot}:/snapshot", "--entrypoint", "sh", image, "-ec",
         "test ! -e /source/postgres/postmaster.pid; test -s /source/secrets/vault.key; cp -a /source/. /snapshot/",
     )
 
@@ -430,20 +438,38 @@ def verify_schema_refusal(data: Path, image: str, migrated_schema: int) -> str:
     return f"schema {migrated_schema} > {guard_schema}; schemaweigering; healthcheck 1; database en appbestanden gelijk"
 
 
-def previous_image_upgrade(tmp: Path) -> None:
+def check_daily_resource_sample(client: httpx.Client) -> None:
+    # Laat de gewone worker onder zijn bestaande rechten verzamelen.
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        maintenance = api_data(client, "system/maintenance")
+        latest = maintenance["growth"]["latest"]
+        if latest is not None:
+            assert latest["values"]["database_bytes"] > 0, "databasegrootte ontbreekt in de dagmeting"
+            assert latest["values"]["database_connections"] > 0, "databaseverbindingen ontbreken in de dagmeting"
+            assert latest["values"]["appdata_free_bytes"] >= 0, "vrije app-gegevensruimte ontbreekt"
+            assert maintenance["provenance"]["database_bytes"]["quality"] == "gemeten", "herkomst ontbreekt"
+            return
+        time.sleep(1)
+    raise AssertionError("de worker registreerde na upgrade geen opslagmeting")
+
+
+def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
+                            scenarios: tuple[str, str]) -> tuple[Path, int] | None:
     scenario = 0
     try:
-        sh("docker", "pull", PREVIOUS_IMAGE)
+        sh("docker", "pull", image)
     except RuntimeError:
-        for name in UPGRADE_SCENARIOS:
-            record(name, None, "OVERGESLAGEN: de verplichte openbare 1.5.0-digest is niet opgehaald")
-        return
+        for name in scenarios:
+            record(name, None, f"OVERGESLAGEN: de verplichte openbare {version}-digest is niet opgehaald")
+        return None
 
+    tmp.mkdir()
     try:
         data = tmp / "upgrade"
         data.mkdir()
-        run(data, image=PREVIOUS_IMAGE)
-        assert wait_healthy() == "healthy", "1.5.0 startte niet op de lege map"
+        run(data, image=image)
+        assert wait_healthy() == "healthy", f"{version} startte niet op de lege map"
         with httpx.Client(base_url=BASE, timeout=30) as client:
             initial = client.post("/api/v1/setup/admin", json={"username": ADMIN, "password": ADMIN_PW})
             csrf = initial.raise_for_status().json()["csrf_token"]
@@ -467,47 +493,50 @@ def previous_image_upgrade(tmp: Path) -> None:
             assert stored_connector == {"id": "sabnzbd", **connector}, "ingestelde proefkoppeling ontbreekt"
             assert change["title"] == "Upgradeproef" and change["status"] == "preview", "proefvoorstel ontbreekt"
             old_info = api_data(client, "system/info")
-            assert old_info["schema_version"] == 501, "de upgrade moet op schema 501 beginnen"
+            assert old_info["schema_version"] == schema, f"de upgrade moet op schema {schema} beginnen"
             old_history = migration_history(old_info)
         stop_cleanly()
         before_db, before_files = json.loads(stopped_data_fingerprint(data))
         snapshot = tmp / "snapshot"
-        snapshot_stopped_appdata(data, snapshot)
+        snapshot_stopped_appdata(data, snapshot, image)
 
         run(data)
-        assert wait_healthy() == "healthy", "de nieuwe image startte niet op de 1.5.0-map"
+        assert wait_healthy() == "healthy", f"de nieuwe image startte niet op de {version}-map"
         client, csrf = login()
         with closing(client):
             assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij upgrade"
             check_sab_read(client, csrf)
             info = api_data(client, "system/info")
             expected = known_migrations(IMAGE)
+            assert expected[-1][0] == info["schema_version"] > schema, "de kandidaat heeft geen nieuwer schema"
             assert [[row["version"], row["name"]] for row in info["migrations"]] == expected, "migraties ontbreken"
             assert migration_history(info)[:len(old_history)] == old_history, "migratiehistorie wijkt af"
             archives = [row for row in api_data(client, "backups")["items"] if row["kind"] == "pre-upgrade"]
-            assert len(archives) == 1 and archives[0]["schema_version"] == 501 and archives[0]["present"], (
-                "verwacht één aanwezig pre-upgrade-archief van schema 501"
+            assert len(archives) == 1 and archives[0]["schema_version"] == schema and archives[0]["present"], (
+                f"verwacht één aanwezig pre-upgrade-archief van schema {schema}"
             )
+            check_daily_resource_sample(client)
         archive = archives[0]
-        first_migration = next(row for row in expected if row[0] > 501)
+        first_migration = next(row for row in expected if row[0] > schema)
         assert_backup_before_migration(container_logs(), archive["file"], first_migration)
         stop_cleanly()
-        record(UPGRADE_SCENARIOS[0], True, f"501 → {info['schema_version']}; {len(expected)} migraties; "
-               "archief vooraf; gebruiker, koppeling, voorstel, inlog en SABnzbd-wachtrijlezing behouden")
+        record(scenarios[0], True, f"{schema} → {info['schema_version']}; {len(expected)} migraties; "
+               "archief vooraf; gebruiker, koppeling, voorstel, inlog en SABnzbd-wachtrijlezing behouden; "
+               "opslagmeting door de worker")
         scenario = 1
 
         partial = tmp / "partial"
         partial.mkdir()
         filename = archive["file"]
         assert filename == Path(filename).name and filename.endswith("-pre-upgrade.dump"), "ongeldige archiefnaam"
-        restore_partial_archive(partial, data / "backups", filename, archive["sha256"])
-        run(partial, image=PREVIOUS_IMAGE)
-        assert wait_healthy() == "healthy", "1.5.0 startte niet na gedeeltelijk archiefherstel"
+        restore_partial_archive(partial, data / "backups", filename, archive["sha256"], image)
+        run(partial, image=image)
+        assert wait_healthy() == "healthy", f"{version} startte niet na gedeeltelijk archiefherstel"
         client, csrf = login()
         with closing(client):
             partial_info = api_data(client, "system/info")
             assert migration_history(partial_info) == old_history, "de migratiehistorie uit het archief wijkt af"
-            assert partial_info["schema_version"] == 501, "het gedeeltelijke herstel kwam niet terug op schema 501"
+            assert partial_info["schema_version"] == schema, f"archiefherstel moet terug naar schema {schema}"
             assert upgrade_data(client, change_id) == original, "proefgegevens uit het archief wijken af"
             check_sab_read(client, csrf, expect_access=False)
         stop_cleanly()
@@ -516,33 +545,43 @@ def previous_image_upgrade(tmp: Path) -> None:
         restored_db, restored_files = json.loads(stopped_data_fingerprint(snapshot))
         assert restored_db == before_db, "de tabelinhoud inclusief versleutelde kluisrijen wijkt af na APPDATA-herstel"
         assert restored_files == before_files, "APPDATA-bestanden inclusief vault-sleutel wijken af na herstel"
-        run(snapshot, image=PREVIOUS_IMAGE)
-        assert wait_healthy() == "healthy", "1.5.0 startte niet na volledige APPDATA-terugval"
+        run(snapshot, image=image)
+        assert wait_healthy() == "healthy", f"{version} startte niet na volledige APPDATA-terugval"
         client, csrf = login()
         with closing(client):
             restored_info = api_data(client, "system/info")
             assert migration_history(restored_info) == old_history, "de migratiehistorie na volledige terugval wijkt af"
-            assert restored_info["schema_version"] == 501, "de volledige terugval kwam niet terug op schema 501"
+            assert restored_info["schema_version"] == schema, f"volledige terugval moet naar schema {schema}"
             assert upgrade_data(client, change_id) == original, "proefgegevens wijken af na volledige terugval"
             check_sab_read(client, csrf)
         stop_cleanly()
-        record(UPGRADE_SCENARIOS[1], True, "gedeeltelijk: SHA-256 gecontroleerd, schema 501, wachtrijlezing geweigerd; "
-               "volledig: schema 501, alle tabelinhoud en APPDATA-bestanden gelijk, SABnzbd-wachtrijlezing werkt")
-        scenario = 2
+        record(scenarios[1], True, f"gedeeltelijk: SHA-256 gecontroleerd, schema {schema}, wachtrijlezing geweigerd; "
+               f"volledig: schema {schema}, alle tabelinhoud en APPDATA-bestanden gelijk, SABnzbd-wachtrijlezing werkt")
+        return data, info["schema_version"]
+    except (AssertionError, RuntimeError, httpx.HTTPError, subprocess.CalledProcessError) as exc:
+        record(scenarios[scenario], False, str(exc))
+        for name in scenarios[scenario + 1:]:
+            record(name, None, "OVERGESLAGEN: een voorgaande upgrade- of herstelproef faalde")
+        return None
 
-        guard = os.environ.get("MSO_SCHEMA_GUARD_IMAGE", "")
-        if not guard:
-            record(UPGRADE_SCENARIOS[2], None, "OVERGESLAGEN: bouw eerst de gepinde image met build-schema-guard.sh")
-            return
+
+def schema_guard_case(upgrade: tuple[Path, int] | None) -> None:
+    if not upgrade:
+        record(SCHEMA_GUARD, None, "OVERGESLAGEN: de upgrade vanaf 1.5.0 of de herstelproef faalde")
+        return
+    guard = os.environ.get("MSO_SCHEMA_GUARD_IMAGE", "")
+    if not guard:
+        record(SCHEMA_GUARD, None, "OVERGESLAGEN: bouw eerst de gepinde image met build-schema-guard.sh")
+        return
+    try:
         metadata = json.loads(sh("docker", "image", "inspect", guard))[0]
         assert guard == metadata["Id"] and metadata["Config"]["Labels"].get(
             "org.opencontainers.image.revision"
         ) == GUARD_REVISION, "de weigerimage moet op image-ID en de vaste broncommit gepind zijn"
-        record(UPGRADE_SCENARIOS[2], True, verify_schema_refusal(data, guard, info["schema_version"]))
+        data, schema = upgrade
+        record(SCHEMA_GUARD, True, verify_schema_refusal(data, guard, schema))
     except (AssertionError, RuntimeError, httpx.HTTPError, subprocess.CalledProcessError) as exc:
-        record(UPGRADE_SCENARIOS[scenario], False, str(exc))
-        for name in UPGRADE_SCENARIOS[scenario + 1:]:
-            record(name, None, "OVERGESLAGEN: een voorgaande upgrade- of herstelproef faalde")
+        record(SCHEMA_GUARD, False, str(exc))
 
 
 def main() -> int:
@@ -795,7 +834,9 @@ def main() -> int:
         log8 = subprocess.run(["docker", "logs", NAME], capture_output=True, text=True, check=False)
         msg = [ln for ln in (log8.stdout + log8.stderr).splitlines() if "FOUT" in ln]
         record("8 --user 568 op root-map → duidelijke foutmelding", bool(msg), msg[0] if msg else "geen melding")
-        previous_image_upgrade(tmp)
+        legacy_upgrade = published_image_upgrade(tmp / "published-1.5.0", "1.5.0", PUBLISHED_150, 501, UPGRADE_150)
+        schema_guard_case(legacy_upgrade)
+        published_image_upgrade(tmp / "published-1.6.0", "1.6.0", PUBLISHED_160, 607, UPGRADE_160)
     finally:
         sh("docker", "rm", "-f", NAME, MOCK_NAME, check=False)
         sh("docker", "network", "rm", NET, check=False)

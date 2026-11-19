@@ -8,7 +8,7 @@
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
 # allinone docker build of the all-in-one image (deploy/allinone, the TrueNAS Custom App) + tests/stack/allinone_test.py
 #          (empty /appdata as root → healthy, processes as 568, restart/kill without data loss, backup/restore,
-#          upgrade and restore with the pinned 1.5.0 image, schema refusal, user 568, wrong rights); never pushed
+#          upgrade and restore with the pinned 1.5.0 and 1.6.0 images, schema refusal, user 568, wrong rights); never pushed
 # stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
 # e2e      fresh stack, prepared (admin, connectors → mocks, backup, wizard completed) + ALL Playwright tests
 #          (desktop + mobile) with credentials; a skipped test fails the job → screenshots/traces as artifacts

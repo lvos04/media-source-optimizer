@@ -375,15 +375,21 @@ def test_alias_public_and_websocket_denied(admin, client, app):
     router = APIRouter()
     router.add_api_route("/machine-alias-probe", overview, methods=["GET"])
     app.include_router(router)
-    made = create(admin)
-    headers = {"X-Api-Key": made["key"]}
-    for path in ["/machine-alias-probe", "/healthz", "/api/openapi.json", "/api/v1/setup/status", "/api/v1/auth/me"]:
-        assert client.get(path, headers=headers).status_code == 403
-    with pytest.raises(WebSocketDisconnect) as denied, client.websocket_connect("/machine-ws-probe", headers=headers):
-        pytest.fail("Websocket stond open")
-    assert denied.value.code == 4403
-    # Verwijder uitsluitend deze eigen testrouter, zodat de sessie-app geen extra route behoudt.
-    app.router.routes[:] = [r for r in app.router.routes if getattr(r, "original_router", None) is not router]
+    try:
+        made = create(admin)
+        headers = {"X-Api-Key": made["key"]}
+        paths = ("/machine-alias-probe", "/healthz", "/api/openapi.json", "/api/v1/setup/status", "/api/v1/auth/me")
+        for path in paths:
+            assert client.get(path, headers=headers).status_code == 403
+        with (
+            pytest.raises(WebSocketDisconnect) as denied,
+            client.websocket_connect("/machine-ws-probe", headers=headers),
+        ):
+            pytest.fail("Websocket stond open")
+        assert denied.value.code == 4403
+    finally:
+        # Verwijder uitsluitend deze eigen testrouter, ook als de proef faalt.
+        app.router.routes[:] = [r for r in app.router.routes if getattr(r, "original_router", None) is not router]
 
 
 @pytest.mark.parametrize("endpoint_error", [False, True])
@@ -560,10 +566,10 @@ def test_migration_roundtrip_preserves_existing_tables(admin, operator, db, data
     assert admin.get("/api/v1/newznab/endpoint").status_code == 200
     made = create(admin)
     new_tables = {"machine_keys", "machine_key_requests", "machine_auth_limits", "connector_idempotency",
-                  "schema_migrations"}
+                  "resource_samples", "schema_migrations"}
     before = database_bytes(db)
     try:
-        assert migrate_down(db, 607) == [610, 609, 608]
+        assert migrate_down(db, 607) == [611, 610, 609, 608]
         assert db.scalar("SELECT to_regclass('machine_keys')") is None
         assert db.scalar("SELECT to_regclass('connector_idempotency')") is None
         assert {name: data for name, data in before.items() if name not in new_tables} == {
@@ -571,7 +577,7 @@ def test_migration_roundtrip_preserves_existing_tables(admin, operator, db, data
         }
         assert admin.get("/api/v1/auth/me").status_code == 200
     finally:
-        assert migrate_up(db) == [608, 609, 610]
+        assert migrate_up(db) == [608, 609, 610, 611]
     assert db.scalar("SELECT count(*) FROM connector_idempotency") == 0
     check_schema_compatibility(db)
     after = database_bytes(db)

@@ -1005,7 +1005,7 @@ def test_legacy_open_changes_migrate_and_remain_usable(admin, db, manage_mode, h
     assert admin.post(first + "/approve").status_code == 200
     second = _create(SPEED)
     try:
-        assert migrate_down(db, 609) == [610]
+        assert migrate_down(db, 609) == [611, 610]
         assert db.scalar("SELECT status FROM change_sets WHERE id=%s", (ch["id"],)) == "approved"
         assert db.scalar("SELECT status FROM change_sets WHERE id=%s", (second["id"],)) == "preview"
     finally:

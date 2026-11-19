@@ -435,6 +435,7 @@ def undo(body: UndoBody, p: Principal = Depends(require("operator"))) -> dict[st
 
 # ------------------------------------------------------------------ automatische taken (Systeem)
 SCHEDULE_LABELS: dict[str, tuple[str, str]] = {
+    "system.resource_sample": ("Opslagmeting", "Systeem"),
     "automation.apply_safe": ("Veilige wijzigingen automatisch toepassen", "Automatisering"),
     "automation.evaluate": ("Controle na wijzigingen (met automatisch terugdraaien)", "Automatisering"),
     "changes.reconcile": ("Onderbroken wijzigingen afronden of terugzetten (na een herstart)", "Automatisering"),

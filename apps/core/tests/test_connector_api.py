@@ -119,11 +119,11 @@ def _bronnummer(event):
 
 def test_bestaande_waarneming_behoudt_event_id_na_upgrade(viewer, db):
     at = datetime.now(UTC)
-    assert migrate_down(db, 608) == [610, 609]
     try:
+        assert migrate_down(db, 608) == [611, 610, 609]
         nummer = db.scalar("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',%s) RETURNING id", (at,))
     finally:
-        assert migrate_up(db) == [609, 610]
+        assert migrate_up(db) == [609, 610, 611]
     legacy = f"automation:{nummer}"
     expected = uuid5(NAMESPACE_URL, f"urn:media-source-optimizer:{legacy}:{at.isoformat()}")
     event = next(e for e in _poll(viewer).json()["events"] if _bronnummer(e) == legacy)
@@ -134,11 +134,11 @@ def test_bestaande_waarneming_behoudt_event_id_na_upgrade(viewer, db):
 
 def test_upgrade_herkent_eerder_native_herstel(viewer, db):
     cursor = _poll(viewer).json()["next_cursor"]
-    assert migrate_down(db, 608) == [610, 609]
     try:
+        assert migrate_down(db, 608) == [611, 610, 609]
         nummer = audit("systeem", "backup.restored", "Back-up teruggezet met het vorige schema")
     finally:
-        assert migrate_up(db) == [609, 610]
+        assert migrate_up(db) == [609, 610, 611]
     assert fout(_poll(viewer, cursor), 409, "cursor_expired") == {"restart": True}
     fout(viewer.get(f"{PREFIX}/evidence/audit:{nummer}"), 404, "not_found")
     event = next(e for e in _poll(viewer).json()["events"] if _bronnummer(e) == f"audit:{nummer}")

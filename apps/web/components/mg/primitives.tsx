@@ -325,7 +325,7 @@ export function Progress({ value, thin, label, indeterminate }: { value: number 
 /** Skeleton: only on the first load; no animation with reduced motion. The `.skeleton` hook stays (e2e). */
 export function Skeleton({ lines = 3, height }: { lines?: number; height?: number }) {
   return (
-    <div aria-hidden="true">
+    <div aria-hidden="true" className="w-full">
       {Array.from({ length: lines }, (_, i) => (
         <div key={i} className="skeleton skeleton-line my-2 h-3.5 rounded-md bg-muted after:hidden motion-safe:animate-pulse" style={{ width: `${90 - i * 12}%`, height }} />
       ))}

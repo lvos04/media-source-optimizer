@@ -171,11 +171,14 @@ def test_native_herstel_begrenst_eventhistorie(viewer, app, db, onderdeel):
 
 @pytest.mark.parametrize("herstart", [False, True], ids=["direct", "na-herstart"])
 def test_eventidentiteit_na_mislukt_herstel_oud_schema(viewer, app, db, monkeypatch, herstart):
-    assert migrate_down(db, 608) == [610, 609]
     at = datetime.now(UTC)
-    row_id = db.scalar("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',%s) RETURNING id", (at,))
-    snapshot = backups.create_backup(actor="test")
-    assert migrate_up(db) == [609, 610]
+    try:
+        assert migrate_down(db, 608) == [611, 610, 609]
+        row_id = db.scalar("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',%s) RETURNING id",
+                           (at,))
+        snapshot = backups.create_backup(actor="test")
+    finally:
+        assert migrate_up(db) == [609, 610, 611]
     # De oude dump en de nieuwe gebeurtenis hebben hetzelfde nummer en dezelfde tijd.
     db.execute("DELETE FROM automation_log WHERE id=%s", (row_id,))
     db.execute("INSERT INTO automation_log(id,kind,result,ts) VALUES (%s,'run','ok',%s)", (row_id, at))
@@ -209,7 +212,7 @@ def test_eventidentiteit_na_mislukt_herstel_oud_schema(viewer, app, db, monkeypa
             fout(_poll(viewer), 503, "dependency_unavailable")
         finally:
             init_runtime(db)
-    assert schema_version(db) == 610
+    assert schema_version(db) == 611
     na = event(viewer)
     assert (viewer.get(bewijs).status_code, na["event_id"], na["source_event_id"]) == (
         200, voor["event_id"], voor["source_event_id"])

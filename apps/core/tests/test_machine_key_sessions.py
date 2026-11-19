@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from mso import retention, settings_registry
+from mso import resource_usage, retention, settings_registry
 from mso.config import BuildMetadata, get_settings
 from mso.features.newznab_server import keys as newznab_keys
 from mso.security import limiter
@@ -25,7 +25,8 @@ EXPECTED_MATRIX_DIFFERENCES = {
         "base_version": 607,
         "added_migrations": [{"version": 608, "name": "machine_keys", "applied_at": "<tijd>"},
                              {"version": 609, "name": "automation_event_id", "applied_at": "<tijd>"},
-                             {"version": 610, "name": "connector_idempotency", "applied_at": "<tijd>"}],
+                             {"version": 610, "name": "connector_idempotency", "applied_at": "<tijd>"},
+                             {"version": 611, "name": "resource_samples", "applied_at": "<tijd>"}],
         # S-P3-210 voegt imageherkomst toe. Zonder buildargumenten is ook de versie onbekend.
         "base_software_version": "1.6.0",
         "build_fields": ("git_sha", "build_time", "channel"),
@@ -85,6 +86,32 @@ def _matrix_body(response, operation, caller, installed_schema):
         body["definitions"].sort(key=lambda definition: definition["key"])
     if operation == ("get", "/api/v1/connectors"):
         body.sort(key=lambda connector: connector["id"])
+    if operation == ("get", "/api/v1/automation/schedules"):
+        [sample] = [item for item in body["items"] if item["kind"] == "system.resource_sample"]
+        assert sample == {
+            "kind": "system.resource_sample", "label": "Opslagmeting", "area": "Systeem",
+            "every_s": 86400, "enabled": True, "reason": None, "status": "nog_niet",
+            "last_run_at": None, "last_status": None, "last_error": None, "last_summary": None,
+            "failed_24h": 0, "next_run_at": "<tijd>",
+        }
+        body["items"].remove(sample)
+    if operation == ("get", "/api/v1/system/maintenance"):
+        # De matrix blijft de bestaande antwoordvelden vergelijken. Toets de toevoegingen apart.
+        assert body["retention"]["settings"].pop("retention.resource_samples_days") == 400
+        assert body["retention"].pop("preserved_tables") == retention.PRESERVED_GROWING_TABLES
+        assert body.pop("growth") == {
+            "latest": None,
+            "days": [],
+            "tables": [],
+            "per_day": {
+                key: {"value": None, "from_day": None, "to_day": None, "quality": "onbekend"}
+                for key in resource_usage.METRICS
+            },
+        }
+        sources = body.pop("provenance")
+        assert sources.keys() == resource_usage.SOURCES.keys()
+        assert all(source["quality"] == "onbekend" and source["observed_at"] is None and source["reason"]
+                   for source in sources.values())
     difference = EXPECTED_MATRIX_DIFFERENCES.get(operation)
     if difference:
         assert body["version"] == "onbekend"

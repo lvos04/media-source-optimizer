@@ -255,6 +255,9 @@ test("alleen-lezen modus blokkeert schrijfknoppen met uitleg", async ({ page }) 
 test("Opslag en groei toont de laad-, lege, trend- en storingstoestanden", async ({ page }) => {
   test.skip(!USER, "MSO_E2E_USER niet gezet");
   await login(page);
+  const response = await page.request.get("/api/v1/system/maintenance");
+  expect(response.status()).toBe(200);
+  const native = await response.json();
 
   const first = { day: "2026-10-19", observed_at: "2026-10-19T05:00:00Z", values: { database_bytes: 1000 } };
   const last = { day: "2026-10-21", observed_at: "2026-10-21T05:00:00Z", values: { database_bytes: 1040 } };
@@ -269,15 +272,11 @@ test("Opslag en groei toont de laad-, lege, trend- en storingstoestanden", async
       await route.fulfill({ status: 500, json: { detail: "De proefmeting is onbereikbaar." } });
       return;
     }
-    const response = await route.fetch();
-    expect(response.status()).toBe(200);
-    const native = await response.json();
     const days = scenario === "empty" ? [] : scenario === "single" ? [last] : [last, gap, first];
     const databaseTrend = scenario === "trend"
       ? { value: 20, from_day: first.day, to_day: last.day, quality: "gemeten" }
       : { value: null, from_day: null, to_day: null, quality: "onbekend" };
     await route.fulfill({
-      response,
       json: {
         ...native,
         growth: { latest: days[0] ?? null, days, per_day: { database_bytes: databaseTrend }, tables: [] },

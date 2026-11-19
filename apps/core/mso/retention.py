@@ -33,6 +33,7 @@ from mso import settings_registry as sr
 from mso.audit import audit
 from mso.auth import Principal, require
 from mso.db import Database, get_db
+from mso.resource_usage import database_usage
 
 LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/system", tags=["systeem"])
@@ -307,7 +308,7 @@ def maintenance(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
             | {"retention.resource_samples_days": RESOURCE_SAMPLE_DAYS},
             "preserved_tables": PRESERVED_GROWING_TABLES,
         },
-        "database": resource_usage.database_usage(db),
+        "database": database_usage(db),
         "backups": {"space": backups.space_status(db), "kinds": resource_usage.backup_kinds(db),
                     "excluded_tables": list(backups.REFETCHABLE),
                     "safety": {"pre_restore_days": backups.SAFETY_DAYS, "pre_restore_keep": backups.SAFETY_KEEP,

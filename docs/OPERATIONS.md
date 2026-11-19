@@ -156,22 +156,27 @@ nieuwe "Vóór upgrade".
 
 ### Onderbroken wijzigingen (reconciler)
 
-Een wijziging aan SABnzbd/qBittorrent/Prowlarr gaat vóór de eerste schrijfactie naar de status `applying` ("Bezig met
-toepassen"), met de oude waarde per operatie; elk resultaat wordt meteen opgeslagen. Zolang het proces dat toepast
-leeft, houdt het een PostgreSQL-advisory-lock vast. Sterft het (crash, herstart, `docker kill`), dan geeft PostgreSQL
-het lock vrij en pakt de taak `changes.reconcile` (elke 2 minuten, eerste keer direct bij de start van de worker) de
-wijziging op:
+Vóór de eerste schrijfactie naar SABnzbd, qBittorrent of Prowlarr krijgt een wijziging de status `applying`
+("Bezig met toepassen"). MSO bewaart de oude waarde per operatie en slaat elk resultaat meteen op. Tijdens de
+uitvoering houdt MSO een PostgreSQL-advisory-lock vast. Als het schrijfverzoek een time-out krijgt en de bron de
+uitkomst nog niet bevestigt, geeft de API 502 en blijft de wijziging `applying`. Na vrijgave van het slot, ook na
+een crash of herstart, controleert `changes.reconcile` de bron. Deze taak draait bij de start van de worker en daarna
+elke twee minuten.
 
 - alles al geschreven → `applied` ("afgerond na onderbreking");
 - deels geschreven → de omkeerbare, al geschreven waarden terugzetten en teruglezen, daarna `failed` met uitleg;
-- bron onbereikbaar → tot 1 uur opnieuw proberen, daarna `failed` en een item in "Wacht op jou";
+- bron onbereikbaar of een schrijfactie na een time-out nog onbevestigd → MSO leest de bron periodiek zonder de
+  oorspronkelijke opdracht opnieuw te versturen. Blijft bevestiging uit bij een controle meer dan één uur na de start,
+  dan volgt `failed` met de uitkomst `onduidelijk` en één item in "Wacht op jou". De achtergrondcontrole stopt.
+  De beheerder controleert de bron en maakt zo nodig een nieuw voorstel. Herhaling met dezelfde idempotentiesleutel
+  geeft dan 502;
 - een waarde die buiten MSO is veranderd, raakt MSO niet aan;
 - iets terugzetten dat zou verwijderen (een SABnzbd-categorie die MSO aanmaakte), doet de reconciler nooit;
 - in Alleen-lezen schrijft de reconciler niets: is er al een omkeerbare waarde geschreven, dan wacht hij (één item in
   "Wacht op jou") tot beheermodus of Autopilot; anders rondt hij af zonder te schrijven.
 
-Audit: `change.interrupted`. Een wijziging staat dus hooguit een paar minuten op "Bezig met toepassen". Een wijziging
-die nog `applying` was in een back-up die je herstelt, wordt `failed` zonder dat MSO iets bij de bron terugzet.
+De afhandeling staat in de audit als `change.interrupted`. Een wijziging die nog `applying` was in een back-up die
+je herstelt, wordt `failed` zonder dat MSO iets bij de bron terugzet.
 
 ### Noodrem
 

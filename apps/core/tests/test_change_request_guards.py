@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 import test_connector_api
 import test_maintenance
@@ -13,6 +14,7 @@ from test_connector_api import PREFIX, _connector_headers, _execution, _pin, fou
 from mso import backups, changes, machine_keys, state
 from mso.app import init_runtime
 from mso.change_preview import digest
+from mso.connectors.sabnzbd import SabError
 from mso.db import migrate_down, migrate_up, schema_version
 
 signed_change = test_connector_api.signed_change
@@ -237,6 +239,139 @@ def test_gebonden_rollback_controleert_alle_bronwaarden(client, db, database_byt
     fout(client.post(PREFIX + "/rollback", json=body, headers=_connector_headers()), 412, "precondition_failed")
     assert source.writes == writes and database_bytes(db) == before
     assert "change.rollback_refused" in caplog.text
+
+
+def test_rollback_behoudt_tussentijdse_bronwijziging(client, db, signed_change, monkeypatch):
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    upload = "pref:up_limit"
+    source.values[upload] = 50
+    ch = changes.create(ch["target"], "Twee limieten", [*ch["ops"], {"path": upload, "before": 50, "after": 40}],
+                        risk=ch["risk"])
+    applied = client.post(PREFIX + "/apply", json=_execution(ch, key), headers=_connector_headers())
+    assert applied.status_code == 200
+    original = source.applier()
+    writes_before = len(source.writes)
+
+    def write(path, value):
+        original.write(path, value)
+        if (path, value) == (upload, 50):
+            source.values[HUB_RATE_PATH] = 37  # Handmatige wijziging vóór de volgende rollbackoperatie.
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(original.read, write))
+    body, headers = _execution(applied.json(), key, rollback=True), _connector_headers()
+    rollback = client.post(PREFIX + "/rollback", json=body, headers=headers)
+    assert source.values[HUB_RATE_PATH] == 37
+    assert rollback.status_code == 200
+    assert rollback.json()["readback"] == {"verified": False, "results": ["overgeslagen", "teruggedraaid"]}
+    assert changes.get(ch["id"])["ops"][0]["current"] == 37
+    replay = client.post(PREFIX + "/rollback", json=body, headers=headers)
+    assert replay.json() == rollback.json() and replay.headers["Idempotent-Replay"] == "true"
+    assert source.writes[writes_before:] == [(upload, 50)]
+
+
+@pytest.mark.parametrize("reason,status,code", [("afwijking", 412, "precondition_failed"),
+                                               ("verval", 409, "approval_expired")])
+def test_tussentijdse_bronwijziging_of_verval_voor_eerste_rollbackactie(
+    reason, status, code, client, db, database_bytes, signed_change, monkeypatch,
+):
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    applied = client.post(PREFIX + "/apply", json=_execution(ch, key), headers=_connector_headers())
+    assert applied.status_code == 200
+    original = source.applier()
+    now = datetime.now(UTC).replace(microsecond=0)
+    body = _execution(applied.json(), key, rollback=True, now=now)
+    reads = 0
+
+    def read(path):
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            if reason == "afwijking":
+                source.values[path] = 37
+            else:
+                monkeypatch.setattr(changes, "_now", lambda: now + timedelta(minutes=16))
+        return original.read(path)
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(read, original.write))
+    before, writes = database_bytes(db), list(source.writes)
+    fout(client.post(PREFIX + "/rollback", json=body, headers=_connector_headers()), status, code)
+    assert reads == 2 and source.writes == writes
+    assert database_bytes(db) == before
+
+
+@pytest.mark.parametrize("timeout", [TimeoutError(), httpx.ReadTimeout("test"), SabError("test", "timeout")],
+                         ids=["bron", "http", "sabnzbd"])
+def test_vertraagde_bronactie_wordt_eenmaal_bevestigd(timeout, client, db, signed_change, monkeypatch):
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    original = source.applier()
+    received = []
+
+    def write(path, value):
+        received.append((path, value))
+        raise timeout
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(original.read, write))
+    body, headers = _execution(ch, key), _connector_headers()
+    assert client.post(PREFIX + "/apply", json=body, headers=headers).status_code == 502
+    assert source.values[HUB_RATE_PATH] == 100 and source.writes == []
+    assert changes.get(ch["id"])["status"] == "applying"
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "wacht"}
+    fout(client.post(PREFIX + "/apply", json=body, headers=headers), 409, "idempotency_in_progress")
+    assert _applied_count(db, ch) == 0
+
+    original.write(*received[0])  # De bron verwerkt de eerder ontvangen opdracht.
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "afgerond"}
+    replay = client.post(PREFIX + "/apply", json=body, headers=headers)
+    assert replay.status_code == 200 and replay.headers["Idempotent-Replay"] == "true"
+    assert replay.json()["status"] == "applied" and replay.json()["readback"]["verified"]
+    assert received == source.writes == [(HUB_RATE_PATH, 80)]
+    assert _applied_count(db, ch) == 1 and changes.reconcile_interrupted()["checked"] == 0
+
+
+@pytest.mark.parametrize("unreachable", [True, False], ids=["onbereikbaar", "oude_waarde"])
+def test_overdracht_na_een_uur_zonder_bronbevestiging(unreachable, client, db, signed_change, monkeypatch):
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    original = source.applier()
+    received = []
+    readable = True
+
+    def write(path, value):
+        nonlocal readable
+        received.append((path, value))
+        if unreachable:
+            original.write(path, value)
+            readable = False
+        raise TimeoutError("De bron heeft geen antwoord gegeven.")
+
+    def read(path):
+        if not readable:
+            raise TimeoutError("De bron is onbereikbaar.")
+        return original.read(path)
+
+    monkeypatch.setitem(changes.APPLIERS, ch["target"], lambda: changes.Applier(read, write))
+    body, headers = _execution(ch, key), _connector_headers()
+    assert client.post(PREFIX + "/apply", json=body, headers=headers).status_code == 502
+    number = ch["id"]
+    db.execute("UPDATE change_sets SET apply_started_at=now()-interval '59 minutes' WHERE id=%s", (number,))
+    assert changes.reconcile_interrupted()["outcomes"] == {str(number): "wacht"}
+    assert changes.get(number)["status"] == "applying"
+    db.execute("UPDATE change_sets SET apply_started_at=now()-interval '61 minutes' WHERE id=%s", (number,))
+    assert changes.reconcile_interrupted()["outcomes"] == {str(number): "onduidelijk"}
+    assert changes.get(number)["status"] == "failed"
+    assert db.scalar("SELECT count(*) FROM recommendations WHERE dedupe_key=%s AND status='open'",
+                     (f"change.interrupted:{number}",)) == 1
+    readable = True
+    assert changes.reconcile_interrupted()["checked"] == 0
+    error = client.post(PREFIX + "/apply", json=body, headers=headers)
+    replay = client.post(PREFIX + "/apply", json=body, headers=headers)
+    assert error.status_code == replay.status_code == 502
+    assert replay.json() == error.json() and replay.headers["Idempotent-Replay"] == "true"
+    assert received == [(HUB_RATE_PATH, 80)] and _applied_count(db, ch) == 0
+    assert source.writes == (received if unreachable else [])
 
 
 def test_brontimeout_wordt_geverifieerd_zonder_tweede_uitvoering(client, db, signed_change, monkeypatch):

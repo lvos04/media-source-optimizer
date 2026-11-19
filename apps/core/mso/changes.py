@@ -12,8 +12,8 @@ Apply semantics:
 3. Crash-safe journal (1.6.0): before the first external write the change moves to ``applying`` with
    ``observed_before`` stored per op; every op's result is stored right after its write + read-back. An apply that
    is cut off (restart, crash) is finished or undone by :func:`reconcile_interrupted` (worker start + periodically).
-4. Writes happen one op at a time and are verified by reading back. Any failure restores the ops already written
-   (verified, recorded) and marks the change ``failed``.
+4. MSO leest elke schrijfactie terug. Bij een bevestigde fout zet MSO de eerder geschreven waarden terug.
+   Een onbevestigde actie blijft in het journaal voor de achtergrondcontrole.
 5. Rollback (1.6.0) checks drift per op first: a value that is neither MSO's value nor the original any more was
    changed outside MSO and is skipped ("overgeslagen"), never overwritten. Every written op is read back; a failed
    read-back keeps the change ``applied`` with the error — there is no "teruggedraaid" without verification.
@@ -37,6 +37,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
+from httpx import TimeoutException
 from psycopg import Connection
 
 from mso import state
@@ -68,7 +69,7 @@ class ChangePrecondition(HTTPException):
 
 
 class ChangeUncertain(HTTPException):
-    """Het journaal blijft open tot de bron de uitkomst bevestigt."""
+    """De achtergrondcontrole bewaakt de bronactie tot bevestiging of overdracht aan de beheerder."""
 
     def __init__(self) -> None:
         super().__init__(502, detail="De bronactie is nog niet bevestigd. MSO controleert de uitkomst.")
@@ -411,7 +412,8 @@ def _write_and_read(applier: Applier, op: dict[str, Any], written: list[dict[str
         if _same(applier, path, observed, op["after"]) and reversible(op):
             written.append(op)
             return observed
-        if reversible(op) and _same(applier, path, observed, op["observed_before"]):
+        timed_out = isinstance(exc, (TimeoutError, TimeoutException)) or getattr(exc, "code", None) == "timeout"
+        if not timed_out and reversible(op) and _same(applier, path, observed, op["observed_before"]):
             raise
         raise ChangeUncertain() from exc
     written.append(op)
@@ -488,6 +490,8 @@ def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: boo
                 op["verified_at"] = _now_iso()
             _persist_ops(db, change_id, ops, "applying")
     except ChangeUncertain:
+        op["result"] = "onbevestigd"
+        _persist_ops(db, change_id, ops, "applying")
         audit(actor, "change.unconfirmed", f"Uitkomst van de bronactie nog onbekend: {ch['title']}",
               target=ch["target"], change_id=change_id)
         raise
@@ -559,6 +563,22 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
         return rollback_locked(ch, actor, db, reason=reason, allow_delete=allow_delete)
 
 
+def _checked_rollback_value(applier: Applier, op: dict[str, Any], change_id: int, resuming: bool) -> Any:
+    from mso.connector_api.errors import ConnectorError
+
+    path = op["path"]
+    try:
+        current = applier.read(path)
+    except Exception as exc:
+        raise HTTPException(502, "De bronwaarde voor terugdraaien kon niet worden gecontroleerd.") from exc
+    expected = (op.get("observed_before") if resuming and op.get("result") == "teruggedraaid"
+                else op.get("observed_after", op["after"]))
+    if _same(applier, path, current, expected) or resuming and _same(applier, path, current, op.get("observed_before")):
+        return current
+    LOGGER.warning("change.rollback_refused wijziging=%s reden=bronafwijking", change_id)
+    raise ConnectorError(412, "precondition_failed")
+
+
 def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str = "", allow_delete: bool = False,
                     request_id: UUID | None = None, check_deadline: Callable[[], None] | None = None,
                     reserve: Callable[[Connection], None] | None = None) -> dict[str, Any]:
@@ -590,43 +610,43 @@ def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str
             "en nooit automatisch"))
     person = is_person(actor, db)
     ops = [dict(op) for op in ch["ops"]]
-    current_values = {}
     if check_deadline is not None:
-        # De handtekening bindt de hele wijziging. Een afwijking sluit alle bronacties uit.
+        # De handtekening bindt de hele wijziging. Een afwijking vóór de uitvoering weigert het hele verzoek.
         for op in ops:
-            path = op["path"]
-            try:
-                current = applier.read(path)
-            except Exception as exc:
-                raise HTTPException(502, "De bronwaarde voor terugdraaien kon niet worden gecontroleerd.") from exc
-            expected = (op.get("observed_before") if resuming and op.get("result") == "teruggedraaid"
-                        else op.get("observed_after", op["after"]))
-            if not _same(applier, path, current, expected) and not (
-                    resuming and _same(applier, path, current, op.get("observed_before"))):
-                from mso.connector_api.errors import ConnectorError
-
-                LOGGER.warning("change.rollback_refused wijziging=%s reden=bronafwijking", change_id)
-                raise ConnectorError(412, "precondition_failed")
-            current_values[path] = current
-    if request_id is not None or check_deadline is not None:
-        with db.tx() as conn:
-            if reserve:
-                reserve(conn)
-            if request_id is not None:
-                conn.execute("UPDATE change_sets SET rollback_request_id=%s WHERE id=%s", (request_id, change_id))
-            if check_deadline is not None:
-                check_deadline()
+            _checked_rollback_value(applier, op, change_id, resuming)
+    start_request = request_id is not None or check_deadline is not None
     errors: list[str] = []
     skipped = [op for op in ops if resuming and op.get("result") == "overgeslagen"]
     for op in reversed(ops):
         was_reverted = resuming and op.get("result") == "teruggedraaid"
         if op.get("result") != "toegepast" and not was_reverted:
             continue
-        if not reversible(op):
+        can_revert = reversible(op)
+        noop = can_revert and applier.noop_rollback is not None and applier.noop_rollback(str(op["path"]))
+        if start_request and check_deadline is not None:
+            current = _checked_rollback_value(applier, op, change_id, resuming)
+        elif can_revert and not noop:
+            try:
+                current = applier.read(op["path"])
+            except Exception as exc:
+                op["rollback_error"] = f"huidige waarde niet te lezen: {redact(str(exc))[:200]}"
+                errors.append(f"{op['label']}: {op['rollback_error']}")
+                _persist_ops(db, change_id, ops, "applied")
+                continue
+        if start_request:
+            with db.tx() as conn:
+                if reserve:
+                    reserve(conn)
+                if request_id is not None:
+                    conn.execute("UPDATE change_sets SET rollback_request_id=%s WHERE id=%s", (request_id, change_id))
+                if check_deadline is not None:
+                    check_deadline()
+            start_request = False
+        if not can_revert:
             op["result"] = "niet_terug_te_draaien"
             _persist_ops(db, change_id, ops, "applied")
             continue
-        if applier.noop_rollback is not None and applier.noop_rollback(str(op["path"])):
+        if noop:
             try:
                 applier.write(op["path"], op.get("observed_before"))
             except Exception as exc:
@@ -636,13 +656,6 @@ def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str
                 continue
             op.update(result="teruggedraaid", rollback_note="eenmalige actie zonder blijvend effect; niets "
                       "terug te zetten")
-            _persist_ops(db, change_id, ops, "applied")
-            continue
-        try:
-            current = current_values[op["path"]] if check_deadline is not None else applier.read(op["path"])
-        except Exception as exc:
-            op["rollback_error"] = f"huidige waarde niet te lezen: {redact(str(exc))[:200]}"
-            errors.append(f"{op['label']}: {op['rollback_error']}")
             _persist_ops(db, change_id, ops, "applied")
             continue
         if _same(applier, op["path"], current, op.get("observed_before")):
@@ -733,9 +746,9 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
         applier = APPLIERS[ch["target"]]()
     except Exception as exc:
         applier = None
-        unreadable = [f"koppeling niet beschikbaar: {redact(str(exc))[:160]}"]
+        unconfirmed = [f"koppeling niet beschikbaar: {redact(str(exc))[:160]}"]
     else:
-        unreadable = []
+        unconfirmed = []
     unclear: list[str] = []
     if applier is not None:
         for op in ops:
@@ -744,7 +757,7 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
             try:
                 cur = applier.read(op["path"])
             except Exception as exc:
-                unreadable.append(f"{op['label']}: {redact(str(exc))[:160]}")
+                unconfirmed.append(f"{op['label']}: {redact(str(exc))[:160]}")
                 continue
             op["checked_at"] = _now_iso()
             op["observed_after"] = cur
@@ -753,24 +766,25 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
             elif _same(applier, op["path"], cur, op["after"]):
                 op["result"] = "toegepast"
                 op.setdefault("verified_at", _now_iso())
+            elif op.get("result") == "onbevestigd":
+                # De bron kan de verstuurde opdracht nog verwerken na een eerder verloren antwoord.
+                unconfirmed.append(f"{op['label']}: bronactie nog niet bevestigd")
             elif _same(applier, op["path"], cur, op.get("observed_before")):
                 op["result"] = "niet_toegepast"
             else:
                 op["result"] = "afwijkend"
                 op["current"] = cur
                 unclear.append(f"{op['label']}: nu {_short(cur, 60)}")
-    if unreadable and not grace_over:
-        return "wacht"  # e.g. SABnzbd restarts together with MSO: try again in the next round
+    if unconfirmed and not grace_over:
+        return "wacht"
     title = ch["title"]
-    if unreadable:
-        _persist_ops(db, ch["id"], ops, "applying")
-        err = "Onderbroken tijdens toepassen; huidige waarde bij de bron niet te controleren: " + "; ".join(unreadable)
+    if unconfirmed:
+        err = redact("Uitkomst na één uur niet te controleren. " + "; ".join(unconfirmed))
+        _waiting_item(ch, f"Onderbroken wijziging controleren: {title}",
+                      f"De bron heeft de uitkomst van '{title}' binnen één uur niet bevestigd. "
+                      "Controleer de instellingen zelf en maak zo nodig een nieuw voorstel.", "onduidelijk", db)
         db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s WHERE id=%s AND status='applying'",
                    (err[:1000], jsonb(ops), ch["id"]))
-        _waiting_item(ch, f"Onderbroken wijziging controleren: {title}",
-                      f"MSO werd herstart terwijl '{title}' werd toegepast, en kon daarna niet controleren wat er bij "
-                      f"{ch['target']} is ingesteld ({'; '.join(unreadable)[:300]}). Controleer de instellingen zelf; "
-                      "maak zo nodig een nieuw voorstel.", "onduidelijk", db)
         return "onduidelijk"
     if all(op.get("result") in ("toegepast", "al_ingesteld") for op in ops):
         _finish(db, ch, "status='applied', applied_at=now(), ops=%s, error=NULL", (jsonb(ops),), ("applying",),

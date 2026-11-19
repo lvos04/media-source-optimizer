@@ -15,6 +15,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createServer } from "node:http";
 import { connect as netConnect } from "node:net";
+import { PassThrough } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 
 import next from "next";
@@ -31,6 +32,7 @@ const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "p
 const CONNECTOR_PREFIX = "/connector/v1";
 const CORE_PREFIXES = ["/api/v1", "/newznab", "/torznab", CONNECTOR_PREFIX];
 const CORE_JSON_TIMEOUT_MS = 5000;
+const MAX_REQUEST_BYTES = 1024 * 1024;
 // Ook een pagina van 200 event-enveloppen met elk 16 KiB payload past binnen deze grens.
 const MAX_CORE_JSON_BYTES = 4 * 1024 * 1024;
 
@@ -46,12 +48,13 @@ function target(pathname) {
   return null;
 }
 
-function forwardHeaders(req, base) {
+function forwardHeaders(req, dest) {
   const headers = {};
   for (const [key, value] of Object.entries(req.headers)) {
     if (!HOP_BY_HOP.has(key.toLowerCase()) && value !== undefined) headers[key] = value;
   }
-  headers.host = base.host;
+  headers.host = dest.base.host;
+  if (dest.path === "/healthz") headers["x-correlation-id"] = randomUUID();
   headers["x-forwarded-host"] = req.headers.host ?? "";
   headers["x-forwarded-proto"] = req.socket.encrypted ? "https" : "http";
   // Overwrite (never append): a LAN client must not be able to spoof its address for core's per-IP limits.
@@ -66,16 +69,33 @@ function forwardHeaders(req, base) {
   return headers;
 }
 
-function proxy(req, res, dest) {
+async function readChunkedBody(req, signal) {
+  const chunks = [];
+  let size = 0;
+  // Het afbreken van de tussenstroom laat de clientsocket vrij voor de JSON-fout.
+  for await (const chunk of req.pipe(new PassThrough({ signal }))) {
+    size += chunk.length;
+    if (size > MAX_REQUEST_BYTES) return null;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size);
+}
+
+async function proxy(req, res, dest) {
   const url = new URL(req.url ?? "/", "http://placeholder");
   const send = dest.base.protocol === "https:" ? httpsRequest : httpRequest;
-  const bounded = connectorPath(dest.path) || dest.path === "/readyz" || dest.path === "/healthz";
+  const limitRequest = connectorPath(dest.path) || dest.path === "/readyz";
+  const bounded = limitRequest || dest.path === "/healthz";
+  const signal = bounded ? AbortSignal.timeout(CORE_JSON_TIMEOUT_MS) : undefined;
+  const requestHeaders = forwardHeaders(req, dest);
   function unavailable() {
     if (res.writableEnded || res.destroyed) return;
     if (res.headersSent) return res.destroy();
     const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
     if (bounded) {
       if (dest.path === "/readyz") headers["x-correlation-id"] = randomUUID();
+      if (dest.path === "/healthz") headers["x-correlation-id"] = requestHeaders["x-correlation-id"];
+      if (!req.complete) headers.connection = "close";
       res.writeHead(503, { ...headers, "retry-after": "1" });
       if (dest.path === "/readyz") res.end(JSON.stringify({ status: "not_ready", checks: { core: false } }));
       else if (dest.path === "/healthz") res.end(JSON.stringify({ status: "down" }));
@@ -87,14 +107,36 @@ function proxy(req, res, dest) {
       res.end(JSON.stringify({ detail: "Upstream service unreachable", code: "upstream_unreachable" }));
     }
   }
+  let body;
+  if (limitRequest) {
+    if (req.headers["transfer-encoding"]) {
+      try {
+        body = await readChunkedBody(req, signal);
+      } catch {
+        unavailable();
+        return;
+      }
+      // Een GET krijgt ook bij streaming een expliciete afbakening op de verbinding naar de core.
+      if (body !== null) requestHeaders["content-length"] = body.length;
+    }
+    if (body === null || Number(req.headers["content-length"]) > MAX_REQUEST_BYTES) {
+      req.resume();
+      res.writeHead(413, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
+        connection: "close" });
+      res.end(JSON.stringify({ code: "payload_too_large", message: "Het verzoek is groter dan 1 MiB.",
+        details: { max_bytes: MAX_REQUEST_BYTES }, trace_id: randomUUID() }));
+      return;
+    }
+  }
+  if (res.destroyed) return;
   const upstream = send({
     protocol: dest.base.protocol,
     hostname: dest.base.hostname,
     port: dest.base.port || (dest.base.protocol === "https:" ? 443 : 80),
     method: req.method,
     path: dest.path + url.search,
-    headers: forwardHeaders(req, dest.base),
-    signal: bounded ? AbortSignal.timeout(CORE_JSON_TIMEOUT_MS) : undefined,
+    headers: requestHeaders,
+    signal,
   }, (upstreamRes) => {
     upstreamRes.on("error", unavailable);
     const headers = { ...upstreamRes.headers };
@@ -128,7 +170,8 @@ function proxy(req, res, dest) {
   upstream.on("error", unavailable);
   req.on("aborted", () => upstream.destroy());
   res.on("close", () => upstream.destroy());
-  req.pipe(upstream);
+  if (body !== undefined) upstream.end(body);
+  else req.pipe(upstream);
 }
 
 function proxyUpgrade(req, socket, head, dest) {
@@ -136,7 +179,7 @@ function proxyUpgrade(req, socket, head, dest) {
   const open = dest.base.protocol === "https:" ? tlsConnect : netConnect;
   const upstream = open({ host: dest.base.hostname, port: portNo, servername: dest.base.hostname }, () => {
     const url = new URL(req.url ?? "/", "http://placeholder");
-    const headers = forwardHeaders(req, dest.base);
+    const headers = forwardHeaders(req, dest);
     headers.connection = "Upgrade";
     headers.upgrade = req.headers.upgrade ?? "websocket";
     const lines = [`GET ${dest.path}${url.search} HTTP/1.1`, ...Object.entries(headers).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)];

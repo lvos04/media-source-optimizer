@@ -131,7 +131,8 @@ class GuardMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
         connector = is_connector(path)
-        client_cid = "" if connector or path == "/readyz" else request.headers.get("X-Correlation-Id", "")[:32]
+        public_probe = path in {"/readyz", "/healthz"}
+        client_cid = "" if connector or public_probe else request.headers.get("X-Correlation-Id", "")[:32]
         request.state.correlation_id = client_cid or uuid.uuid4().hex[:12]
         machine = has_machine_header(request)
         native_api = path.startswith("/api/") and path not in ("/api/v1/auth/login", "/api/v1/setup/admin")

@@ -1,6 +1,8 @@
 """Regressies voor aanvraaggrenzen, bronmetingen en native gegevensherstel."""
 
+import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -9,9 +11,11 @@ from cryptography.exceptions import InvalidTag
 from test_connector_api import PREFIX, _hartslag, _poll, fout
 
 from mso import backups
+from mso.app import init_runtime
 from mso.audit import audit
 from mso.connector_api.errors import MAX_BYTES
 from mso.connectors import base as connectors
+from mso.db import migrate_down, migrate_up, schema_version
 from mso.security import limiter
 from mso.vault import get_vault
 
@@ -75,6 +79,19 @@ def test_readyz_correlatie_komt_van_de_dienst(client, db):
         assert response.status_code == expected
         ids.append(response.headers["X-Correlation-Id"])
     assert all(ids) and len(set(ids)) == 2 and "meegegeven-kenmerk" not in ids
+
+
+def test_healthz_schermt_verzoekkenmerk_af_bij_databasefout(client, db, monkeypatch):
+    headers = {"X-Correlation-Id": USER_FIXTURE_PASSWORD}
+    gezond = client.get("/healthz", headers=headers)
+    monkeypatch.setattr(db, "ping", lambda: False)
+    storing = client.get("/healthz", headers=headers)
+    assert (gezond.status_code, storing.status_code) == (200, 503)
+    for antwoord in (gezond, storing):
+        if USER_FIXTURE_PASSWORD in antwoord.headers["X-Correlation-Id"] or USER_FIXTURE_PASSWORD in antwoord.text:
+            pytest.fail(f"De livenessrespons bij HTTP {antwoord.status_code} bevat het verzoekkenmerk.")
+    assert storing.json()["correlation_id"] == storing.headers["X-Correlation-Id"]
+    assert storing.headers["X-Correlation-Id"] != gezond.headers["X-Correlation-Id"]
 
 
 @pytest.mark.parametrize("route", ["discover", "health", "items", "events", "evidence"])
@@ -150,6 +167,60 @@ def test_native_herstel_begrenst_eventhistorie(viewer, app, db, onderdeel):
     replacement = [e for e in _poll(reader).json()["events"] if e["payload"]["source"] == "automation_log"][-1]
     assert replacement["event_id"] != event["event_id"]
     assert reader.get(f"{PREFIX}/evidence/{replacement['payload']['id']}").json() == replacement["payload"]
+
+
+@pytest.mark.parametrize("herstart", [False, True], ids=["direct", "na-herstart"])
+def test_eventidentiteit_na_mislukt_herstel_oud_schema(viewer, app, db, monkeypatch, herstart):
+    assert migrate_down(db, 608) == [609]
+    at = datetime.now(UTC)
+    row_id = db.scalar("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',%s) RETURNING id", (at,))
+    snapshot = backups.create_backup(actor="test")
+    assert migrate_up(db) == [609]
+    # De oude dump en de nieuwe gebeurtenis hebben hetzelfde nummer en dezelfde tijd.
+    db.execute("DELETE FROM automation_log WHERE id=%s", (row_id,))
+    db.execute("INSERT INTO automation_log(id,kind,result,ts) VALUES (%s,'run','ok',%s)", (row_id, at))
+
+    def event(reader):
+        return next(e for e in _poll(reader).json()["events"] if e["payload"]["source"] == "automation_log")
+
+    voor = event(viewer)
+    bewijs = f"{PREFIX}/evidence/{voor['source_event_id']}"
+    assert viewer.get(bewijs).json() == voor["payload"]
+    run = subprocess.run
+
+    def weiger_herstel(args, **kwargs):
+        if Path(args[0]).name == "pg_restore" and "--single-transaction" in args:
+            assert schema_version(db) == 608
+            return subprocess.CompletedProcess(args, 1, stderr="gecontroleerde archieffout")
+        return run(args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(subprocess, "run", weiger_herstel)
+        if herstart:
+            def migratie_onderbroken(_db):
+                raise RuntimeError("Gecontroleerde onderbreking van het schemaherstel")
+
+            patch.setattr(backups, "migrate_up", migratie_onderbroken)
+        with pytest.raises(backups.BackupError, match="gecontroleerde archieffout"):
+            backups.restore_backup(snapshot["id"], "test")
+    if herstart:
+        try:
+            assert schema_version(db) == 608
+            fout(_poll(viewer), 503, "dependency_unavailable")
+        finally:
+            init_runtime(db)
+    assert schema_version(db) == 609
+    na = event(viewer)
+    assert (viewer.get(bewijs).status_code, na["event_id"], na["source_event_id"]) == (
+        200, voor["event_id"], voor["source_event_id"])
+    assert viewer.get(bewijs).json() == voor["payload"]
+
+    backups.restore_backup(snapshot["id"], "test")
+    reader = make_user(app, "kijker", "viewer")
+    fout(reader.get(bewijs), 404, "not_found")
+    teruggezet = event(reader)
+    assert teruggezet["event_id"] != voor["event_id"]
+    assert reader.get(f"{PREFIX}/evidence/{teruggezet['source_event_id']}").json() == teruggezet["payload"]
 
 
 def test_auditprobleem_en_herstel_hebben_hetzelfde_onderwerp(viewer):

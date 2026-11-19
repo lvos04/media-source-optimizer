@@ -88,6 +88,8 @@ def test_restore_keep_tables_stay_out_of_dumps(admin, db, schema):
 
     _interrupt_restore(db, original["id"])
     keep_tables = ("mso_restore_machine_keep", "mso_restore_audit_keep")
+    if schema < 609:
+        keep_tables += ("mso_restore_event_keep",)
     assert all(db.scalar("SELECT to_regclass(%s)", (table,)) for table in keep_tables)
     if schema >= 608:
         dump = backups.create_backup(kind="auto", actor="test")
@@ -101,6 +103,7 @@ def test_restore_keep_tables_stay_out_of_dumps(admin, db, schema):
     assert "schema_migrations" in listing
     for table in keep_tables:
         assert table not in listing
+        assert db.scalar("SELECT to_regclass(%s)", (table,)) is None
 
 
 def test_open_restore_blocks_key_management(admin, client, db):

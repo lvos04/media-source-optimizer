@@ -68,6 +68,7 @@ LOGGER = logging.getLogger(__name__)
 REFETCHABLE = ("release_cache", "mg_wanted_cache", "mg_snapshots", "usenet_hi_headers", "torrent_samples",
                "torrent_client_snapshot")
 AUDIT_KEEP_TABLE = "mso_restore_audit_keep"  # temporary, server-side copy of audit_log during a restore
+EVENT_KEEP_TABLE = "mso_restore_event_keep"
 RESTORE_KEEP_TABLE = machine_keys.RESTORE_KEEP_TABLE
 EVENT_HISTORY_KEY = "connector_event_history"
 SAFETY_KIND, SAFETY_DAYS, SAFETY_KEEP = "pre-restore", 30, 2
@@ -189,7 +190,8 @@ def _dump(*, kind: str, include_secrets: bool, timeout: int = 1800) -> Path:
     path = target_dir / f"mso-{stamp}-{kind}.dump"
     args, env = _pg_env()
     cmd = [_bin("pg_dump"), *args, "-Fc", "--no-owner", "--no-privileges", "--exclude-table-data=sessions",
-           f"--exclude-table={AUDIT_KEEP_TABLE}", f"--exclude-table={RESTORE_KEEP_TABLE}", "-f", str(path)]
+           f"--exclude-table={AUDIT_KEEP_TABLE}", f"--exclude-table={RESTORE_KEEP_TABLE}",
+           f"--exclude-table={EVENT_KEEP_TABLE}", "-f", str(path)]
     cmd += [f"--exclude-table-data={t}" for t in REFETCHABLE]
     if not include_secrets:
         cmd.append("--exclude-table-data=secrets")
@@ -299,6 +301,12 @@ def _recover_machine_keys(db: Database) -> bool:
 
 
 def _finish_restore(conn) -> None:
+    if conn.execute("SELECT to_regclass(%s) AS name", (EVENT_KEEP_TABLE,)).fetchone()["name"]:
+        # Bij succes vervangt pg_restore de hele tabel. Een gelijk nummer en tijdstip in de
+        # teruggezette tabel mogen nooit de UUID van een verdwenen gebeurtenis krijgen.
+        conn.execute(f"UPDATE automation_log a SET event_uuid=k.event_uuid FROM {EVENT_KEEP_TABLE} k "
+                     "WHERE a.tableoid=k.source_table AND a.id=k.id AND a.ts=k.ts AND a.event_uuid IS NULL")
+        conn.execute(f"DROP TABLE {EVENT_KEEP_TABLE}")
     # Geef lezers pas vrij zodra ook cursors uit de vorige historie zijn verlopen.
     conn.execute("INSERT INTO system_state(key,value) VALUES (%s,to_jsonb(gen_random_uuid())) "
                  "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()", (EVENT_HISTORY_KEY,))
@@ -355,7 +363,14 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
     downgraded: list[int] = []
     if 0 < dump_v < cur_v:
         try:
-            downgraded = migrate_down(db, dump_v)
+            with upgrade_lock(db) as conn, conn.transaction():
+                if dump_v < 609 <= cur_v:
+                    # Bewaar de identiteit en draai de migraties terug onder hetzelfde tabel- en
+                    # transactieslot. De kopie overleeft ook het wegvallen van dit proces.
+                    conn.execute("LOCK TABLE automation_log IN ACCESS EXCLUSIVE MODE")
+                    conn.execute(f"CREATE TABLE {EVENT_KEEP_TABLE} AS SELECT tableoid AS source_table,id,ts,event_uuid "
+                                 "FROM automation_log WHERE event_uuid IS NOT NULL")
+                downgraded = migrate_down(db, dump_v)
         except Exception as exc:
             _back_to_head(db)
             db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")
@@ -363,15 +378,20 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
                               f"({redact(str(exc))[:300]}); de veiligheidsback-up {pre['file']} bevat de huidige "
                               "stand") from exc
     # Het kind houdt de upgradesessie open als het API-proces tijdens pg_restore wegvalt.
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=1800, check=False,  # noqa: S603
-                          pass_fds=restore_fds)
-    db.pool.check()  # drop pooled connections that the restore may have invalidated
-    if proc.returncode != 0:
+    try:
+        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=1800, check=False,  # noqa: S603
+                              pass_fds=restore_fds)
+    except BaseException:
         if downgraded:
             _back_to_head(db)
+        raise
+    db.pool.check()  # drop pooled connections that the restore may have invalidated
+    if proc.returncode != 0:
+        schema_updated = bool(downgraded) and _back_to_head(db)
         db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")
         if downgraded:
-            raise BackupError(f"Herstel mislukt: {redact(proc.stderr.strip())[:400]}. Het schema is weer bijgewerkt; "
+            status = "Het schema is weer bijgewerkt" if schema_updated else "Herstart MSO om het schema bij te werken"
+            raise BackupError(f"Herstel mislukt: {redact(proc.stderr.strip())[:400]}. {status}; "
                               f"gegevens van nieuwere functies staan in de veiligheidsback-up {pre['file']}")
         raise BackupError(f"Herstel mislukt (database ongewijzigd): {redact(proc.stderr.strip())[:400]}")
     try:
@@ -419,11 +439,13 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
             "schema_version": schema_version(db), "applying_settled": settled}
 
 
-def _back_to_head(db: Database) -> None:
+def _back_to_head(db: Database) -> bool:
     try:
         migrate_up(db)
+        return True
     except Exception:  # reported by the caller's error; the next start runs `migrate` again
         LOGGER.exception("schema na mislukt herstel niet bijgewerkt")
+        return False
 
 
 def _keep_state(kept: dict[str, Any], db: Database) -> None:

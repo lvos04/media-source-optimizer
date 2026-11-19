@@ -551,3 +551,44 @@ kijkgeschiedenis en MediaGuard-voortgang blijven onaangeroerd (OpenAPI byte-geli
 - §5 "OpenAPI-export + CI-drift": de driftcontrole bestaat nu als test (`apps/core/tests/test_openapi_export.py`, draait
   in de CI-job python); de rest van P3-14 blijft open.
 - ADR-0002 en ADR-0004 verwijzen nu naar ADR-0009 punt 6 (geen enrollment in v1).
+
+## 13. Actielijst voor de Hub (S-P3-240, contract §8)
+
+Elke actie gebruikt een bestaande MSO-voorvertoning. Bij meerdere operaties moeten alle paden en waarden in dezelfde
+rij passen. MSO eist bekende gehele waarden vóór en na de wijziging en behoudt de broncontroles van de bestaande
+applier. De Hub koppelt menselijke goedkeuring per actie aan precies deze voorvertoning. De ondertekende connector
+hanteert minimaal R2. Voor deze twee begrensde instellingen is geen aanvullende back-upbevestiging vereist.
+
+| `action_id` | Doel en toegestane operaties | Terugdraaien |
+|---|---|---|
+| `mso.sabnzbd.server_limits` | Prioriteit of `optional` van bestaande SABnzbd-nieuwsservers. Paden `servers/<naam>/priority` en `servers/<naam>/optional`. | Ja, met uitgelezen oorspronkelijke waarde en controle op afwijking. |
+| `mso.qbittorrent.speed_limits` | Globale, alternatieve of per torrent ingestelde upload- en downloadlimieten. De bestaande qBittorrent-policy begrenst de bronwaarden. | Ja, voor eerder gewijzigde waarden die nog overeenkomen met de uitgevoerde instelling. |
+
+Verwijderen, uitschakelen, onderhoudsacties, eenmalige downloads, categoriebeheer en configuratie van Prowlarr of
+MediaGuard vallen buiten deze lijst. De native Hub-adapter van S-P3-120 gebruikt `POST /api/v1/changes/{id}/approve`
+en daarna `/apply`, met dezelfde machine-identiteit met `changes:approve`, dezelfde `expected_preview_hash` en een
+eigen UUID in `Idempotency-Key` per handeling. Goedkeuring verloopt na vijftien minuten. Een machine met `read` kan de
+voorvertoning en `resource_etag` lezen. De hash heeft vorm `sha256:<hex>` en bindt de geordende `ops`, `target` en
+`risk`. De schatting `impact` en uitvoeringsvelden worden buiten de hash gehouden.
+
+Voor de ondertekende route controleert MSO Ed25519, de gepinde beleidshash, de minimale risicoklasse, de aanvraag- en
+goedkeuringsvensters, beide nonces, de gebonden actie en de eigen toestand. Configureer als beheerder
+`MSO_HUB_POLICY_PUBLIC_KEY` met de publieke Ed25519-beleidssleutel in JWK-vorm (`kty`, `crv`, `x`) en
+`MSO_HUB_POLICY_HASH` met de verwachte beleidshash in vorm `sha256:<hex>`. Neem beide over uit een vertrouwde
+beheerbron. De twee ondertekende routes blijven gesloten totdat beide configuratiewaarden geldig zijn.
+`/connector/v1/propose` antwoordt met 501. De actielijst staat in `discover.actions`. De capaciteiten `apply` en
+`rollback` verschijnen zodra de configuratie voor verificatie beschikbaar is.
+
+S-P3-120 levert de ondertekening voor de connector. Gebruik het `ExecutionRequest` uit contract §8 met
+`proposal.target = {app_id, change_id}`, `app_id = media-source-optimizer` en het numerieke MSO-change-ID.
+`approval.action_scope` bevat `action_id`, `target` en `parameters_sha256` volgens het Hub-ondertekenformaat.
+Bij toepassen bevat `proposal.parameters` uitsluitend `expected_preview_hash`. Gebruik de previewhash ook als
+`proposal.expected_version` en `approval.resource_etag`. Bij terugdraaien bevat `proposal.parameters` uitsluitend
+`expected_prev`, met de `resource_etag` van de toegepaste wijziging. Gebruik die waarde ook als `expected_version` en
+`approval.resource_etag`. `approval.preview_hash` blijft de oorspronkelijke previewhash. Gebruik een eigen
+`Idempotency-Key`, aanvraagnonce en goedkeuringsnonce per handeling. Bij herhaling van dezelfde nog geldige aanvraag
+levert MSO het opgeslagen antwoord. In P3 blijft voor de Hub-gebruiker de terugdraailink naar MSO gelden.
+
+Bij een gegevensherstel vervallen gebonden goedkeuringen en eerder opgeslagen antwoorden. Verbruikte
+idempotentiesleutels en nonces blijven gereserveerd. Lees de actuele wijziging opnieuw en vraag bij een nog gewenste
+handeling een nieuwe goedkeuring aan.

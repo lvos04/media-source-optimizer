@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from psycopg import Connection
+
 from mso.db import get_db, jsonb
 from mso.security import redact
 
@@ -27,9 +29,13 @@ def _clean(value: Any) -> Any:
 
 
 def audit(actor: str, action: str, summary: str, *, target: str | None = None,
-          detail: dict[str, Any] | None = None, change_id: int | None = None) -> int:
+          detail: dict[str, Any] | None = None, change_id: int | None = None,
+          conn: Connection | None = None) -> int:
     detail = _clean(detail or {})
     json.dumps(detail, default=str)  # fail early on unserialisable detail
-    return int(get_db().scalar(
-        "INSERT INTO audit_log(actor,action,target,summary,detail,change_id) VALUES (%s,%s,%s,%s,%s,%s) "
-        "RETURNING id", (actor, action, target, redact(summary), jsonb(detail), change_id)))
+    statement = ("INSERT INTO audit_log(actor,action,target,summary,detail,change_id) VALUES (%s,%s,%s,%s,%s,%s) "
+                 "RETURNING id")
+    args = (actor, action, target, redact(summary), jsonb(detail), change_id)
+    if conn is not None:
+        return int(conn.execute(statement, args).fetchone()["id"])
+    return int(get_db().scalar(statement, args))

@@ -21,6 +21,16 @@ MESSAGES = {
     "not_found": "De gevraagde bron bestaat niet.",
     "method_not_allowed": "Deze methode is niet toegestaan.",
     "conflict": "De huidige toestand laat dit verzoek niet toe.",
+    "preview_changed": "De voorvertoning is gewijzigd. Vraag een nieuw voorstel aan.",
+    "approval_expired": "De goedkeuring of het uitvoeringsverzoek is verlopen of nog niet geldig.",
+    "approval_required": "Een geldige, gebonden goedkeuring is vereist.",
+    "nonce_reused": "De nonce van het uitvoeringsverzoek is al gebruikt.",
+    "idempotency_key_required": "Idempotency-Key ontbreekt.",
+    "idempotency_key_invalid": "Idempotency-Key moet één UUID zijn.",
+    "idempotency_key_reused": "Deze Idempotency-Key hoort bij een ander verzoek.",
+    "idempotency_in_progress": "Dit verzoek is nog bezig.",
+    "precondition_failed": "De huidige versie komt niet overeen met de opgegeven versie.",
+    "upstream_error": "De bronactie kon niet worden uitgevoerd of gecontroleerd.",
     "cursor_expired": "De cursor is verlopen. Begin opnieuw zonder cursor.",
     "payload_too_large": "Het verzoek is groter dan 1 MiB.",
     "validation_error": "Een of meer velden zijn ongeldig.",
@@ -31,8 +41,8 @@ MESSAGES = {
 }
 STATUS_CODES = {
     401: "unauthorized", 403: "forbidden", 404: "not_found", 405: "method_not_allowed",
-    409: "conflict", 413: "payload_too_large", 422: "validation_error", 429: "rate_limited",
-    500: "internal", 501: "capability_unavailable", 503: "dependency_unavailable",
+    409: "conflict", 412: "precondition_failed", 413: "payload_too_large", 422: "validation_error", 429: "rate_limited",
+    500: "internal", 501: "capability_unavailable", 502: "upstream_error", 503: "dependency_unavailable",
 }
 
 

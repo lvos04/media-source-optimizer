@@ -34,9 +34,9 @@ from mso.security import redact
 SCOPES = frozenset({"read", "changes:approve"})
 IDEMPOTENCY_EXCEPTIONS = {
     ("post", "/api/v1/machine-keys"): "Bewuste eenmalige uitgifte van een nieuw geheim (contract §5).",
-    **{("post", f"{PREFIX}/{action}"): "Uitgeschakeld met 501 capability_unavailable (contract §5)."
-       for action in ("propose", "apply", "rollback")},
+    ("post", f"{PREFIX}/propose"): "Uitgeschakeld met 501 capability_unavailable (contract §5).",
 }
+CHANGE_WRITE_ROUTES = frozenset({"/api/v1/changes/{change_id}/approve", "/api/v1/changes/{change_id}/apply"})
 KEY_RE = re.compile(r"mso_mk_([0-9a-f]{32})_([A-Za-z0-9_-]{43})", re.ASCII)
 PUBLIC_FIELDS = ("id", "name", "scopes", "created_at", "last_used_at", "revoked_at", "last_four")
 ADMIN_LOCK = 727008
@@ -253,10 +253,25 @@ def authenticate(request: HTTPConnection) -> Principal:
 
 def authorize(request: HTTPConnection, principal: Principal) -> None:
     route = request.scope.get("machine_route")
-    if (request.scope["type"] != "http" or request.scope.get("method") != "GET"
-            or route is None or route.path not in READ_ROUTES or "read" not in principal.scopes
-            or any(k.lower() == "force" for k in request.query_params)):
-        raise HTTPException(403, "Deze route is niet toegestaan met de scopes van de machine-sleutel")
+    method = request.scope.get("method")
+    if request.scope["type"] == "http" and route is not None and not any(
+            k.lower() == "force" for k in request.query_params):
+        if method == "GET" and route.path in READ_ROUTES and "read" in principal.scopes:
+            return
+        if method == "POST" and route.path in CHANGE_WRITE_ROUTES and "changes:approve" in principal.scopes:
+            return
+    raise HTTPException(403, "Deze route is niet toegestaan met de scopes van de machine-sleutel")
+
+
+def require_change_key(conn: psycopg.Connection, principal: Principal) -> None:
+    """Wordt onder het gedeelde sleutelbeheerslot aangeroepen, vóór uitvoering of replay."""
+    _require_machine_auth_open(conn)
+    row = conn.execute("SELECT scopes,revoked_at FROM machine_keys WHERE id=%s",
+                       (principal.machine_key_id,)).fetchone()
+    if row is None or row["revoked_at"] is not None:
+        raise HTTPException(401, "Ongeldige of ingetrokken machine-sleutel")
+    if scopes_or_none(row["scopes"]) != principal.scopes or "changes:approve" not in principal.scopes:
+        raise HTTPException(403, "De machine-sleutel heeft geen schrijfrecht voor wijzigingen")
 
 
 def check_active(key_id: str, scopes: frozenset[str]) -> bool:

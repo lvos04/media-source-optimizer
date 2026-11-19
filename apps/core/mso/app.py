@@ -118,7 +118,7 @@ def _error(status: int, detail: Any, code: str, request: HTTPConnection, *,
         body.update(message=detail, details={"reason": code} if status in {401, 403} else {},
                     trace_id=str(uuid.uuid4()))
     response_headers = {"X-Correlation-Id": cid}
-    if status == 429 and headers and "Retry-After" in headers:
+    if status in {429, 503} and headers and "Retry-After" in headers:
         response_headers["Retry-After"] = headers["Retry-After"]
     return JSONResponse(body, status_code=status, headers=response_headers)
 
@@ -201,7 +201,8 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
                 if isinstance(part, str) and part in fields
             })]
             if any(e["type"] == "extra_forbidden" for e in exc.errors()):
-                errors.append({"veld": "query", "reden": "onbekend veld"})
+                area = "body" if any(e["loc"][0] == "body" for e in exc.errors()) else "query"
+                errors.append({"veld": area, "reden": "onbekend veld"})
             return _error(422, None, "validation_error", request, safe_details={"fouten": errors})
         if request.url.path.startswith("/api/v1/machine-keys"):
             if any("idempotency-key" in str(e.get("loc", ())).lower() for e in exc.errors()):
@@ -248,22 +249,36 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
     original_openapi = app.openapi
 
     def machine_openapi() -> dict[str, Any]:
-        from mso.machine_keys import IDEMPOTENCY_EXCEPTIONS, READ_ROUTES
+        from mso.machine_keys import CHANGE_WRITE_ROUTES, IDEMPOTENCY_EXCEPTIONS, READ_ROUTES
         schema = original_openapi()
         schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
         schemes["MachineKey"] = {"type": "apiKey", "in": "header", "name": "X-Api-Key",
                                  "description": "Rolvrije machine-sleutel. Alleen expliciet geopende scopes; "
-                                 "changes:approve opent in deze versie geen routes."}
+                                 "changes:approve opent uitsluitend approve en apply van change sets."}
         schemes["SessionCookie"] = {"type": "apiKey", "in": "cookie", "name": "mso_session"}
         for path, operations in schema["paths"].items():
             if path in READ_ROUTES and "get" in operations:
                 operations["get"]["security"] = [{"SessionCookie": []}, {"MachineKey": []}]
                 operations["get"]["x-machine-scopes"] = ["read"]
+            if path in CHANGE_WRITE_ROUTES and "post" in operations:
+                operation = operations["post"]
+                operation["security"] = [{"SessionCookie": []}, {"MachineKey": []}]
+                operation["x-machine-scopes"] = ["changes:approve"]
+                operation["description"] = (
+                    "Voor machine-sleutels zijn expected_preview_hash en Idempotency-Key verplicht.")
             if is_connector(path) and "post" in operations:
                 operation = operations["post"]
                 operation["security"] = [{"SessionCookie": []}]
                 if ("post", path) in IDEMPOTENCY_EXCEPTIONS:
                     operation["x-idempotency-exception"] = IDEMPOTENCY_EXCEPTIONS[("post", path)]
+                else:
+                    operation["security"] = []
+                    operation["description"] = (
+                        "Authenticatie via de Ed25519-handtekening van ExecutionRequest "
+                        "met een gepinde beleidssleutel.")
+                    for parameter in operation["parameters"]:
+                        if parameter["name"] == "Idempotency-Key":
+                            parameter["required"] = True
             if path.startswith("/api/v1/machine-keys"):
                 for method, operation in operations.items():
                     operation["security"] = [{"SessionCookie": []}]

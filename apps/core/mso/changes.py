@@ -34,11 +34,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
+from psycopg import Connection
 
 from mso import state
 from mso.audit import audit
+from mso.change_preview import preview_hash
 from mso.db import Database, get_db, jsonb
 from mso.security import redact
 
@@ -46,6 +49,7 @@ LOGGER = logging.getLogger(__name__)
 RISKS = ("advies", "automatisch_veilig", "toestemming_nodig")
 OPEN_STATUSES = ("preview", "approved", "applying")  # dedupe: one open change per key
 LOCK_CLASS = 727101  # pg_advisory_lock(LOCK_CLASS, change_id) — distinct from the migration lock (727001)
+APPROVAL_TTL = timedelta(minutes=15)
 RECONCILE_GRACE = timedelta(hours=1)  # source unreachable after a restart: keep trying this long, then report
 
 
@@ -54,6 +58,12 @@ class ChangeBusy(HTTPException):
 
     def __init__(self) -> None:
         super().__init__(409, detail="Deze wijziging wordt op dit moment al toegepast of teruggedraaid")
+
+
+class ChangePrecondition(HTTPException):
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(409, detail=detail)
+        self.code = code
 
 
 class RollbackSkipped(HTTPException):
@@ -109,8 +119,12 @@ def register_applier(target: str, factory: Callable[[], Applier]) -> None:
     APPLIERS[target] = factory
 
 
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return _now().isoformat()
 
 
 def _short(value: Any, n: int = 120) -> str:
@@ -123,7 +137,7 @@ def reversible(op: dict[str, Any]) -> bool:
 
 
 @contextmanager
-def _lock(change_id: int, db: Database) -> Iterator[None]:
+def _lock(change_id: int, db: Database, *, guard_lock: int | None = None) -> Iterator[Connection]:
     """Session-level advisory lock on a dedicated pool connection for the whole apply/rollback. PostgreSQL releases
     it when that connection closes, so a crashed process never leaves it behind — which is how the reconciler tells
     an interrupted apply from one that is still running. Raises :class:`ChangeBusy` when someone else holds it."""
@@ -135,7 +149,17 @@ def _lock(change_id: int, db: Database) -> Iterator[None]:
             if not got or not got["ok"]:
                 raise ChangeBusy()
             try:
-                yield
+                if guard_lock is None:
+                    yield conn
+                else:
+                    guarded = conn.execute("SELECT pg_try_advisory_lock_shared(%s) AS ok", (guard_lock,)).fetchone()
+                    if not guarded["ok"]:
+                        raise HTTPException(503, detail="Sleutelbeheer of gegevensherstel is bezig",
+                                            headers={"Retry-After": "1"})
+                    try:
+                        yield conn
+                    finally:
+                        conn.execute("SELECT pg_advisory_unlock_shared(%s)", (guard_lock,))
             finally:
                 conn.execute("SELECT pg_advisory_unlock(%s, %s)", (LOCK_CLASS, key))
         finally:
@@ -182,16 +206,21 @@ def create(target: str, title: str, ops: list[dict[str, Any]], *, risk: str, exp
         existing = db.fetchone("SELECT * FROM change_sets WHERE dedupe_key=%s AND status = ANY(%s)",
                                (dedupe_key, list(OPEN_STATUSES)))
         if existing:
-            return dict(existing)
+            return _fill_hash(existing, db)
     evaluate_after = datetime.now(UTC) + timedelta(hours=evaluate_after_h) if evaluate_after_h else None
-    row = db.fetchone(
-        "INSERT INTO change_sets(target,title,explanation,risk,ops,impact,source,dedupe_key,created_by,evaluate_after) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        (target, title, explanation, risk, jsonb(ops), jsonb(impact or {}), source, dedupe_key, actor,
-         evaluate_after))
-    audit(actor, "change.created", f"Wijzigingsvoorstel: {title}", target=target, change_id=row["id"],
-          detail={"risk": risk, "ops": len(ops)})
-    return dict(row)
+    with db.tx() as conn:
+        row = conn.execute(
+            "INSERT INTO change_sets(target,title,explanation,risk,ops,impact,source,dedupe_key,created_by,"
+            "evaluate_after) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (target, title, explanation, risk, jsonb(ops), jsonb(impact or {}), source, dedupe_key, actor,
+             evaluate_after),
+        ).fetchone()
+        # PostgreSQL normaliseert JSONB-getallen. Hash de vorm die latere lezers werkelijk ontvangen.
+        row["preview_hash"] = preview_hash(row["target"], row["risk"], row["ops"])
+        conn.execute("UPDATE change_sets SET preview_hash=%s WHERE id=%s", (row["preview_hash"], row["id"]))
+        audit(actor, "change.created", f"Wijzigingsvoorstel: {title}", target=target, change_id=row["id"],
+              detail={"risk": risk, "ops": len(ops)}, conn=conn)
+    return row
 
 
 def _validator(target: str) -> Callable[[str, Any], None] | None:
@@ -201,33 +230,90 @@ def _validator(target: str) -> Callable[[str, Any], None] | None:
         return None
 
 
+def _fill_hash(row: dict[str, Any], db: Database) -> dict[str, Any]:
+    # Historische rijen behouden hun status en goedkeuring. Vul de hash bij de eerste lezing.
+    while row["preview_hash"] is None:
+        value = preview_hash(row["target"], row["risk"], row["ops"])
+        updated = db.fetchone(
+            "UPDATE change_sets SET preview_hash=%s WHERE id=%s AND preview_hash IS NULL "
+            "AND target=%s AND risk=%s AND ops=%s RETURNING *",
+            (value, row["id"], row["target"], row["risk"], jsonb(row["ops"])),
+        )
+        if updated:
+            return updated
+        row = db.fetchone("SELECT * FROM change_sets WHERE id=%s", (row["id"],))
+        if row is None:
+            raise HTTPException(404, detail="Wijziging niet gevonden")
+    return row
+
+
 def get(change_id: int, db: Database | None = None) -> dict[str, Any]:
-    row = (db or get_db()).fetchone("SELECT * FROM change_sets WHERE id=%s", (change_id,))
+    db = db or get_db()
+    row = db.fetchone("SELECT * FROM change_sets WHERE id=%s", (change_id,))
     if row is None:
         raise HTTPException(404, detail="Wijziging niet gevonden")
-    return dict(row)
+    return _fill_hash(row, db)
+
+
+def check_preview(ch: dict[str, Any], expected: str) -> None:
+    if expected != ch["preview_hash"] or expected != preview_hash(ch["target"], ch["risk"], ch["ops"]):
+        raise ChangePrecondition("preview_changed", "De voorvertoning is gewijzigd. Vraag een nieuw voorstel aan.")
+
+
+def check_approval(ch: dict[str, Any], *, actor: str | None = None) -> None:
+    if actor is not None and (ch["approved_by"] != actor or ch["approval_preview_hash"] is None):
+        raise ChangePrecondition("approval_required", "Een gebonden goedkeuring door deze sleutel is vereist.")
+    if ch["approval_preview_hash"] is not None:
+        check_preview(ch, ch["approval_preview_hash"])
+        if ch["approval_expires_at"] <= _now():
+            raise ChangePrecondition("approval_expired", "De gebonden goedkeuring is verlopen.")
+
+
+def _update(db: Database, change_id: int, sql_set: str, params: tuple[Any, ...], allowed: tuple[str, ...],
+            *, conn: Connection | None = None) -> dict[str, Any] | None:
+    statement = f"UPDATE change_sets SET {sql_set} WHERE id=%s AND status = ANY(%s) RETURNING *"
+    args = (*params, change_id, list(allowed))
+    return conn.execute(statement, args).fetchone() if conn is not None else db.fetchone(statement, args)
 
 
 def _transition(db: Database, change_id: int, sql_set: str, params: tuple[Any, ...], allowed: tuple[str, ...]) -> bool:
-    """``UPDATE change_sets SET <sql_set> WHERE id AND status IN allowed RETURNING id`` — False when another request
-    changed the status first (the caller answers 409)."""
-    row = db.fetchone(f"UPDATE change_sets SET {sql_set} WHERE id=%s AND status = ANY(%s) RETURNING id",
-                      (*params, change_id, list(allowed)))
-    return row is not None
+    return _update(db, change_id, sql_set, params, allowed) is not None
 
 
 def _conflict(change_id: int, db: Database) -> HTTPException:
     return HTTPException(409, detail=f"Wijziging heeft status '{get(change_id, db)['status']}'")
 
 
+def _finish(db: Database, ch: dict[str, Any], sql_set: str, params: tuple[Any, ...], allowed: tuple[str, ...],
+            actor: str, action: str, summary: str, *, detail: dict[str, Any] | None = None,
+            request_id: UUID | None = None) -> dict[str, Any]:
+    from mso.change_requests import complete
+
+    with db.tx() as conn:
+        result = _update(db, ch["id"], sql_set, params, allowed, conn=conn)
+        if result is None:
+            raise HTTPException(409, detail="De toestand van de wijziging is inmiddels gewijzigd")
+        audit(actor, action, summary, target=ch["target"], change_id=ch["id"], detail=detail, conn=conn)
+        if request_id is not None:
+            complete(conn, request_id, result)
+    return result
+
+
 def approve(change_id: int, actor: str, db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
-    ch = get(change_id, db)
-    if ch["status"] != "preview" or not _transition(db, change_id, "status='approved', approved_by=%s", (actor,),
-                                                    ("preview",)):
-        raise _conflict(change_id, db)
-    audit(actor, "change.approved", f"Goedgekeurd: {ch['title']}", target=ch["target"], change_id=change_id)
-    return get(change_id, db)
+    with _lock(change_id, db):
+        return approve_locked(get(change_id, db), actor, db)
+
+
+def approve_locked(ch: dict[str, Any], actor: str, db: Database, *, expected: str | None = None,
+                   request_id: UUID | None = None) -> dict[str, Any]:
+    if expected is not None:
+        check_preview(ch, expected)
+    if ch["status"] != "preview":
+        raise _conflict(ch["id"], db)
+    return _finish(db, ch, "status='approved', approved_by=%s, approval_preview_hash=%s, approval_expires_at=%s",
+                   (actor, expected, _now() + APPROVAL_TTL if expected is not None else None), ("preview",),
+                   actor, "change.approved", f"Goedgekeurd: {ch['title']}", request_id=request_id)
 
 
 def discard(change_id: int, actor: str, db: Database | None = None) -> dict[str, Any]:
@@ -240,10 +326,10 @@ def discard(change_id: int, actor: str, db: Database | None = None) -> dict[str,
     return get(change_id, db)
 
 
-def _check_applicable(ch: dict[str, Any], automatic: bool) -> None:
+def _check_applicable(ch: dict[str, Any], automatic: bool, verified_approval: bool = False) -> None:
     if ch["status"] not in ("preview", "approved"):
         raise HTTPException(409, detail=f"Wijziging heeft status '{ch['status']}'")
-    if ch["risk"] == "toestemming_nodig" and ch["status"] != "approved":
+    if ch["risk"] == "toestemming_nodig" and ch["status"] != "approved" and not verified_approval:
         raise HTTPException(409, detail="Deze wijziging vereist eerst goedkeuring door een beheerder")
     if automatic:
         if any(op.get("irreversible") for op in ch["ops"]):
@@ -286,86 +372,96 @@ def apply(change_id: int, actor: str, *, automatic: bool = False, force: bool = 
           db: Database | None = None) -> dict[str, Any]:
     db = db or get_db()
     state.require_manage_mode()
-    ch = get(change_id, db)
-    _check_applicable(ch, automatic)
+    with _lock(change_id, db):
+        return apply_locked(get(change_id, db), actor, db, automatic=automatic, force=force)
+
+
+def apply_locked(ch: dict[str, Any], actor: str, db: Database, *, automatic: bool = False, force: bool = False,
+                 verifies_approval: Callable[[], None] | None = None,
+                 request_id: UUID | None = None) -> dict[str, Any]:
+    state.require_manage_mode()
+    _check_applicable(ch, automatic, verifies_approval is not None)
+    check_approval(ch)
+    change_id = ch["id"]
     factory = APPLIERS.get(ch["target"])
     if factory is None:
         raise HTTPException(409, detail=f"Geen schrijfkoppeling voor '{ch['target']}'")
-    with _lock(change_id, db):
-        ch = get(change_id, db)  # under the lock: another request may have applied/discarded it meanwhile
-        _check_applicable(ch, automatic)
-        try:
-            applier = factory()
-        except Exception as exc:
-            raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
-                from exc
+    try:
+        applier = factory()
+    except Exception as exc:
+        raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
+            from exc
 
-        ops = [dict(op) for op in ch["ops"]]
-        # 1) drift detection on everything before writing anything
-        for op in ops:
-            try:
-                current = applier.read(op["path"])
-            except HTTPException:
-                raise
-            except Exception as exc:
-                raise HTTPException(502, detail=(f"Huidige waarde van '{op['label']}' niet te lezen: "
-                                                 f"{redact(str(exc))[:300]}")) from exc
-            op["observed_before"] = current
-            if applier.validate:
-                try:
-                    applier.validate(op["path"], op["after"])
-                except ValueError as exc:
-                    raise HTTPException(422, detail=f"Beleid weigert '{op['label']}': {exc}") from exc
-            if not force and op.get("before") is not None and current != op["before"] and current != op["after"]:
-                raise HTTPException(409, detail=(
-                    f"Afwijking gedetecteerd bij '{op['label']}': verwacht {op['before']!r}, nu {current!r}. "
-                    "Een ander systeem (bijv. MediaGuard) beheert deze waarde mogelijk; maak een nieuw voorstel."))
-        # 2) journal: 'applying' with every observed_before, BEFORE the first external write
-        if not _transition(db, change_id, "status='applying', ops=%s, apply_started_at=now(), applied_by=%s, "
-                           "applied_auto=%s, error=NULL", (jsonb(ops), actor, automatic), ("preview", "approved")):
-            raise _conflict(change_id, db)
-        # 3) write + verify one op at a time; each result is stored right away
-        written: list[dict[str, Any]] = []
+    ops = [dict(op) for op in ch["ops"]]
+    # 1) drift detection on everything before writing anything
+    for op in ops:
         try:
-            for op in ops:
-                if op["observed_before"] == op["after"]:
-                    op["result"] = "al_ingesteld"
-                else:
-                    applier.write(op["path"], op["after"])
-                    written.append(op)
-                    check = applier.read(op["path"])
-                    if not _same(applier, op["path"], check, op["after"]):
-                        raise RuntimeError(f"verificatie mislukt voor '{op['label']}': {check!r}")
-                    op["result"] = "toegepast"
-                    op["verified_at"] = _now_iso()
-                _persist_ops(db, change_id, ops, "applying")
+            current = applier.read(op["path"])
+        except HTTPException:
+            raise
         except Exception as exc:
-            rollback_errors = _restore(applier, written)
-            kept = [o["label"] for o in written if o.get("restore_note") == DELETE_NOTE]
-            err = redact(f"{exc}") + (f" · herstel mislukt: {rollback_errors}" if rollback_errors
-                                      else " · automatisch hersteld" if not kept else "")
-            if kept:
-                err += f" · blijft staan (terugzetten zou iets verwijderen; doe dat zo nodig zelf): {', '.join(kept)}"
-            db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s, applied_by=NULL, applied_auto=false "
-                       "WHERE id=%s AND status='applying'", (err, jsonb(ops), change_id))
-            audit(actor, "change.failed", f"Toepassen mislukt: {ch['title']}", target=ch["target"],
-                  change_id=change_id, detail={"error": err, "automatic": automatic})
-            if written:
-                restored = [o["label"] for o in written if o.get("result") == "teruggedraaid"]
-                audit("systeem", "change.auto_restored" if not rollback_errors else "change.auto_restore_failed",
-                      (f"Automatisch hersteld na mislukte wijziging: {ch['title']}" if not rollback_errors
-                       else f"Automatisch herstel deels mislukt: {ch['title']}"),
-                      target=ch["target"], change_id=change_id,
-                      detail={"restored": restored, "errors": rollback_errors,
-                              "values": [{"label": o["label"], "back_to": o["observed_before"]} for o in written]})
-            raise HTTPException(502, detail=f"Toepassen mislukt: {err}") from exc
-        if not _transition(db, change_id, "status='applied', applied_by=%s, applied_at=now(), ops=%s, error=NULL",
-                           (actor, jsonb(ops)), ("applying",)):
-            raise _conflict(change_id, db)
-    audit(actor, "change.applied", f"Toegepast: {ch['title']}", target=ch["target"], change_id=change_id,
-          detail={"ops": [{"label": o["label"], "before": o["observed_before"], "after": o["after"]} for o in ops],
-                  "automatic": automatic})
-    return get(change_id, db)
+            raise HTTPException(502, detail=(f"Huidige waarde van '{op['label']}' niet te lezen: "
+                                             f"{redact(str(exc))[:300]}")) from exc
+        op["observed_before"] = current
+        if applier.validate:
+            try:
+                applier.validate(op["path"], op["after"])
+            except ValueError as exc:
+                raise HTTPException(422, detail=f"Beleid weigert '{op['label']}': {exc}") from exc
+        if not force and op.get("before") is not None and current != op["before"] and current != op["after"]:
+            raise HTTPException(409, detail=(
+                f"Afwijking gedetecteerd bij '{op['label']}': verwacht {op['before']!r}, nu {current!r}. "
+                "Een ander systeem (bijv. MediaGuard) beheert deze waarde mogelijk; maak een nieuw voorstel."))
+    # Hercontroleer de geldigheid vlak voor het journaal en de eerste bronactie.
+    check_approval(ch)
+    if verifies_approval is not None:
+        verifies_approval()
+    # 2) journal: 'applying' with every observed_before, BEFORE the first external write
+    if not _transition(db, change_id, "status='applying', ops=%s, apply_started_at=now(), applied_by=%s, "
+                       "applied_auto=%s, apply_request_id=%s, error=NULL", (jsonb(ops), actor, automatic, request_id),
+                       ("preview", "approved")):
+        raise _conflict(change_id, db)
+    # 3) write + verify one op at a time; each result is stored right away
+    written: list[dict[str, Any]] = []
+    try:
+        for op in ops:
+            if op["observed_before"] == op["after"]:
+                op["result"] = "al_ingesteld"
+                op["observed_after"] = op["observed_before"]
+            else:
+                applier.write(op["path"], op["after"])
+                written.append(op)
+                check = applier.read(op["path"])
+                if not _same(applier, op["path"], check, op["after"]):
+                    raise RuntimeError(f"verificatie mislukt voor '{op['label']}': {check!r}")
+                op["result"] = "toegepast"
+                op["observed_after"] = check
+                op["verified_at"] = _now_iso()
+            _persist_ops(db, change_id, ops, "applying")
+    except Exception as exc:
+        rollback_errors = _restore(applier, written)
+        kept = [o["label"] for o in written if o.get("restore_note") == DELETE_NOTE]
+        err = redact(f"{exc}") + (f" · herstel mislukt: {rollback_errors}" if rollback_errors
+                                  else " · automatisch hersteld" if not kept else "")
+        if kept:
+            err += f" · blijft staan (terugzetten zou iets verwijderen; doe dat zo nodig zelf): {', '.join(kept)}"
+        db.execute("UPDATE change_sets SET status='failed', error=%s, ops=%s, applied_by=NULL, applied_auto=false "
+                   "WHERE id=%s AND status='applying'", (err, jsonb(ops), change_id))
+        audit(actor, "change.failed", f"Toepassen mislukt: {ch['title']}", target=ch["target"],
+              change_id=change_id, detail={"error": err, "automatic": automatic})
+        if written:
+            restored = [o["label"] for o in written if o.get("result") == "teruggedraaid"]
+            audit("systeem", "change.auto_restored" if not rollback_errors else "change.auto_restore_failed",
+                  (f"Automatisch hersteld na mislukte wijziging: {ch['title']}" if not rollback_errors
+                   else f"Automatisch herstel deels mislukt: {ch['title']}"),
+                  target=ch["target"], change_id=change_id,
+                  detail={"restored": restored, "errors": rollback_errors,
+                          "values": [{"label": o["label"], "back_to": o["observed_before"]} for o in written]})
+        raise HTTPException(502, detail=f"Toepassen mislukt: {err}") from exc
+    return _finish(db, ch, "status='applied', applied_by=%s, applied_at=now(), ops=%s, error=NULL",
+                   (actor, jsonb(ops)), ("applying",), actor, "change.applied", f"Toegepast: {ch['title']}",
+                   detail={"ops": [{"label": o["label"], "before": o["observed_before"], "after": o["after"]}
+                                   for o in ops], "automatic": automatic}, request_id=request_id)
 
 
 # ------------------------------------------------------------------ rollback
@@ -401,113 +497,121 @@ def rollback(change_id: int, actor: str, reason: str = "", db: Database | None =
     the admin role); otherwise 403 and nothing is written. Ops a person put back become an owner override."""
     db = db or get_db()
     state.require_manage_mode()
-    ch = get(change_id, db)
+    with _lock(change_id, db):
+        return rollback_locked(get(change_id, db), actor, db, reason=reason, allow_delete=allow_delete)
+
+
+def rollback_locked(ch: dict[str, Any], actor: str, db: Database, *, reason: str = "", allow_delete: bool = False,
+                    request_id: UUID | None = None, check_deadline: Callable[[], None] | None = None) -> dict[str, Any]:
+    state.require_manage_mode()
+    change_id = ch["id"]
     if ch["status"] != "applied":
         raise HTTPException(409, detail="Alleen toegepaste wijzigingen kunnen worden teruggedraaid")
-    # ``one_way``: cannot be undone but is not destructive (e.g. sending a release to a download client); allowed in
-    # any risk class, skipped on rollback exactly like ``irreversible``.
-    if not any(op.get("result") == "toegepast" and reversible(op) for op in ch["ops"]):
+    previous = ch["rollback_request_id"]
+    resuming = previous is not None and db.scalar(
+        "SELECT response IS NULL FROM connector_idempotency WHERE request_id=%s", (previous,))
+    if not any(reversible(op) and (op.get("result") == "toegepast" or
+                                   resuming and op.get("result") == "teruggedraaid") for op in ch["ops"]):
         raise HTTPException(409, detail="Deze wijziging is niet terug te draaien (bijv. verwijderde bestanden)")
     factory = APPLIERS.get(ch["target"])
     if factory is None:
         raise HTTPException(409, detail=f"Geen schrijfkoppeling voor '{ch['target']}'")
-    with _lock(change_id, db):
-        ch = get(change_id, db)
-        if ch["status"] != "applied":
-            raise HTTPException(409, detail="Alleen toegepaste wijzigingen kunnen worden teruggedraaid")
-        try:
-            applier = factory()
-        except Exception as exc:
-            raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
-                from exc
-        deleting = [op["label"] for op in ch["ops"] if op.get("result") == "toegepast" and reversible(op)
-                    and deletes_on_write(applier, str(op["path"]), op.get("observed_before"))]
-        if deleting and not allow_delete:
-            raise HTTPException(403, detail=(
-                f"Terugdraaien verwijdert hier iets ({', '.join(deleting)[:200]}); dat mag alleen een beheerder, "
-                "en nooit automatisch"))
-        person = is_person(actor, db)
-        ops = [dict(op) for op in ch["ops"]]
-        errors: list[str] = []
-        skipped: list[dict[str, Any]] = []
-        for op in reversed(ops):
-            if op.get("result") != "toegepast":
-                continue
-            if not reversible(op):
-                op["result"] = "niet_terug_te_draaien"
-                _persist_ops(db, change_id, ops, "applied")
-                continue
-            if applier.noop_rollback is not None and applier.noop_rollback(str(op["path"])):
-                try:
-                    applier.write(op["path"], op.get("observed_before"))
-                except Exception as exc:
-                    op["rollback_error"] = redact(str(exc))[:300]
-                    errors.append(f"{op['label']}: {op['rollback_error']}")
-                    _persist_ops(db, change_id, ops, "applied")
-                    continue
-                op.update(result="teruggedraaid", rollback_note="eenmalige actie zonder blijvend effect; niets "
-                          "terug te zetten")
-                _persist_ops(db, change_id, ops, "applied")
-                continue
+    try:
+        applier = factory()
+    except Exception as exc:
+        raise HTTPException(409, detail=f"Koppeling '{ch['target']}' niet beschikbaar: {redact(str(exc))[:300]}") \
+            from exc
+    deleting = [op["label"] for op in ch["ops"] if op.get("result") == "toegepast" and reversible(op)
+                and deletes_on_write(applier, str(op["path"]), op.get("observed_before"))]
+    if deleting and not allow_delete:
+        raise HTTPException(403, detail=(
+            f"Terugdraaien verwijdert hier iets ({', '.join(deleting)[:200]}); dat mag alleen een beheerder, "
+            "en nooit automatisch"))
+    if check_deadline is not None:
+        check_deadline()
+    if request_id is not None:
+        db.execute("UPDATE change_sets SET rollback_request_id=%s WHERE id=%s", (request_id, change_id))
+    person = is_person(actor, db)
+    ops = [dict(op) for op in ch["ops"]]
+    errors: list[str] = []
+    skipped = [op for op in ops if resuming and op.get("result") == "overgeslagen"]
+    for op in reversed(ops):
+        was_reverted = resuming and op.get("result") == "teruggedraaid"
+        if op.get("result") != "toegepast" and not was_reverted:
+            continue
+        if not reversible(op):
+            op["result"] = "niet_terug_te_draaien"
+            _persist_ops(db, change_id, ops, "applied")
+            continue
+        if applier.noop_rollback is not None and applier.noop_rollback(str(op["path"])):
             try:
-                current = applier.read(op["path"])
+                applier.write(op["path"], op.get("observed_before"))
             except Exception as exc:
-                op["rollback_error"] = f"huidige waarde niet te lezen: {redact(str(exc))[:200]}"
+                op["rollback_error"] = redact(str(exc))[:300]
                 errors.append(f"{op['label']}: {op['rollback_error']}")
                 _persist_ops(db, change_id, ops, "applied")
                 continue
-            if _same(applier, op["path"], current, op.get("observed_before")):
-                op.update(result="teruggedraaid", verified_at=_now_iso(), rollback_note="was al de oude waarde")
-            elif not _same(applier, op["path"], current, op["after"]):
-                op.update(result="overgeslagen", skip_reason="buiten MSO gewijzigd", current=current,
-                          checked_at=_now_iso())
-                op.pop("rollback_error", None)
-                skipped.append(op)
-                _record_override(ch, op, current)
-            else:
-                try:
-                    applier.write(op["path"], op.get("observed_before"))
-                    check = applier.read(op["path"])
-                    if not _same(applier, op["path"], check, op.get("observed_before")):
-                        raise RuntimeError(f"controle na terugzetten gaf {_short(check)}, verwacht "
-                                           f"{_short(op.get('observed_before'))}")
-                except Exception as exc:
-                    op["rollback_error"] = redact(str(exc))[:300]
-                    errors.append(f"{op['label']}: {op['rollback_error']}")
-                    _persist_ops(db, change_id, ops, "applied")
-                    continue
-                op.update(result="teruggedraaid", verified_at=_now_iso())
-                op.pop("rollback_error", None)
+            op.update(result="teruggedraaid", rollback_note="eenmalige actie zonder blijvend effect; niets "
+                      "terug te zetten")
             _persist_ops(db, change_id, ops, "applied")
-        reverted = [op for op in ops if op.get("result") == "teruggedraaid"]
-        if person:  # the person's own decision: Autopilot must not redo it on its next round
-            for op in reverted:
-                _record_override(ch, op, op.get("observed_before"))
-        skip_line = "; ".join(f"{o['label']}: nu {_short(o.get('current'), 60)}" for o in skipped)
-        if errors:
-            db.execute("UPDATE change_sets SET error=%s, ops=%s WHERE id=%s AND status='applied'",
-                       ("; ".join(errors)[:1000], jsonb(ops), change_id))
-            audit(actor, "change.rollback_failed", f"Terugdraaien niet gelukt: {ch['title']}", target=ch["target"],
-                  change_id=change_id, detail={"errors": errors, "reverted": [o["label"] for o in reverted],
-                                               "skipped": [o["label"] for o in skipped]})
-            raise HTTPException(502, detail=f"Terugdraaien deels mislukt: {errors}")
-        if not reverted:
-            msg = f"Niets teruggedraaid: buiten MSO gewijzigd ({skip_line}); MSO overschrijft dat niet"
-            db.execute("UPDATE change_sets SET error=%s, ops=%s WHERE id=%s AND status='applied'",
-                       (msg[:1000], jsonb(ops), change_id))
-            audit(actor, "change.rollback_skipped", f"Niet teruggedraaid (buiten MSO gewijzigd): {ch['title']}",
-                  target=ch["target"], change_id=change_id,
-                  detail={"skipped": [{"label": o["label"], "now": o.get("current")} for o in skipped]})
-            raise RollbackSkipped(msg, skipped)
-        if not _transition(db, change_id, "status='rolled_back', rolled_back_at=now(), ops=%s, error=%s",
-                           (jsonb(ops), (f"Overgeslagen (buiten MSO gewijzigd): {skip_line}"[:1000] if skipped
-                                         else None)), ("applied",)):
-            raise _conflict(change_id, db)
-    audit(actor, "change.rolled_back", f"Teruggedraaid: {ch['title']}" + (f" ({reason})" if reason else ""),
-          target=ch["target"], change_id=change_id,
-          detail={"verified": [o["label"] for o in reverted],
-                  "skipped": [{"label": o["label"], "now": o.get("current")} for o in skipped]})
-    return get(change_id, db)
+            continue
+        try:
+            current = applier.read(op["path"])
+        except Exception as exc:
+            op["rollback_error"] = f"huidige waarde niet te lezen: {redact(str(exc))[:200]}"
+            errors.append(f"{op['label']}: {op['rollback_error']}")
+            _persist_ops(db, change_id, ops, "applied")
+            continue
+        if _same(applier, op["path"], current, op.get("observed_before")):
+            op.update(result="teruggedraaid", verified_at=_now_iso(), rollback_note="was al de oude waarde")
+        elif was_reverted or not _same(applier, op["path"], current, op["after"]):
+            op.update(result="overgeslagen", skip_reason="buiten MSO gewijzigd", current=current,
+                      checked_at=_now_iso())
+            op.pop("rollback_error", None)
+            skipped.append(op)
+            _record_override(ch, op, current)
+        else:
+            try:
+                applier.write(op["path"], op.get("observed_before"))
+                check = applier.read(op["path"])
+                if not _same(applier, op["path"], check, op.get("observed_before")):
+                    raise RuntimeError(f"controle na terugzetten gaf {_short(check)}, verwacht "
+                                       f"{_short(op.get('observed_before'))}")
+            except Exception as exc:
+                op["rollback_error"] = redact(str(exc))[:300]
+                errors.append(f"{op['label']}: {op['rollback_error']}")
+                _persist_ops(db, change_id, ops, "applied")
+                continue
+            op.update(result="teruggedraaid", verified_at=_now_iso())
+            op.pop("rollback_error", None)
+        _persist_ops(db, change_id, ops, "applied")
+    reverted = [op for op in ops if op.get("result") == "teruggedraaid"]
+    if person:  # the person's own decision: Autopilot must not redo it on its next round
+        for op in reverted:
+            _record_override(ch, op, op.get("observed_before"))
+    skip_line = "; ".join(f"{o['label']}: nu {_short(o.get('current'), 60)}" for o in skipped)
+    if errors:
+        db.execute("UPDATE change_sets SET error=%s, ops=%s WHERE id=%s AND status='applied'",
+                   ("; ".join(errors)[:1000], jsonb(ops), change_id))
+        audit(actor, "change.rollback_failed", f"Terugdraaien niet gelukt: {ch['title']}", target=ch["target"],
+              change_id=change_id, detail={"errors": errors, "reverted": [o["label"] for o in reverted],
+                                           "skipped": [o["label"] for o in skipped]})
+        raise HTTPException(502, detail=f"Terugdraaien deels mislukt: {errors}")
+    if not reverted:
+        msg = f"Niets teruggedraaid: buiten MSO gewijzigd ({skip_line}); MSO overschrijft dat niet"
+        db.execute("UPDATE change_sets SET error=%s, ops=%s WHERE id=%s AND status='applied'",
+                   (msg[:1000], jsonb(ops), change_id))
+        audit(actor, "change.rollback_skipped", f"Niet teruggedraaid (buiten MSO gewijzigd): {ch['title']}",
+              target=ch["target"], change_id=change_id,
+              detail={"skipped": [{"label": o["label"], "now": o.get("current")} for o in skipped]})
+        raise RollbackSkipped(msg, skipped)
+    return _finish(db, ch, "status='rolled_back', rolled_back_at=now(), ops=%s, error=%s",
+                   (jsonb(ops), f"Overgeslagen (buiten MSO gewijzigd): {skip_line}"[:1000] if skipped else None),
+                   ("applied",), actor, "change.rolled_back", f"Teruggedraaid: {ch['title']}"
+                   + (f" ({reason})" if reason else ""),
+                   detail={"verified": [o["label"] for o in reverted],
+                           "skipped": [{"label": o["label"], "now": o.get("current")} for o in skipped]},
+                   request_id=request_id)
 
 
 # ------------------------------------------------------------------ crash recovery
@@ -560,6 +664,7 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
                 unreadable.append(f"{op['label']}: {redact(str(exc))[:160]}")
                 continue
             op["checked_at"] = _now_iso()
+            op["observed_after"] = cur
             if op.get("observed_before") == op["after"]:
                 op["result"] = "al_ingesteld"
             elif _same(applier, op["path"], cur, op["after"]):
@@ -585,12 +690,11 @@ def _reconcile_one(ch: dict[str, Any], db: Database) -> str:
                       "maak zo nodig een nieuw voorstel.", "onduidelijk", db)
         return "onduidelijk"
     if all(op.get("result") in ("toegepast", "al_ingesteld") for op in ops):
-        db.execute("UPDATE change_sets SET status='applied', applied_at=now(), ops=%s, error=NULL "
-                   "WHERE id=%s AND status='applying'", (jsonb(ops), ch["id"]))
-        audit(ch.get("applied_by") or "systeem", "change.applied", f"Toegepast (afgerond na onderbreking): {title}",
-              target=ch["target"], change_id=ch["id"],
-              detail={"ops": [{"label": o["label"], "before": o.get("observed_before"), "after": o["after"]}
-                              for o in ops], "automatic": bool(ch.get("applied_auto")), "interrupted": True})
+        _finish(db, ch, "status='applied', applied_at=now(), ops=%s, error=NULL", (jsonb(ops),), ("applying",),
+                ch.get("applied_by") or "systeem", "change.applied", f"Toegepast (afgerond na onderbreking): {title}",
+                detail={"ops": [{"label": o["label"], "before": o.get("observed_before"), "after": o["after"]}
+                                for o in ops], "automatic": bool(ch.get("applied_auto")), "interrupted": True},
+                request_id=ch["apply_request_id"])
         _resolve_item(ch["id"], db)
         return "afgerond"
     written = [op for op in ops if op.get("result") == "toegepast"]
@@ -689,4 +793,4 @@ def list_changes(status: str | None = None, target: str | None = None, limit: in
     sql = "SELECT * FROM change_sets" + (" WHERE " + " AND ".join(where) if where else "")
     sql += " ORDER BY id DESC LIMIT %s"
     params.append(limit)
-    return db.fetchall(sql, params)
+    return [_fill_hash(row, db) for row in db.fetchall(sql, params)]

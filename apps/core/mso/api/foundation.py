@@ -7,15 +7,16 @@ import time
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 
-from mso import backups, changes, jobs, settings_registry, state
+from mso import backups, change_requests, changes, jobs, settings_registry, state
 from mso.audit import audit
 from mso.auth import (
     SESSION_COOKIE,
     Principal,
     create_session,
+    current_principal,
     delete_session,
     hash_password,
     principal_from_request,
@@ -24,9 +25,11 @@ from mso.auth import (
     validate_password,
     verify_password,
 )
+from mso.change_actions import require_action
 from mso.config import VERSION, get_settings
 from mso.connectors import base as connectors
 from mso.db import applied_migrations, get_db, jsonb, schema_version
+from mso.machine_keys import ADMIN_LOCK, require_change_key
 from mso.security import UnsafeTarget, check_url, limiter
 from mso.vault import get_vault
 
@@ -501,25 +504,87 @@ def changes_list(
     limit: int = Query(100, ge=1, le=500),
     _: Principal = Depends(require("viewer")),
 ) -> dict[str, Any]:
-    return {"items": changes.list_changes(status, target, limit), "mode": state.mode()}
+    return {"items": [change_requests.change_view(ch) for ch in changes.list_changes(status, target, limit)],
+            "mode": state.mode()}
 
 
 @router.get("/changes/{change_id}")
 def change_get(change_id: int, _: Principal = Depends(require("viewer"))) -> dict[str, Any]:
-    return changes.get(change_id)
+    return change_requests.change_view(changes.get(change_id))
 
 
-@router.post("/changes/{change_id}/approve")
-def change_approve(change_id: int, p: Principal = Depends(require("admin"))) -> dict[str, Any]:
-    return changes.approve(change_id, p.actor)
+class BoundChangeBody(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    expected_preview_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
 
 
-@router.post("/changes/{change_id}/apply")
-def change_apply(change_id: int, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
-    ch = changes.get(change_id)
-    if ch["risk"] == "toestemming_nodig" and not p.can("admin") and ch["status"] != "approved":
-        raise HTTPException(403, detail="Goedkeuring door een beheerder vereist")
-    return changes.apply(change_id, p.actor)
+CHANGE_WRITE_ERRORS = {
+    400: {"description": "idempotency_key_required, idempotency_key_invalid"},
+    401: {"description": "unauthorized"},
+    403: {"description": "forbidden"},
+    409: {"description": "preview_changed, approval_required, approval_expired, idempotency_in_progress of conflict"},
+    422: {"description": "Ongeldig verzoek of idempotency_key_reused"},
+}
+CHANGE_REPLAY_HEADER = {"200": {"headers": {"Idempotent-Replay": {"schema": {"type": "string", "enum": ["true"]}}}}}
+
+
+def _change_write(request: Request, change_id: int, p: Principal, body: BoundChangeBody | None,
+                  *, approve: bool) -> Any:
+    from mso.change_requests import parse_request_id
+
+    expected = body.expected_preview_hash if body else None
+    role = "admin" if approve else "operator"
+    if not p.machine and not p.can(role):
+        raise HTTPException(403, detail=f"Rol '{role}' of hoger vereist")
+    request_id = parse_request_id(request.headers.getlist("Idempotency-Key"), required=p.machine)
+    if p.machine:
+        if expected is None:
+            raise change_requests.ChangeRequestError(422, "validation_error", "expected_preview_hash is verplicht.")
+        if body.model_extra:
+            raise change_requests.ChangeRequestError(422, "validation_error", "Onbekend veld in de aanvraag.")
+
+    def check(conn, ch):
+        if p.machine:
+            require_change_key(conn, p)
+            require_action(ch)
+        if expected is not None:
+            changes.check_preview(ch, expected)
+        if approve and expected is not None and ch["approved_by"] == p.actor:
+            changes.check_approval(ch)
+        if not approve:
+            changes.check_approval(ch, actor=p.actor if p.machine else None)
+            if (not p.machine and ch["risk"] == "toestemming_nodig"
+                    and not p.can("admin") and ch["status"] != "approved"):
+                raise HTTPException(403, detail="Goedkeuring door een beheerder vereist")
+
+    def execute(db, ch):
+        if approve:
+            return changes.approve_locked(ch, p.actor, db, expected=expected, request_id=request_id)
+        return changes.apply_locked(ch, p.actor, db, request_id=request_id)
+
+    return change_requests.run(request, change_id, p.actor, {"expected_preview_hash": expected},
+                               request_id, check, execute, guard_lock=ADMIN_LOCK if p.machine or expected else None)
+
+
+@router.post("/changes/{change_id}/approve", responses=CHANGE_WRITE_ERRORS | CHANGE_REPLAY_HEADER)
+def change_approve(
+    request: Request, change_id: int, body: BoundChangeBody | None = None,
+    p: Principal = Depends(current_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
+                                        json_schema_extra={"format": "uuid"}),
+) -> Any:
+    return _change_write(request, change_id, p, body, approve=True)
+
+
+@router.post("/changes/{change_id}/apply", responses=CHANGE_WRITE_ERRORS | CHANGE_REPLAY_HEADER)
+def change_apply(
+    request: Request, change_id: int, body: BoundChangeBody | None = None,
+    p: Principal = Depends(current_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
+                                        json_schema_extra={"format": "uuid"}),
+) -> Any:
+    return _change_write(request, change_id, p, body, approve=False)
 
 
 class RollbackBody(BaseModel):
@@ -531,12 +596,13 @@ def change_rollback(
     change_id: int, body: RollbackBody | None = None, p: Principal = Depends(require("operator"))
 ) -> dict[str, Any]:
     # a rollback that removes something (e.g. deleting a SABnzbd category MSO created) is an admin's decision
-    return changes.rollback(change_id, p.actor, (body.reason if body else ""), allow_delete=p.can("admin"))
+    return change_requests.change_view(
+        changes.rollback(change_id, p.actor, body.reason if body else "", allow_delete=p.can("admin")))
 
 
 @router.post("/changes/{change_id}/discard")
 def change_discard(change_id: int, p: Principal = Depends(require("operator"))) -> dict[str, Any]:
-    return changes.discard(change_id, p.actor)
+    return change_requests.change_view(changes.discard(change_id, p.actor))
 
 
 # ------------------------------------------------------------------ connectors

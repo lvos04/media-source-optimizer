@@ -69,6 +69,8 @@ REFETCHABLE = ("release_cache", "mg_wanted_cache", "mg_snapshots", "usenet_hi_he
                "torrent_client_snapshot")
 AUDIT_KEEP_TABLE = "mso_restore_audit_keep"  # temporary, server-side copy of audit_log during a restore
 EVENT_KEEP_TABLE = "mso_restore_event_keep"
+CHANGE_REQUEST_KEEP_TABLE = "mso_restore_change_request_keep"
+CHANGE_APPROVAL_KEEP_TABLE = "mso_restore_change_approval_keep"
 RESTORE_KEEP_TABLE = machine_keys.RESTORE_KEEP_TABLE
 EVENT_HISTORY_KEY = "connector_event_history"
 SAFETY_KIND, SAFETY_DAYS, SAFETY_KEEP = "pre-restore", 30, 2
@@ -191,7 +193,8 @@ def _dump(*, kind: str, include_secrets: bool, timeout: int = 1800) -> Path:
     args, env = _pg_env()
     cmd = [_bin("pg_dump"), *args, "-Fc", "--no-owner", "--no-privileges", "--exclude-table-data=sessions",
            f"--exclude-table={AUDIT_KEEP_TABLE}", f"--exclude-table={RESTORE_KEEP_TABLE}",
-           f"--exclude-table={EVENT_KEEP_TABLE}", "-f", str(path)]
+           f"--exclude-table={EVENT_KEEP_TABLE}", f"--exclude-table={CHANGE_REQUEST_KEEP_TABLE}",
+           f"--exclude-table={CHANGE_APPROVAL_KEEP_TABLE}", "-f", str(path)]
     cmd += [f"--exclude-table-data={t}" for t in REFETCHABLE]
     if not include_secrets:
         cmd.append("--exclude-table-data=secrets")
@@ -301,6 +304,7 @@ def _recover_machine_keys(db: Database) -> bool:
 
 
 def _finish_restore(conn) -> None:
+    _close_restored_change_requests(conn)
     if conn.execute("SELECT to_regclass(%s) AS name", (EVENT_KEEP_TABLE,)).fetchone()["name"]:
         # Bij succes vervangt pg_restore de hele tabel. Een gelijk nummer en tijdstip in de
         # teruggezette tabel mogen nooit de UUID van een verdwenen gebeurtenis krijgen.
@@ -311,6 +315,31 @@ def _finish_restore(conn) -> None:
     conn.execute("INSERT INTO system_state(key,value) VALUES (%s,to_jsonb(gen_random_uuid())) "
                  "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()", (EVENT_HISTORY_KEY,))
     conn.execute(f"DROP TABLE IF EXISTS {RESTORE_KEEP_TABLE}")
+
+
+def _keep_change_requests(conn) -> None:
+    if conn.execute("SELECT to_regclass('connector_idempotency') AS name").fetchone()["name"]:
+        conn.execute(f"CREATE TABLE {CHANGE_REQUEST_KEEP_TABLE} AS "
+                     "SELECT request_id,change_id,route,actor,body_hash,nonce,approval_nonce "
+                     "FROM connector_idempotency")
+        conn.execute(f"CREATE TABLE {CHANGE_APPROVAL_KEEP_TABLE} AS "
+                     "SELECT tableoid AS source_table,id,approval_preview_hash FROM change_sets "
+                     "WHERE approval_preview_hash IS NOT NULL")
+
+
+def _close_restored_change_requests(conn) -> None:
+    if not conn.execute("SELECT to_regclass(%s) AS name", (CHANGE_REQUEST_KEEP_TABLE,)).fetchone()["name"]:
+        return
+    # Geen oud uitvoeringsantwoord teruggeven en geen gebruikte UUID of nonce opnieuw openen na een herstel.
+    conn.execute(f"INSERT INTO connector_idempotency(request_id,change_id,route,actor,body_hash,nonce,approval_nonce) "
+                 f"SELECT request_id,change_id,route,actor,body_hash,nonce,approval_nonce "
+                 f"FROM {CHANGE_REQUEST_KEEP_TABLE} ON CONFLICT DO NOTHING")
+    conn.execute("UPDATE connector_idempotency SET response=%s", (jsonb({"invalidated": True}),))
+    conn.execute(f"UPDATE change_sets c SET approval_preview_hash=k.approval_preview_hash "
+                 f"FROM {CHANGE_APPROVAL_KEEP_TABLE} k WHERE c.tableoid=k.source_table AND c.id=k.id "
+                 "AND c.approval_preview_hash IS NULL")
+    conn.execute("UPDATE change_sets SET approval_expires_at=clock_timestamp() WHERE approval_preview_hash IS NOT NULL")
+    conn.execute(f"DROP TABLE {CHANGE_REQUEST_KEEP_TABLE}, {CHANGE_APPROVAL_KEEP_TABLE}")
 
 
 def _restore_audit(db: Database) -> int:
@@ -349,6 +378,7 @@ def _restore_backup(backup_id: int, actor: str, machine_state: dict[str, list[di
         conn.execute("SET LOCAL synchronous_commit=on")
         conn.execute(f"CREATE TABLE {RESTORE_KEEP_TABLE} (snapshot jsonb NOT NULL)")
         conn.execute(f"INSERT INTO {RESTORE_KEEP_TABLE}(snapshot) VALUES (%s)", (jsonb(machine_state),))
+        _keep_change_requests(conn)
     # the audit trail is append-only evidence: entries written after the dump must survive the restore. Copied
     # server-side into a table that is not part of any dump (``--exclude-table``), so --clean leaves it alone.
     db.execute(f"DROP TABLE IF EXISTS {AUDIT_KEEP_TABLE}")

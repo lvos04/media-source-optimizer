@@ -861,3 +861,159 @@ def test_tuning_in_manage_mode_follows_cooldown_cap_and_ledger(db: Any, fake: Fa
         changes.APPLIERS.pop("qbittorrent", None)
         if original is not None:
             changes.register_applier("qbittorrent", original)
+
+
+HUB_RATE_PATH = "pref:dl_limit"
+
+
+@pytest.fixture()
+def hub_change(app, monkeypatch):
+    source = Fake()
+    source.values[HUB_RATE_PATH] = 100
+    monkeypatch.setitem(changes.APPLIERS, "qbittorrent", source.applier)
+    ch = changes.create("qbittorrent", "Snelheidslimiet", [
+        {"path": HUB_RATE_PATH, "before": 100, "after": 80},
+    ], risk="toestemming_nodig")
+    return ch, source
+
+
+def _hub_key(admin, scopes):
+    response = admin.post("/api/v1/machine-keys", json={"name": "Lokale schrijftest", "scopes": scopes})
+    assert response.status_code == 200
+    return {"X-Api-Key": response.json()["key"]}
+
+
+def _idempotency():
+    from uuid import uuid4
+
+    return {"Idempotency-Key": str(uuid4())}
+
+
+def test_machine_apply_parallel_and_replay(admin, client, app, db, database_url, manage_mode, hub_change,
+                                           monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from fastapi.testclient import TestClient
+
+    ch, source = hub_change
+    base = f"/api/v1/changes/{ch['id']}"
+    key = _hub_key(admin, ["changes:approve"])
+    body = {"expected_preview_hash": ch["preview_hash"]}
+    assert client.post(base + "/approve", headers={**key, **_idempotency()}, json=body).status_code == 200
+    headers = {**key, **_idempotency()}
+    holder = _hold_lock(database_url, ch["id"])
+    try:
+        assert client.post(base + "/apply", headers=headers, json=body).status_code == 409
+    finally:
+        holder.close()
+
+    entered, release = Event(), Event()
+    original = source.applier()
+
+    def write(path, value):
+        entered.set()
+        assert release.wait(10)
+        original.write(path, value)
+
+    monkeypatch.setitem(changes.APPLIERS, "qbittorrent", lambda: Applier(original.read, write))
+    second = TestClient(app)
+    with ThreadPoolExecutor(max_workers=1) as work:
+        first = work.submit(client.post, base + "/apply", headers=headers, json=body)
+        try:
+            assert entered.wait(10)
+            assert not first.done()
+            busy = second.post(base + "/apply", headers=headers, json=body)
+            assert (busy.status_code, busy.json()["code"]) == (409, "idempotency_in_progress")
+            assert not first.done()
+        finally:
+            release.set()
+        applied = first.result(timeout=10)
+        assert applied.status_code == 200
+        replay = second.post(base + "/apply", headers=headers, json=body)
+        assert replay.json() == applied.json()
+        assert replay.headers["Idempotent-Replay"] == "true"
+        assert second.post(base + "/apply", headers={**key, **_idempotency()}, json=body).status_code == 409
+    assert source.writes == [(HUB_RATE_PATH, 80)]
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'", (ch["id"],)) == 1
+
+
+def test_bound_change_refusals(admin, client, db, manage_mode, hub_change, monkeypatch):
+    ch, source = hub_change
+    base = f"/api/v1/changes/{ch['id']}"
+    key = _hub_key(admin, ["changes:approve"])
+    headers = {**key, **_idempotency()}
+    body = {"expected_preview_hash": ch["preview_hash"]}
+    assert client.post(base + "/approve", headers=headers, json={}).status_code == 422
+    missing_key = client.post(base + "/approve", headers=key, json=body)
+    assert (missing_key.status_code, missing_key.json()["code"]) == (400, "idempotency_key_required")
+    original_ops = ch["ops"]
+    from mso.db import jsonb
+
+    changed_ops = [{**original_ops[0], "after": 70}]
+    db.execute("UPDATE change_sets SET ops=%s WHERE id=%s", (jsonb(changed_ops), ch["id"]))
+    stale = client.post(base + "/approve", headers=headers, json=body)
+    assert (stale.status_code, stale.json()["code"]) == (409, "preview_changed")
+    db.execute("UPDATE change_sets SET ops=%s WHERE id=%s", (jsonb(original_ops), ch["id"]))
+    approved = client.post(base + "/approve", headers=headers, json=body)
+    assert approved.status_code == 200
+    reused = client.post(base + "/apply", headers=headers, json=body)
+    assert (reused.status_code, reused.json()["code"]) == (422, "idempotency_key_reused")
+    db.execute("UPDATE change_sets SET ops=%s WHERE id=%s", (jsonb(changed_ops), ch["id"]))
+    stale = client.post(base + "/apply", headers={**key, **_idempotency()}, json=body)
+    assert (stale.status_code, stale.json()["code"]) == (409, "preview_changed")
+    db.execute("UPDATE change_sets SET ops=%s WHERE id=%s", (jsonb(original_ops), ch["id"]))
+    expiry = datetime.fromisoformat(approved.json()["approval_expires_at"])
+    monkeypatch.setattr(changes, "_now", lambda: expiry + timedelta(seconds=1))
+    expired = client.post(base + "/apply", headers={**key, **_idempotency()}, json=body)
+    assert (expired.status_code, expired.json()["code"]) == (409, "approval_expired")
+    assert source.writes == []
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'", (ch["id"],)) == 0
+
+
+def test_legacy_open_changes_migrate_and_remain_usable(admin, db, manage_mode, hub_change):
+    from mso.db import migrate_down, migrate_up
+
+    ch, source = hub_change
+    first = f"/api/v1/changes/{ch['id']}"
+    assert admin.post(first + "/approve").status_code == 200
+    second = _create(SPEED)
+    try:
+        assert migrate_down(db, 609) == [610]
+        assert db.scalar("SELECT status FROM change_sets WHERE id=%s", (ch["id"],)) == "approved"
+        assert db.scalar("SELECT status FROM change_sets WHERE id=%s", (second["id"],)) == "preview"
+    finally:
+        migrate_up(db)
+    by_id = {row["id"]: row for row in admin.get("/api/v1/changes").json()["items"]}
+    assert by_id[ch["id"]]["preview_hash"] == ch["preview_hash"]
+    assert by_id[second["id"]]["preview_hash"] == second["preview_hash"]
+    applied = admin.post(first + "/apply")
+    assert applied.status_code == 200
+    assert applied.json()["preview_hash"] == ch["preview_hash"]
+    assert source.writes == [(HUB_RATE_PATH, 80)]
+
+
+@pytest.mark.parametrize("action", ["approve", "apply"])
+def test_machine_with_read_only_scope_cannot_write(admin, client, hub_change, action):
+    ch, source = hub_change
+    key = _hub_key(admin, ["read"])
+    body = {"expected_preview_hash": ch["preview_hash"]}
+    response = client.post(f"/api/v1/changes/{ch['id']}/{action}", headers={**key, **_idempotency()}, json=body)
+    assert (response.status_code, response.json()["code"]) == (403, "forbidden")
+    assert source.writes == []
+
+
+def test_preview_hash_preserves_list_order_and_ignores_impact_and_journal(db, fake, manage_mode):
+    from mso.change_preview import preview_hash
+    from mso.db import jsonb
+
+    first = _create([*SPEED, {"path": "conns", "before": 50, "after": 45}])
+    assert preview_hash(first["target"], first["risk"], list(reversed(first["ops"]))) != first["preview_hash"]
+    with_number = _create([{"path": "speed", "before": 1e20, "after": -0.0}])
+    changes.check_preview(changes.get(with_number["id"]), with_number["preview_hash"])
+    db.execute("UPDATE change_sets SET impact=%s WHERE id=%s", (jsonb({"proef": True}), first["id"]))
+    applied = changes.apply(first["id"], "test")
+    assert applied["preview_hash"] == first["preview_hash"]
+    changes.check_preview(applied, first["preview_hash"])
+    rolled_back = changes.rollback(first["id"], "test")
+    changes.check_preview(rolled_back, first["preview_hash"])

@@ -119,11 +119,11 @@ def _bronnummer(event):
 
 def test_bestaande_waarneming_behoudt_event_id_na_upgrade(viewer, db):
     at = datetime.now(UTC)
-    assert migrate_down(db, 608) == [609]
+    assert migrate_down(db, 608) == [610, 609]
     try:
         nummer = db.scalar("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',%s) RETURNING id", (at,))
     finally:
-        assert migrate_up(db) == [609]
+        assert migrate_up(db) == [609, 610]
     legacy = f"automation:{nummer}"
     expected = uuid5(NAMESPACE_URL, f"urn:media-source-optimizer:{legacy}:{at.isoformat()}")
     event = next(e for e in _poll(viewer).json()["events"] if _bronnummer(e) == legacy)
@@ -134,11 +134,11 @@ def test_bestaande_waarneming_behoudt_event_id_na_upgrade(viewer, db):
 
 def test_upgrade_herkent_eerder_native_herstel(viewer, db):
     cursor = _poll(viewer).json()["next_cursor"]
-    assert migrate_down(db, 608) == [609]
+    assert migrate_down(db, 608) == [610, 609]
     try:
         nummer = audit("systeem", "backup.restored", "Back-up teruggezet met het vorige schema")
     finally:
-        assert migrate_up(db) == [609]
+        assert migrate_up(db) == [609, 610]
     assert fout(_poll(viewer, cursor), 409, "cursor_expired") == {"restart": True}
     fout(viewer.get(f"{PREFIX}/evidence/audit:{nummer}"), 404, "not_found")
     event = next(e for e in _poll(viewer).json()["events"] if _bronnummer(e) == f"audit:{nummer}")
@@ -295,3 +295,186 @@ def test_readyz_bewaakt_eigen_afhankelijkheden(client, db, monkeypatch, missing)
             db.execute("INSERT INTO schema_migrations(version,name,checksum,applied_at) "
                        "VALUES (%(version)s,%(name)s,%(checksum)s,%(applied_at)s) "
                        "ON CONFLICT (version) DO UPDATE SET checksum=EXCLUDED.checksum", schema_row)
+
+
+@pytest.fixture()
+def signed_change(app, manage_mode, monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from test_change_safety import HUB_RATE_PATH, Fake
+
+    from mso import changes
+
+    source = Fake()
+    source.values[HUB_RATE_PATH] = 100
+    monkeypatch.setitem(changes.APPLIERS, "qbittorrent", source.applier)
+    ch = changes.create("qbittorrent", "Snelheidslimiet", [
+        {"path": HUB_RATE_PATH, "before": 100, "after": 80},
+    ], risk="toestemming_nodig")
+    return ch, source, Ed25519PrivateKey.generate()
+
+
+def _signature(key, body):
+    import base64
+    import json
+
+    payload = {k: v for k, v in body.items() if k != "signature"}
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return {**payload, "signature": base64.urlsafe_b64encode(key.sign(canonical)).decode().rstrip("=")}
+
+
+def _execution(ch, key, *, rollback=False, now=None):
+    import hashlib
+    import json
+    from uuid import uuid4
+
+    action = "mso.qbittorrent.speed_limits"
+    now = now or datetime.now(UTC).replace(microsecond=0)
+    def at(value):
+        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    etag = ch["resource_etag"] if rollback else ch["preview_hash"]
+    parameters = {"expected_prev" if rollback else "expected_preview_hash": etag}
+    target = {"app_id": "media-source-optimizer", "change_id": ch["id"] if "id" in ch else ch["change_id"]}
+    policy = "sha256:" + "a" * 64
+    proposal_id = str(uuid4())
+    parameters_hash = "sha256:" + hashlib.sha256(json.dumps(parameters, separators=(",", ":")).encode()).hexdigest()
+    return _signature(key, {
+        "proposal": {"idempotency_key": proposal_id, "action_id": action, "target": target, "parameters": parameters,
+                     "actor": {"type": "user", "id": "test"}, "expected_version": etag,
+                     "reason": "Lokale fixture", "risk_claim": "R2", "evidence_ids": [], "expires_in_seconds": 300},
+        "approval": {"approval_id": str(uuid4()), "request_id": proposal_id, "preview_hash": ch["preview_hash"],
+                     "resource_etag": etag, "policy_hash": policy, "risk_class": "R2", "approved_by": "test",
+                     "approved_at": at(now), "expires_at": at(now + timedelta(minutes=10)),
+                     "one_time_nonce": str(uuid4()), "backup_checkpoint_id": None,
+                     "action_scope": {"action_id": action, "target": target, "parameters_sha256": parameters_hash}},
+        "policy_decision": {"risk_class": "R2", "rule_ids": ["test"], "policy_hash": policy},
+        "issued_at": at(now), "expires_at": at(now + timedelta(minutes=5)), "nonce": str(uuid4()),
+    })
+
+
+def _pin(key, monkeypatch):
+    import base64
+    import json
+
+    public = base64.urlsafe_b64encode(key.public_key().public_bytes_raw()).decode().rstrip("=")
+    monkeypatch.setattr(get_settings(), "hub_policy_public_key", json.dumps({
+        "kty": "OKP", "crv": "Ed25519", "x": public,
+    }), raising=False)
+    monkeypatch.setattr(get_settings(), "hub_policy_hash", "sha256:" + "a" * 64, raising=False)
+
+
+def _connector_headers():
+    from uuid import uuid4
+
+    return {"Idempotency-Key": str(uuid4())}
+
+
+def test_signed_apply_rollback_and_replay(client, viewer, db, monkeypatch, signed_change):
+    from test_change_safety import HUB_RATE_PATH
+
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    discovery = viewer.get(PREFIX + "/discover").json()
+    assert discovery["capabilities"] == ["read", "apply", "rollback"]
+    assert {a["action_id"] for a in discovery["actions"]} == {
+        "mso.sabnzbd.server_limits", "mso.qbittorrent.speed_limits",
+    }
+    headers = _connector_headers()
+    execution = _execution(ch, key)
+    response = client.post(PREFIX + "/apply", json=execution, headers=headers)
+    assert response.status_code == 200
+    applied = response.json()
+    assert applied["status"] == "applied"
+    assert applied["readback"] == {"verified": True, "results": ["toegepast"]}
+    replay = client.post(PREFIX + "/apply", json=execution, headers=headers)
+    assert replay.json() == applied
+    assert replay.headers["Idempotent-Replay"] == "true"
+    fout(client.post(PREFIX + "/apply", json=execution, headers=_connector_headers()), 409, "nonce_reused")
+    rollback = _execution(applied, key, rollback=True)
+    response = client.post(PREFIX + "/rollback", json=rollback, headers=_connector_headers())
+    assert response.status_code == 200
+    assert response.json()["status"] == "rolled_back"
+    assert response.json()["after_hash"] == applied["before_hash"]
+    assert response.json()["before_hash"] == applied["after_hash"]
+    assert source.writes == [(HUB_RATE_PATH, 80), (HUB_RATE_PATH, 100)]
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'", (ch["id"],)) == 1
+
+
+@pytest.mark.parametrize("variant,status,code", [
+    ("geen_handtekening", 422, "validation_error"), ("verkeerde_sleutel", 401, "unauthorized"),
+    ("verlopen", 409, "approval_expired"), ("policy", 403, "forbidden"), ("etag", 412, "precondition_failed"),
+    ("preview", 409, "preview_changed"), ("force_query", 422, "validation_error"),
+    ("force_body", 422, "validation_error"),
+])
+def test_signed_execution_refuses_without_writes(client, db, database_bytes, monkeypatch, signed_change, variant,
+                                                  status, code):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    route = PREFIX + "/apply"
+    fixture = {**ch}
+    if variant == "preview":
+        fixture["preview_hash"] = "sha256:" + "b" * 64
+    execution = _execution(fixture, Ed25519PrivateKey.generate() if variant == "verkeerde_sleutel" else key,
+                           now=datetime.now(UTC) - timedelta(minutes=16) if variant == "verlopen" else None)
+    if variant == "geen_handtekening":
+        del execution["signature"]
+    elif variant == "policy":
+        monkeypatch.setattr(get_settings(), "hub_policy_hash", "sha256:" + "b" * 64)
+    elif variant == "etag":
+        execution["proposal"]["expected_version"] = execution["approval"]["resource_etag"] = "sha256:" + "b" * 64
+        execution = _signature(key, execution)
+    elif variant == "force_query":
+        route += "?force=true"
+    elif variant == "force_body":
+        execution = _signature(key, {**execution, "force": True})
+    before = database_bytes(db)
+    fout(client.post(route, json=execution, headers=_connector_headers()), status, code)
+    assert database_bytes(db) == before
+    assert source.writes == []
+
+
+def test_signed_apply_recovers_result_after_source_write(app, client, db, monkeypatch, signed_change):
+    from fastapi.testclient import TestClient
+    from test_change_safety import HUB_RATE_PATH
+
+    from mso import changes
+
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    headers, execution = _connector_headers(), _execution(ch, key)
+    failing = TestClient(app, raise_server_exceptions=False)
+
+    def interrupt(*args, **kwargs):
+        raise RuntimeError("Gecontroleerde onderbreking vóór de resultaattransactie")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(changes, "_finish", interrupt)
+        assert failing.post(PREFIX + "/apply", json=execution, headers=headers).status_code == 500
+    assert changes.get(ch["id"])["status"] == "applying"
+    fout(client.post(PREFIX + "/apply", json=execution, headers=headers), 409, "idempotency_in_progress")
+    assert changes.reconcile_interrupted()["outcomes"] == {str(ch["id"]): "afgerond"}
+    replay = client.post(PREFIX + "/apply", json=execution, headers=headers)
+    assert replay.status_code == 200
+    assert replay.headers["Idempotent-Replay"] == "true"
+    assert replay.json()["status"] == "applied"
+    assert source.writes == [(HUB_RATE_PATH, 80)]
+    assert db.scalar("SELECT count(*) FROM audit_log WHERE change_id=%s AND action='change.applied'", (ch["id"],)) == 1
+
+
+def test_restore_does_not_reopen_consumed_nonce(client, db, monkeypatch, signed_change):
+    from test_change_safety import HUB_RATE_PATH
+
+    from mso import backups
+
+    ch, source, key = signed_change
+    _pin(key, monkeypatch)
+    snapshot = backups.create_backup(actor="test")
+    headers, execution = _connector_headers(), _execution(ch, key)
+    assert client.post(PREFIX + "/apply", json=execution, headers=headers).status_code == 200
+    backups.restore_backup(snapshot["id"], "test")
+    assert db.scalar("SELECT status FROM change_sets WHERE id=%s", (ch["id"],)) == "preview"
+    fout(client.post(PREFIX + "/apply", json=execution, headers=headers), 409, "conflict")
+    fout(client.post(PREFIX + "/apply", json=execution, headers=_connector_headers()), 409, "nonce_reused")
+    assert source.writes == [(HUB_RATE_PATH, 80)]

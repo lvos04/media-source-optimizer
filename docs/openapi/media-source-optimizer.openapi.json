@@ -1,6 +1,32 @@
 {
  "components": {
   "schemas": {
+   "ActionScope": {
+    "additionalProperties": false,
+    "properties": {
+     "action_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Action Id",
+      "type": "string"
+     },
+     "parameters_sha256": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Parameters Sha256",
+      "type": "string"
+     },
+     "target": {
+      "$ref": "#/components/schemas/ChangeTarget"
+     }
+    },
+    "required": [
+     "action_id",
+     "target",
+     "parameters_sha256"
+    ],
+    "title": "ActionScope",
+    "type": "object"
+   },
    "Actor": {
     "properties": {
      "id": {
@@ -112,6 +138,114 @@
      }
     },
     "title": "AdviseBody",
+    "type": "object"
+   },
+   "ApplyParameters": {
+    "additionalProperties": false,
+    "properties": {
+     "expected_preview_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Expected Preview Hash",
+      "type": "string"
+     }
+    },
+    "required": [
+     "expected_preview_hash"
+    ],
+    "title": "ApplyParameters",
+    "type": "object"
+   },
+   "Approval": {
+    "additionalProperties": false,
+    "properties": {
+     "action_scope": {
+      "$ref": "#/components/schemas/ActionScope"
+     },
+     "approval_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Approval Id",
+      "type": "string"
+     },
+     "approved_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "title": "Approved At",
+      "type": "string"
+     },
+     "approved_by": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Approved By",
+      "type": "string"
+     },
+     "backup_checkpoint_id": {
+      "anyOf": [
+       {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Backup Checkpoint Id"
+     },
+     "expires_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "title": "Expires At",
+      "type": "string"
+     },
+     "one_time_nonce": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "One Time Nonce",
+      "type": "string"
+     },
+     "policy_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Policy Hash",
+      "type": "string"
+     },
+     "preview_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Preview Hash",
+      "type": "string"
+     },
+     "request_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Request Id",
+      "type": "string"
+     },
+     "resource_etag": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Resource Etag",
+      "type": "string"
+     },
+     "risk_class": {
+      "enum": [
+       "R0",
+       "R1",
+       "R2",
+       "R3"
+      ],
+      "title": "Risk Class",
+      "type": "string"
+     }
+    },
+    "required": [
+     "approval_id",
+     "request_id",
+     "preview_hash",
+     "resource_etag",
+     "policy_hash",
+     "risk_class",
+     "approved_by",
+     "approved_at",
+     "expires_at",
+     "one_time_nonce",
+     "backup_checkpoint_id",
+     "action_scope"
+    ],
+    "title": "Approval",
     "type": "object"
    },
    "ArticleTestIn": {
@@ -233,6 +367,25 @@
     "title": "BlacklistBody",
     "type": "object"
    },
+   "BoundChangeBody": {
+    "additionalProperties": true,
+    "properties": {
+     "expected_preview_hash": {
+      "anyOf": [
+       {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expected Preview Hash"
+     }
+    },
+    "title": "BoundChangeBody",
+    "type": "object"
+   },
    "CandidateBody": {
     "properties": {
      "extra": {
@@ -343,6 +496,28 @@
      }
     },
     "title": "CategoryProposalIn",
+    "type": "object"
+   },
+   "ChangeTarget": {
+    "additionalProperties": false,
+    "properties": {
+     "app_id": {
+      "const": "media-source-optimizer",
+      "title": "App Id",
+      "type": "string"
+     },
+     "change_id": {
+      "maximum": 9.223372036854776e+18,
+      "minimum": 1.0,
+      "title": "Change Id",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "app_id",
+     "change_id"
+    ],
+    "title": "ChangeTarget",
     "type": "object"
    },
    "Check": {
@@ -1002,8 +1177,60 @@
     "title": "DirectPatch",
     "type": "object"
    },
+   "DiscoveredAction": {
+    "additionalProperties": false,
+    "properties": {
+     "action_id": {
+      "title": "Action Id",
+      "type": "string"
+     },
+     "description": {
+      "title": "Description",
+      "type": "string"
+     },
+     "min_risk": {
+      "enum": [
+       "R0",
+       "R1",
+       "R2",
+       "R3"
+      ],
+      "title": "Min Risk",
+      "type": "string"
+     },
+     "requires_backup": {
+      "title": "Requires Backup",
+      "type": "boolean"
+     },
+     "rollback": {
+      "title": "Rollback",
+      "type": "boolean"
+     },
+     "target": {
+      "title": "Target",
+      "type": "string"
+     }
+    },
+    "required": [
+     "action_id",
+     "target",
+     "description",
+     "rollback",
+     "min_risk",
+     "requires_backup"
+    ],
+    "title": "DiscoveredAction",
+    "type": "object"
+   },
    "Discovery": {
     "properties": {
+     "actions": {
+      "items": {
+       "$ref": "#/components/schemas/DiscoveredAction"
+      },
+      "title": "Actions",
+      "type": "array"
+     },
      "app_id": {
       "default": "media-source-optimizer",
       "title": "App Id",
@@ -1011,7 +1238,11 @@
      },
      "capabilities": {
       "items": {
-       "const": "read",
+       "enum": [
+        "read",
+        "apply",
+        "rollback"
+       ],
        "type": "string"
       },
       "title": "Capabilities",
@@ -1048,6 +1279,7 @@
      "source_version",
      "capabilities",
      "permissions",
+     "actions",
      "limits",
      "timestamp_utc"
     ],
@@ -1301,6 +1533,109 @@
      "entity"
     ],
     "title": "Evidence",
+    "type": "object"
+   },
+   "ExecutionRequest": {
+    "additionalProperties": false,
+    "properties": {
+     "approval": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Approval"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "expires_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "title": "Expires At",
+      "type": "string"
+     },
+     "issued_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "title": "Issued At",
+      "type": "string"
+     },
+     "nonce": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Nonce",
+      "type": "string"
+     },
+     "policy_decision": {
+      "$ref": "#/components/schemas/PolicyDecision"
+     },
+     "proposal": {
+      "$ref": "#/components/schemas/Proposal"
+     },
+     "signature": {
+      "pattern": "^[A-Za-z0-9_-]{86}$",
+      "title": "Signature",
+      "type": "string"
+     }
+    },
+    "required": [
+     "proposal",
+     "approval",
+     "policy_decision",
+     "issued_at",
+     "expires_at",
+     "nonce",
+     "signature"
+    ],
+    "title": "ExecutionRequest",
+    "type": "object"
+   },
+   "ExecutionResult": {
+    "additionalProperties": false,
+    "properties": {
+     "after_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "After Hash",
+      "type": "string"
+     },
+     "before_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Before Hash",
+      "type": "string"
+     },
+     "change_id": {
+      "title": "Change Id",
+      "type": "integer"
+     },
+     "preview_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Preview Hash",
+      "type": "string"
+     },
+     "readback": {
+      "$ref": "#/components/schemas/Readback"
+     },
+     "resource_etag": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Resource Etag",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "applied",
+       "rolled_back"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "change_id",
+     "status",
+     "preview_hash",
+     "resource_etag",
+     "before_hash",
+     "after_hash",
+     "readback"
+    ],
+    "title": "ExecutionResult",
     "type": "object"
    },
    "FailureReset": {
@@ -2051,6 +2386,44 @@
     "title": "PasswordChange",
     "type": "object"
    },
+   "PolicyDecision": {
+    "additionalProperties": false,
+    "properties": {
+     "policy_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Policy Hash",
+      "type": "string"
+     },
+     "risk_class": {
+      "enum": [
+       "R0",
+       "R1",
+       "R2",
+       "R3"
+      ],
+      "title": "Risk Class",
+      "type": "string"
+     },
+     "rule_ids": {
+      "items": {
+       "maxLength": 256,
+       "minLength": 1,
+       "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Rule Ids",
+      "type": "array"
+     }
+    },
+    "required": [
+     "risk_class",
+     "rule_ids",
+     "policy_hash"
+    ],
+    "title": "PolicyDecision",
+    "type": "object"
+   },
    "PrefPreview": {
     "properties": {
      "changes": {
@@ -2098,6 +2471,118 @@
      }
     },
     "title": "PriorityProposal",
+    "type": "object"
+   },
+   "Proposal": {
+    "additionalProperties": false,
+    "properties": {
+     "action_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Action Id",
+      "type": "string"
+     },
+     "actor": {
+      "$ref": "#/components/schemas/ProposalActor"
+     },
+     "evidence_ids": {
+      "items": {
+       "maxLength": 256,
+       "minLength": 1,
+       "type": "string"
+      },
+      "maxItems": 200,
+      "title": "Evidence Ids",
+      "type": "array"
+     },
+     "expected_version": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Expected Version",
+      "type": "string"
+     },
+     "expires_in_seconds": {
+      "minimum": 1.0,
+      "title": "Expires In Seconds",
+      "type": "integer"
+     },
+     "idempotency_key": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Idempotency Key",
+      "type": "string"
+     },
+     "parameters": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ApplyParameters"
+       },
+       {
+        "$ref": "#/components/schemas/RollbackParameters"
+       }
+      ],
+      "title": "Parameters"
+     },
+     "reason": {
+      "maxLength": 2000,
+      "title": "Reason",
+      "type": "string"
+     },
+     "risk_claim": {
+      "anyOf": [
+       {
+        "enum": [
+         "R0",
+         "R1",
+         "R2",
+         "R3"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Risk Claim"
+     },
+     "target": {
+      "$ref": "#/components/schemas/ChangeTarget"
+     }
+    },
+    "required": [
+     "idempotency_key",
+     "action_id",
+     "target",
+     "parameters",
+     "reason",
+     "actor",
+     "expected_version",
+     "risk_claim",
+     "evidence_ids",
+     "expires_in_seconds"
+    ],
+    "title": "Proposal",
+    "type": "object"
+   },
+   "ProposalActor": {
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+     },
+     "type": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "id"
+    ],
+    "title": "ProposalActor",
     "type": "object"
    },
    "ProviderIn": {
@@ -2414,6 +2899,28 @@
     "title": "PurgeBody",
     "type": "object"
    },
+   "Readback": {
+    "additionalProperties": false,
+    "properties": {
+     "results": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Results",
+      "type": "array"
+     },
+     "verified": {
+      "title": "Verified",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "verified",
+     "results"
+    ],
+    "title": "Readback",
+    "type": "object"
+   },
    "Readiness": {
     "properties": {
      "checks": {
@@ -2477,6 +2984,21 @@
      }
     },
     "title": "RollbackBody",
+    "type": "object"
+   },
+   "RollbackParameters": {
+    "additionalProperties": false,
+    "properties": {
+     "expected_prev": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Expected Prev",
+      "type": "string"
+     }
+    },
+    "required": [
+     "expected_prev"
+    ],
+    "title": "RollbackParameters",
     "type": "object"
    },
    "RuleBody": {
@@ -3384,7 +3906,7 @@
   },
   "securitySchemes": {
    "MachineKey": {
-    "description": "Rolvrije machine-sleutel. Alleen expliciet geopende scopes; changes:approve opent in deze versie geen routes.",
+    "description": "Rolvrije machine-sleutel. Alleen expliciet geopende scopes; changes:approve opent uitsluitend approve en apply van change sets.",
     "in": "header",
     "name": "X-Api-Key",
     "type": "apiKey"
@@ -4987,6 +5509,7 @@
   },
   "/api/v1/changes/{change_id}/apply": {
    "post": {
+    "description": "Voor machine-sleutels zijn expected_preview_hash en Idempotency-Key verplicht.",
     "operationId": "change_apply_api_v1_changes__change_id__apply_post",
     "parameters": [
      {
@@ -4997,37 +5520,96 @@
        "title": "Change Id",
        "type": "integer"
       }
+     },
+     {
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "format": "uuid",
+       "title": "Idempotency-Key"
+      }
      }
     ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/BoundChangeBody"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Body"
+       }
+      }
+     }
+    },
     "responses": {
      "200": {
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "title": "Response Change Apply Api V1 Changes  Change Id  Apply Post",
-         "type": "object"
+         "title": "Response Change Apply Api V1 Changes  Change Id  Apply Post"
         }
        }
       },
-      "description": "Successful Response"
+      "description": "Successful Response",
+      "headers": {
+       "Idempotent-Replay": {
+        "schema": {
+         "enum": [
+          "true"
+         ],
+         "type": "string"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "idempotency_key_required, idempotency_key_invalid"
+     },
+     "401": {
+      "description": "unauthorized"
+     },
+     "403": {
+      "description": "forbidden"
+     },
+     "409": {
+      "description": "preview_changed, approval_required, approval_expired, idempotency_in_progress of conflict"
      },
      "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
+      "description": "Ongeldig verzoek of idempotency_key_reused"
      }
     },
-    "summary": "Change Apply"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Change Apply",
+    "x-machine-scopes": [
+     "changes:approve"
+    ]
    }
   },
   "/api/v1/changes/{change_id}/approve": {
    "post": {
+    "description": "Voor machine-sleutels zijn expected_preview_hash en Idempotency-Key verplicht.",
     "operationId": "change_approve_api_v1_changes__change_id__approve_post",
     "parameters": [
      {
@@ -5038,33 +5620,91 @@
        "title": "Change Id",
        "type": "integer"
       }
+     },
+     {
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "format": "uuid",
+       "title": "Idempotency-Key"
+      }
      }
     ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/BoundChangeBody"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Body"
+       }
+      }
+     }
+    },
     "responses": {
      "200": {
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "title": "Response Change Approve Api V1 Changes  Change Id  Approve Post",
-         "type": "object"
+         "title": "Response Change Approve Api V1 Changes  Change Id  Approve Post"
         }
        }
       },
-      "description": "Successful Response"
+      "description": "Successful Response",
+      "headers": {
+       "Idempotent-Replay": {
+        "schema": {
+         "enum": [
+          "true"
+         ],
+         "type": "string"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "idempotency_key_required, idempotency_key_invalid"
+     },
+     "401": {
+      "description": "unauthorized"
+     },
+     "403": {
+      "description": "forbidden"
+     },
+     "409": {
+      "description": "preview_changed, approval_required, approval_expired, idempotency_in_progress of conflict"
      },
      "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
+      "description": "Ongeldig verzoek of idempotency_key_reused"
      }
     },
-    "summary": "Change Approve"
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Change Approve",
+    "x-machine-scopes": [
+     "changes:approve"
+    ]
    }
   },
   "/api/v1/changes/{change_id}/discard": {
@@ -12441,8 +13081,68 @@
   },
   "/connector/v1/apply": {
    "post": {
-    "operationId": "unavailable_connector_v1_apply_post",
+    "description": "Authenticatie via de Ed25519-handtekening van ExecutionRequest met een gepinde beleidssleutel.",
+    "operationId": "apply_connector_v1_apply_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": true,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "format": "uuid",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExecutionRequest"
+       }
+      }
+     },
+     "required": true
+    },
     "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExecutionResult"
+        }
+       }
+      },
+      "description": "Successful Response",
+      "headers": {
+       "Idempotent-Replay": {
+        "schema": {
+         "enum": [
+          "true"
+         ],
+         "type": "string"
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "idempotency_key_required of idempotency_key_invalid"
+     },
      "401": {
       "content": {
        "application/json": {
@@ -12463,6 +13163,36 @@
       },
       "description": "forbidden"
      },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "not_found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "preview_changed, approval_required, approval_expired, nonce_reused, idempotency_in_progress of conflict"
+     },
+     "412": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "precondition_failed"
+     },
      "413": {
       "content": {
        "application/json": {
@@ -12481,7 +13211,7 @@
         }
        }
       },
-      "description": "validation_error"
+      "description": "validation_error of idempotency_key_reused"
      },
      "429": {
       "content": {
@@ -12495,7 +13225,7 @@
       "headers": {
        "Retry-After": {
         "schema": {
-         "minimum": 1.0,
+         "minimum": 1,
          "type": "integer"
         }
        }
@@ -12511,6 +13241,16 @@
       },
       "description": "capability_unavailable"
      },
+     "502": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "upstream_error"
+     },
      "503": {
       "content": {
        "application/json": {
@@ -12523,23 +13263,18 @@
       "headers": {
        "Retry-After": {
         "schema": {
-         "minimum": 1.0,
+         "minimum": 1,
          "type": "integer"
         }
        }
       }
      }
     },
-    "security": [
-     {
-      "SessionCookie": []
-     }
-    ],
-    "summary": "Unavailable",
+    "security": [],
+    "summary": "Apply",
     "tags": [
      "connector"
-    ],
-    "x-idempotency-exception": "Uitgeschakeld met 501 capability_unavailable (contract §5)."
+    ]
    }
   },
   "/connector/v1/discover": {
@@ -13303,8 +14038,68 @@
   },
   "/connector/v1/rollback": {
    "post": {
-    "operationId": "unavailable_connector_v1_rollback_post",
+    "description": "Authenticatie via de Ed25519-handtekening van ExecutionRequest met een gepinde beleidssleutel.",
+    "operationId": "rollback_connector_v1_rollback_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": true,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "format": "uuid",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExecutionRequest"
+       }
+      }
+     },
+     "required": true
+    },
     "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExecutionResult"
+        }
+       }
+      },
+      "description": "Successful Response",
+      "headers": {
+       "Idempotent-Replay": {
+        "schema": {
+         "enum": [
+          "true"
+         ],
+         "type": "string"
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "idempotency_key_required of idempotency_key_invalid"
+     },
      "401": {
       "content": {
        "application/json": {
@@ -13325,6 +14120,36 @@
       },
       "description": "forbidden"
      },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "not_found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "preview_changed, approval_required, approval_expired, nonce_reused, idempotency_in_progress of conflict"
+     },
+     "412": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "precondition_failed"
+     },
      "413": {
       "content": {
        "application/json": {
@@ -13343,7 +14168,7 @@
         }
        }
       },
-      "description": "validation_error"
+      "description": "validation_error of idempotency_key_reused"
      },
      "429": {
       "content": {
@@ -13357,7 +14182,7 @@
       "headers": {
        "Retry-After": {
         "schema": {
-         "minimum": 1.0,
+         "minimum": 1,
          "type": "integer"
         }
        }
@@ -13373,6 +14198,16 @@
       },
       "description": "capability_unavailable"
      },
+     "502": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "upstream_error"
+     },
      "503": {
       "content": {
        "application/json": {
@@ -13385,23 +14220,18 @@
       "headers": {
        "Retry-After": {
         "schema": {
-         "minimum": 1.0,
+         "minimum": 1,
          "type": "integer"
         }
        }
       }
      }
     },
-    "security": [
-     {
-      "SessionCookie": []
-     }
-    ],
-    "summary": "Unavailable",
+    "security": [],
+    "summary": "Rollback",
     "tags": [
      "connector"
-    ],
-    "x-idempotency-exception": "Uitgeschakeld met 501 capability_unavailable (contract §5)."
+    ]
    }
   },
   "/newznab/api": {

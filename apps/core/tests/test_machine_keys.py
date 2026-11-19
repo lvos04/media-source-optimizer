@@ -226,8 +226,7 @@ def test_concurrent_revoke_idempotency(admin, db):
 def test_all_new_mutations_require_idempotency_or_documented_secret_exception(app):
     exceptions = {
         ("post", "/api/v1/machine-keys"): "Bewuste eenmalige uitgifte van een nieuw geheim (contract §5).",
-        **{("post", f"/connector/v1/{action}"): "Uitgeschakeld met 501 capability_unavailable (contract §5)."
-           for action in ("propose", "apply", "rollback")},
+        ("post", "/connector/v1/propose"): "Uitgeschakeld met 501 capability_unavailable (contract §5).",
     }
 
     baseline = json.loads((Path(__file__).parent / "fixtures/native_operations_before_machine_keys.json").read_text())
@@ -247,7 +246,10 @@ def test_all_new_mutations_require_idempotency_or_documented_secret_exception(ap
                 assert "x-idempotency-exception" not in operation
                 assert any(p["name"] == "Idempotency-Key" and p["required"]
                            for p in operation.get("parameters", [])), (method, path)
-    assert checked == {("post", "/api/v1/machine-keys/{key_id}/revoke"), *exceptions}
+    assert checked == {
+        ("post", "/api/v1/machine-keys/{key_id}/revoke"),
+        ("post", "/connector/v1/apply"), ("post", "/connector/v1/rollback"), *exceptions,
+    }
 
 
 def test_every_unopened_get_is_denied_without_side_effects(admin, client, db, app, database_bytes):
@@ -557,15 +559,20 @@ def test_migration_roundtrip_preserves_existing_tables(admin, operator, db, data
     assert operator.post("/api/v1/system/pause").status_code == 200
     assert admin.get("/api/v1/newznab/endpoint").status_code == 200
     made = create(admin)
-    new_tables = {"machine_keys", "machine_key_requests", "machine_auth_limits", "schema_migrations"}
+    new_tables = {"machine_keys", "machine_key_requests", "machine_auth_limits", "connector_idempotency",
+                  "schema_migrations"}
     before = database_bytes(db)
-    assert migrate_down(db, 607) == [609, 608]
-    assert db.scalar("SELECT to_regclass('machine_keys')") is None
-    assert {name: data for name, data in before.items() if name not in new_tables} == {
-        name: data for name, data in database_bytes(db).items() if name != "schema_migrations"
-    }
-    assert admin.get("/api/v1/auth/me").status_code == 200
-    assert migrate_up(db) == [608, 609]
+    try:
+        assert migrate_down(db, 607) == [610, 609, 608]
+        assert db.scalar("SELECT to_regclass('machine_keys')") is None
+        assert db.scalar("SELECT to_regclass('connector_idempotency')") is None
+        assert {name: data for name, data in before.items() if name not in new_tables} == {
+            name: data for name, data in database_bytes(db).items() if name != "schema_migrations"
+        }
+        assert admin.get("/api/v1/auth/me").status_code == 200
+    finally:
+        assert migrate_up(db) == [608, 609, 610]
+    assert db.scalar("SELECT count(*) FROM connector_idempotency") == 0
     check_schema_compatibility(db)
     after = database_bytes(db)
     assert {name: data for name, data in before.items() if name not in new_tables} == {

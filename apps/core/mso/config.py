@@ -89,6 +89,9 @@ class Settings:
     # Public base URL as seen by Prowlarr (for Newznab/Torznab download links).
     public_url: str = field(default_factory=lambda: os.environ.get("MSO_PUBLIC_URL", "").rstrip("/"))
     node_id: str = field(default_factory=lambda: os.environ.get("MSO_NODE_ID", "mso"))
+    # Beheerderspins voor de ondertekende schrijfroutes (publieke JWK en verwachte beleidshash).
+    hub_policy_public_key: str = field(default_factory=lambda: os.environ.get("MSO_HUB_POLICY_PUBLIC_KEY", ""))
+    hub_policy_hash: str = field(default_factory=lambda: os.environ.get("MSO_HUB_POLICY_HASH", ""))
     worker_poll_s: float = field(default_factory=lambda: float(os.environ.get("MSO_WORKER_POLL_S", "2")))
     disk_reserve_gb: float = field(default_factory=lambda: float(os.environ.get("MSO_DISK_RESERVE_GB", "2")))
     testing: bool = field(default_factory=lambda: _bool("MSO_TESTING"))

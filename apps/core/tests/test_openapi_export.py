@@ -54,11 +54,25 @@ def test_export_connectorcontract() -> None:
             schema = operation["responses"][status]["content"]["application/json"]["schema"]
             assert schema["$ref"] == "#/components/schemas/ErrorBody"
     assert paths["/connector/v1/events"]["get"]["responses"]["409"]["description"].startswith("cursor_expired")
-    for route in ("propose", "apply", "rollback"):
+    propose = paths["/connector/v1/propose"]["post"]
+    assert propose["security"] == [{"SessionCookie": []}]
+    assert propose["x-idempotency-exception"]
+    assert propose["responses"]["501"]["description"] == "capability_unavailable"
+    for route in ("apply", "rollback"):
         operation = paths[f"/connector/v1/{route}"]["post"]
-        assert operation["security"] == [{"SessionCookie": []}]
-        assert operation["x-idempotency-exception"]
+        assert operation["security"] == []
+        assert "gepin" in operation["description"]
+        assert "x-idempotency-exception" not in operation
         assert operation["responses"]["501"]["description"] == "capability_unavailable"
+        assert "Idempotent-Replay" in operation["responses"]["200"]["headers"]
+        request = operation["requestBody"]["content"]["application/json"]["schema"]
+        assert request["$ref"] == "#/components/schemas/ExecutionRequest"
+        assert next(p for p in operation["parameters"] if p["name"] == "Idempotency-Key")["required"]
+    for route in ("approve", "apply"):
+        operation = paths[f"/api/v1/changes/{{change_id}}/{route}"]["post"]
+        assert operation["security"] == [{"SessionCookie": []}, {"MachineKey": []}]
+        assert operation["x-machine-scopes"] == ["changes:approve"]
+        assert "preview_changed" in operation["responses"]["409"]["description"]
     assert "security" not in paths["/readyz"]["get"]
     assert "/healthz" not in paths
     assert paths["/api/v1/overview"]["get"]["x-machine-scopes"] == ["read"]

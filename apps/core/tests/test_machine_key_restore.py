@@ -78,16 +78,19 @@ def test_interrupted_restore_keeps_current_permissions(admin, client, db, interr
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='backup.machine_keys_restore_recovered'") == 1
 
 
-@pytest.mark.parametrize("schema", [607, 608, 609], ids=["voor-sleutelbeheer", "voor-event-id", "gewone-back-up"])
+@pytest.mark.parametrize(
+    "schema", [607, 608, 609, 610], ids=["voor-sleutelbeheer", "voor-event-id", "voor-change-hash", "gewone-back-up"],
+)
 def test_restore_keep_tables_stay_out_of_dumps(admin, db, schema):
-    expected = {607: [609, 608], 608: [609], 609: []}[schema]
+    expected = {607: [610, 609, 608], 608: [610, 609], 609: [610], 610: []}[schema]
     assert migrate_down(db, schema) == expected
     original = backups.create_backup(actor="test")
     assert migrate_up(db) == list(reversed(expected))
     create(admin)
 
     _interrupt_restore(db, original["id"])
-    keep_tables = ("mso_restore_machine_keep", "mso_restore_audit_keep")
+    keep_tables = ("mso_restore_machine_keep", "mso_restore_audit_keep",
+                   "mso_restore_change_request_keep", "mso_restore_change_approval_keep")
     if schema < 609:
         keep_tables += ("mso_restore_event_keep",)
     assert all(db.scalar("SELECT to_regclass(%s)", (table,)) for table in keep_tables)
@@ -139,9 +142,9 @@ def test_open_restore_blocks_key_management(admin, client, db):
 
 
 def test_migration_failure_retains_keys_from_current_schema(admin, client, db, monkeypatch):
-    assert migrate_down(db, 607) == [609, 608]
+    assert migrate_down(db, 607) == [610, 609, 608]
     backup = backups.create_backup(actor="test")
-    assert migrate_up(db) == [608, 609]
+    assert migrate_up(db) == [608, 609, 610]
     active = create(admin)
     revoked = create(admin, name="Ingetrokken")
     assert revoke(admin, revoked["item"]["id"]).status_code == 200

@@ -1,17 +1,31 @@
-"""Leesroutes en tijdelijke weigeringen voor het connectorcontract."""
+"""Leesroutes en bewaakte schrijfroutes voor het connectorcontract."""
 
 import re
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Header, Path, Query, Request
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
+from mso import change_requests, changes
 from mso.audit import _clean
 from mso.auth import Principal, require
+from mso.change_actions import ACTIONS
 from mso.config import VERSION, get_settings
 from mso.connector_api.errors import MAX_BYTES, PREFIX, ConnectorError, ErrorBody
 from mso.connector_api.events import APP_ID, MAX_ID, EventsPage, Evidence, change_link, get_evidence, poll
+from mso.connector_api.execution import (
+    DiscoveredAction,
+    ExecutionRequest,
+    ExecutionResult,
+    Mode,
+    nonces,
+    policy_pin,
+    require_pin,
+    verify_approval,
+    verify_change,
+    verify_signature,
+)
 from mso.connector_api.status import (
     BACKUP_MAX_AGE,
     CONNECTOR_MAX_AGE,
@@ -24,6 +38,7 @@ from mso.connector_api.status import (
 )
 from mso.connectors.base import SPECS
 from mso.db import get_db
+from mso.machine_keys import ADMIN_LOCK
 
 router = APIRouter(prefix=PREFIX, tags=["connector"])
 Viewer = Annotated[Principal, Depends(require("viewer"))]
@@ -61,8 +76,9 @@ class Discovery(BaseModel):
     app_id: str = APP_ID
     source_version: str
     schema_version: Literal["1.0"] = "1.0"
-    capabilities: list[Literal["read"]]
+    capabilities: list[Literal["read", "apply", "rollback"]]
     permissions: list[Literal["read"]]
+    actions: list[DiscoveredAction]
     limits: Limits
     timestamp_utc: AwareDatetime
 
@@ -99,7 +115,9 @@ class ItemsQuery(PageQuery):
 def discover(_: Viewer, query: Annotated[NoQuery, Query()]) -> Discovery:
     version = get_settings().build.version
     return Discovery(source_version=VERSION if version == "onbekend" else version,
-                     capabilities=["read"], permissions=["read"], timestamp_utc=datetime.now(UTC),
+                     capabilities=["read", "apply", "rollback"] if policy_pin() else ["read"],
+                     permissions=["read"], actions=[DiscoveredAction(**action.public()) for action in ACTIONS],
+                     timestamp_utc=datetime.now(UTC),
                      limits=Limits(max_age_s={
                          "connector": CONNECTOR_MAX_AGE, "worker": WORKER_MAX_AGE,
                          "backup": BACKUP_MAX_AGE, "jobs": JOB_STALL_AGE,
@@ -178,9 +196,55 @@ def evidence(_: Viewer, id: Annotated[str, Path(max_length=80)], query: Annotate
 
 @router.post("/propose", status_code=501, response_model=ErrorBody, responses={
     **COMMON_ERRORS, 501: _error("capability_unavailable")})
-@router.post("/apply", status_code=501, response_model=ErrorBody, responses={
-    **COMMON_ERRORS, 501: _error("capability_unavailable")})
-@router.post("/rollback", status_code=501, response_model=ErrorBody, responses={
-    **COMMON_ERRORS, 501: _error("capability_unavailable")})
 def unavailable(_: Viewer) -> ErrorBody:
     raise ConnectorError(501, "capability_unavailable")
+
+
+WRITE_ERRORS = {
+    **COMMON_ERRORS,
+    400: _error("idempotency_key_required of idempotency_key_invalid"),
+    404: _error("not_found"),
+    409: _error("preview_changed, approval_required, approval_expired, nonce_reused, "
+                "idempotency_in_progress of conflict"),
+    412: _error("precondition_failed"),
+    422: _error("validation_error of idempotency_key_reused"),
+    501: _error("capability_unavailable"),
+    502: _error("upstream_error"),
+    200: {"headers": {"Idempotent-Replay": {"schema": {"type": "string", "enum": ["true"]}}}},
+}
+Pin = Annotated[tuple, Depends(require_pin)]
+WriteQuery = Annotated[NoQuery, Query()]
+RequestKey = Annotated[str | None, Header(alias="Idempotency-Key",
+                                                       json_schema_extra={"format": "uuid"})]
+
+
+def _execute(request: Request, body: ExecutionRequest, pin: tuple, mode: Mode):
+    verify_signature(body, pin)
+    approval = verify_approval(body, pin[1], mode)
+    request_id = change_requests.parse_request_id(request.headers.getlist("Idempotency-Key"), required=True)
+    actor = "hub:policy"
+
+    def check(_conn, ch):
+        live_approval = verify_approval(body, pin[1], mode)
+        verify_change(body, live_approval, ch, mode)
+
+    def check_deadline():
+        verify_approval(body, pin[1], mode)
+
+    def execute(db, ch):
+        if mode == "rollback":
+            return changes.rollback_locked(ch, actor, db, request_id=request_id, check_deadline=check_deadline)
+        return changes.apply_locked(ch, actor, db, verifies_approval=check_deadline, request_id=request_id)
+
+    return change_requests.run(request, body.proposal.target.change_id, actor, body.model_dump(),
+                               request_id, check, execute, guard_lock=ADMIN_LOCK, **nonces(body, approval))
+
+
+@router.post("/apply", response_model=ExecutionResult, responses=WRITE_ERRORS)
+def apply(request: Request, pin: Pin, _: WriteQuery, body: ExecutionRequest, idempotency_key: RequestKey = None):
+    return _execute(request, body, pin, "apply")
+
+
+@router.post("/rollback", response_model=ExecutionResult, responses=WRITE_ERRORS)
+def rollback(request: Request, pin: Pin, _: WriteQuery, body: ExecutionRequest, idempotency_key: RequestKey = None):
+    return _execute(request, body, pin, "rollback")

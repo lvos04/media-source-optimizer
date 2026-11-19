@@ -171,11 +171,11 @@ def test_native_herstel_begrenst_eventhistorie(viewer, app, db, onderdeel):
 
 @pytest.mark.parametrize("herstart", [False, True], ids=["direct", "na-herstart"])
 def test_eventidentiteit_na_mislukt_herstel_oud_schema(viewer, app, db, monkeypatch, herstart):
-    assert migrate_down(db, 608) == [609]
+    assert migrate_down(db, 608) == [610, 609]
     at = datetime.now(UTC)
     row_id = db.scalar("INSERT INTO automation_log(kind,result,ts) VALUES ('run','ok',%s) RETURNING id", (at,))
     snapshot = backups.create_backup(actor="test")
-    assert migrate_up(db) == [609]
+    assert migrate_up(db) == [609, 610]
     # De oude dump en de nieuwe gebeurtenis hebben hetzelfde nummer en dezelfde tijd.
     db.execute("DELETE FROM automation_log WHERE id=%s", (row_id,))
     db.execute("INSERT INTO automation_log(id,kind,result,ts) VALUES (%s,'run','ok',%s)", (row_id, at))
@@ -209,7 +209,7 @@ def test_eventidentiteit_na_mislukt_herstel_oud_schema(viewer, app, db, monkeypa
             fout(_poll(viewer), 503, "dependency_unavailable")
         finally:
             init_runtime(db)
-    assert schema_version(db) == 609
+    assert schema_version(db) == 610
     na = event(viewer)
     assert (viewer.get(bewijs).status_code, na["event_id"], na["source_event_id"]) == (
         200, voor["event_id"], voor["source_event_id"])
@@ -242,7 +242,7 @@ def test_auditprobleem_en_herstel_hebben_hetzelfde_onderwerp(viewer):
     assert USER_FIXTURE_PASSWORD not in response.text
 
 
-def test_contractproef_weigert_vijfde_uitzondering(app, monkeypatch):
+def test_contractproef_weigert_extra_uitzondering(app, monkeypatch):
     from copy import deepcopy
     from types import SimpleNamespace
 

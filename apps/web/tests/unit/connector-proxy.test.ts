@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createServer, request, Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -14,10 +15,36 @@ vi.mock("next", () => ({
   }),
 }));
 
-let gedrag: "gezond" | "databasefout" | "stil" | "onvolledig" = "gezond";
+const uitvoeringen = new Map<string, string>();
+let schrijfacties = 0;
+let gedrag: "schrijftimeout" | "gezond" | "databasefout" | "stil" | "onvolledig" = "gezond";
 const core = createServer((req, res) => {
   if (gedrag === "stil") return;
   res.setHeader("content-type", "application/json");
+  if (gedrag === "schrijftimeout" && req.method === "POST" && req.url === "/connector/v1/apply") {
+    const delen: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => delen.push(chunk));
+    req.on("end", () => {
+      const sleutel = req.headers["idempotency-key"];
+      if (typeof sleutel !== "string") {
+        res.writeHead(400).end();
+        return;
+      }
+      const body = Buffer.concat(delen).toString();
+      if (!uitvoeringen.has(sleutel)) {
+        uitvoeringen.set(sleutel, body);
+        schrijfacties++;
+        return;
+      }
+      if (uitvoeringen.get(sleutel) !== body) {
+        res.writeHead(422).end();
+        return;
+      }
+      res.setHeader("Idempotent-Replay", "true");
+      res.end(JSON.stringify({ status: "applied" }));
+    });
+    return;
+  }
   if (req.url === "/healthz" && req.headers["x-correlation-id"]) {
     res.setHeader("x-correlation-id", req.headers["x-correlation-id"]);
   }
@@ -145,6 +172,28 @@ it.each(["stil", "onvolledig"] as const)("geeft bij een %s antwoord tijdig 503 e
       expect(body.code).toBe("dependency_unavailable");
     }
   }));
+}, 10000);
+
+it("stuurt de idempotentiesleutel en het antwoord door bij herhaling na een schrijftimeout", async () => {
+  gedrag = "schrijftimeout";
+  try {
+    const url = basis + "/connector/v1/apply";
+    const headers = { "Content-Type": "application/json", "Idempotency-Key": randomUUID() };
+    const body = JSON.stringify({ proposal: { change_id: 1 } });
+    const verstuur = () => fetch(url, { method: "POST", headers, body, signal: AbortSignal.timeout(8000) });
+    const timeOut = await verstuur();
+    expect(timeOut.status).toBe(503);
+    expect((await timeOut.json()).code).toBe("dependency_unavailable");
+    expect(schrijfacties).toBe(1);
+    expect(uitvoeringen.get(headers["Idempotency-Key"])).toBe(body);
+    const antwoord = await verstuur();
+    expect(antwoord.status).toBe(200);
+    expect(antwoord.headers.get("idempotent-replay")).toBe("true");
+    expect(await antwoord.json()).toEqual({ status: "applied" });
+    expect(schrijfacties).toBe(1);
+  } finally {
+    gedrag = "gezond";
+  }
 }, 10000);
 
 it("geeft bij een gestopte core ook op liveness een JSON-storing", async () => {

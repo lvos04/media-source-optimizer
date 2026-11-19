@@ -37,3 +37,28 @@ De gewone proeven gebruiken de standaard Docker-capabilities. Bij beide startmod
 | 16 PID 1 ruimt overgenomen zombie op | ok | overgenomen door PID 1; opruimcontrole exitcode 0 |
 
 **NIET GEVALIDEERD (echte NAS)**. Praktijkproef in het standaard Custom App-formulier volgens N-P6-05.
+
+## Herstel S-P3-250
+
+Bronrevisie `2c9c92488daac384ab8afadb73f3513eb05105fa`. De lokale proef met testgegevens en een SABnzbd-simulator doorliep
+**16 van 16 scenario’s zonder overslagen**. De CI-job `allinone` op deze bronrevisie doorliep dezelfde
+16 scenario’s. [CI-run 44462387172](https://github.com/lvos04/media-source-optimizer/actions/runs/44462387172)
+
+Het ketenrapport `RAPPORT-A-HERSTEL.md` bevat de testcommando’s,
+de werkelijke CI-uitkomst en de eindcommit.
+
+Bij start als 568:568 zet en verifieert PID 1 `NoNewPrivs=1` vóór mapvoorbereiding en voordat
+`initdb` start. Bij start als root blijft PostgreSQL vóór de alleen-lezen schemacontrole starten.
+De bewaker verifieert zijn eigen rechtenwissel na de eigenaarschapsstappen. Bij een opstartfout ruimt hij
+gestarte kinderen in omgekeerde volgorde op. De foutpauze van 30 seconden volgt alleen na een geverifieerde
+rechtenwissel.
+
+| Afzonderlijke lokale opstartproef | Basis `fca4571` | Herstel |
+|---|---|---|
+| Start als 568:568, bij de eerste `initdb` | PID 1 `NoNewPrivs=0` | PID 1 `NoNewPrivs=1` |
+| Start als 568:568 met een niet-schrijfbare map | Database geweigerd, PID 1 `NoNewPrivs=0` | Database geweigerd, PID 1 `NoNewPrivs=1` |
+| Start zonder `SETUID` | Bewaker draait nog bij de grenscontrole | Exit 78, database en gewone diensten geweigerd |
+| Laatste rechtenwissel geweigerd bij vijf mappen van 568:568 | Bewaker draait nog bij de grenscontrole | Exit 78, PostgreSQL gestopt en gewone diensten geweigerd |
+
+P-INSTALLATIE staat open. De voormalige TrueNAS-installatiestappen met losse containers zijn uit de
+installatiedocumentatie en de hardwarechecklist gehaald. De praktijkproef volgens N-P6-05 volgt na vrijgave.

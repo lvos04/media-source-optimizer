@@ -142,12 +142,12 @@
  {
   "id": "C1.3-MSO-05",
   "status": "Bezig",
-  "validatie": "Unit-getest",
-  "bewijs": "apps/web/tests/unit/safe-next.test.ts toetst contract §4.1 en weigering van loginpaden en ongeldige codering na herhaalde decodering en normalisatie. Herstelcommit ec3f94f83dbb650b958bce76405295889c958ad1, GitHub Actions-run 44412980208 (web).",
-  "blokkade": "De proef op een echte installatie staat open.",
-  "opmerking": "Sim-getest met een lokale productiebuild en gesimuleerde aanmelding. r-veilig-2-browser.mjs --routenaam in keten S-P3-215 bevestigde voor 15 gevallen het Overzicht op / na aanmelden en herladen. De bestaande reeks van 17 browsergevallen bevestigde onder meer het behoud van de query en het fragment op geldige kostenpaden.",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "apps/web/tests/unit/safe-next.test.ts toetst contract §4.1 en weigering van loginpaden en ongeldige codering na herhaalde decodering en normalisatie. Testcommit ec3f94f83dbb650b958bce76405295889c958ad1, GitHub Actions-run 44412980208 (web). De gesimuleerde browserproef van R-VEILIG-3 gebruikte de productiebuild van 581cb92fb23b1d49fece52e33653738e29c59e14 (CI-run 44415637170). Zie RAPPORT-R-VEILIG-3.md en de browserproefbestanden in keten S-P3-215.",
+  "blokkade": "NIET GEVALIDEERD (echte NAS): de gebruiker controleert bij N-P6-05 in de browser op de bijgewerkte MSO-installatie met toestemming en een testgebruiker dat een geldig terugkeerpad de bestemming met query en fragment opent, ongeldige invoer naar / leidt en een geweigerde aanmelding (HTTP 401) op /login blijft.",
+  "opmerking": "R-VEILIG-3 bevestigde na gesimuleerde aanmelding en na herladen 17 weigeringen op / en vier geldige kostenpaden met behoud van pad, query en eventueel fragment. Zie RAPPORT-A-HERSTEL-3.md voor de afzonderlijke herhalingsstand.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-18"
+  "bijgewerkt": "2026-11-19"
  },
  {
   "id": "C1.3-MSO-06",

@@ -31,10 +31,10 @@ Screenshots: [docs/screenshots/](docs/screenshots/).
 
 ## Installeren
 
-**Standaard TrueNAS Custom App, zonder YAML en zonder terminal:** één image `ghcr.io/lvos04/media-source-optimizer:1.6.0`
-(database, API, worker en web in één container; tag met digest in de handleiding), één map → `/appdata`, poort
-`38081`. Geen wachtwoorden of variabelen nodig; rechten worden automatisch goed gezet. Stap voor stap:
-**[docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md)**. Dat is de enige installatiemanier.
+> **P-INSTALLATIE staat open.** De installatie op TrueNAS niet uitvoeren tot de poort is gehaald.
+
+De beoogde installatie gebruikt het standaard Custom App-formulier met één alles-in-één-image voor database, API,
+worker en web. De formulierwaarden staan ter referentie in de [Custom App-handleiding](docs/TRUENAS_CUSTOM_APP.md).
 
 De compose-bestanden in `deploy/truenas/` en [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) zijn **alleen voor
 ontwikkeling, CI en de end-to-end-tests**, nooit een installatiemethode (geen *Install via YAML*, contract §2.3 regel 4).
@@ -46,7 +46,7 @@ ontwikkeling, CI en de end-to-end-tests**, nooit een installatiemethode (geen *I
 | [ARCHITECTURE.md](ARCHITECTURE.md) | componenten, engines, change sets, jobs, anti-loop, data |
 | [INTEGRATION_MEDIAGUARD.md](INTEGRATION_MEDIAGUARD.md) | eigenaarschap, compatibiliteitsmatrix, grenzen |
 | [SECURITY.md](SECURITY.md) | beveiligingsmodel en bijbehorende tests |
-| [docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md) | installatie als standaard Custom App (alles-in-één; de enige installatiemanier) |
+| [docs/TRUENAS_CUSTOM_APP.md](docs/TRUENAS_CUSTOM_APP.md) | referentie voor de standaard Custom App (P-INSTALLATIE open) |
 | [docs/TRUENAS_INSTALL.md](docs/TRUENAS_INSTALL.md) | **alleen ontwikkeling/CI:** de stack met losse containers (compose), Prowlarr-koppeling, updates, rollback |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | beheer, logs, back-ups, resources (gemeten) |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | schema-migraties, upgrade (1.5.0 → 1.6.0), terugdraaien |

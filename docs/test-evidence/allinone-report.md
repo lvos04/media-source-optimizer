@@ -53,12 +53,19 @@ De bewaker verifieert zijn eigen rechtenwissel na de eigenaarschapsstappen. Bij 
 gestarte kinderen in omgekeerde volgorde op. De foutpauze van 30 seconden volgt alleen na een geverifieerde
 rechtenwissel.
 
-| Afzonderlijke lokale opstartproef | Basis `fca4571` | Herstel |
-|---|---|---|
-| Start als 568:568, bij de eerste `initdb` | PID 1 `NoNewPrivs=0` | PID 1 `NoNewPrivs=1` |
-| Start als 568:568 met een niet-schrijfbare map | Database geweigerd, PID 1 `NoNewPrivs=0` | Database geweigerd, PID 1 `NoNewPrivs=1` |
-| Start zonder `SETUID` | Bewaker draait nog bij de grenscontrole | Exit 78, database en gewone diensten geweigerd |
-| Laatste rechtenwissel geweigerd bij vijf mappen van 568:568 | Bewaker draait nog bij de grenscontrole | Exit 78, PostgreSQL gestopt en gewone diensten geweigerd |
+### Herleidbaarheid van de vier afzonderlijke opstartproeven
+
+`RAPPORT-A-HERSTEL.md` noemt de aanroep van het tijdelijke script `containerproef.py` voor de gerapporteerde
+basis `fca457106806a46712f7402b73c504cc2c3ebf7d` en het gerapporteerde herstel `2c9c92488daac384ab8afadb73f3513eb05105fa`.
+Het oorspronkelijke script, het exacte commando per scenario en de ruwe meetuitvoer per scenario ontbreken.
+Daarom tellen deze historische metingen niet mee als bewijs. De 16 hierboven genoemde scenario’s hebben hun eigen CI-run.
+
+| Afzonderlijke lokale opstartproef | Bewijsstatus op basis en herstel |
+|---|---|
+| Start als 568:568, bij de eerste `initdb` | Niet herleidbaar |
+| Start als 568:568 met een niet-schrijfbare map | Niet herleidbaar |
+| Start zonder `SETUID` | Niet herleidbaar |
+| Laatste rechtenwissel geweigerd bij vijf mappen van 568:568 | Niet herleidbaar |
 
 P-INSTALLATIE staat open. De voormalige TrueNAS-installatiestappen met losse containers zijn uit de
 installatiedocumentatie en de hardwarechecklist gehaald. De praktijkproef volgens N-P6-05 volgt na vrijgave.

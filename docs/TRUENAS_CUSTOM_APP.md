@@ -1,8 +1,11 @@
 # Installeren als standaard TrueNAS Custom App (de enige installatiemanier)
 
-Sinds versie 1.1.0 (poort 38081 sinds 1.1.1) is Media Source Optimizer (MSO) ook één enkele image waarin alles zit: database,
-API, worker en webinterface. Je installeert die met het normale **Custom App**-formulier van TrueNAS SCALE:
-geen YAML, geen databasewachtwoord, geen omgevingsvariabelen, geen tweede of derde container.
+> **P-INSTALLATIE staat open.** De stappen hieronder niet uitvoeren tot de poort is gehaald.
+> Het manifest en de formuliercontrole volgen in S-P3-290. De praktijkproef na vrijgave staat in
+> [HARDWARE_ACCEPTANCE.md](HARDWARE_ACCEPTANCE.md).
+
+De alles-in-één-image bevat database, API, worker en webinterface. De waarden hieronder beschrijven ter referentie
+hoe de beoogde installatie via het standaard **Custom App**-formulier van TrueNAS SCALE eruitziet.
 
 | Wat | Waarde |
 |---|---|
@@ -12,10 +15,10 @@ geen YAML, geen databasewachtwoord, geen omgevingsvariabelen, geen tweede of der
 | Opslag | één map (dataset) → `/appdata` |
 | Gebruiker | niets invullen: MSO regelt de rechten zelf |
 
-> **Verificatiestatus.** De image is in een Linux/Docker-omgeving end-to-end getest (zie
-> `docs/test-evidence/allinone-report.md`): starten als root én als gebruiker 568, herstart, harde kill, back-up/herstel en
-> verkeerde maprechten. Het TrueNAS-formulier zelf is **niet** op echte TrueNAS-hardware doorlopen; de veldnamen
-> hieronder volgen TrueNAS SCALE 24.10/25.04 en kunnen per versie iets afwijken.
+> **Verificatiestatus.** Het containerbewijs voor S-P3-250 geldt voor lokale en CI-builds van bronrevisies
+> `7d9d065` en `2c9c924`. De gepubliceerde tag `1.6.0` en de bijbehorende digest vallen buiten dat bewijs.
+> Het formulier op echte TrueNAS-hardware is **NIET GEVALIDEERD**. De veldnamen volgen TrueNAS SCALE 24.10/25.04.
+> [Alles-in-één-containerproef](test-evidence/allinone-report.md)
 
 > **Onderhoudsnotitie (niet voor de installatie).** Het image-pakket is openbaar: op 2026-11-10 gaf een anonieme
 > pull van het manifest van `ghcr.io/lvos04/media-source-optimizer:1.6.0` `200` (zonder inloggen). Je hebt dus geen

@@ -12,14 +12,14 @@ NZB = b"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
 <nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
  <head><meta type="name">Show.Name.S01E05.1080p.WEB.H264-GRP</meta></head>
- <file poster="someone@example.invalid" date="1700000000" subject="Show.Name.S01E05 [1/2] yEnc">
+ <file poster="someone@example.invalid" date="1700000000" subject="[1/2] &quot;Show.Name.S01E05.part01.rar&quot; yEnc">
   <groups><group>alt.binaries.mso.test</group></groups>
   <segments>
    <segment bytes="700000" number="1">seg1@mock</segment>
    <segment bytes="700000" number="2">seg2@mock</segment>
   </segments>
  </file>
- <file poster="someone@example.invalid" date="1700000100" subject="Show.Name.S01E05 [2/2] yEnc">
+ <file poster="someone@example.invalid" date="1700000100" subject="[2/2] &quot;Show.Name.S01E05.part02.rar&quot; yEnc">
   <groups><group>alt.binaries.mso.test</group></groups>
   <segments><segment bytes="500000" number="1">seg3@mock</segment></segments>
  </file>
@@ -117,6 +117,7 @@ def test_contract_add_url_add_nzb_categories(
     row = db.fetchone("SELECT * FROM usenet_nzbs WHERE nzo_id=%s", (nzo,))
     assert row["origin"] == "send_url" and "INDEXERKEY" not in (row["url_redacted"] or "")
     assert row["segments"] == []  # sent as URL: contents unknown → not testable
+    assert client.has_download(nzo, "tv") is False
     nzo2 = client.add_nzb(
         NZB, "Show.Name.S01E05.nzb", category="tv", release_key="nzb:abc", source_id="direct:x"
     )

@@ -135,6 +135,8 @@ def test_prowlarrmeting(monkeypatch, veld, ongeldig, geval):
 def sab_verzendbewijs(monkeypatch, ref):
     files = {"bestand": 42}
     proof = {"filename": "proef.nzb", "upload_name": "upload.nzb", "sha256": "inhoud", "category": "proef",
+             "manifest": digest([["proef.bin", 42]]), "nzo_id": ref,
+             "file_bindings": digest({"bestand": ["proef.bin", 42]}),
              "added": 10, "bytes": 42, "files": digest(files), "article_md5": "artikelhash"}
     command = {"instance": "proefinstantie", "category": "proef", "fields": {"name": digest(["upload.nzb", "inhoud"])}}
     monkeypatch.setattr(download_receipts, "target", lambda *_: {"owner": "proef", "proof": proof})
@@ -152,7 +154,7 @@ def test_herstelverzendingmeting(monkeypatch, geval, status):
     antwoorden = {"queue": {"queue": {"slots": [slot], "noofslots": 1}},
                   "history": {"history": {"slots": [], "noofslots": 0}}}
     sab_bron(monkeypatch, lambda mode, *_: antwoorden[mode])
-    antwoorden["get_files"] = {"files": [{"nzf_id": "bestand", "bytes": "42.00"}]}
+    antwoorden["get_files"] = {"files": [{"nzf_id": "bestand", "filename": "proef.bin", "bytes": "42.00"}]}
     rij["status"] = status
     monkeypatch.setattr(fallback, "get_db", lambda: SimpleNamespace(fetchone=lambda *_: rij))
     monkeypatch.setattr(fallback, "parse_path", lambda _: ("proef", "kandidaat"))
@@ -297,7 +299,7 @@ def test_sab_paginering_per_schrijfadapter(monkeypatch, doel, lijst, geval):
 
     def antwoord(mode, params):
         if mode == "get_files":
-            return {"files": [{"nzf_id": "bestand", "bytes": "42.00"}]}
+            return {"files": [{"nzf_id": "bestand", "filename": "proef.bin", "bytes": "42.00"}]}
         if mode == "get_config":
             return {"config": {"categories": [{"name": "proef", "dir": "proef", "order": 0}]}}
         if mode != lijst:

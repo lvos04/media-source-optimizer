@@ -78,8 +78,11 @@ def test_sab_leesbevestiging_met_verzendbewijs(
     assert sab_verzoeken == [("GET", "queue"), ("GET", "history"), ("GET", "get_files")]
 
 
-@pytest.mark.parametrize("geval", ["origineel", "herinstallatie", "andere-naam", "andere-tijd", "andere-grootte",
-                                   "bewijs-ontbreekt", "historie", "historie-andere-inhoud", "historie-andere-upload"])
+@pytest.mark.parametrize("geval", ["origineel", "herinstallatie", "andere-naam", "andere-tijd", "tijd-ontbreekt",
+                                   "andere-grootte",
+                                   "bewijs-ontbreekt", "oud-bewijs", "ander-antwoord-id", "historie",
+                                   "historie-andere-inhoud", "historie-andere-upload", "historie-zonder-bestanden",
+                                   "historie-andere-bestandsnaam"])
 def test_nzb_herkomst_bij_hergebruik(admin, operator, viewer, sab, manage_mode, db, monkeypatch, geval):
     item, route, key = commands.approved_send(admin, viewer, monkeypatch)
     send_route = f"/api/v1/recovery/items/{item['media_ref']}/send"
@@ -102,10 +105,16 @@ def test_nzb_herkomst_bij_hergebruik(admin, operator, viewer, sab, manage_mode, 
         slot["filename"] += ".ander"
     elif geval == "andere-tijd":
         slot["time_added"] += 1
+    elif geval == "tijd-ontbreekt":
+        del slot["time_added"]
     elif geval == "andere-grootte":
         sab.job_files[ref][0]["bytes"] = "1.00"
     elif geval == "bewijs-ontbreekt":
         db.execute("UPDATE download_receipt_targets SET proof=NULL")
+    elif geval == "oud-bewijs":
+        db.execute("UPDATE download_receipt_targets SET proof=proof - 'manifest' - 'nzo_id'")
+    elif geval == "ander-antwoord-id":
+        db.execute("""UPDATE download_receipt_targets SET proof=jsonb_set(proof,'{nzo_id}','"ander"')""")
     elif geval.startswith("historie"):
         sab.queue.clear()
         article = b"ander" if geval == "historie-andere-inhoud" else b"seg1@mock"
@@ -115,6 +124,10 @@ def test_nzb_herkomst_bij_hergebruik(admin, operator, viewer, sab, manage_mode, 
                             "md5sum": hashlib.md5(article, usedforsecurity=False).hexdigest()})
         if geval == "historie-andere-upload":
             sab.history[-1]["nzb_name"] = slot["filename"] + ".nzb"
+        elif geval == "historie-zonder-bestanden":
+            del sab.job_files[ref]
+        elif geval == "historie-andere-bestandsnaam":
+            sab.job_files[ref][0]["filename"] = "ander.mkv"
     again = operator.post(send_route, json={"release_key": key})
     applied = operator.post(route + "/apply")
     valid = geval in {"origineel", "historie"}

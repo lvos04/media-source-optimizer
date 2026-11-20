@@ -46,6 +46,7 @@ from __future__ import annotations
 import email.parser
 import email.policy
 import itertools
+import re
 import threading
 import time
 import uuid
@@ -660,11 +661,14 @@ def create_app(**faults: Any) -> FastAPI:
                     try:
                         state.nzb_names[nzo] = f[0]
                         root = ElementTree.fromstring(f[1])
-                        state.job_files[nzo] = [
-                            {"nzf_id": "SABnzbd_nzf_" + uuid.uuid4().hex,
-                             "bytes": str(sum(int(seg.get("bytes", "0")) for seg in file.iterfind(".//{*}segment")))}
-                            for file in root.iterfind("{*}file")
-                        ]
+                        state.job_files[nzo] = []
+                        for file in root.iterfind("{*}file"):
+                            subject = file.get("subject") or "unknown"
+                            quoted = re.search(r'"([^"]+)"', subject)
+                            size = sum(int(seg.get("bytes", "0")) for seg in file.iterfind(".//{*}segment"))
+                            state.job_files[nzo].append({"nzf_id": "SABnzbd_nzf_" + uuid.uuid4().hex,
+                                                         "filename": quoted[1] if quoted else subject,
+                                                         "bytes": str(size)})
                     except (ValueError, ElementTree.ParseError):
                         return ok({"status": False, "error": "No file"})
                 state.queue.append(

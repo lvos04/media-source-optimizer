@@ -15,7 +15,7 @@ from mg_support import install_search, release
 SAB_KEY = "SABGEHEIM-fallback-0123456789"
 NZB = b"""<?xml version="1.0" encoding="utf-8"?>
 <nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
- <file poster="someone@example.invalid" date="1700000000" subject="Lost.Signal.S02E05 [1/1] yEnc">
+ <file poster="someone@example.invalid" date="1700000000" subject="[1/1] &quot;Lost.Signal.S02E05.mkv&quot; yEnc">
   <groups><group>alt.binaries.mso.test</group></groups>
   <segments><segment bytes="700000" number="1">seg1@mock</segment></segments>
  </file>

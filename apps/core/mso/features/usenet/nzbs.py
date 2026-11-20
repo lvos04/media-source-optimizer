@@ -23,6 +23,7 @@ from defusedxml import ElementTree as SafeET
 from fastapi import HTTPException
 
 from mso import download_receipts
+from mso.change_preview import digest
 from mso.db import get_db, jsonb
 
 LOGGER = logging.getLogger(__name__)
@@ -45,10 +46,25 @@ class ParsedNzb:
     bytes_total: int = 0
     article_md5: str = ""
     segments: list[dict[str, Any]] = field(default_factory=list)
+    file_manifest: str | None = None
 
 
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
+
+
+def _file_name(subject: str) -> str | None:
+    """Alleen een letterlijk benoemd bestand: één geciteerde naam of een losse bestandsnaam."""
+    parts = subject.split('"')
+    if len(parts) == 3:
+        name = parts[1]
+    elif len(parts) == 1 and not any(c.isspace() for c in subject):
+        name = subject
+    else:
+        return None
+    if not name or name != name.strip() or not name.isprintable() or "/" in name or "\\" in name:
+        return None
+    return name
 
 
 def spread_sample(items: list[Any], n: int) -> list[Any]:
@@ -73,18 +89,27 @@ def parse_nzb(data: bytes) -> ParsedNzb:
     if _local(root.tag) != "nzb":
         raise NzbError("geen NZB: root-element is niet <nzb>")
     title = None
+    declared_files = 0
     for el in root.iter():
-        if _local(el.tag) == "meta" and el.get("type") in ("name", "title") and (el.text or "").strip():
+        tag = _local(el.tag)
+        if tag.lower() == "file":
+            declared_files += 1
+        if title is None and tag == "meta" and el.get("type") in ("name", "title") and (el.text or "").strip():
             title = el.text.strip()[:300]
-            break
     groups: set[str] = set()
     dates: list[int] = []
     segs: list[dict[str, Any]] = []
     files = 0
     bytes_total = 0
+    manifest: list[tuple[str, int]] = []
+    complete = True
     article_md5 = hashlib.md5(usedforsecurity=False)  # SABnzbd-history hasht de opeenvolgende artikel-ID’s.
     for fi, f in enumerate(el for el in root if _local(el.tag) == "file"):
         files += 1
+        filename = _file_name(f.get("subject", ""))
+        file_bytes = 0
+        numbers: set[int] = set()
+        sections = 0
         if (d := f.get("date")) and d.isdigit():
             dates.append(int(d))
         for child in f:
@@ -92,18 +117,26 @@ def parse_nzb(data: bytes) -> ParsedNzb:
             if name == "groups":
                 groups.update((g.text or "").strip() for g in child if (g.text or "").strip())
             elif name == "segments":
+                sections += 1
                 for s in child:
                     mid = (s.text or "").strip().strip("<>")
                     if not mid or "@" not in mid or len(mid) > 250 or any(c.isspace() for c in mid):
+                        complete = False
                         continue
                     try:
                         b = int(s.get("bytes") or 0)
                         num = int(s.get("number") or 0)
                     except ValueError:
                         b, num = 0, 0
+                    if _local(s.tag) != "segment" or b <= 0 or num <= 0 or num in numbers:
+                        complete = False
+                    numbers.add(num)
+                    file_bytes += max(0, b)
                     article_md5.update((s.text or "").encode())
-                    bytes_total += max(0, b)
                     segs.append({"m": mid, "b": b, "f": fi, "n": num})
+        bytes_total += file_bytes
+        if filename and sections == 1 and file_bytes > 0:
+            manifest.append((filename, file_bytes))
     if not segs:
         raise NzbError("NZB bevat geen artikelen (segments)")
     posted = datetime.fromtimestamp(min(dates), UTC) if dates else None
@@ -115,6 +148,7 @@ def parse_nzb(data: bytes) -> ParsedNzb:
         segment_total=len(segs),
         bytes_total=bytes_total,
         article_md5=article_md5.hexdigest(),
+        file_manifest=digest(sorted(manifest)) if complete and len(manifest) == declared_files else None,
         segments=spread_sample(segs, MAX_STORED_SEGMENTS),
     )
 

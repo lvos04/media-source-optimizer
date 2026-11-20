@@ -1,0 +1,58 @@
+name: Broncontroles
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bronvergelijking:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Lees de bronbranch uit de herkomstgegevens
+        id: bron
+        run: echo "ref=$(jq -er .bron_ref docs/platform-v2/HERKOMST_CONTRACT.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: leon/ai-server-manager
+          ref: ${{ steps.bron.outputs.ref }}
+          fetch-depth: 0
+          path: .platformbron
+          github-server-url: https://git.medialeon.nl
+          token: ${{ secrets.CI_BRONNEN_LEZEN || github.token }}
+          persist-credentials: false
+      - name: Vergelijk contract en Peil met de gepinde commits en de bronbranch
+        run: python3 scripts/bronkopie.py vergelijk --bron .platformbron
+
+  manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ASF_COMMIT: a994c2a51f45b81b2c48c6533b0ccf51ba857f5a
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: leon/appstore-en-fork
+          ref: ${{ env.ASF_COMMIT }}
+          path: .appstore-validator
+          github-server-url: https://git.medialeon.nl
+          token: ${{ secrets.CI_BRONNEN_LEZEN || github.token }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Installeer de gepinde manifestvalidator
+        run: |
+          test "$(git -C .appstore-validator rev-parse HEAD)" = "$ASF_COMMIT"
+          python -m venv "$RUNNER_TEMP/validator"
+          "$RUNNER_TEMP/validator/bin/pip" install --require-hashes -r .appstore-validator/apps/api/requirements.lock
+          "$RUNNER_TEMP/validator/bin/pip" install --no-deps .appstore-validator/apps/api
+      - name: Valideer het Custom App-manifest strikt
+        run: '"$RUNNER_TEMP/validator/bin/jl-manifest" validate --strict deploy/manifest/media-source-optimizer.manifest.yaml'

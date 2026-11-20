@@ -27,13 +27,21 @@ API = "/api/v1"
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def stack() -> dict:
+def stack(fixture_image: str | None = None) -> dict:
     services = mock_services(IMAGE, ("radarr",))
-    services["mock-radarr"].update(
+    radarr = services["mock-radarr"]
+    radarr.update(
         entrypoint=["python", "-m", "msomocks"],
         environment={"PYTHONPATH": "/fixture", "PYTHONDONTWRITEBYTECODE": "1"},
-        volumes=[f"{ROOT / 'apps' / 'mocks'}:/fixture:ro"],
     )
+    if fixture_image:
+        # Een afzonderlijke buildengine ontvangt de bron via de bouwcontext van de job.
+        radarr.update(image=fixture_image, build={
+            "context": str(ROOT / "apps" / "mocks"),
+            "dockerfile_inline": f"FROM {IMAGE}\nCOPY msomocks /fixture/msomocks\n",
+        })
+    else:
+        radarr["volumes"] = [f"{ROOT / 'apps' / 'mocks'}:/fixture:ro"]
     services["mediaguard"] = {
         "image": IMAGE,
         "environment": {"MG_START_BACKGROUND": "0", "MG_DEV_AUTH_BYPASS": "0"},
@@ -208,9 +216,12 @@ def main() -> int:
     os.environ.update(NO_PROXY="*", no_proxy="*")
     with tempfile.TemporaryDirectory(prefix="mso-mediaguard-", dir=os.environ.get("TMPDIR") or ROOT) as directory:
         compose_file = Path(directory) / "compose.json"
-        compose_file.write_text(json.dumps(stack()), encoding="utf-8")
+        fixture_image = os.environ.get("MSO_CONTRACT_FIXTURE_IMAGE")
+        compose_file.write_text(json.dumps(stack(fixture_image)), encoding="utf-8")
         compose = ["docker", "compose", "-f", str(compose_file), "-p", f"mso-mg-contract-{uuid4().hex[:10]}"]
         try:
+            if fixture_image:
+                subprocess.run([*compose, "build", "mock-radarr"], check=True, timeout=180)
             subprocess.run([*compose, "up", "-d", "--pull", "never"], check=True, timeout=90)
             container = subprocess.check_output([*compose, "ps", "-q", "mediaguard"], text=True, timeout=15).strip()
             address = subprocess.check_output([
@@ -228,6 +239,8 @@ def main() -> int:
                 raise AssertionError("MSO behandelde de onbereikbare wanted-route als een leesresultaat.")
         finally:
             subprocess.run([*compose, "down", "--volumes"], check=True, timeout=60)
+            if fixture_image:
+                subprocess.run(["docker", "image", "rm", fixture_image], check=False, timeout=60)
     print(f"MediaGuard-contractproef {VERSION}: leesroutes, rollen en degradatie bevestigd.")
     return 0
 

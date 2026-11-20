@@ -44,6 +44,7 @@ import httpx
 
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else "media-source-optimizer:local"
 MOCKS = os.environ.get("MSO_MOCKS_IMAGE", "mso-mocks:stack")
+DATA_VOLUME = os.environ.get("MSO_AIO_DATA_VOLUME")
 PUBLISHED_150 = ("ghcr.io/lvos04/media-source-optimizer"
                  "@sha256:7ee5cb5e3c37d8ca6e3c8445cd6ef24f8b175e2f3167ccd40541737564866be2")
 PUBLISHED_160 = ("ghcr.io/lvos04/media-source-optimizer"
@@ -91,6 +92,25 @@ def sh(*cmd: str, check: bool = True) -> str:
     return r.stdout.strip()
 
 
+def make_data_dir(path: Path, *, mode: int | None = None) -> None:
+    if DATA_VOLUME:
+        permissions = 0o755 if mode is None else mode
+        sh("docker", "run", "--rm", "--network", "none", "--user", "0:0",
+           "--mount", f"type=volume,src={DATA_VOLUME},dst=/fixture", "--entrypoint", "mkdir",
+           IMAGE, "-m", format(permissions, "o"), f"/fixture/{path}")
+    else:
+        path.mkdir()
+        if mode is not None:
+            path.chmod(mode)
+
+
+def data_mount(path: Path, target: str, *, readonly: bool = False) -> list[str]:
+    if DATA_VOLUME:
+        mount = f"type=volume,src={DATA_VOLUME},dst={target},volume-subpath={path.as_posix()},volume-nocopy"
+        return ["--mount", mount + (",readonly" if readonly else "")]
+    return ["-v", f"{path}:{target}" + (":ro" if readonly else "")]
+
+
 def record(name: str, ok: bool | None, detail: str = "") -> None:
     RESULTS.append((name, ok, detail))
     status = {True: "OK  ", False: "FAIL", None: "SKIP"}[ok]
@@ -98,12 +118,16 @@ def record(name: str, ok: bool | None, detail: str = "") -> None:
 
 
 def wait_healthy(name: str = NAME, timeout: float = 180) -> str:
+    global BASE
     deadline = time.monotonic() + timeout
     status = "?"
     while time.monotonic() < deadline:
         status = sh("docker", "inspect", "-f", "{{.State.Health.Status}}", name, check=False) or "?"
         running = sh("docker", "inspect", "-f", "{{.State.Running}}", name, check=False)
         if status == "healthy" or running == "false":
+            if status == "healthy" and PORT == 0 and name == NAME:
+                published = sh("docker", "port", name, "38081/tcp")
+                BASE = f"http://localhost:{int(published.rsplit(':', 1)[1])}"
             return status if running != "false" else "exited"
         time.sleep(3)
     return status
@@ -122,8 +146,7 @@ def run(data: Path, *extra: str, name: str = NAME, image: str = IMAGE) -> None:
         NET,
         "-p",
         f"127.0.0.1:{PORT}:38081",
-        "-v",
-        f"{data}:/appdata",
+        *data_mount(data, "/appdata"),
         *extra,
         image,
     )
@@ -314,8 +337,8 @@ def migration_history(info: dict) -> list[tuple[int, str, datetime]]:
 def restore_partial_archive(data: Path, backups: Path, filename: str, digest: str, image: str) -> None:
     # Alleen PostgreSQL draait tijdens het herstel. De oude app start pas na herstel van het oude schema.
     sh(
-        "docker", "run", "--rm", "--pull=never", "--network", "none", "-v", f"{data}:/appdata",
-        "-v", f"{backups}:/archive:ro", "--entrypoint", "python", image, "-c",
+        "docker", "run", "--rm", "--pull=never", "--network", "none", *data_mount(data, "/appdata"),
+        *data_mount(backups, "/archive", readonly=True), "--entrypoint", "python", image, "-c",
         """
 import hashlib
 import subprocess
@@ -348,10 +371,10 @@ finally:
 
 
 def snapshot_stopped_appdata(data: Path, snapshot: Path, image: str) -> None:
-    snapshot.mkdir()
+    make_data_dir(snapshot)
     sh(
-        "docker", "run", "--rm", "--pull=never", "--network", "none", "-v", f"{data}:/source:ro",
-        "-v", f"{snapshot}:/snapshot", "--entrypoint", "sh", image, "-ec",
+        "docker", "run", "--rm", "--pull=never", "--network", "none", *data_mount(data, "/source", readonly=True),
+        *data_mount(snapshot, "/snapshot"), "--entrypoint", "sh", image, "-ec",
         "test ! -e /source/postgres/postmaster.pid; test -s /source/secrets/vault.key; cp -a /source/. /snapshot/",
     )
 
@@ -361,7 +384,8 @@ def stopped_data_fingerprint(data: Path) -> str:
     # omdat alleen het starten van PostgreSQL al WAL- en controlebestanden kan bijwerken.
     return sh(
         "docker", "run", "--rm", "--pull=never", "--network", "none", "--user", "568:568",
-        "-v", f"{data}:/source:ro", "-e", "MSO_DATA_DIR=/tmp/probe", "--entrypoint", "python", IMAGE, "-c",
+        *data_mount(data, "/source", readonly=True), "-e", "MSO_DATA_DIR=/tmp/probe",
+        "--entrypoint", "python", IMAGE, "-c",
         """
 import hashlib
 import json
@@ -464,10 +488,10 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
             record(name, None, f"OVERGESLAGEN: de verplichte openbare {version}-digest is niet opgehaald")
         return None
 
-    tmp.mkdir()
+    make_data_dir(tmp)
     try:
         data = tmp / "upgrade"
-        data.mkdir()
+        make_data_dir(data)
         run(data, image=image)
         assert wait_healthy() == "healthy", f"{version} startte niet op de lege map"
         with httpx.Client(base_url=BASE, timeout=30) as client:
@@ -526,7 +550,7 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
         scenario = 1
 
         partial = tmp / "partial"
-        partial.mkdir()
+        make_data_dir(partial)
         filename = archive["file"]
         assert filename == Path(filename).name and filename.endswith("-pre-upgrade.dump"), "ongeldige archiefnaam"
         restore_partial_archive(partial, data / "backups", filename, archive["sha256"], image)
@@ -585,10 +609,9 @@ def schema_guard_case(upgrade: tuple[Path, int] | None) -> None:
 
 
 def main() -> int:
-    tmp = Path(tempfile.mkdtemp(prefix="mso-aio-"))
+    tmp = Path(".") if DATA_VOLUME else Path(tempfile.mkdtemp(prefix="mso-aio-"))
     data = tmp / "appdata"
-    data.mkdir()
-    os.chmod(data, 0o755)
+    make_data_dir(data, mode=0o755)
     sh("docker", "network", "create", NET, check=False)
     sh(
         "docker",
@@ -615,8 +638,7 @@ def main() -> int:
             "docker",
             "run",
             "--rm",
-            "-v",
-            f"{data}:/d",
+            *data_mount(data, "/d"),
             "--entrypoint",
             "stat",
             IMAGE,
@@ -783,7 +805,9 @@ def main() -> int:
 
         # 5
         sh("docker", "kill", "-s", "KILL", NAME)
-        stale = (data / "postgres" / "postmaster.pid").exists()
+        stale = sh("docker", "run", "--rm", "--network", "none", "--user", "0:0",
+                   *data_mount(data, "/d", readonly=True), "--entrypoint", "sh", IMAGE, "-c",
+                   'if test -f /d/postgres/postmaster.pid; then echo aanwezig; fi') == "aanwezig"
         sh("docker", "start", NAME)
         st = wait_healthy()
         c, csrf = login()
@@ -813,9 +837,9 @@ def main() -> int:
 
         # 7
         d2 = tmp / "appdata568"
-        d2.mkdir()
+        make_data_dir(d2)
         # Gebruik de UID van de lokale Docker-runtime voor de tijdelijke testmap.
-        sh("docker", "run", "--rm", "--network", "none", "-v", f"{d2}:/d",
+        sh("docker", "run", "--rm", "--network", "none", *data_mount(d2, "/d"),
            "--entrypoint", "chown", IMAGE, "568:568", "/d")
         # Lokale GET-controles blijven bereikbaar met een onbruikbare proxy in de omgeving.
         run(d2, "--user", "568:568", "-e", "http_proxy=http://localhost:1", "-e", "no_proxy=")
@@ -827,8 +851,7 @@ def main() -> int:
 
         # 8
         d3 = tmp / "appdata-root"
-        d3.mkdir()
-        os.chmod(d3, 0o755)
+        make_data_dir(d3, mode=0o755)
         run(d3, "--user", "568:568")
         time.sleep(8)
         log8 = subprocess.run(["docker", "logs", NAME], capture_output=True, text=True, check=False)
@@ -840,8 +863,10 @@ def main() -> int:
     finally:
         sh("docker", "rm", "-f", NAME, MOCK_NAME, check=False)
         sh("docker", "network", "rm", NET, check=False)
-        sh("docker", "run", "--rm", "-v", f"{tmp}:/t", "--entrypoint", "sh", IMAGE, "-c", "rm -rf /t/*", check=False)
-        tmp.rmdir()
+        if not DATA_VOLUME:
+            sh("docker", "run", "--rm", "-v", f"{tmp}:/t", "--entrypoint", "sh", IMAGE,
+               "-c", "rm -rf /t/*", check=False)
+            tmp.rmdir()
 
     passed = sum(ok is True for _, ok, _ in RESULTS)
     skipped = sum(ok is None for _, ok, _ in RESULTS)

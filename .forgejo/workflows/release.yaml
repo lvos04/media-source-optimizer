@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: mso-release
   cancel-in-progress: false
@@ -24,17 +28,7 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:16.15-alpine
-        env:
-          POSTGRES_USER: mso
-          POSTGRES_DB: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        options: >-
-          --health-cmd "pg_isready -U mso" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      MSO_TEST_DATABASE_URL: postgresql://mso@postgres:5432/postgres
       MSO_PG_BIN: /usr/lib/postgresql/16/bin
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -46,8 +40,7 @@ jobs:
       - run: bash .forgejo/scripts/coretest-installeren.sh
       - run: ruff check apps/core apps/mocks tests/stack
       - name: Pytest met PostgreSQL 16
-        working-directory: apps/core
-        run: python -m pytest -q -p no:warnings
+        run: bash .forgejo/scripts/kernproef.sh
 
   publish:
     needs: test

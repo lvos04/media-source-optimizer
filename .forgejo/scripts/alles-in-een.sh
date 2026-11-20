@@ -16,4 +16,8 @@ MSO_SCHEMA_GUARD_IMAGE=$(tests/stack/build-schema-guard.sh "mso-schema-guard:$MS
 export MSO_SCHEMA_GUARD_IMAGE
 python -m venv "$RUNNER_TEMP/aio-venv"
 "$RUNNER_TEMP/aio-venv/bin/pip" install --disable-pip-version-check httpx==0.28.1
+# De jobcontainer en de buildengine hebben afzonderlijke bestandssystemen.
+MSO_AIO_DATA_VOLUME=$(docker volume create)
+export MSO_AIO_DATA_VOLUME MSO_AIO_TEST_PORT=0
+trap 'docker volume rm "$MSO_AIO_DATA_VOLUME" >/dev/null' EXIT
 "$RUNNER_TEMP/aio-venv/bin/python" tests/stack/allinone_test.py "media-source-optimizer:$MSO_IMAGE_TAG"

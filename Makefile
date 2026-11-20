@@ -36,7 +36,8 @@ e2e:
 	export MSO_STACK_ADMIN_PW="E2e-$$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"; \
 	MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 tests/stack/run.sh; rc=$$?; \
 	if [[ $$rc -eq 0 ]]; then \
-	  ( cd apps/web && MSO_E2E_BASE_URL=http://127.0.0.1:48081 MSO_E2E_USER=stackadmin \
+	  ( read -r web_url < "$${MSO_STACK_RESULTS_ROOT:-$(CURDIR)/tests/stack/results}/e2e-stack/web-url" && \
+	    cd apps/web && MSO_E2E_BASE_URL="$$web_url" MSO_E2E_USER=stackadmin \
 	    MSO_E2E_PASSWORD="$$MSO_STACK_ADMIN_PW" MSO_E2E_STRICT=1 MSO_E2E_MIN_TESTS=$(E2E_MIN_TESTS) \
 	    npx playwright test ); rc=$$?; \
 	else echo "!! stack-voorbereiding voor e2e mislukt (rc $$rc) — Playwright niet gestart" >&2; fi; \
@@ -44,11 +45,11 @@ e2e:
 	if [[ $$rc -eq 0 ]]; then rc=$$clean_rc; fi; exit $$rc
 
 down:
-	data="$${MSO_STACK_DATA_DIR:-$(CURDIR)/tests/stack/.data}"; \
+	data="$${MSO_STACK_ENGINE_DATA_DIR:-$${MSO_STACK_DATA_DIR:-$(CURDIR)/tests/stack/.data}}"; \
 	APPDATA="$$data/appdata" WORK="$$data/work" \
 	  docker compose -p "$${COMPOSE_PROJECT_NAME:-msostack}" -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml down -v --remove-orphans
 	data="$${MSO_STACK_DATA_DIR:-$(CURDIR)/tests/stack/.data}"; \
-	if [[ -d "$$data" ]]; then \
+	if [[ -z "$${MSO_STACK_ENGINE_DATA_DIR:-}" && -d "$$data" ]]; then \
 	  docker run --rm --user 0:0 --network none -v "$$data:/d" --entrypoint /bin/sh \
 	    "media-source-optimizer-core:$${MSO_STACK_IMAGE_TAG:-stack}" -c 'rm -rf /d/appdata /d/work' && \
 	  rmdir "$$data"; \

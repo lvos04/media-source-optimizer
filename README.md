@@ -72,7 +72,10 @@ Valideer het manifest lokaal vanaf de hoofdmap met de validator van
 jl-manifest validate --strict deploy/manifest/media-source-optimizer.manifest.yaml
 ```
 
-De CI-job **manifest** haalt dezelfde broncommit op en voert deze controle uit.
+De handmatige Forgejo-workflow `broncontroles.yaml` haalt dezelfde broncommit op voor de job
+`manifest`. De job `bronvergelijking` vergelijkt het platformcontract en Peil met hun broncommits
+en de bronbranch. Voor deze twee privé-checkouts gebruikt de workflow het Actions-secret
+`CI_BRONNEN_LEZEN` met leestoegang tot `leon/appstore-en-fork` en `leon/ai-server-manager`.
 
 De MediaGuard-contractproef gebruikt de gepinde MediaGuard-core 1.2.2, een lege database en een nep-Radarr
 op een geïsoleerd Docker-netwerk. Voer de proef vanuit de hoofdmap uit:

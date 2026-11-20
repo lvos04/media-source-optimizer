@@ -33,7 +33,7 @@ export MSO_CORE_IMAGE="media-source-optimizer-core:$MSO_IMAGE_TAG"
 export MSO_WEB_IMAGE="media-source-optimizer-web:$MSO_IMAGE_TAG"
 export MSO_MOCKS_IMAGE="mso-mocks:$MSO_IMAGE_TAG"
 export MSO_POSTGRES_IMAGE="${MSO_POSTGRES_IMAGE:-mirror.gcr.io/library/postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab}"
-export APPDATA="$DATA/appdata" WORK="$DATA/work"
+export APPDATA="${MSO_STACK_ENGINE_DATA_DIR:-$DATA}/appdata" WORK="${MSO_STACK_ENGINE_DATA_DIR:-$DATA}/work"
 export MSO_WEB_BIND=127.0.0.1 MSO_WEB_PORT="${MSO_STACK_WEB_PORT:-48081}" MSO_STACK_API_PORT="${MSO_STACK_API_PORT:-38200}"
 export MSO_FEATURES="${MSO_FEATURES:-}"
 
@@ -94,7 +94,7 @@ cleanup() {
   done
   if [[ -z "${MSO_STACK_KEEP:-}" ]]; then
     $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
-    wipe_data; rmdir "$DATA"
+    if [[ -z "${MSO_STACK_ENGINE_DATA_DIR:-}" ]]; then wipe_data; rmdir "$DATA"; fi
   else
     echo "stack blijft draaien: $MSO_STACK_BASE  (opruimen: $COMPOSE down -v)"
   fi
@@ -102,16 +102,29 @@ cleanup() {
 trap cleanup EXIT
 
 $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
-wipe_data
-mkdir -p "$APPDATA" "$WORK"
+if [[ -z "${MSO_STACK_ENGINE_DATA_DIR:-}" ]]; then
+  wipe_data
+  mkdir -p "$APPDATA" "$WORK"
+fi
 $COMPOSE config -q
 start=$SECONDS
 # shellcheck disable=SC2086
 $COMPOSE up -d $SERVICES
+if [[ "$MSO_STACK_API_PORT" == 0 ]]; then
+  address=$($COMPOSE port api 8200)
+  export MSO_STACK_API="http://localhost:${address##*:}"
+  if [[ -z "$MSO_STACK_WEB" ]]; then export MSO_STACK_BASE="$MSO_STACK_API"; fi
+fi
+if [[ "$MSO_WEB_PORT" == 0 && -n "$MSO_STACK_WEB" ]]; then
+  address=$($COMPOSE port web 3000)
+  export MSO_STACK_WEB="http://localhost:${address##*:}" MSO_STACK_BASE="http://localhost:${address##*:}"
+fi
 echo "compose up: $((SECONDS - start)) s"
 if [[ -n "${MSO_STACK_UP_ONLY:-}" ]]; then
   MSO_STACK_KEEP=1
   if [[ -n "${MSO_STACK_E2E_PREPARE:-}" ]]; then
+    test -n "$MSO_STACK_WEB"
+    printf '%s\n' "$MSO_STACK_WEB" > "$RESULTS/web-url"
     "$PY" "$HERE/smoke.py" --e2e-prepare
   else
     "$PY" "$HERE/smoke.py" --wait-only

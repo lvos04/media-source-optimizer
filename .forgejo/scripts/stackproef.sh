@@ -11,6 +11,12 @@ MSO_BUILD_VERSION=$(< release/VERSION)
 MSO_BUILD_TIME=$(date -u +%FT%T.%3N+00:00)
 export MSO_BUILD_VERSION MSO_BUILD_TIME
 export MSO_POSTGRES_IMAGE=postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+# De bestaande Compose-definitie bindt submappen van APPDATA. Wijs haar naar het eigen,
+# verse volume op de buildengine. De jobcontainer bewaart alleen de rapporten.
+volume=$(docker volume create)
+trap 'docker volume rm "$volume" >/dev/null' EXIT
+MSO_STACK_ENGINE_DATA_DIR=$(docker volume inspect --format '{{.Mountpoint}}' "$volume")
+export MSO_STACK_ENGINE_DATA_DIR MSO_STACK_WEB_PORT=0 MSO_STACK_API_PORT=0
 case "$proef" in
     stack) tests/stack/run.sh ;;
     e2e) make e2e PY=python ;;

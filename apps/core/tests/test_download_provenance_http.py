@@ -14,9 +14,68 @@ from msomocks import sabnzbd as sim
 
 from mso.connectors import base
 from mso.connectors.sabnzbd import SabClient
+from mso.features.recovery import actions
 
 sab = fallback.sab
 qbit = gate.qbit
+
+
+@pytest.fixture
+def sab_verzoeken(monkeypatch):
+    verzoeken = []
+    uitvoeren = SabClient._call
+
+    def meet(client, modus, *args, **kwargs):
+        verzoeken.append((kwargs.get("method", "GET"), modus))
+        return uitvoeren(client, modus, *args, **kwargs)
+
+    monkeypatch.setattr(SabClient, "_call", meet)
+    return verzoeken
+
+
+def test_sab_wachtrijregel_zonder_verzendbewijs(monkeypatch, sab_verzoeken):
+    adres = "http://ontvanger.test"
+    bron = sim.create_app(api_key=fallback.SAB_KEY, scenario="empty", categories="mso-tv")
+    doel = {"nzo_id": "taak-uit-de-proef", "cat": "mso-tv", "filename": "Oorspronkelijk testitem"}
+    bron.state.sab.queue.append(doel)
+    monkeypatch.setattr(base, "http_client", lambda url, **kw: TestClient(bron, base_url=url))
+    monkeypatch.setattr(actions, "download_client", lambda _: SabClient(adres, fallback.SAB_KEY))
+    ontvangst = {"client": "sabnzbd", "client_ref": doel["nzo_id"]}
+    opdracht = {"instance": base.instance_id(adres), "category": doel["cat"]}
+
+    assert actions.confirmed_download(ontvangst, opdracht) is False
+    assert bron.state.sab.queue == [doel]
+    assert sab_verzoeken == [("GET", "queue"), ("GET", "history")]
+
+
+def test_sab_leesbevestiging_met_verzendbewijs(
+    admin, operator, viewer, sab, manage_mode, db, monkeypatch, sab_verzoeken,
+):
+    item, _, sleutel = commands.approved_send(admin, viewer, monkeypatch)
+    start = int(time.time())
+    antwoord = operator.post(f"/api/v1/recovery/items/{item['media_ref']}/send", json={"release_key": sleutel})
+    einde = int(time.time())
+    assert antwoord.status_code == 200 and antwoord.json()["duplicate"] is False
+    ontvangst = db.fetchone("SELECT * FROM recovery_sends WHERE id=%s", (antwoord.json()["send"]["id"],))
+    opdracht = ontvangst["command"]
+    ref = ontvangst["client_ref"]
+    slot, = sab.queue
+    assert (ref, opdracht["category"]) == (slot["nzo_id"], slot["cat"])
+    doel = db.fetchone("SELECT owner, proof FROM download_receipt_targets "
+                       "WHERE client='sabnzbd' AND instance=%s AND download_id=%s AND NOT disputed",
+                       (opdracht["instance"], ref))
+    assert doel and doel["owner"] == ontvangst["idempotency_key"]
+    bewijs = doel["proof"]
+    assert bewijs["filename"] == f"{slot['filename']}.nzb" == f"{fallback.GOOD}.nzb"
+    assert bewijs["upload_name"] == sab.nzb_names[ref]
+    assert bewijs["sha256"] == hashlib.sha256(fallback.NZB).hexdigest()
+    assert bewijs["payload_size"] == len(fallback.NZB)
+    assert start <= bewijs["sent_at"] <= bewijs["added"] == slot["time_added"] <= einde
+    assert sab_verzoeken.count(("POST", "addfile")) == 1
+
+    sab_verzoeken.clear()
+    assert actions.confirmed_download(ontvangst, opdracht) is True
+    assert sab_verzoeken == [("GET", "queue"), ("GET", "history"), ("GET", "get_files")]
 
 
 @pytest.mark.parametrize("geval", ["origineel", "herinstallatie", "andere-naam", "andere-tijd", "andere-grootte",
@@ -60,6 +119,8 @@ def test_nzb_herkomst_bij_hergebruik(admin, operator, viewer, sab, manage_mode, 
     applied = operator.post(route + "/apply")
     valid = geval in {"origineel", "historie"}
     assert again.status_code == (200 if valid else 409)
+    if geval in {"bewijs-ontbreekt", "herinstallatie"}:
+        assert again.json()["detail"] == "De herkomst van de eerdere download is onbekend"
     assert applied.is_success == valid
     assert commands.applied(db, item["change_id"]) == int(valid)
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='recovery.sent'") == 1
@@ -98,6 +159,8 @@ def test_torrent_herkomst_bij_hergebruik(admin, operator, viewer, qbit, manage_m
     answer = operator.post(route + "/apply")
     expected = veld in {"origineel", "magnet"}
     assert again.status_code == (200 if expected else 409)
+    if veld in {"bewijs-ontbreekt", "herinstallatie"}:
+        assert again.json()["detail"] == "De herkomst van de eerdere download is onbekend"
     assert answer.is_success == expected and commands.applied(db, item["change_id"]) == int(expected)
     assert sum(path.endswith("/torrents/add") for _, path, _ in qbit.calls) == 1
     if veld == "herinstallatie":

@@ -20,17 +20,19 @@ REGISTRY: dict[str, str] = {
     "newznab": "msomocks.newznab",
     "spotweb": "msomocks.spotweb",
 }
+CONTRACT_MOCKS = {"radarr": "msomocks.radarr"}
 
 
 def main() -> None:
+    registry = REGISTRY | CONTRACT_MOCKS
     p = argparse.ArgumentParser(prog="msomocks")
-    p.add_argument("name", choices=sorted(REGISTRY))
+    p.add_argument("name", choices=sorted(registry))
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--fault", action="append", default=[], help="key=value fault injection")
     args = p.parse_args()
     faults = dict(f.split("=", 1) for f in args.fault)
-    mod = importlib.import_module(REGISTRY[args.name])
+    mod = importlib.import_module(registry[args.name])
     if hasattr(mod, "serve"):
         mod.serve(args.host, args.port, **faults)
         return

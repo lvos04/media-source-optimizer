@@ -4,6 +4,7 @@
 #          + pytest (unit/contract/integration incl. mocks over real HTTP, contract drift test, EVIDENCE test §11)
 #          against a PostgreSQL 16 service, with pg_dump/pg_restore 16 via MSO_PG_BIN (as release.yaml)
 # manifest strikte validatie van het Custom App-manifest met de gepinde gedeelde validator
+# mediaguard_contract MSO-client tegen gepinde MediaGuard-core met nep-Radarr
 # web      Peil drift check + typecheck + lint + unit tests (vitest) + production build of the Next.js UI
 # images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
 # allinone docker build of the all-in-one image (deploy/allinone, the TrueNAS Custom App) + tests/stack/allinone_test.py
@@ -87,6 +88,20 @@ jobs:
         with:
           name: pytest-results
           path: test-results/
+
+  mediaguard_contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e apps/core
+      - name: Toets MSO tegen de gepinde MediaGuard-core
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: python tests/stack/mediaguard_contract.py
 
   manifest:
     runs-on: ubuntu-24.04

@@ -53,11 +53,11 @@
   "id": "B05-006",
   "status": "Bezig",
   "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "code-HEAD 018b119 (= tag v1.6.0); pytest 789/789 + ruff schoon in deze sessie (INVENTARIS.md §15); GET /api/v1/mediaguard/compat (features/mediaguard/api.py:48); tests/test_mediaguard_integration.py (19 tests, o.a. ::test_emergency_stop_blocks_search_requests, ::test_client_refuses_forbidden_write_routes_before_io, ::test_failed_requests_back_off_exponentially); tests/test_mediaguard_apikey.py::test_invalid_or_revoked_key_is_degraded; INVENTARIS.md §16 (18/18 routes aanwezig in v1.2.2); DELTA_MATRIX.md §1 B05-006; tweede lezing: DELTA_MATRIX.md §11 (bevestigd; image-digest opnieuw opgevraagd); Peil-review (stap 5, commit caa240e): de live compatibiliteitschips op MediaGuard-koppeling volgen Peil (aanwezig = neutraal vinkje, ontbreekt = Storing met octagon-x, onbekend = stippel + circle-help); alleen weergave, API ongewijzigd",
-  "blokkade": "Live tegen MediaGuard v1.2.2 op de NAS. Nog te bouwen: P3-09 contracttest tegen de echte image ghcr.io/lvos04/mediaguard-core:1.2.2@sha256:a8daf269…bc2b.",
-  "opmerking": "Alleen tegen mock-MediaGuard getest; routes statisch gecontroleerd tegen de MediaGuard v1.2.2-code (18/18). Geen wijzigingen in media-guard-ultimate; ALLOWED_WRITES niet uitbreiden. Aanvulling 2026-11-12 (S-P2-890, besluit gebruiker 2026-11-11, STAPPEN_P2.md 3.2 punt 3b): naast de test op de echte NAS, hardware of met een account rest nog bouwwerk, dus geen NAS-aantekening. Nog te bouwen: S-P3-265 (media-source-optimizer, P3-09; tests/stack/mediaguard_contract.py ontbreekt) en S-P3-075 (ai-server-manager, downloadketen; geen wanted_id in apps/api/src/hub op origin), gemeten 2026-11-12.",
+  "bewijs": "S-P3-265, P3-09: tests/stack/mediaguard_contract.py, lokale exitcode 0 tegen de gepinde MediaGuard-core 1.2.2 (sha256:a8daf269…bc2b). Dezelfde proef staat in .github/workflows/ci.yaml, job mediaguard_contract; de CI-uitkomst staat in het bouwrapport. Historisch bewijs: 018b119 (v1.6.0), INVENTARIS.md §15–16, tests/test_mediaguard_integration.py, tests/test_mediaguard_apikey.py, DELTA_MATRIX.md §1 en §11, Peil-review caa240e.",
+  "blokkade": "NIET GEVALIDEERD (echte NAS): de gebruiker valideert de koppeling met MediaGuard op de NAS in N-P6-05. De Hub-downloadketen hoort bij S-P3-075.",
+  "opmerking": "De proef startte met een lege wegwerpdatabase en nep-Radarr. Getoetst zijn leesroutes en velden voor beide sleutelrollen, toegangsweigering bij OpenAPI en voor de kijkerssleutel, begrensde schrijfroutes en onbereikbaarheid. MSO houdt de zoekroute op onbekend.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-12"
+  "bijgewerkt": "2026-11-20"
  },
  {
   "id": "B05-007",

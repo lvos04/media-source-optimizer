@@ -18,6 +18,7 @@ def _sync(operator: Any, worker: Any) -> None:
     worker.drain()
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_api_key_operator_reads_and_requests_search(
     serve: Any, admin: Any, viewer: Any, operator: Any, worker: Any
 ) -> None:
@@ -35,6 +36,7 @@ def test_api_key_operator_reads_and_requests_search(
     assert_only_allowed_writes(mock)
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_api_key_viewer_is_read_only(serve: Any, admin: Any, viewer: Any, operator: Any, worker: Any) -> None:
     mock, url = start_mock(serve)
     configure(admin, url, api_key=KEYS["viewer"])
@@ -75,6 +77,7 @@ def test_api_key_preferred_when_several_secrets_set(serve: Any, admin: Any, view
     assert viewer.get("/api/v1/mediaguard/status?refresh=true").json()["auth_method"] == "apikey"
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_api_key_never_exposed(serve: Any, admin: Any, viewer: Any, operator: Any, worker: Any,
                                caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG)

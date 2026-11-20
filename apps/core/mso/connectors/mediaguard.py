@@ -48,6 +48,7 @@ ALLOWED_WRITES: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 QUEUE_BLOCK_RE = re.compile(r"^/api/v1/instances/[A-Za-z0-9_.-]+/queue/\d+$")
 FASTAPI_NOT_FOUND = "Not Found"
+ROLE_LEVELS = {"none": 0, "viewer": 1, "operator": 2, "admin": 3}
 INSTANCE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 CATEGORY_FIELDS = ("tvCategory", "movieCategory")  # Sonarr / Radarr download-client field (MediaGuard engine.py)
 MG_OWNED_PREFIX = "MediaGuard · "  # MediaGuard provisioning templates.PREFIX
@@ -397,8 +398,6 @@ class MediaGuardClient:
 def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
     """Reachability, version, auth, role and route capabilities. Never writes anything to MediaGuard
     (login only creates MSO's own session)."""
-    from mso.features.mediaguard import compat
-
     out: dict[str, Any] = {
         "reachable": False,
         "version": None,
@@ -436,26 +435,19 @@ def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
         if exc.code == "offline":
             out["reachable"] = False
         return out
-    try:
-        st = client.get(f"{API}/status")
-        out["emergency_stop"] = bool((st.get("emergency_stop") or {}).get("active"))
-        out["version"] = out["version"] or st.get("version")
-    except MediaGuardError:
-        pass
-    # capabilities: OpenAPI document first, then route probing
-    caps: dict[str, bool | None] = {}
-    try:
-        spec = client.get(f"{API}/openapi.json", auth=False)
-        paths = spec.get("paths") or {}
-        for route in compat.ROUTES:
-            ops = paths.get(route.path) or {}
-            caps[route.id] = route.method.lower() in ops
-        caps["openapi"] = True  # the document itself is not listed in its own paths
-        out["capability_source"] = "openapi"
-    except MediaGuardError:
-        out["capability_source"] = "probe"
-        caps = _probe_routes(client)
-        caps["openapi"] = False
+    caps: dict[str, bool | None] = {"health": True, "auth_me": True, "status": None, "openapi": False}
+    if out["error_code"] is not None:
+        caps["health"] = False if out["error_code"] == "route_missing" else None
+    if ROLE_LEVELS.get(out["role"], 0) >= ROLE_LEVELS["viewer"]:
+        try:
+            st = client.get(f"{API}/status")
+            out["emergency_stop"] = bool((st.get("emergency_stop") or {}).get("active"))
+            out["version"] = out["version"] or st.get("version")
+            caps["status"] = True
+        except MediaGuardError as exc:
+            caps["status"] = False if exc.code == "route_missing" else None
+    out["capability_source"] = "probe"
+    _probe_routes(client, out["role"], caps)
     out["capabilities"] = caps
     if out["auth_method"] == "apikey" and out["role"] == "admin":
         out["warnings"].append(
@@ -485,40 +477,51 @@ def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
     return out
 
 
-def _probe_routes(client: MediaGuardClient) -> dict[str, bool | None]:
-    """Without OpenAPI: GET each read route; FastAPI's own 404 body ``{"detail": "Not Found"}`` means the
-    route does not exist. Write routes are never probed (unknown → treated as unavailable)."""
+def _probe_routes(client: MediaGuardClient, role: str | None, caps: dict[str, bool | None]) -> None:
+    """Bevestig alleen leesroutes waarvoor de gekoppelde rol bevoegd is."""
     from mso.features.mediaguard import compat
 
-    caps: dict[str, bool | None] = {}
-    sample_id: int | None = None
-    try:
-        page = client.get(f"{API}/wanted", {"page_size": 1})
-        items = page.get("items") or []
-        sample_id = int(items[0]["id"]) if items else None
-    except MediaGuardError:
-        pass
-    for route in compat.ROUTES:
-        if route.method != "GET":
-            caps[route.id] = None
+    ids: dict[str, str] = {}
+    level = ROLE_LEVELS.get(role or "none", 0)
+    for route in sorted(compat.ROUTES, key=lambda route: "{" in route.path):
+        if route.id in caps:
+            continue
+        caps[route.id] = None
+        if route.method != "GET" or level < ROLE_LEVELS[route.role]:
             continue
         path = route.path
-        if "{wanted_id}" in path:
-            if sample_id is None:
-                caps[route.id] = None
-                continue
-            path = path.replace("{wanted_id}", str(sample_id))
-        params = dict(route.probe_params or {})
-        try:
-            r = client.request("GET", path, params=params, auth=route.role != "none")
-        except MediaGuardError:
-            caps[route.id] = None
+        for name, value in ids.items():
+            path = path.replace("{" + name + "}", value)
+        if "{" in path:
             continue
-        caps[route.id] = not (
-            r.status_code in (404, 405)
-            and MediaGuardClient._detail(r) in (FASTAPI_NOT_FOUND, "Method Not Allowed")
-        )
-    return caps
+        try:
+            r = client.request("GET", path, params=route.probe_params, auth=route.role != "none")
+        except MediaGuardError:
+            continue
+        if r.is_success:
+            try:
+                body = r.json()
+            except ValueError:
+                continue
+            if not isinstance(body, (dict, list)):
+                continue
+            caps[route.id] = True
+            if route.id == "wanted_list" and isinstance(body, dict):
+                items = body.get("items")
+                if isinstance(items, list) and items and isinstance(items[0], dict) and type(items[0].get("id")) is int:
+                    ids["wanted_id"] = str(items[0]["id"])
+            elif route.id == "instances_list" and isinstance(body, list):
+                sample = next((item["id"] for item in body if isinstance(item, dict)
+                               and _valid_instance_id(item.get("id"))), None)
+                if sample is not None:
+                    ids["instance_id"] = sample
+        elif r.status_code == 405 or (r.status_code == 404 and MediaGuardClient._detail(r) == FASTAPI_NOT_FOUND):
+            caps[route.id] = False
+        elif (
+            route.id == "wanted_diagnosis" and r.status_code == 404
+            and MediaGuardClient._detail(r) == "Nog geen diagnose opgeslagen"
+        ):
+            caps[route.id] = True  # De eigen handler bevestigt dat alleen de cache-inhoud ontbreekt.
 
 
 def result_from_probe(p: dict[str, Any]) -> cb.TestResult:

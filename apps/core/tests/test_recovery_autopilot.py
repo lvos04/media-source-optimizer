@@ -44,6 +44,7 @@ def _run() -> dict[str, Any]:
     return fallback.process_failed()
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_mediaguard_search_only_in_autopilot(app: Any, db: Any, mg: Any, viewer: Any, admin: Any) -> None:
     from mso import state
     from mso.features.recovery import fallback
@@ -74,6 +75,7 @@ def test_mediaguard_search_only_in_autopilot(app: Any, db: Any, mg: Any, viewer:
     assert_only_allowed_writes(mg)
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_autopilot_search_respects_quotas(app: Any, db: Any, mg: Any, admin: Any, operator: Any) -> None:
     from mso import state
 
@@ -87,6 +89,7 @@ def test_autopilot_search_respects_quotas(app: Any, db: Any, mg: Any, admin: Any
     assert row["status"] == "waiting" and "MSO-zoekquotum" in row["reason"] and row["next_attempt_at"]
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_mediaguard_quota_reserve_respected_in_autopilot(
     app: Any, db: Any, serve: Any, admin: Any, operator: Any, worker: Any
 ) -> None:
@@ -116,6 +119,7 @@ def test_not_wanted_items_skipped_silently(app: Any, db: Any, mg: Any, viewer: A
     assert len(shown) == 1 and shown[0]["reason"].startswith("Niet (meer) gezocht in MediaGuard")
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_auto_search_refused_outside_autopilot_without_setting(app: Any, mg: Any) -> None:
     from fastapi import HTTPException
 

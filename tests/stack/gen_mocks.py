@@ -16,13 +16,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "apps" / "mocks"))
 
-from msomocks.__main__ import REGISTRY  # noqa: E402
+from msomocks.__main__ import CONTRACT_MOCKS, REGISTRY  # noqa: E402
 
 
-def main() -> None:
-    image = os.environ.get("MSO_MOCKS_IMAGE", "mso-mocks:local")
+def mock_services(image: str, names: tuple[str, ...] = ()) -> dict:
+    """Genereer standaardmocks of de expliciet gekozen diensten voor een contractproef."""
     services = {}
-    for name in sorted(REGISTRY):
+    for name in sorted(names or REGISTRY):
+        if name not in REGISTRY and name not in CONTRACT_MOCKS:
+            raise ValueError(f"Onbekende testdienst: {name}")
         extra = os.environ.get(f"MSO_STACK_MOCK_ARGS_{name.upper()}", "").split()
         services[f"mock-{name}"] = {
             "image": image,
@@ -37,6 +39,11 @@ def main() -> None:
             "mem_limit": "256m",
             "pids_limit": 64,
         }
+    return services
+
+
+def main() -> None:
+    services = mock_services(os.environ.get("MSO_MOCKS_IMAGE", "mso-mocks:local"))
     out = Path(os.environ.get("MSO_STACK_MOCKS_OUT") or HERE / "results" / "compose.mocks.yaml")
     out.parent.mkdir(parents=True, exist_ok=True)
     # JSON is valid YAML; an empty mapping keeps compose happy when no mocks exist yet

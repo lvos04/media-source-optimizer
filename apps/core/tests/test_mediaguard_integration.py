@@ -63,13 +63,17 @@ def test_connected_handshake_and_compat_matrix(mg: Any, viewer: Any, operator: A
     st = viewer.get("/api/v1/mediaguard/status?refresh=true").json()
     assert st["mode"] == "connected"
     assert st["version"] == mgmock.VERSION and st["role"] == "operator" and st["auth_method"] == "user"
-    assert st["search"]["available"] is True
+    assert st["search"]["available"] is False and "niet bevestigen" in st["search"]["reason"]
     compat = st["compat"]
-    assert compat["reference"]["commit"] == "e92c2ac" and compat["live_source"] == "openapi"
+    assert compat["reference"]["commit"] == "e92c2ac" and compat["live_source"] == "probe"
     rows = {r["id"]: r for r in compat["routes"]}
     assert rows["wanted_search"]["method"] == "POST" and rows["wanted_search"]["role"] == "operator"
     assert all(r["verified"] for r in compat["routes"])
-    assert all(r["live"] == "aanwezig" for r in compat["routes"])
+    assert {row["id"] for row in rows.values() if row["live"] == "onbekend"} == {
+        "auth_login", "wanted_search", "instance_queue_block"
+    }
+    assert rows["openapi"]["role"] == "admin" and rows["openapi"]["live"] == "ontbreekt"
+    assert not [call for call in mock.state.calls if call[1] == "/api/v1/openapi.json"]
     assert any("retry-relaxed" in n["path"] for n in compat["never_used"])
     assert viewer.get("/api/v1/mediaguard/compat").json()["routes"]
     assert_only_allowed_writes(mock)
@@ -107,13 +111,13 @@ def test_old_version_capability_detection(
     configure(admin, url)
     st = viewer.get("/api/v1/mediaguard/status?refresh=true").json()
     rows = {r["id"]: r for r in st["compat"]["routes"]}
-    assert rows["wanted_search"]["live"] == "ontbreekt"
+    assert rows["wanted_search"]["live"] == "onbekend"
     assert rows["backfill_quota"]["live"] == "ontbreekt" and rows["policy_effective"]["live"] == "ontbreekt"
     assert rows["wanted_list"]["live"] == "aanwezig"
     assert st["mode"] == "connected" and st["search"]["available"] is False
     _sync(operator, worker)
     r = operator.post("/api/v1/mediaguard/wanted/1/search")
-    assert r.status_code == 409 and "biedt" in r.json()["detail"]
+    assert r.status_code == 409 and "niet bevestigen" in r.json()["detail"]
     assert not _search_calls(mock)
 
 
@@ -129,6 +133,7 @@ def test_capability_probe_without_openapi(serve: Any, admin: Any, viewer: Any) -
     assert not writes(mock) or all(c[1] == "/api/v1/auth/login" for c in writes(mock))
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_emergency_stop_blocks_search_requests(
     serve: Any, admin: Any, viewer: Any, operator: Any, worker: Any
 ) -> None:
@@ -182,6 +187,7 @@ def test_session_relogin_after_expiry(mg: Any, viewer: Any, operator: Any, worke
 
 
 # ---------------------------------------------------- request search: idempotency, quota, backoff
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_request_search_idempotent_and_audited(
     mg: Any, operator: Any, viewer: Any, admin: Any, worker: Any
 ) -> None:
@@ -201,6 +207,7 @@ def test_request_search_idempotent_and_audited(
     assert_only_allowed_writes(mock)
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_mso_quota_respected(mg: Any, operator: Any, admin: Any, worker: Any) -> None:
     mock, _ = mg
     _sync(operator, worker)
@@ -215,6 +222,7 @@ def test_mso_quota_respected(mg: Any, operator: Any, admin: Any, worker: Any) ->
     assert len(_search_calls(mock)) == 2
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_mediaguard_quota_never_exceeded(serve: Any, admin: Any, operator: Any, worker: Any) -> None:
     mock, url = start_mock(serve, quota_exhausted=1)
     configure(admin, url)
@@ -224,6 +232,7 @@ def test_mediaguard_quota_never_exceeded(serve: Any, admin: Any, operator: Any, 
     assert not _search_calls(mock)  # refused before calling MediaGuard
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_quota_reserve_left_for_mediaguard_backfill(mg: Any, operator: Any, worker: Any) -> None:
     mock, _ = mg
     _sync(operator, worker)
@@ -234,6 +243,7 @@ def test_quota_reserve_left_for_mediaguard_backfill(mg: Any, operator: Any, work
     assert operator.post("/api/v1/mediaguard/wanted/1/search").status_code == 200
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_failed_requests_back_off_exponentially(mg: Any, operator: Any, worker: Any, db: Any) -> None:
     mock, _ = mg
     _sync(operator, worker)
@@ -254,6 +264,7 @@ def test_failed_requests_back_off_exponentially(mg: Any, operator: Any, worker: 
     assert first["failures"] == 2 and first["wait"].total_seconds() >= 2 * 30 * 60 - 5
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_viewer_role_cannot_request(serve: Any, admin: Any, viewer: Any, operator: Any, worker: Any) -> None:
     mock, url = start_mock(serve)
     configure(admin, url, creds=VIEWER)
@@ -272,6 +283,7 @@ def test_internal_token_warns_admin_scope(serve: Any, admin: Any, viewer: Any) -
     assert any("beheerdersrechten" in w for w in st["warnings"])
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_auto_search_only_when_enabled_and_automation_allowed(
     mg: Any, operator: Any, admin: Any, worker: Any, db: Any
 ) -> None:

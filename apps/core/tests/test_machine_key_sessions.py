@@ -114,6 +114,20 @@ def _matrix_body(response, operation, caller, installed_schema):
         assert sources.keys() == resource_usage.SOURCES.keys()
         assert all(source["quality"] == "onbekend" and source["observed_at"] is None and source["reason"]
                    for source in sources.values())
+    if operation in (
+        ("get", "/api/v1/mediaguard/compat"),
+        ("get", "/api/v1/mediaguard/status"),
+        ("post", "/api/v1/mediaguard/probe"),
+    ):
+        # S-P3-265 corrigeert de metadata voor OpenAPI. De basismatrix blijft de rest vergelijken.
+        matrix = body if operation[1].endswith("/compat") else body["compat"]
+        [route] = [row for row in matrix["routes"] if row["id"] == "openapi"]
+        assert route["role"] == "admin" and route["ref"] == "mediaguard/app.py::_admin_docs"
+        assert route["purpose"] == (
+            "Niet beschikbaar voor MSO: HTTP 401 zonder authenticatie en HTTP 403 met een kijkers- of operatorsleutel."
+        )
+        route.update(role="none", ref="mediaguard/app.py::create_app(openapi_url)",
+                     purpose="Capability-detectie van routes.")
     difference = EXPECTED_MATRIX_DIFFERENCES.get(operation)
     if difference:
         assert body["version"] == "onbekend"

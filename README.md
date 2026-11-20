@@ -17,7 +17,7 @@ MediaGuard op enige manier te wijzigen, en werkt ook volledig zonder MediaGuard.
 | **Usenet-engine** | SABnzbd-koppeling (wachtrij, historie, per-server statistiek), faaloorzaken uit SABnzbd's eigen verwerkingslog (ontbrekende artikelen, herstel, precieze uitpakfout, schijf vol, rechten) met zekerheidsniveau, opnieuw proberen alleen bij betere dekking, kapotte servers testen met SABnzbd's eigen servertest in plaats van blind aanzetten, vervaldata en blokken met herinneringen, uitleg en oplossing voor categorie '*', providers (Eweka, Newshosting, blockaccounts) met NNTP-statuscontrole, artikelbeschikbaarheid voor *daadwerkelijk aangevraagde* artikelen, bijdrage/overlap per provider met dekking en betrouwbaarheid, prioriteitsadvies met preview/rollback, optionele begrensde header-index (opt-in) |
 | **Torrent-engine** | qBittorrent (API-key of sessie, versie-/capability-detectie), knelpuntdiagnose (peers, tracker, poort, limieten, schijf-I/O, VPN-interface, ruimte), valse-ETA-herkenning, recheck-advies, guardrails (private trackers, seedverplichtingen, uploadplafond), tuning één parameter tegelijk met 24–48 u evaluatie en rollback, cross-seed op payload-identiteit (opt-in), opslag & hardlink-bewustzijn |
 | **Zoeken & indexers** | Prowlarr (health, stats, indexers, zoeken, tags), directe Newznab/Torznab/Spotweb-indexers, betrouwbaarheidsscore, eigen **Newznab- en Torznab-endpoints** voor Prowlarr met cyclusdetectie (origin graph), vier MediaGuard-categorieën `tv`/`tv-anime`/`movies`/`movies-anime` |
-| **Herstel** | Source Baseline (geen hit, vals-positief, kwaliteit, retentie, onvolledig, client, import), fallback-kandidaten met MediaGuard-kwaliteitspoorten, nep-releasecontrole vóór elke eigen verzending (bestandenlijst van .torrent/NZB), blacklist met TTL en backoff, herzoek via MediaGuard's officiële route met quotum en idempotency |
+| **Herstel** | Source Baseline (geen hit, vals-positief, kwaliteit, retentie, onvolledig, client, import), fallback-kandidaten met MediaGuard-kwaliteitspoorten, nep-releasecontrole vóór elke eigen verzending (bestandenlijst van .torrent/NZB), blacklist met TTL en backoff, herzoek met quotum en idempotentie zodra de MediaGuard-zoekroute is bevestigd |
 | **Kosten** | handmatige bedragen per dienst, kosten per succes/GB, *Wat gebeurt er als ik deze dienst uitschakel?* (retrospectief, met onzekerheidsmarge — nooit een garantie, nooit automatisch opzeggen), scenariovergelijking |
 | **Automatisering** | advies / automatisch veilig / toestemming nodig, standaard alleen-lezen, Autopilot (nooit verwijderen), doelenkaart (faalratio < 10 %, 0 verdachte torrents, 0 falende servers), één inbox "Wacht op jou", "Wat MSO deed" met effect, noodrem en afkoeling, Autopilot terugdraaien, voetafdruk met "Alles terugzetten" en respect voor je eigen keuze, pauzeknop, audit van alles, optionele AI-adviseur (opt-in, maandbudget, deterministische fallback) |
 | **Platform** | login + rollen (admin/operator/viewer), CSRF, rate limits, SSRF-afscherming, versleutelde geheimen, back-up/herstel (ook van oudere versies, automatisch vóór elke upgrade), crash-veilig toepassen, koppelingsbewaking, bewaartermijnen, herstartveilige jobs, omkeerbare migraties |
@@ -73,6 +73,16 @@ jl-manifest validate --strict deploy/manifest/media-source-optimizer.manifest.ya
 ```
 
 De CI-job **manifest** haalt dezelfde broncommit op en voert deze controle uit.
+
+De MediaGuard-contractproef gebruikt de gepinde MediaGuard-core 1.2.2, een lege database en een nep-Radarr
+op een geïsoleerd Docker-netwerk. Voer de proef vanuit de hoofdmap uit:
+
+```sh
+flock <WERKMAP>/.lokaal/stack.lock nice -n 10 .venv/bin/python tests/stack/mediaguard_contract.py
+```
+
+De CI-job `mediaguard_contract` draait dezelfde proef. Als ophalen uit het register faalt, meldt de proef
+`OVERGESLAGEN` met exitcode 77. De CI-controle vereist een uitgevoerde proef.
 
 CI: `.github/workflows/ci.yaml` start vanzelf bij elke push op `main` en op de werkbranches `ccr-*` (alleen bouwen
 en testen; publiceren naar ghcr.io alleen bij een tag `v*` of met `release_version`), dus niet ook met de hand starten.

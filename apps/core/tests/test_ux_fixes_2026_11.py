@@ -26,6 +26,7 @@ def _sync(operator: Any, worker: Any) -> None:
 
 
 # ------------------------------------------------------------------ H3 quota refresh
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_quota_snapshot_refreshed_after_search_request(mg: Any, viewer: Any, operator: Any, worker: Any) -> None:
     mock, _ = mg
     _sync(operator, worker)
@@ -42,6 +43,7 @@ def test_quota_snapshot_refreshed_after_search_request(mg: Any, viewer: Any, ope
     assert_only_allowed_writes(mock)
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_quota_counted_locally_when_reread_fails(
     mg: Any, viewer: Any, operator: Any, worker: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

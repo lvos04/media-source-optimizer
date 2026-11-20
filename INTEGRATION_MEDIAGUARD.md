@@ -36,8 +36,9 @@ In volgorde van voorkeur:
 ## 3. Compatibiliteitsmatrix
 
 Elke route is geverifieerd tegen de referentiebron (bestand::functie in `apps/core/mso/features/mediaguard/compat.py`).
-De kolom *live* wordt bij elke verbindingstest gevuld uit MediaGuard's `/api/v1/openapi.json` (of door
-GET-probing als OpenAPI niet beschikbaar is). In de UI: **MediaGuard-koppeling → Compatibiliteit**.
+MSO vult de kolom *live* door bij elke verbindingstest alleen leesroutes met de eigen rol aan te roepen.
+Routes die zo niet te verifiëren zijn, krijgen de status *onbekend*. Zolang de zoekroute onbekend is,
+blijft *Zoek opnieuw* uitgeschakeld. Het overzicht staat onder **MediaGuard-koppeling → Compatibiliteit**.
 
 | Route | Methode | Min. rol in MediaGuard | Gebruik door MSO |
 |---|---|---|---|
@@ -45,7 +46,7 @@ GET-probing als OpenAPI niet beschikbaar is). In de UI: **MediaGuard-koppeling �
 | `/api/v1/auth/login` | POST | — | sessie voor de MSO-gebruiker |
 | `/api/v1/auth/me` | GET | viewer | rolcontrole (vereist) |
 | `/api/v1/status` | GET | viewer | versie, noodstop (bij noodstop geen zoekaanvragen) |
-| `/api/v1/openapi.json` | GET | — | capability-detectie |
+| `/api/v1/openapi.json` | GET | admin | Niet beschikbaar voor MSO (401 zonder authenticatie, 403 met kijkers- of operatorsleutel) |
 | `/api/v1/wanted` | GET | viewer | ontbrekende items (vereist; cache met TTL, nooit leidend) |
 | `/api/v1/wanted/kpis`, `/wanted/reasons` | GET | viewer | baseline/oorzaken |
 | `/api/v1/wanted/backfill/quota` | GET | viewer | MediaGuard's eigen quotum — MSO blijft eronder |
@@ -74,7 +75,7 @@ elke andere niet-GET-aanroep vóór er netwerkverkeer is (getest).
 
 ## 4. Herzoeken: begrenzing
 
-1. Alleen in modus *connected*, met capability, MediaGuard-rol ≥ operator en zonder MediaGuard-noodstop.
+1. Alleen in modus *connected*, met een bevestigde zoekroute, MediaGuard-rol ≥ operator en zonder MediaGuard-noodstop.
 2. Idempotency-sleutel per item en tijdvenster → geen dubbele aanvragen.
 3. Exponentiële backoff per item na mislukkingen.
 4. Eigen MSO-quotum (standaard 10/uur, 40/dag).

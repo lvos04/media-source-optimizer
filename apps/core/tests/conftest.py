@@ -37,6 +37,21 @@ USER_FIXTURE_PASSWORD = "Wachtwoord123"  # gitleaks:allow — synthetische inlog
 
 
 @pytest.fixture()
+def confirmed_search_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Beproef het schrijfpad aan de hand van een fixture met bekende zoekroute."""
+    from mso.connectors import mediaguard
+
+    probe = mediaguard.probe
+
+    def confirmed(cfg: Any) -> dict:
+        result = probe(cfg)
+        result["capabilities"]["wanted_search"] = True
+        return result
+
+    monkeypatch.setattr(mediaguard, "probe", confirmed)
+
+
+@pytest.fixture()
 def database_bytes() -> Callable[[Any], dict[str, bytes]]:
     """Vaste byteweergave van alle publieke tabelrijen, inclusief migratietijden en controlesommen."""
     def snapshot(db: Any) -> dict[str, bytes]:

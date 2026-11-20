@@ -2,8 +2,7 @@
 
 Each entry was verified by reading the read-only reference source ``lvos04/media-guard-ultimate`` at commit
 ``e92c2ac`` (file + function in ``ref``; a commit in brackets marks routes verified against a later commit). The
-live column comes from the last capability probe of the configured instance (OpenAPI document, or route probing
-when OpenAPI is unavailable).
+live column comes from the last read-only capability probe with the role of the configured connection.
 """
 
 from __future__ import annotations
@@ -76,11 +75,11 @@ ROUTES: list[RouteSpec] = [
         "openapi",
         "GET",
         "/api/v1/openapi.json",
-        "none",
+        "admin",
         "read",
         "OpenAPI-document",
-        "Capability-detectie van routes.",
-        "mediaguard/app.py::create_app(openapi_url)",
+        "Niet beschikbaar voor MSO: HTTP 401 zonder authenticatie en HTTP 403 met een kijkers- of operatorsleutel.",
+        "mediaguard/app.py::_admin_docs",
     ),
     RouteSpec(
         "wanted_list",
@@ -293,6 +292,8 @@ def by_id(route_id: str) -> RouteSpec:
 def matrix(
     live: dict[str, bool | None] | None, *, source: str | None = None, checked_at: str | None = None
 ) -> dict[str, Any]:
+    if source == "openapi":  # eerder opgeslagen schema-informatie bewijst geen toegang met de eigen rol
+        live, source, checked_at = None, None, None
     rows = []
     for r in ROUTES:
         d = asdict(r)

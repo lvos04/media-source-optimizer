@@ -76,7 +76,10 @@ def refresh_probe(*, force: bool = False) -> dict[str, Any] | None:
     if not configured():
         return None
     row = snap_get("probe")
-    if row is not None and not force and (_now() - row["fetched_at"]).total_seconds() < PROBE_MAX_AGE_S:
+    if (
+        row is not None and not force and row["data"].get("capability_source") != "openapi"
+        and (_now() - row["fetched_at"]).total_seconds() < PROBE_MAX_AGE_S
+    ):
         return row["data"]
     p = mgc.probe(cb.load_config(mgc.CID))
     snap_put("probe", p)
@@ -110,16 +113,16 @@ def can_request_search(p: dict[str, Any] | None = None) -> tuple[bool, str]:
     m, why = _mode(p)
     if m != "connected":
         return False, why
-    if (p.get("capabilities") or {}).get("wanted_search") is not True:
-        return (
-            False,
-            "Deze MediaGuard-versie biedt 'zoek opnieuw' (POST /api/v1/wanted/{id}/search) niet aan.",
-        )
     if p.get("role") not in ("operator", "admin"):
         return (
             False,
             "De MediaGuard-gebruiker van MSO heeft rol 'viewer'; 'operator' is nodig om te laten zoeken.",
         )
+    capability = (p.get("capabilities") or {}).get("wanted_search")
+    if p.get("capability_source") == "openapi" or capability is None:
+        return False, "MSO kan de MediaGuard-route voor 'zoek opnieuw' niet bevestigen."
+    if capability is not True:
+        return False, "Deze MediaGuard-versie biedt 'zoek opnieuw' niet aan."
     return True, ""
 
 

@@ -250,6 +250,7 @@ def _sync(operator: Any, worker: Any) -> None:
     worker.drain()
 
 
+@pytest.mark.usefixtures("confirmed_search_route")
 def test_mediaguard_policy_is_leading_and_send_refused_when_connected(
     serve: Any, admin: Any, operator: Any, worker: Any, monkeypatch: Any
 ) -> None:

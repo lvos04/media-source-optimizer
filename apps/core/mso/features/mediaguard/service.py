@@ -47,9 +47,11 @@ def snap_get(key: str) -> dict[str, Any] | None:
     return get_db().fetchone("SELECT * FROM mg_snapshots WHERE key=%s", (key,))
 
 
-def snap_put(key: str, data: Any, *, ttl_s: float | None = None, etag: str | None = None) -> None:
+def snap_put(
+    key: str, data: Any, *, ttl_s: float | None = None, etag: str | None = None, conn: Any = None
+) -> None:
     expires = _now() + timedelta(seconds=ttl_s) if ttl_s else None
-    get_db().execute(
+    (get_db() if conn is None else conn).execute(
         "INSERT INTO mg_snapshots(key,data,etag,fetched_at,expires_at) VALUES (%s,%s,%s,now(),%s) "
         "ON CONFLICT (key) DO UPDATE SET data=EXCLUDED.data, etag=EXCLUDED.etag, fetched_at=now(), "
         "expires_at=EXCLUDED.expires_at",
@@ -95,9 +97,9 @@ def _mode(p: dict[str, Any] | None) -> tuple[str, str]:
     if not p.get("auth_ok"):
         return "degraded", "MediaGuard bereikbaar, maar authenticatie mislukt."
     caps = p.get("capabilities") or {}
-    missing = [r.label for r in compat.ROUTES if r.required and caps.get(r.id) is not True]
-    if missing:
-        return "degraded", f"Vereiste MediaGuard-routes ontbreken: {', '.join(missing)}."
+    unconfirmed = [r.label for r in compat.ROUTES if r.required and caps.get(r.id) is not True]
+    if unconfirmed:
+        return "degraded", f"MSO kan vereiste MediaGuard-routes niet bevestigen: {', '.join(unconfirmed)}."
     if p.get("emergency_stop"):
         return "degraded", "MediaGuard-noodstop is actief; MSO vraagt geen zoekacties aan."
     return "connected", "Verbonden via de gedocumenteerde MediaGuard-API."
@@ -119,7 +121,7 @@ def can_request_search(p: dict[str, Any] | None = None) -> tuple[bool, str]:
             "De MediaGuard-gebruiker van MSO heeft rol 'viewer'; 'operator' is nodig om te laten zoeken.",
         )
     capability = (p.get("capabilities") or {}).get("wanted_search")
-    if p.get("capability_source") == "openapi" or capability is None:
+    if p.get("capability_source") != "probe" or capability is None:
         return False, "MSO kan de MediaGuard-route voor 'zoek opnieuw' niet bevestigen."
     if capability is not True:
         return False, "Deze MediaGuard-versie biedt 'zoek opnieuw' niet aan."
@@ -171,21 +173,18 @@ def status(*, refresh: bool = False) -> dict[str, Any]:
 def _conditional_get(
     c: mgc.MediaGuardClient,
     key: str,
-    path: str,
-    params: dict[str, Any] | None = None,
-    ttl_s: float | None = None,
-) -> Any:
+    route_id: str,
+) -> tuple[Any, str | None]:
     """GET with If-None-Match when MediaGuard ever returns an ETag (0.1.0 does not; then TTL applies)."""
     prev = snap_get(key)
     headers = {"If-None-Match": prev["etag"]} if prev is not None and prev.get("etag") else None
-    r = c.request("GET", path, params=params, headers=headers)
+    r = c.request("GET", compat.by_id(route_id).path, headers=headers)
     if r.status_code == 304 and prev is not None:
-        snap_put(key, prev["data"], ttl_s=ttl_s, etag=prev["etag"])
-        return prev["data"]
+        if not mgc.valid_read_response(route_id, prev["data"]):
+            raise mgc.UnreadableResponse(route_id)
+        return prev["data"], prev["etag"]
     c.raise_for(r)
-    data = r.json()
-    snap_put(key, data, ttl_s=ttl_s, etag=r.headers.get("ETag"))
-    return data
+    return mgc.read_response(r, route_id), r.headers.get("ETag")
 
 
 def _row_from_item(item: dict[str, Any], expires: datetime) -> tuple[Any, ...]:
@@ -214,29 +213,28 @@ def _row_from_item(item: dict[str, Any], expires: datetime) -> tuple[Any, ...]:
     )
 
 
-def _upsert_items(db: Any, items: list[dict[str, Any]], expires: datetime) -> None:
-    with db.tx() as conn:
-        for item in items:
-            conn.execute(
-                "INSERT INTO mg_wanted_cache(mg_id,instance_id,media_type,media_category,"
-                "kind,reason,title,"
-                "item_title,item_provider_id,provider_id,season_number,episode_number,"
-                "absolute_episode_number,air_date_utc,status,attempts,last_searched_at,last_reason_code,raw,"
-                "expires_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-                "ON CONFLICT (mg_id) DO UPDATE SET instance_id=EXCLUDED.instance_id, "
-                "media_type=EXCLUDED.media_type, media_category=EXCLUDED.media_category, "
-                "kind=EXCLUDED.kind, "
-                "reason=EXCLUDED.reason, title=EXCLUDED.title, item_title=EXCLUDED.item_title, "
-                "item_provider_id=EXCLUDED.item_provider_id, provider_id=EXCLUDED.provider_id, "
-                "season_number=EXCLUDED.season_number, episode_number=EXCLUDED.episode_number, "
-                "absolute_episode_number=EXCLUDED.absolute_episode_number, "
-                "air_date_utc=EXCLUDED.air_date_utc, status=EXCLUDED.status, "
-                "attempts=EXCLUDED.attempts, "
-                "last_searched_at=EXCLUDED.last_searched_at, "
-                "last_reason_code=EXCLUDED.last_reason_code, "
-                "raw=EXCLUDED.raw, fetched_at=now(), expires_at=EXCLUDED.expires_at",
-                _row_from_item(item, expires),
-            )
+def _upsert_items(conn: Any, items: list[dict[str, Any]], expires: datetime) -> None:
+    for item in items:
+        conn.execute(
+            "INSERT INTO mg_wanted_cache(mg_id,instance_id,media_type,media_category,"
+            "kind,reason,title,"
+            "item_title,item_provider_id,provider_id,season_number,episode_number,"
+            "absolute_episode_number,air_date_utc,status,attempts,last_searched_at,last_reason_code,raw,"
+            "expires_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (mg_id) DO UPDATE SET instance_id=EXCLUDED.instance_id, "
+            "media_type=EXCLUDED.media_type, media_category=EXCLUDED.media_category, "
+            "kind=EXCLUDED.kind, "
+            "reason=EXCLUDED.reason, title=EXCLUDED.title, item_title=EXCLUDED.item_title, "
+            "item_provider_id=EXCLUDED.item_provider_id, provider_id=EXCLUDED.provider_id, "
+            "season_number=EXCLUDED.season_number, episode_number=EXCLUDED.episode_number, "
+            "absolute_episode_number=EXCLUDED.absolute_episode_number, "
+            "air_date_utc=EXCLUDED.air_date_utc, status=EXCLUDED.status, "
+            "attempts=EXCLUDED.attempts, "
+            "last_searched_at=EXCLUDED.last_searched_at, "
+            "last_reason_code=EXCLUDED.last_reason_code, "
+            "raw=EXCLUDED.raw, fetched_at=now(), expires_at=EXCLUDED.expires_at",
+            _row_from_item(item, expires),
+        )
 
 
 def sync_in_progress(sync_state: dict[str, Any] | None = None) -> bool:
@@ -294,50 +292,54 @@ def sync(*, force: bool = False, actor: str = "system") -> dict[str, Any]:
     expires = _now() + timedelta(seconds=ttl_s + (runs_per_cycle - 1) * min(interval_s, 300))
     total = prev_total
     page = first_page
-    items_this_run = 0
+    items_this_run: list[dict[str, Any]] = []
     result.update(first_page=first_page, cycle_started_at=cycle_started_at)
     try:
         while page < first_page + max_pages:
-            data = c.get(
-                f"{API}/wanted", {"status": "open", "page": page, "page_size": PAGE_SIZE, "sort": "priority"}
-            )
-            items = data.get("items") or []
-            _upsert_items(db, items, expires)
-            items_this_run += len(items)
-            cycle_items += len(items)
+            params = {"status": "open", "page": page, "page_size": PAGE_SIZE, "sort": "priority"}
+            data = c.get(f"{API}/wanted", params, route_id="wanted_list")
+            items = data["items"]
+            items_this_run.extend(items)
             result["pages"] = page - first_page + 1
-            total = int(data.get("total") or 0)
+            total = data["total"]
             if page * PAGE_SIZE >= total or not items:
                 result["complete"] = True
                 break
             page += 1
-        result["items"] = items_this_run
-        result["total_open"] = total
-        if result["complete"]:
-            cutoff = cycle_started_at if first_page == 1 else sync_state.get("prev_cycle_started_at")
-            if cutoff:
-                db.execute("DELETE FROM mg_wanted_cache WHERE fetched_at < %s::timestamptz", (cutoff,))
-            result.update(next_page=1, prev_cycle_started_at=cycle_started_at, cycle_started_at=None)
-        else:
-            result.update(next_page=page)  # the loop stopped at the page limit; ``page`` is the next one
-        result["cycle_items"] = cycle_items
-        result["pages_total"] = -(-total // PAGE_SIZE) if total else result["pages"]
+        snapshots = []
         if caps.get("wanted_kpis"):
-            _conditional_get(c, "kpis", f"{API}/wanted/kpis", ttl_s=ttl_s)
+            snapshots.append(("kpis", ttl_s, _conditional_get(c, "kpis", "wanted_kpis")))
         reasons_row = snap_get("reasons")
         if caps.get("wanted_reasons") and (
             reasons_row is None or (_now() - reasons_row["fetched_at"]).total_seconds() > 86400 or force
         ):
-            _conditional_get(c, "reasons", f"{API}/wanted/reasons", ttl_s=86400)
+            snapshots.append(("reasons", 86400, _conditional_get(c, "reasons", "wanted_reasons")))
         if caps.get("backfill_quota"):
-            _conditional_get(c, "quota", f"{API}/wanted/backfill/quota", ttl_s=300)
-        result.update(ok=True, error=None)
+            snapshots.append(("quota", 300, _conditional_get(c, "quota", "backfill_quota")))
+        # Publiceer de cache pas nadat alle antwoorden in deze ronde geldig zijn.
+        with db.tx() as conn:
+            _upsert_items(conn, items_this_run, expires)
+            for key, ttl, (data, etag) in snapshots:
+                snap_put(key, data, ttl_s=ttl, etag=etag, conn=conn)
+            if result["complete"]:
+                cutoff = cycle_started_at if first_page == 1 else sync_state.get("prev_cycle_started_at")
+                if cutoff:
+                    conn.execute("DELETE FROM mg_wanted_cache WHERE fetched_at < %s::timestamptz", (cutoff,))
+        if result["complete"]:
+            result.update(next_page=1, prev_cycle_started_at=cycle_started_at, cycle_started_at=None)
+        else:
+            result.update(next_page=page)
+        result.update(ok=True, error=None, items=len(items_this_run), total_open=total,
+                      cycle_items=cycle_items + len(items_this_run),
+                      pages_total=-(-total // PAGE_SIZE) if total else result["pages"])
     except mgc.MediaGuardError as exc:
-        result.update(ok=False, error=str(exc), items=items_this_run, cycle_items=cycle_items)
-        if "next_page" not in result:  # failed while paging: the next run retries the page that failed
-            result["next_page"] = page
-            if page == 1:
-                result["cycle_started_at"] = None
+        result.update(ok=False, error=str(exc), complete=False, cycle_items=cycle_items, next_page=first_page,
+                      cycle_started_at=cycle_started_at if resume else None)
+        if isinstance(exc, mgc.UnreadableResponse):
+            caps[exc.route_id] = None
+            snap_put("probe", p)
+            cb.record_test(mgc.CID, mgc.result_from_probe(p))
+            result["mode"] = _mode(p)[0]
         if exc.code == "quota" or exc.status == 429:
             result["backoff_until"] = _iso(_now() + timedelta(minutes=15))
     result["finished_at"] = _iso(_now())
@@ -506,11 +508,9 @@ def refresh_quota(*, force: bool = False) -> bool:
     if not p.get("auth_ok") or not (p.get("capabilities") or {}).get("backfill_quota"):
         return False
     try:
-        data = client().get(f"{API}/wanted/backfill/quota")
+        data = client().get(f"{API}/wanted/backfill/quota", route_id="backfill_quota")
     except Exception as exc:  # unreachable/auth: keep the cached copy (its age is shown)
         LOGGER.info("MediaGuard-quotum niet ververst: %s", redact(str(exc))[:200])
-        return False
-    if not isinstance(data, dict):
         return False
     snap_put("quota", data, ttl_s=300)
     return True
@@ -541,10 +541,9 @@ def quota_overview(*, fresh: bool = False) -> dict[str, Any]:
 
 
 def _live_mg_quota(c: mgc.MediaGuardClient, instance_id: str) -> dict[str, Any] | None:
-    data = c.get(f"{API}/wanted/backfill/quota")
+    data = c.get(f"{API}/wanted/backfill/quota", route_id="backfill_quota")
     snap_put("quota", data, ttl_s=300)
-    q = data.get(instance_id) if isinstance(data, dict) else None
-    return q if isinstance(q, dict) else None
+    return data.get(instance_id)
 
 
 def _refresh_quota_after_search(
@@ -688,6 +687,10 @@ def request_search(mg_id: int, *, actor: str, trigger: str = "manual") -> dict[s
         )
         _finish(req_id, key, "refused_mediaguard_quota", response={"quota": mgq}, error=msg)
         raise HTTPException(429, detail=msg)
+    ok, why = can_request_search(mgc.probe(c.cfg))
+    if not ok:
+        _finish(req_id, key, "failed", error=why)
+        raise HTTPException(409, detail=why)
     try:
         resp = c.request_search(mg_id)
     except mgc.MediaGuardError as exc:

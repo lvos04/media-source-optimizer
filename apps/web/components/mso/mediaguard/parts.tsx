@@ -3,7 +3,7 @@
 import { CircleSlash, Link2, Link2Off, Unplug } from "lucide-react";
 
 import { Progress, StatusChip, type Tone } from "@/components/mg/primitives";
-import type { CompatMatrix, MgMode, MgQuotaOverview } from "@/lib/api/recovery";
+import type { CompatMatrix, CompatRoute, MgMode, MgQuotaOverview } from "@/lib/api/recovery";
 import { useI18n } from "@/lib/i18n";
 
 const MODE_TONE: Record<MgMode, Tone> = { connected: "linked", degraded: "warning", standalone: "neutral" };
@@ -56,10 +56,11 @@ export function QuotaMeter({ quota, instanceId, compact }: { quota: MgQuotaOverv
   );
 }
 
-function LiveChip({ live }: { live: "aanwezig" | "ontbreekt" | "onbekend" }) {
+function LiveChip({ live }: { live: CompatRoute["live"] }) {
   const { t } = useI18n();
   if (live === "aanwezig") return <StatusChip tone="success">{t("mg.compat.present")}</StatusChip>;
   if (live === "ontbreekt") return <StatusChip tone="danger">{t("mg.compat.missing")}</StatusChip>;
+  if (live === "alleen_voor_beheerder") return <StatusChip tone="neutral">{t("mg.compat.adminOnly")}</StatusChip>;
   return <StatusChip tone="unknown">{t("mg.compat.unknown")}</StatusChip>;
 }
 

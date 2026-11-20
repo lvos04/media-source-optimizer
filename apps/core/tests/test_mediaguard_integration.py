@@ -72,7 +72,7 @@ def test_connected_handshake_and_compat_matrix(mg: Any, viewer: Any, operator: A
     assert {row["id"] for row in rows.values() if row["live"] == "onbekend"} == {
         "auth_login", "wanted_search", "instance_queue_block"
     }
-    assert rows["openapi"]["role"] == "admin" and rows["openapi"]["live"] == "ontbreekt"
+    assert rows["openapi"]["role"] == "admin" and rows["openapi"]["live"] == "alleen_voor_beheerder"
     assert not [call for call in mock.state.calls if call[1] == "/api/v1/openapi.json"]
     assert any("retry-relaxed" in n["path"] for n in compat["never_used"])
     assert viewer.get("/api/v1/mediaguard/compat").json()["routes"]

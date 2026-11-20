@@ -15,7 +15,8 @@ export interface MgQuotaOverview {
 
 export interface CompatRoute {
   id: string; method: string; path: string; role: string; access: "read" | "write" | "auth"; label: string;
-  purpose: string; ref: string; required: boolean; verified: boolean; live: "aanwezig" | "ontbreekt" | "onbekend";
+  purpose: string; ref: string; required: boolean; verified: boolean;
+  live: "aanwezig" | "ontbreekt" | "onbekend" | "alleen_voor_beheerder";
 }
 export interface CompatMatrix {
   reference: { repo: string; commit: string };

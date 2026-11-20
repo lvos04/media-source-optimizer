@@ -291,6 +291,8 @@ def test_recommendation_accept_creates_cleanup_proposal(
 def _mg_app(download_id: str) -> FastAPI:
     app = FastAPI()
     app.state.calls = []
+    app.state.role = "operator"
+    app.state.confirmed = True
     app.state.instances = [{"id": "sonarr", "name": "Sonarr", "archived": False}]
     app.state.queue = [{"id": 77, "downloadId": download_id.upper(), "title": "x", "protocol": "torrent"}]
 
@@ -301,6 +303,12 @@ def _mg_app(download_id: str) -> FastAPI:
 
     def ok(request: Request) -> bool:
         return request.headers.get("x-api-key") == "mgk_testsleutel"
+
+    @app.get("/api/v1/auth/me")
+    async def me(request: Request) -> Any:
+        if not ok(request):
+            return JSONResponse({"detail": "Ongeldige of ingetrokken API-sleutel"}, 401)
+        return {"role": app.state.role}
 
     @app.get("/api/v1/instances")
     async def instances(request: Request) -> Any:
@@ -328,28 +336,55 @@ def _mg_app(download_id: str) -> FastAPI:
 
 @pytest.mark.parametrize("situatie", [
     "zelfde", "vooraf-verplaatst", "nadien-verdwenen", "nadien-gearchiveerd", "nadien-ander-doel",
+    "vooraf-rol", "vooraf-route", "vlak-voor-delete",
 ])
 def test_mediaguard_blocklist_when_route_allowed(
     qb: Qb, admin: Any, operator: Any, serve: Any, manage_mode: None, monkeypatch: Any, situatie: str
 ) -> None:
 
+    from mso.connectors import mediaguard
     from mso.features.torrent import cleanup
 
     hs = _setup(qb)
     mg = _mg_app(hs["exe"])
+    probe = mediaguard.probe
+
+    def meet(cfg):
+        result = probe(cfg)
+        result["capabilities"]["instance_queue_block"] = True if mg.state.confirmed else None
+        return result
+
+    monkeypatch.setattr(mediaguard, "probe", meet)
     url = serve(mg)
     r = admin.put("/api/v1/connectors/mediaguard", json={
         "url": url, "enabled": True, "options": {"auth_method": "apikey"},
         "secrets": {"api_key": "mgk_testsleutel"}})
     assert r.status_code == 200, r.text
     # the route is whitelisted since 1.4.0 (DELETE only with blocklist=true & remove_from_client=false)
-    ok, why = cleanup.mediaguard_block_status()
+    ok, why = cleanup.mediaguard_block_status(mediaguard.MediaGuardClient.from_config())
     assert ok, why
     ch = operator.post("/api/v1/torrent/suspicious/cleanup-preview", json={"hashes": [hs["exe"]]}).json()
     assert [o["path"].split(":")[0] for o in ch["ops"]] == ["cleanup", "arrblock", "blacklist", "torrent"]
     assert "via MediaGuard" in ch["impact"]["Blokkeren"]
     if situatie == "vooraf-verplaatst":
         mg.state.instances[0]["id"] = "andere"
+    elif situatie == "vooraf-rol":
+        mg.state.role = "viewer"
+    elif situatie == "vooraf-route":
+        mg.state.confirmed = False
+    elif situatie == "vlak-voor-delete":
+        find = cleanup.mediaguard_find
+        reads = 0
+
+        def na_wachtrijlezing(client, hash_, target=None):
+            nonlocal reads
+            rec = find(client, hash_, target)
+            reads += 1
+            if reads == 2:
+                mg.state.role = "viewer"
+            return rec
+
+        monkeypatch.setattr(cleanup, "mediaguard_find", na_wachtrijlezing)
     elif situatie.startswith("nadien"):
         blokkeren = cleanup.mediaguard_block
 
@@ -364,6 +399,11 @@ def test_mediaguard_blocklist_when_route_allowed(
 
         monkeypatch.setattr(cleanup, "mediaguard_block", na_ontvangst)
     res = _approve_apply(admin, ch["id"])
+    if situatie in ("vooraf-rol", "vooraf-route", "vlak-voor-delete"):
+        assert res.status_code == (502 if situatie == "vlak-voor-delete" else 422)
+        assert qb.st.deletes == []
+        assert all(c[0] != "DELETE" for c in mg.state.calls)
+        return
     if situatie != "zelfde":
         assert res.status_code == 502
         assert qb.st.deletes == []

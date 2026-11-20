@@ -299,7 +299,10 @@ def matrix(
         d = asdict(r)
         d.pop("probe_params", None)
         state = None if live is None else live.get(r.id)
-        d["live"] = "onbekend" if state is None else ("aanwezig" if state else "ontbreekt")
+        if r.id == "openapi" and live is not None and "openapi" in live and source == "probe":
+            d["live"] = "alleen_voor_beheerder"
+        else:
+            d["live"] = "onbekend" if state is None else ("aanwezig" if state else "ontbreekt")
         rows.append(d)
     return {
         "reference": {"repo": REFERENCE_REPO, "commit": REFERENCE_COMMIT},

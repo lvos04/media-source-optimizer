@@ -34,6 +34,7 @@ from typing import Any
 import httpx
 
 from mso.connectors import base as cb
+from mso.connectors import mediaguard_response as schema
 from mso.security import redact
 
 LOGGER = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ HEALTH_MAX = 50
 
 
 def _valid_instance_id(v: Any) -> bool:
-    return isinstance(v, str) and bool(INSTANCE_ID_RE.match(v))
+    return isinstance(v, str) and v not in (".", "..") and bool(INSTANCE_ID_RE.fullmatch(v))
 
 
 def _instance_segment(instance_id: str) -> str:
@@ -96,6 +97,64 @@ class MediaGuardError(Exception):
         self.code = code
         self.status = status
         self.detail = detail
+
+
+class UnreadableResponse(MediaGuardError):
+    def __init__(self, route_id: str) -> None:
+        super().__init__("unknown", f"MediaGuard-antwoord is onleesbaar ({route_id})")
+        self.route_id = route_id
+
+
+def valid_read_response(route_id: str, data: Any, params: dict[str, Any] | None = None) -> bool:
+    match route_id:
+        case "health":
+            return schema.has_fields(data, version=str) and bool(data["version"])
+        case "auth_me":
+            return schema.has_fields(data, role=str) and data["role"] in ("viewer", "operator", "admin")
+        case "status":
+            return schema.has_fields(data, emergency_stop=dict) and schema.has_fields(
+                data["emergency_stop"], active=bool
+            ) and (data.get("version") is None or isinstance(data["version"], str))
+        case "wanted_list":
+            params = params or {}
+            return schema.wanted_page(data, params.get("page", 1), params.get("page_size", 50))
+        case "wanted_kpis":
+            return schema.kpis(data)
+        case "wanted_reasons":
+            return schema.reasons(data)
+        case "backfill_quota":
+            return schema.quota(data)
+        case "wanted_item":
+            return schema.wanted_item(data)
+        case "wanted_diagnosis":
+            return schema.diagnosis(data)
+        case "policy_effective":
+            return schema.has_fields(data, profile_id=str, config=dict)
+        case "instances_list":
+            return isinstance(data, list) and all(
+                isinstance(row, dict) and _valid_instance_id(row.get("id")) for row in data
+            )
+        case "instance_queue":
+            return schema.queue(data)
+        case "instance_download_clients":
+            return isinstance(data, list) and all(schema.has_fields(row, id=int, name=str, fields=list) for row in data)
+        case "instance_health":
+            return isinstance(data, list) and all(schema.has_fields(row, source=str, type=str, message=str)
+                                                 for row in data)
+        case "provisioning_config":
+            return schema.has_fields(data, download_clients=list, instances=dict, defaults=dict)
+        case _:
+            return False
+
+
+def read_response(r: httpx.Response, route_id: str, params: dict[str, Any] | None = None) -> Any:
+    try:
+        data = r.json()
+    except ValueError as exc:
+        raise UnreadableResponse(route_id) from exc
+    if not r.is_success or not valid_read_response(route_id, data, params):
+        raise UnreadableResponse(route_id)
+    return data
 
 
 class WriteRefused(MediaGuardError):
@@ -281,10 +340,12 @@ class MediaGuardClient:
             "upstream", redact(f"MediaGuard HTTP {r.status_code}: {detail}"), r.status_code, detail
         )
 
-    def get(self, path: str, params: dict[str, Any] | None = None, *, auth: bool = True) -> Any:
+    def get(
+        self, path: str, params: dict[str, Any] | None = None, *, auth: bool = True, route_id: str | None = None
+    ) -> Any:
         r = self.request("GET", path, params=params, auth=auth)
         self.raise_for(r)
-        return r.json()
+        return r.json() if route_id is None else read_response(r, route_id, params)
 
     # ------------------------------------------------------------------ reads for the SABnzbd-category diagnosis
     # (1.6.0). All GET, rol viewer. MediaGuard already masks provider secrets; on top of that MSO keeps only an
@@ -398,14 +459,15 @@ class MediaGuardClient:
 def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
     """Reachability, version, auth, role and route capabilities. Never writes anything to MediaGuard
     (login only creates MSO's own session)."""
+    caps: dict[str, bool | None] = {"health": None, "auth_me": None, "status": None, "openapi": None}
     out: dict[str, Any] = {
         "reachable": False,
         "version": None,
         "auth_ok": False,
         "role": None,
         "auth_method": auth_method(cfg),
-        "capabilities": {},
-        "capability_source": None,
+        "capabilities": caps,
+        "capability_source": "probe",
         "emergency_stop": None,
         "warnings": [],
         "error": None,
@@ -415,10 +477,12 @@ def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
     client = MediaGuardClient(cfg)
     start = time.monotonic()
     try:
-        health = client.get(f"{API}/health", auth=False)
+        health = client.get(f"{API}/health", auth=False, route_id="health")
         out["reachable"] = True
-        out["version"] = health.get("version")
+        out["version"] = health["version"]
+        caps["health"] = True
     except MediaGuardError as exc:
+        caps["health"] = False if exc.code == "route_missing" else None
         out["error"], out["error_code"] = str(exc), exc.code
         if exc.code in ("offline",):
             out["latency_ms"] = int((time.monotonic() - start) * 1000)
@@ -427,28 +491,25 @@ def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
     out["latency_ms"] = int((time.monotonic() - start) * 1000)
     # authentication + role
     try:
-        me = client.get(f"{API}/auth/me")
+        me = client.get(f"{API}/auth/me", route_id="auth_me")
         out["auth_ok"] = True
-        out["role"] = me.get("role") or client.role
+        out["role"] = me["role"]
+        caps["auth_me"] = True
     except MediaGuardError as exc:
+        caps["auth_me"] = False if exc.code == "route_missing" else None
         out["error"], out["error_code"] = str(exc), exc.code
         if exc.code == "offline":
             out["reachable"] = False
         return out
-    caps: dict[str, bool | None] = {"health": True, "auth_me": True, "status": None, "openapi": False}
-    if out["error_code"] is not None:
-        caps["health"] = False if out["error_code"] == "route_missing" else None
     if ROLE_LEVELS.get(out["role"], 0) >= ROLE_LEVELS["viewer"]:
         try:
-            st = client.get(f"{API}/status")
-            out["emergency_stop"] = bool((st.get("emergency_stop") or {}).get("active"))
+            st = client.get(f"{API}/status", route_id="status")
+            out["emergency_stop"] = st["emergency_stop"]["active"]
             out["version"] = out["version"] or st.get("version")
             caps["status"] = True
         except MediaGuardError as exc:
             caps["status"] = False if exc.code == "route_missing" else None
-    out["capability_source"] = "probe"
     _probe_routes(client, out["role"], caps)
-    out["capabilities"] = caps
     if out["auth_method"] == "apikey" and out["role"] == "admin":
         out["warnings"].append(
             "Deze MediaGuard-API-sleutel heeft rol 'admin'; maak een sleutel met rol 'operator' "
@@ -500,21 +561,14 @@ def _probe_routes(client: MediaGuardClient, role: str | None, caps: dict[str, bo
             continue
         if r.is_success:
             try:
-                body = r.json()
-            except ValueError:
-                continue
-            if not isinstance(body, (dict, list)):
+                body = read_response(r, route.id, route.probe_params)
+            except UnreadableResponse:
                 continue
             caps[route.id] = True
-            if route.id == "wanted_list" and isinstance(body, dict):
-                items = body.get("items")
-                if isinstance(items, list) and items and isinstance(items[0], dict) and type(items[0].get("id")) is int:
-                    ids["wanted_id"] = str(items[0]["id"])
-            elif route.id == "instances_list" and isinstance(body, list):
-                sample = next((item["id"] for item in body if isinstance(item, dict)
-                               and _valid_instance_id(item.get("id"))), None)
-                if sample is not None:
-                    ids["instance_id"] = sample
+            if route.id == "wanted_list" and body["items"]:
+                ids["wanted_id"] = str(body["items"][0]["id"])
+            elif route.id == "instances_list" and body:
+                ids["instance_id"] = body[0]["id"]
         elif r.status_code == 405 or (r.status_code == 404 and MediaGuardClient._detail(r) == FASTAPI_NOT_FOUND):
             caps[route.id] = False
         elif (
@@ -547,15 +601,15 @@ def result_from_probe(p: dict[str, Any]) -> cb.TestResult:
             {"routes": caps},
             p.get("latency_ms"),
         )
-    missing = [r.label for r in compat.ROUTES if r.required and caps.get(r.id) is not True]
+    unconfirmed = [r.label for r in compat.ROUTES if r.required and caps.get(r.id) is not True]
     msg = f"Verbonden met MediaGuard {p.get('version') or '?'} als rol '{p.get('role')}'"
-    if missing:
-        msg += f"; ontbrekende routes: {', '.join(missing)}"
+    if unconfirmed:
+        msg += f" (routes niet bevestigd: {', '.join(unconfirmed)})"
     if p["warnings"]:
         msg += ". " + " ".join(p["warnings"])
     return cb.TestResult(
-        not missing,
-        "healthy" if not missing else "degraded",
+        not unconfirmed,
+        "healthy" if not unconfirmed else "degraded",
         msg,
         p.get("version"),
         {

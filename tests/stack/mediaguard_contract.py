@@ -144,7 +144,7 @@ def read_routes(client: mg.MediaGuardClient, role: str) -> int:
     probe = mg.probe(client.cfg)
     assert probe["role"] == role and probe["version"] == VERSION and mg.result_from_probe(probe).ok
     assert probe["capability_source"] == "probe"
-    assert probe["capabilities"]["wanted_search"] is None and probe["capabilities"]["openapi"] is False
+    assert probe["capabilities"]["wanted_search"] is None and probe["capabilities"]["openapi"] is None
     assert probe["capabilities"]["instance_queue_block"] is None
     return mid
 

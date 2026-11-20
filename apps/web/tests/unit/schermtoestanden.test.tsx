@@ -10,6 +10,7 @@ import WantedPage from "@/app/(app)/ontbrekend/page";
 import SystemPage from "@/app/(app)/systeem/page";
 import SearchPage from "@/app/(app)/zoeken/page";
 import { UsenetDownloadsTab } from "@/components/mso/downloads/usenet-tab";
+import { CompatTable } from "@/components/mso/mediaguard/parts";
 import { HeaderIndexCard } from "@/components/mso/usenet/header-index";
 import { AppShell } from "@/components/shell/app-shell";
 
@@ -258,6 +259,23 @@ it("markeert de verbindingsstatus en ingestelde toegangsvorm op MediaGuard bij u
   await act(async () => vi.advanceTimersByTimeAsync(60_000));
   expect(kop?.textContent).toContain("Beperkt");
   expect(document.querySelector('main [data-status="stale"]')).toBeNull();
+});
+
+it("toont OpenAPI als alleen voor beheerder in de compatibiliteitstabel", async () => {
+  await toon("/mediaguard", <CompatTable compat={{
+    reference: { repo: "proefbron", commit: "proef" },
+    live_source: "probe",
+    checked_at: null,
+    routes: [{
+      id: "openapi", path: "/api/v1/openapi.json", method: "GET", label: "OpenAPI-document",
+      role: "admin", access: "read", purpose: "OpenAPI-schema", ref: "proef", required: false,
+      verified: true, live: "alleen_voor_beheerder",
+    }],
+    never_used: [],
+  }} />);
+  const status = document.querySelector('[data-label="Deze installatie"]');
+  expect(status?.textContent).toBe("Alleen voor beheerder");
+  expect(status?.querySelector('[data-status="down"]')).toBeNull();
 });
 
 it("markeert het aantal zoekresultaten en het bronrapport na een mislukte zoekverversing", async () => {

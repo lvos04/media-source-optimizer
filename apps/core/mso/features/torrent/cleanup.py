@@ -135,18 +135,26 @@ def fresh_scan(adapter: Any, focus: set[str]) -> dict[str, Any]:
 MG_BLOCK_ROUTE = "/api/v1/instances/{instance_id}/queue/{queue_id}"
 
 
-def mediaguard_block_status() -> tuple[bool, str]:
-    """Whether MSO can block a release in Sonarr/Radarr through MediaGuard. MediaGuard (current main) has
-    ``DELETE /api/v1/instances/{id}/queue/{queue_id}?remove_from_client=false&blocklist=true`` (operator), but
-    MSO's MediaGuard client only allows the writes in ``ALLOWED_WRITES``; until that route is whitelisted there,
-    MSO uses only its own blacklist and says so in the preview."""
-    if not cb.is_configured("mediaguard"):
-        return False, "MediaGuard is niet gekoppeld"
+def mediaguard_block_status(client: Any) -> tuple[bool, str]:
+    """Meet de rol en route opnieuw voor dezelfde koppeling die de blokkade zou versturen."""
     from mso.connectors import mediaguard as mg
 
-    probe = MG_BLOCK_ROUTE.format(instance_id="sonarr", queue_id=1)
-    if not any(m == "DELETE" and p.match(probe) for m, p in mg.ALLOWED_WRITES):
+    try:
+        cfg = cb.load_config(mg.CID)
+    except cb.ConnectorNotConfigured:
+        return False, "MediaGuard is niet gekoppeld"
+    if cfg != client.cfg:
+        return False, "de MediaGuard-koppeling is gewijzigd"
+    path = MG_BLOCK_ROUTE.format(instance_id="sonarr", queue_id=1)
+    if not any(method == "DELETE" and pattern.match(path) for method, pattern in mg.ALLOWED_WRITES):
         return False, "de MediaGuard-koppeling van MSO staat de blokkeerroute (wachtrij + blocklist) nog niet toe"
+    probe = mg.probe(cfg)
+    if not probe.get("reachable") or not probe.get("auth_ok"):
+        return False, "MSO kan de MediaGuard-koppeling niet bevestigen"
+    if probe.get("role") not in ("operator", "admin"):
+        return False, "de MediaGuard-rol heeft onvoldoende rechten om te blokkeren"
+    if probe.get("capability_source") != "probe" or probe["capabilities"].get("instance_queue_block") is not True:
+        return False, "MSO kan de MediaGuard-blokkeerroute niet bevestigen"
     return True, "via MediaGuard (Sonarr/Radarr-blocklist)"
 
 
@@ -224,6 +232,9 @@ def mediaguard_find(client: Any, h: str, target: tuple[str, int] | None = None) 
 
 
 def mediaguard_block(client: Any, rec: dict[str, Any]) -> None:
+    ok, why = mediaguard_block_status(client)
+    if not ok:
+        raise changes.SourceWriteRefused(f"Blokkeren via MediaGuard niet mogelijk: {why}")
     path = MG_BLOCK_ROUTE.format(instance_id=rec["instance_id"], queue_id=int(rec["queue_id"]))
     r = client.request("DELETE", path, params={"remove_from_client": "false", "blocklist": "true"})
     client.raise_for(r)
@@ -335,7 +346,7 @@ class CleanupOps:
             if value != "geblokkeerd":
                 raise PolicyError("een blokkade in Sonarr/Radarr wordt niet door MSO opgeheven")
             self._check_member(m[1], m[2])
-            ok, why = mediaguard_block_status()
+            ok, why = mediaguard_block_status(self.mg())
             if not ok:
                 raise PolicyError(f"blokkeren via MediaGuard niet mogelijk: {why}")
             return
@@ -593,17 +604,20 @@ def preview(hashes: list[str] | None, actor: str) -> dict[str, Any]:
         }
         for h in selected
     ]
-    mg_ok, mg_why = mediaguard_block_status()
     mg_blocks: dict[str, dict[str, Any]] = {}
-    if mg_ok:
-        try:
-            client = _mg_client()
+    try:
+        client = _mg_client()
+        mg_ok, mg_why = mediaguard_block_status(client)
+        if mg_ok:
             for it in items:
                 rec = mediaguard_find(client, it["hash"])
                 if rec is not None:
                     mg_blocks[it["hash"]] = rec
-        except Exception as exc:  # MediaGuard down: MSO blacklist still applies
-            mg_ok, mg_why = False, f"MediaGuard niet bereikbaar ({redact(str(exc))[:120]})"
+    except cb.ConnectorNotConfigured:
+        mg_ok, mg_why = False, "MediaGuard is niet gekoppeld"
+    except Exception as exc:
+        mg_blocks.clear()
+        mg_ok, mg_why = False, f"MediaGuard niet bevestigd ({redact(str(exc))[:120]})"
     if mg_ok:
         rest = len(items) - len(mg_blocks)
         block_note = (

@@ -86,6 +86,7 @@ export const messages = {
   "mg.compat.present": "Aanwezig",
   "mg.compat.missing": "Ontbreekt",
   "mg.compat.unknown": "Onbekend",
+  "mg.compat.adminOnly": "Alleen voor beheerder",
   "mg.compat.required": "vereist",
   "mg.compat.onlyWrite": "enige schrijfactie",
   "mg.compat.noLogin": "geen login",

@@ -55,7 +55,7 @@
   "validatie": "Sim-getest; NIET GEVALIDEERD (echte NAS)",
   "bewijs": "S-P3-265, P3-09: tests/stack/mediaguard_contract.py, lokale exitcode 0 tegen de gepinde MediaGuard-core 1.2.2 (sha256:a8daf269…bc2b). Dezelfde proef staat in .github/workflows/ci.yaml, job mediaguard_contract; de CI-uitkomst staat in het bouwrapport. Historisch bewijs: 018b119 (v1.6.0), INVENTARIS.md §15–16, tests/test_mediaguard_integration.py, tests/test_mediaguard_apikey.py, DELTA_MATRIX.md §1 en §11, Peil-review caa240e.",
   "blokkade": "NIET GEVALIDEERD (echte NAS): de gebruiker valideert de koppeling met MediaGuard op de NAS in N-P6-05. De Hub-downloadketen hoort bij S-P3-075.",
-  "opmerking": "De proef startte met een lege wegwerpdatabase en nep-Radarr. Getoetst zijn leesroutes en velden voor beide sleutelrollen, toegangsweigering bij OpenAPI en voor de kijkerssleutel, begrensde schrijfroutes en onbereikbaarheid. MSO houdt de zoekroute op onbekend.",
+  "opmerking": "De proef startte met een lege wegwerpdatabase en nep-Radarr. Getoetst zijn leesroutes en velden voor beide sleutelrollen, de OpenAPI-statuscodes 401/403/200, begrensde schrijfroutes en onbereikbaarheid. De vaste proeven in test_mediaguard_safety.py en test_torrent_cleanup.py dekken de lokale blacklist bij een onbevestigde blokkeerroute, hercontrole voor verzending, cachebehoud bij een onleesbare vervolgpagina en verwerking van een geldige lege wanted-pagina.",
   "repo": "media-source-optimizer",
   "bijgewerkt": "2026-11-20"
  },

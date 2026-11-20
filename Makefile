@@ -46,7 +46,7 @@ e2e:
 down:
 	data="$${MSO_STACK_DATA_DIR:-$(CURDIR)/tests/stack/.data}"; \
 	APPDATA="$$data/appdata" WORK="$$data/work" \
-	  docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml down -v --remove-orphans
+	  docker compose -p "$${COMPOSE_PROJECT_NAME:-msostack}" -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml down -v --remove-orphans
 	data="$${MSO_STACK_DATA_DIR:-$(CURDIR)/tests/stack/.data}"; \
 	if [[ -d "$$data" ]]; then \
 	  docker run --rm --user 0:0 --network none -v "$$data:/d" --entrypoint /bin/sh \

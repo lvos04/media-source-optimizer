@@ -72,7 +72,7 @@ fi
 mkdir -p "$RESULTS/logs"
 MOCKS=$(MSO_STACK_MOCKS_OUT="$RESULTS/compose.mocks.yaml" "$PY" "$HERE/gen_mocks.py")
 echo "mocks: $MOCKS"
-COMPOSE="docker compose -p msostack -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml -f $RESULTS/compose.mocks.yaml"
+COMPOSE="docker compose -p ${COMPOSE_PROJECT_NAME:-msostack} -f deploy/truenas/compose.yaml -f tests/stack/compose.test.yaml -f $RESULTS/compose.mocks.yaml"
 export MSO_STACK_COMPOSE="$COMPOSE" MSO_STACK_RESULTS="$RESULTS"
 
 SERVICES="init postgres migrate api worker"

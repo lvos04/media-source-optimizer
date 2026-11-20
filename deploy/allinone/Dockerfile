@@ -52,7 +52,7 @@ RUN --mount=type=secret,id=ca_bundle,required=false \
 FROM ${PYTHON_IMAGE}
 LABEL org.opencontainers.image.title="media-source-optimizer" \
       org.opencontainers.image.description="Media Source Optimizer — alles-in-één (database, API, worker, web)" \
-      org.opencontainers.image.source="https://github.com/lvos04/media-source-optimizer"
+      org.opencontainers.image.source="https://git.medialeon.nl/leon/media-source-optimizer"
 COPY --from=pg /out/pg/lib /usr/lib/postgresql/16
 COPY --from=pg /out/pg/share /usr/share/postgresql/16
 COPY --from=pg /out/lib /opt/pglibs

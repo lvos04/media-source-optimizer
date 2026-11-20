@@ -40,6 +40,7 @@ ARG GIT_SHA
 ARG BUILD_TIME
 ARG CHANNEL
 LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://git.medialeon.nl/leon/media-source-optimizer" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_TIME}" \
       io.github.lvos04.media-source-optimizer.channel="${CHANNEL}"

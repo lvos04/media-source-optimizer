@@ -2,6 +2,11 @@
   "name": "mso-web",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://git.medialeon.nl/leon/media-source-optimizer.git",
+    "directory": "apps/web"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

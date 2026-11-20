@@ -84,8 +84,12 @@ flock <WERKMAP>/.lokaal/stack.lock nice -n 10 .venv/bin/python tests/stack/media
 De CI-job `mediaguard_contract` draait dezelfde proef. Als ophalen uit het register faalt, meldt de proef
 `OVERGESLAGEN` met exitcode 77. De CI-controle vereist een uitgevoerde proef.
 
-CI: `.github/workflows/ci.yaml` start vanzelf bij elke push op `main` en op de werkbranches `ccr-*` (alleen bouwen
-en testen; publiceren naar ghcr.io alleen bij een tag `v*` of met `release_version`), dus niet ook met de hand starten.
+Forgejo voert de CI uit bij pushes naar `main` en `ccr-*`, bij pull requests en bij tags `v*`.
+Op een werkbranch bouwt en test de CI de images. Met de handmatige invoer `release_version` publiceert de CI
+core en web in het Forgejo-register. Bij een versiewijziging of versietag verzorgt de releaseworkflow de
+publicatie van alle drie de images. Een handmatige releaseproef bouwt en controleert de images. Vink
+`publiceren` aan om ze daarna ook te pushen.
+[Broncode](https://git.medialeon.nl/leon/media-source-optimizer) · [CI-runs](https://git.medialeon.nl/leon/media-source-optimizer/actions)
 
 ## Licenties
 

@@ -19,6 +19,9 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest==9.2.0", "pytest-cov", "respx==0.23.1", "ruff==0.17.3"]
 
+[project.urls]
+Repository = "https://git.medialeon.nl/leon/media-source-optimizer"
+
 [project.scripts]
 mso-core = "mso.__main__:main"
 

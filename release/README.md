@@ -11,7 +11,7 @@ Python-afhankelijkheden in alles-in-één en core. Een mislukte audit blokkeert
 de push naar het register. De web-image bevat geen Python-applicatie.
 
 Na de push van de drie images schrijft de workflow `release/digests.json`.
-Elke sleutel is de volledige GHCR-imagereferentie inclusief versietag. De
+Elke sleutel is de volledige imagereferentie onder `git.medialeon.nl/leon`, inclusief versietag. De
 waarde is de SHA-256-digest die het register voor die push bevestigt. Het
 workflowartefact `release-bewijs-<versie>` bevat het digestbestand, de drie
 SBOM's en de auditrapporten. Het testimage met mocks dient voor de lokale

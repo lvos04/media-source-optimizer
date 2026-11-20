@@ -223,7 +223,10 @@ export function Timeline({ items }: { items: Array<{ title: ReactNode; meta?: Re
         return (
           <div className="tl-item" key={i}>
             <span className={cn("tl-dot", item.tone && item.tone !== "neutral" && `tl-dot--${item.tone}`)}><Icon className="ico" aria-hidden="true" /></span>
-            <div><div className="tl-title">{item.title}</div>{item.meta ? <div className="tl-meta">{item.meta}</div> : null}</div>
+            <div className="min-w-0 [overflow-wrap:anywhere]">
+              <div className="tl-title">{item.title}</div>
+              {item.meta ? <div className="tl-meta">{item.meta}</div> : null}
+            </div>
           </div>
         );
       })}

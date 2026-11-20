@@ -6,9 +6,14 @@ export async function expectTabRoute(page: Page) {
   const stops = [];
   for (let i = 0; i < tabLimit; i++) {
     await page.keyboard.press("Tab");
-    const stop = await page.evaluate(() => {
+    const stop = await page.evaluate(async () => {
       const el = document.activeElement;
       if (!el || el === document.body) return null;
+
+      // Een kleurtransitie op een knop kan ook de outline animeren. Meet de uiteindelijke ringkleur.
+      const outlineTransitions = el.getAnimations().filter((animation) =>
+        animation instanceof CSSTransition && animation.transitionProperty === "outline-color");
+      await Promise.allSettled(outlineTransitions.map((animation) => animation.finished));
 
       const box = el.getBoundingClientRect();
       const style = getComputedStyle(el);

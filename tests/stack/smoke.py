@@ -633,6 +633,18 @@ def _persisted(s: Session) -> dict[str, Any]:
     return {"users": users, "connectors": conns, "backups": backups}
 
 
+def admin_after_restart() -> Session:
+    base = BASE
+    service, port, setting = ("web", "3000", "MSO_WEB_PORT") if WEB else ("api", "8200", "MSO_STACK_API_PORT")
+    if os.environ.get(setting) == "0":
+        # Docker kan ook bij een gewone herstart een nieuwe hostpoort toewijzen.
+        address = compose("port", service, port).strip()
+        base = f"http://localhost:{int(address.rsplit(':', 1)[1])}"
+    session = Session(base)
+    expect(session.login(ADMIN, ADMIN_PW), 200)
+    return session
+
+
 @check("persistentie: docker compose restart (alle services) — data en login blijven")
 def c_restart(c: Check) -> None:
     s: Session = S["admin"]
@@ -640,8 +652,7 @@ def c_restart(c: Check) -> None:
     with restart_window():
         compose("restart", timeout=600)
         wait_healthy(300)
-    s2 = Session()
-    expect(s2.login(ADMIN, ADMIN_PW), 200)
+    s2 = admin_after_restart()
     after = _persisted(s2)
     if after != before:
         raise AssertionError(f"verschil na restart: voor={before} na={after}")
@@ -663,8 +674,7 @@ def c_down_up(c: Check) -> None:
         compose("down", timeout=600)  # no -v: bind-mounted datasets stay
         compose("up", "-d", *services, timeout=600)
         wait_healthy(300)
-    s2 = Session()
-    expect(s2.login(ADMIN, ADMIN_PW), 200)
+    s2 = admin_after_restart()
     after = _persisted(s2)
     if after != before:
         raise AssertionError(f"verschil na down/up: voor={before} na={after}")
@@ -675,6 +685,7 @@ def c_down_up(c: Check) -> None:
 @check("resources: docker stats in rust en onder belasting")
 def c_stats(c: Check) -> None:
     s: Session = S["admin"]
+    base = str(s.c.base_url).rstrip("/")
     time.sleep(20)  # settle after the restart
     idle = [docker_stats() for _ in range(3)]
     STATS["idle"] = _aggregate(idle)
@@ -702,7 +713,7 @@ def c_stats(c: Check) -> None:
 
     def hammer() -> None:
         nonlocal n, errors
-        local = Session()
+        local = Session(base)
         local.c.cookies = s.c.cookies
         for i in range(60):
             t0 = time.monotonic()
@@ -732,7 +743,7 @@ def c_stats(c: Check) -> None:
         "rps": round(n / elapsed, 1),
         "p50_ms": round(lat[len(lat) // 2] * 1000, 1) if lat else None,
         "p95_ms": round(lat[int(len(lat) * 0.95)] * 1000, 1) if lat else None,
-        "via": BASE,
+        "via": base,
     }
     c.data = STATS
     c.detail = (

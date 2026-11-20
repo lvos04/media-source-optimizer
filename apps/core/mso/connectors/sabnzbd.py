@@ -33,6 +33,10 @@ LOGGER = logging.getLogger(__name__)
 CONNECTOR_ID = "sabnzbd"
 SERVER_FIELDS = {"priority": (0, 99), "enable": (0, 1), "optional": (0, 1)}
 SEND_RATE_PER_MIN = 60
+FILE_COUNT_FIELDS = {"total", "count", "file_count", "total_count", "total_files", "nooffiles", "noofslots"}
+FILE_LIST_FIELDS = FILE_COUNT_FIELDS | {"files", "status", "nzo_id", "nzo_ids"}
+FILE_DETAILS = {"mb", "mbleft", "age", "set"}
+FILE_ENTRY_FIELDS = FILE_DETAILS | {"nzf_id", "filename", "bytes", "nzo_id", "status"}
 
 
 class SabError(RuntimeError):
@@ -103,6 +107,8 @@ class SabClient:
             raise SabError("SABnzbd weigert de API-sleutel", "auth")
         if resp.status_code >= 400:
             raise SabError(f"SABnzbd antwoordde HTTP {resp.status_code} op '{mode}'", "http")
+        if mode == "get_files":
+            return _file_list_response(resp)
         try:
             body = resp.json()
         except ValueError:
@@ -610,32 +616,38 @@ class SabClient:
                        expected_bytes: int | None = None) -> tuple[str, str]:
         """Meet alle bestanden van dit nzo_id. Voor een NZB moet de hele lijst bij de verzonden inhoud passen."""
         response = self._call("get_files", {"value": ref})
-        if (not isinstance(response, dict) or response.get("status", True) is not True
-                or response.get("nzo_id", ref) != ref or response.get("nzo_ids", [ref]) != [ref]):
+        if (not isinstance(response, dict) or response.keys() - FILE_LIST_FIELDS
+                or response.get("status", True) is not True):
+            raise ValueError("De SABnzbd-bestandslijst bevat een fout of onbekend veld")
+        if response.get("nzo_id", ref) != ref or response.get("nzo_ids", [ref]) != [ref]:
             raise ValueError("Het antwoord op de bestandslijst bevestigt het gevraagde taak-ID niet")
         files = response.get("files")
+        if not isinstance(files, list) or not files:
+            raise ValueError("De SABnzbd-bestandslijst ontbreekt of is leeg")
+        if any(_source_integer(response[key]) != len(files) for key in FILE_COUNT_FIELDS & response.keys()):
+            raise ValueError("Het opgegeven bestandstotaal van SABnzbd wijkt af van de lijst")
         sizes: dict[str, int] = {}
         entries: dict[str, tuple[str, int]] = {}
-        if isinstance(files, list):
-            for entry in files:
-                ident = entry.get("nzf_id") if isinstance(entry, dict) else None
-                raw = entry.get("bytes") if isinstance(entry, dict) else None
-                if (not isinstance(ident, str) or not ident.strip() or ident in sizes or entry.get("nzo_id", ref) != ref
-                        or type(raw) not in (int, str) or not re.fullmatch(r"[0-9]+(?:\.0+)?", str(raw))):
-                    raise ValueError("De bestanden van de ontvangen NZB zijn onleesbaar")
-                size = int(str(raw).partition(".")[0])
-                # SAB formatteert bytes via een double. Daarboven is een geheel getal niet meer eenduidig.
-                if size >= 2**53:
-                    raise ValueError("De bytegrootte van het SABnzbd-bestand is niet exact meetbaar")
-                sizes[ident] = size
-                if manifest is not None:
-                    name = entry.get("filename")
-                    if not isinstance(name, str) or not name.strip():
-                        raise ValueError("De bestandsnaam van de ontvangen NZB is onbekend")
-                    entries[ident] = (name, size)
-        if (not sizes or min(sizes.values()) <= 0
-                or (expected_bytes is not None and sum(sizes.values()) != expected_bytes)):
+        for entry in files:
+            if (not isinstance(entry, dict) or entry.keys() - FILE_ENTRY_FIELDS
+                    or any(not isinstance(entry[k], str) for k in FILE_DETAILS & entry.keys())
+                    or ("status" in entry and entry["status"] not in ("active", "finished", "queued"))):
+                raise ValueError("Een bestandsregel van SABnzbd is onleesbaar")
+            ident, name, raw = entry.get("nzf_id"), entry.get("filename"), entry.get("bytes")
+            if (not isinstance(ident, str) or not ident or not ident.isprintable() or ident.strip() != ident
+                    or ident in sizes or entry.get("nzo_id", ref) != ref
+                    or not isinstance(name, str) or not name.strip()
+                    or type(raw) not in (int, str) or not re.fullmatch(r"[0-9]+(?:\.0+)?", str(raw))):
+                raise ValueError("De bestanden van de ontvangen NZB zijn onleesbaar")
+            size = int(str(raw).partition(".")[0])
+            # SAB formatteert bytes via een double. Daarboven is een geheel getal niet meer eenduidig.
+            if not 0 < size < 2**53:
+                raise ValueError("De bytegrootte van het SABnzbd-bestand is niet exact meetbaar")
+            sizes[ident] = size
+            entries[ident] = (name, size)
+        if expected_bytes is not None and sum(sizes.values()) != expected_bytes:
             raise ValueError("De bestandsgrootte van de ontvangen NZB wijkt af")
+        # Sorteren behoudt de multipliciteit van gelijke (naam, bytes)-paren met verschillende bestands-ID's.
         if manifest is not None and command_hash(sorted(entries.values())) != manifest:
             raise ValueError("De bestandslijst wijkt af van de verzonden NZB")
         return command_hash(sizes), command_hash(entries)
@@ -668,6 +680,31 @@ class SabClient:
         if expected_name and expected_name != command_hash([proof.get("upload_name"), proof.get("sha256")]):
             return False
         return self._item_files(slot, history, proof) == (proof.get("files"), proof.get("file_bindings"))
+
+
+def _unique_json_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("Dubbel JSON-veld in de SABnzbd-bestandslijst")
+    return result
+
+
+def _file_list_response(resp: httpx.Response) -> Any:
+    """get_files wordt zonder bereik opgevraagd. Alleen één volledig antwoord kan een bewijs leveren."""
+    page_relations = {"next", "prev", "previous", "first", "last"}
+    paginated = any(not page_relations.isdisjoint(rel.lower().split()) for rel in resp.links)
+    if (resp.status_code != 200 or "Content-Range" in resp.headers or paginated
+            or resp.headers.get("Content-Type", "").lower().startswith("multipart/byteranges")):
+        raise SabError("SABnzbd gaf een deelantwoord op de bestandslijst", "invalid")
+    try:
+        body = resp.json(object_pairs_hook=_unique_json_fields)
+    except (ValueError, RecursionError):
+        raise SabError("De JSON-bestandslijst van SABnzbd is onleesbaar", "invalid") from None
+    if "X-Total-Count" in resp.headers:
+        files = body.get("files") if isinstance(body, dict) else None
+        if not isinstance(files, list) or _source_integer(resp.headers["X-Total-Count"]) != len(files):
+            raise SabError("De totaalkop van SABnzbd wijkt af van de bestandslijst", "invalid")
+    return body
 
 
 def _rate_limit() -> None:

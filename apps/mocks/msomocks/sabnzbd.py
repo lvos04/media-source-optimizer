@@ -656,7 +656,8 @@ def create_app(**faults: Any) -> FastAPI:
                     title = params.get("nzbname") or (f[0] or "upload.nzb").removesuffix(".nzb")
                 nzo = f"SABnzbd_nzo_{next(state.counter)}"
                 if mode == "addurl":
-                    state.job_files[nzo] = [{"nzf_id": "SABnzbd_nzf_" + uuid.uuid4().hex, "bytes": "1024.00"}]
+                    state.job_files[nzo] = [{"nzf_id": "SABnzbd_nzf_" + uuid.uuid4().hex,
+                                             "filename": title, "bytes": "1024.00"}]
                 else:
                     try:
                         state.nzb_names[nzo] = f[0]

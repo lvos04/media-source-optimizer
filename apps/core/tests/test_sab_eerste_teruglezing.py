@@ -10,6 +10,7 @@ import test_download_commands as commands
 import test_recovery_fallback as fallback
 from fastapi.testclient import TestClient
 from msomocks import sabnzbd as simulator
+from starlette.responses import JSONResponse
 
 from mso import download_receipts
 from mso.change_preview import digest
@@ -17,7 +18,7 @@ from mso.connectors import sabnzbd
 from mso.features.usenet import nzbs
 
 
-@pytest.mark.parametrize("geval", ["origineel", "andere-bestandslijst", "andere-naam"])
+@pytest.mark.parametrize("geval", ["origineel", "andere-bestandslijst", "andere-naam", "foutveld", "deelantwoord"])
 def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
     admin, operator, viewer, db, manage_mode, serve, monkeypatch, geval,
 ):
@@ -28,7 +29,13 @@ def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
     monkeypatch.setattr(simulator, "VERSION", "5.0.1")  # Deze wachtrij levert time_added.
     origineel = simulator.create_app(api_key=fallback.SAB_KEY, scenario="empty", categories="mso-tv")
     vervanger = simulator.create_app(api_key=fallback.SAB_KEY, scenario="empty", categories="mso-tv")
-    delen = [("ander.bin", 700000)] if geval == "andere-naam" else [("een.bin", 300000), ("twee.bin", 400000)]
+    verwacht = [("Lost.Signal.S02E05.mkv", 700000)]
+    onvolledig = geval in {"foutveld", "deelantwoord"}
+    delen = [("een.bin", 300000), ("twee.bin", 400000)]
+    if geval == "andere-naam":
+        delen = [("ander.bin", 700000)]
+    elif onvolledig:
+        delen = [*verwacht, ("extra.bin", 1)]
     bestanden = "".join(
         f'<file subject="{naam}"><segments><segment bytes="{grootte}" number="1">{nr}@test.invalid</segment>'
         '</segments></file>' for nr, (naam, grootte) in enumerate(delen)
@@ -45,9 +52,18 @@ def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
 
     async def testadres(scope, receive, send):
         dienst = vervanger if geval != "origineel" and uploads else origineel
-        if scope["type"] == "http" and scope["method"] == "POST":
-            if parse_qs(scope["query_string"]).get(b"mode") == [b"addfile"]:
+        if scope["type"] == "http":
+            modus = parse_qs(scope["query_string"]).get(b"mode")
+            if scope["method"] == "POST" and modus == [b"addfile"]:
                 uploads.append(dienst)
+            if onvolledig and dienst is vervanger and modus == [b"get_files"]:
+                zichtbaar = {"files": dienst.state.sab.job_files[ref][:1]}
+                if geval == "foutveld":
+                    antwoord = JSONResponse({**zichtbaar, "error": "Bestandslijst onvolledig"})
+                else:
+                    antwoord = JSONResponse(zichtbaar, status_code=206, headers={"Content-Range": "items 0-0/2"})
+                await antwoord(scope, receive, send)
+                return
         await dienst(scope, receive, send)
 
     assert admin.put("/api/v1/connectors/sabnzbd", json={"url": serve(testadres), "enabled": True,
@@ -64,11 +80,10 @@ def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
         assert (slot["nzo_id"], slot["filename"], slot["cat"], slot["time_added"]) == (
             ref, fallback.GOOD, "mso-tv", seconde,
         )
-    verwacht = [("Lost.Signal.S02E05.mkv", 700000)]
     for dienst, inhoud in ((origineel, verwacht), (vervanger, delen)):
         lijst = dienst.state.sab.job_files[ref]
         assert [(f["filename"], int(f["bytes"])) for f in lijst] == inhoud
-        assert sum(int(f["bytes"]) for f in lijst) == 700000
+        assert sum(int(f["bytes"]) for f in lijst) == (700001 if dienst is vervanger and onvolledig else 700000)
     rij = db.fetchone("SELECT proof FROM download_receipt_targets WHERE client='sabnzbd' AND download_id=%s", (ref,))
     assert db.scalar("SELECT count(*) FROM sab_send_receipts") == 1
     assert db.scalar("SELECT count(*) FROM audit_log WHERE action='recovery.sent'") == int(geval == "origineel")
@@ -81,6 +96,8 @@ def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
     else:
         assert not eerste.is_success and not opnieuw.is_success and not toepassen.is_success
         assert rij["proof"] is None and status != "applied" and audits == 0
+        if onvolledig:
+            assert (eerste.status_code, opnieuw.status_code, toepassen.status_code) == (502, 409, 502)
 
 
 @pytest.mark.parametrize("geval", ["omgekeerde-volgorde", "verwisselde-groottes", "ontbrekende-naam",

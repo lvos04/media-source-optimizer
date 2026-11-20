@@ -51,19 +51,12 @@ jobs:
   web:
     runs-on: docker
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: apps/web
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - run: npm ci --no-audit --no-fund
-      - run: npm run check:peil
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run test:unit
-      - run: npm run build
+      - name: Controleer Peil, typen, lint, unittests en de productiebuild met Node 22
+        run: bash .forgejo/scripts/webproef.sh web
 
   images:
     runs-on: ubuntu-24.04
@@ -183,11 +176,8 @@ jobs:
         with:
           node-version: "22"
       - run: python -m pip install httpx==0.28.1
-      - name: Installeer Playwright en Chromium
-        working-directory: apps/web
-        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
-      - name: Draai alle Playwright-projecten tegen een voorbereide teststack
-        run: bash .forgejo/scripts/stackproef.sh e2e
+      - name: Installeer Playwright en draai alle projecten tegen een voorbereide teststack
+        run: bash .forgejo/scripts/webproef.sh e2e
       - uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
         if: always()
         with:

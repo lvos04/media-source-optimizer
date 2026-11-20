@@ -18,7 +18,7 @@ trap 'docker volume rm "$volume" >/dev/null' EXIT
 MSO_STACK_ENGINE_DATA_DIR=$(docker volume inspect --format '{{.Mountpoint}}' "$volume")
 export MSO_STACK_ENGINE_DATA_DIR MSO_STACK_WEB_PORT=0 MSO_STACK_API_PORT=0
 case "$proef" in
-    stack) tests/stack/run.sh ;;
+    stack) bash tests/stack/run.sh ;;
     e2e) make e2e PY=python ;;
     *) exit 2 ;;
 esac

@@ -10,9 +10,9 @@ export MSO_STACK_RESULTS_ROOT="$GITHUB_WORKSPACE/test-results/allinone"
 export TMPDIR="$RUNNER_TEMP"
 mkdir -p "$MSO_STACK_RESULTS_ROOT"
 
-scripts/build-images.sh allinone
-scripts/build-images.sh mocks
-MSO_SCHEMA_GUARD_IMAGE=$(tests/stack/build-schema-guard.sh "mso-schema-guard:$MSO_IMAGE_TAG")
+bash scripts/build-images.sh allinone
+bash scripts/build-images.sh mocks
+MSO_SCHEMA_GUARD_IMAGE=$(bash tests/stack/build-schema-guard.sh "mso-schema-guard:$MSO_IMAGE_TAG")
 export MSO_SCHEMA_GUARD_IMAGE
 python -m venv "$RUNNER_TEMP/aio-venv"
 "$RUNNER_TEMP/aio-venv/bin/pip" install --disable-pip-version-check httpx==0.28.1

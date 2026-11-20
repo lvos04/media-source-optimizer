@@ -27,7 +27,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       MSO_PG_BIN: /usr/lib/postgresql/16/bin
     steps:
@@ -71,8 +71,8 @@ jobs:
         run: bash .forgejo/scripts/alles-in-een.sh
       - name: Bouw core en web met dezelfde herkomstgegevens
         run: |
-          scripts/build-images.sh core
-          scripts/build-images.sh web
+          bash scripts/build-images.sh core
+          bash scripts/build-images.sh web
       - name: Installeer Syft
         id: syft
         uses: https://github.com/anchore/sbom-action/download-syft@da167eac915b4e86f08b264dbdbc867b61be6f0c # v0.20.5

@@ -56,10 +56,10 @@ wipe_data() {  # files are owned by 568 → remove from inside a container
 }
 
 if [[ -z "${MSO_STACK_NO_BUILD:-}" ]]; then
-  scripts/build-images.sh core
-  scripts/build-images.sh mocks
+  bash scripts/build-images.sh core
+  bash scripts/build-images.sh mocks
   if [[ -z "${MSO_STACK_NO_WEB:-}" ]]; then
-    scripts/build-images.sh web || { echo "!! web-image bouwen mislukt — stack draait zonder web" >&2; MSO_STACK_NO_WEB=1; }
+    bash scripts/build-images.sh web || { echo "!! web-image bouwen mislukt — stack draait zonder web" >&2; MSO_STACK_NO_WEB=1; }
   fi
 fi
 if [[ -z "${MSO_STACK_NO_WEB:-}" ]] && ! docker image inspect "$MSO_WEB_IMAGE" >/dev/null 2>&1; then

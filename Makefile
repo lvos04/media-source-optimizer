@@ -34,7 +34,7 @@ E2E_MIN_TESTS ?= 237
 e2e:
 	set -uo pipefail; \
 	export MSO_STACK_ADMIN_PW="E2e-$$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"; \
-	MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 tests/stack/run.sh; rc=$$?; \
+	MSO_STACK_UP_ONLY=1 MSO_STACK_E2E_PREPARE=1 bash tests/stack/run.sh; rc=$$?; \
 	if [[ $$rc -eq 0 ]]; then \
 	  ( read -r web_url < "$${MSO_STACK_RESULTS_ROOT:-$(CURDIR)/tests/stack/results}/e2e-stack/web-url" && \
 	    cd apps/web && MSO_E2E_BASE_URL="$$web_url" MSO_E2E_USER=stackadmin \

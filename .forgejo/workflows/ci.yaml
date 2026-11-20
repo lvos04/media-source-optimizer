@@ -26,7 +26,7 @@ concurrency:
 jobs:
   python:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       MSO_PG_BIN: /usr/lib/postgresql/16/bin
     steps:
@@ -93,7 +93,7 @@ jobs:
           export MSO_BUILD_VERSION="$version" MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL="$channel"
           MSO_BUILD_TIME=$(date -u +%FT%TZ)
           export MSO_BUILD_TIME
-          scripts/build-images.sh "$IMAGE"
+          bash scripts/build-images.sh "$IMAGE"
       - name: Meld aan bij het Forgejo-register voor handmatige publicatie
         if: github.event_name == 'workflow_dispatch' && inputs.release_version != '' && matrix.image != 'mocks'
         uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0

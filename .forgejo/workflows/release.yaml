@@ -126,7 +126,7 @@ jobs:
             printf '%s\t%s\n' "$image" "$digest" >> "$digest_pairs"
           done
           jq -Rn '[inputs | split("\t") | {key: .[0], value: .[1]}] | from_entries' \
-            < "$digest_pairs" > test-results/release/digests.json
+            < "$digest_pairs" | tee release/digests.json > test-results/release/digests.json
       - uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e
         if: always() && steps.sbom.outcome == 'success'
         with:

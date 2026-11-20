@@ -175,26 +175,34 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def serve() -> Iterator[Callable[[Any], str]]:
-    """serve(asgi_app) -> 'http://127.0.0.1:PORT' (real HTTP, background thread, stopped at session end)."""
-    servers: list[uvicorn.Server] = []
+    """Start lokale HTTP-mocks en sluit hun luisterpoorten en threads na deze test."""
+    servers: list[tuple[uvicorn.Server, threading.Thread]] = []
 
     def start(asgi_app: Any) -> str:
         port = _free_port()
         server = uvicorn.Server(uvicorn.Config(asgi_app, host="127.0.0.1", port=port, log_level="warning",
                                                lifespan="off"))
-        threading.Thread(target=server.run, daemon=True).start()
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        servers.append((server, thread))
         for _ in range(200):
-            if server.started:
+            if server.started or not thread.is_alive():
                 break
             time.sleep(0.02)
-        servers.append(server)
+        if not server.started:
+            raise RuntimeError("De lokale HTTP-mock is niet gestart.")
         return f"http://127.0.0.1:{port}"
 
-    yield start
-    for s in servers:
-        s.should_exit = True
+    try:
+        yield start
+    finally:
+        for server, _ in servers:
+            server.should_exit = True
+        for _, thread in servers:
+            thread.join(timeout=15)
+            assert not thread.is_alive(), "De lokale HTTP-mock is niet gestopt."
 
 
 @pytest.fixture()

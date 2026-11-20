@@ -92,14 +92,16 @@ jobs:
       - name: Controleer de geïnstalleerde Python-afhankelijkheden van beide runtime-images
         run: |
           python -m venv "$RUNNER_TEMP/release-audit"
-          "$RUNNER_TEMP/release-audit/bin/pip" install pip-audit==2.10.1
+          "$RUNNER_TEMP/release-audit/bin/pip" install --no-cache-dir pip-audit==2.10.1
+          audit_cache="$RUNNER_TEMP/release-audit/cache"
+          install -d -m 700 "$audit_cache"
           audit_status=0
           for name in media-source-optimizer{,-core}; do
             requirements="$RUNNER_TEMP/$name.requirements.txt"
             docker run --rm --pull=never --network none --entrypoint python "$name:$MSO_IMAGE_TAG" \
               -m pip --disable-pip-version-check list --format=freeze --exclude mso-core > "$requirements"
             test -s "$requirements"
-            "$RUNNER_TEMP/release-audit/bin/pip-audit" --strict --disable-pip --no-deps \
+            "$RUNNER_TEMP/release-audit/bin/pip-audit" --cache-dir "$audit_cache" --strict --disable-pip --no-deps \
               --requirement "$requirements" --format json --output "test-results/release/$name.pip-audit.json" \
               || audit_status=$?
           done

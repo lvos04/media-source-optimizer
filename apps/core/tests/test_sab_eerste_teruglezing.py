@@ -17,8 +17,15 @@ from mso.change_preview import digest
 from mso.connectors import sabnzbd
 from mso.features.usenet import nzbs
 
+LINKKOPPEN = {
+    "linkkop-hoofdletters": '</bestanden>; REL="next"',
+    "linkkop-gelijkteken": '</bestanden>; title="pagina=2"; rel="next"',
+    "linkkop-puntkomma": '</bestanden>; title="bestanden; vervolg"; rel="next"',
+}
 
-@pytest.mark.parametrize("geval", ["origineel", "andere-bestandslijst", "andere-naam", "foutveld", "deelantwoord"])
+
+@pytest.mark.parametrize("geval", ["origineel", "andere-bestandslijst", "andere-naam", "foutveld", "deelantwoord",
+                                   *LINKKOPPEN])
 def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
     admin, operator, viewer, db, manage_mode, serve, monkeypatch, geval,
 ):
@@ -30,7 +37,7 @@ def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
     origineel = simulator.create_app(api_key=fallback.SAB_KEY, scenario="empty", categories="mso-tv")
     vervanger = simulator.create_app(api_key=fallback.SAB_KEY, scenario="empty", categories="mso-tv")
     verwacht = [("Lost.Signal.S02E05.mkv", 700000)]
-    onvolledig = geval in {"foutveld", "deelantwoord"}
+    onvolledig = geval in {"foutveld", "deelantwoord"} or geval in LINKKOPPEN
     delen = [("een.bin", 300000), ("twee.bin", 400000)]
     if geval == "andere-naam":
         delen = [("ander.bin", 700000)]
@@ -60,8 +67,10 @@ def test_eerste_bestandslijst_hoort_bij_de_verzonden_nzb(
                 zichtbaar = {"files": dienst.state.sab.job_files[ref][:1]}
                 if geval == "foutveld":
                     antwoord = JSONResponse({**zichtbaar, "error": "Bestandslijst onvolledig"})
-                else:
+                elif geval == "deelantwoord":
                     antwoord = JSONResponse(zichtbaar, status_code=206, headers={"Content-Range": "items 0-0/2"})
+                else:
+                    antwoord = JSONResponse(zichtbaar, headers={"Link": LINKKOPPEN[geval]})
                 await antwoord(scope, receive, send)
                 return
         await dienst(scope, receive, send)

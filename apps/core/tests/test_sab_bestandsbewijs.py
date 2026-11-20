@@ -39,7 +39,8 @@ def meet(monkeypatch):
             assert verzoek.method == "GET" and verzoek.url.params["mode"] == "get_files"
             assert verzoek.url.params["value"] == TAAK
             inhoud = antwoord if isinstance(antwoord, bytes) else json.dumps(antwoord).encode()
-            headers = {"Content-Type": "application/json", **(koppen or {})}
+            headers = httpx.Headers(koppen)
+            headers.setdefault("Content-Type", "application/json")
             return httpx.Response(status, content=inhoud, headers=headers)
 
         monkeypatch.setattr(sabnzbd.cb, "http_client", lambda url, **_: httpx.Client(
@@ -61,6 +62,38 @@ def test_alleen_de_exacte_multiset_bevestigt_de_herkomst(meet):
             ids = sorted(rij["nzf_id"] for rij in lijst)
             origineel = ids == sorted(BINDING)
             assert meet({"files": lijst, "total": lengte}) == (origineel, origineel), ids
+
+
+@pytest.mark.parametrize("waarde", [
+    "", "onleesbaar", '</bestanden>; rel="self"', '</bestanden>; REL="next"',
+    '</bestanden>; title="pagina=2"; rel="next"', '</bestanden>; title="bestanden; vervolg"; rel="next"',
+])
+def test_elke_linkkop_houdt_de_herkomst_onbekend(meet, waarde):
+    # De drie zichtbare bestanden passen precies, zowel mét als zonder een vierde bestand bij de bron.
+    volledig = {"files": BESTANDEN, "total": len(BESTANDEN)}
+    extra = [("Cache-Control", "no-cache"), ("Vary", "Accept"), ("Vary", "Accept-Encoding")]
+    assert meet(volledig, koppen=extra) == (True, True)
+    for letters in product("lL", "iI", "nN", "kK"):
+        link = ("".join(letters), waarde)
+        for koppen in ([link], [*extra, link], [link, *extra], [link, *extra, ("LINK", "")], [("link", ""), link]):
+            assert meet(volledig, koppen=koppen) == (False, False), koppen
+
+
+@pytest.mark.parametrize("koppen", [
+    [("Next", "")], [("X-Next-Page", "2")], [("Offset", "0")], [("X-Limit", "3")],
+    [("X-Continuation-Token", "")], [("X-Pagination", "{}")], [("Total", "4")],
+    [("X-Total-Count", "3"), ("total", "4")], [("X-Total-Count", "4"), ("x-total-count", "3")],
+    [("Total", "3"), ("total", "3")], [("Content-Type", "application/json"), ("content-type", "multipart/byteranges")],
+])
+def test_vervolgkop_of_dubbelzinnige_kop_houdt_de_herkomst_onbekend(meet, koppen):
+    assert meet({"files": BESTANDEN}, koppen=koppen) == (False, False)
+
+
+@pytest.mark.parametrize(("veld", "waarde"), [
+    ("next", None), ("offset", 0), ("limit", len(BESTANDEN)), ("has_more", False), ("continuation", ""),
+])
+def test_vervolgveld_houdt_de_herkomst_onbekend(meet, veld, waarde):
+    assert meet({"files": BESTANDEN, veld: waarde}) == (False, False)
 
 
 @pytest.mark.parametrize(("metadata", "status", "koppen"), [
@@ -92,6 +125,7 @@ def test_deelantwoord_of_foutveld_houdt_de_herkomst_onbekend(meet, metadata, sta
     ({"total": 3}, {}),
     ({"nooffiles": "3"}, {}),
     ({"total_files": 3, "file_count": 3}, {"X-Total-Count": "3"}),
+    ({"total": 3}, {"Total": "3", "X-Total-Count": "3", "Cache-Control": "no-cache"}),
 ])
 def test_volledige_bestandslijst_met_en_zonder_opgegeven_totaal(meet, totaal, koppen):
     bestanden = [dict(rij, mb="0.00", mbleft="0.00", age="1h", status="active") for rij in reversed(BESTANDEN)]

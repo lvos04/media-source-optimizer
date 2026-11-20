@@ -37,6 +37,14 @@ FILE_COUNT_FIELDS = {"total", "count", "file_count", "total_count", "total_files
 FILE_LIST_FIELDS = FILE_COUNT_FIELDS | {"files", "status", "nzo_id", "nzo_ids"}
 FILE_DETAILS = {"mb", "mbleft", "age", "set"}
 FILE_ENTRY_FIELDS = FILE_DETAILS | {"nzf_id", "filename", "bytes", "nzo_id", "status"}
+FILE_COUNT_HEADERS = {"total", "total-count", "x-total", "x-total-count"}
+# Alleen koppen met bekende betekenis voor één antwoord. Ook een lege Link of onbekende vervolgkop sluit bewijs uit.
+FILE_RESPONSE_HEADERS = FILE_COUNT_HEADERS | {
+    "access-control-allow-origin", "cache-control", "connection", "content-disposition", "content-encoding",
+    "content-language", "content-length", "content-security-policy", "content-type", "date", "etag", "expires",
+    "keep-alive", "last-modified", "pragma", "referrer-policy", "server", "set-cookie", "strict-transport-security",
+    "transfer-encoding", "vary", "via", "x-content-type-options", "x-frame-options", "x-request-id",
+}
 
 
 class SabError(RuntimeError):
@@ -691,18 +699,20 @@ def _unique_json_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _file_list_response(resp: httpx.Response) -> Any:
     """get_files wordt zonder bereik opgevraagd. Alleen één volledig antwoord kan een bewijs leveren."""
-    page_relations = {"next", "prev", "previous", "first", "last"}
-    paginated = any(not page_relations.isdisjoint(rel.lower().split()) for rel in resp.links)
-    if (resp.status_code != 200 or "Content-Range" in resp.headers or paginated
-            or resp.headers.get("Content-Type", "").lower().startswith("multipart/byteranges")):
-        raise SabError("SABnzbd gaf een deelantwoord op de bestandslijst", "invalid")
+    headers = resp.headers
+    if resp.status_code != 200 or headers.keys() - FILE_RESPONSE_HEADERS:
+        raise SabError("SABnzbd bevestigt geen volledige bestandslijst", "invalid")
+    content_types = headers.get_list("content-type", split_commas=True)
+    if len(content_types) > 1 or any(value.lstrip().lower().startswith("multipart/") for value in content_types):
+        raise SabError("Het antwoordtype van de SABnzbd-bestandslijst is niet eenduidig of is meerdelig", "invalid")
     try:
         body = resp.json(object_pairs_hook=_unique_json_fields)
     except (ValueError, RecursionError):
         raise SabError("De JSON-bestandslijst van SABnzbd is onleesbaar", "invalid") from None
-    if "X-Total-Count" in resp.headers:
+    totals = FILE_COUNT_HEADERS & headers.keys()
+    if totals:
         files = body.get("files") if isinstance(body, dict) else None
-        if not isinstance(files, list) or _source_integer(resp.headers["X-Total-Count"]) != len(files):
+        if not isinstance(files, list) or any(_source_integer(headers[name]) != len(files) for name in totals):
             raise SabError("De totaalkop van SABnzbd wijkt af van de bestandslijst", "invalid")
     return body
 

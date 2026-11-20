@@ -40,9 +40,10 @@ export function ChangesPanel({ focusId }: { focusId: number | null }) {
             <div className="list">
               {d.items.map((c) => {
                 const st = CHANGE_STATUS[c.status] ?? { tone: "neutral" as const, label: "change.status.preview" as const, icon: undefined };
+                const active = !list.stale && selected === Number(c.id);
                 return (
-                  <button type="button" key={String(c.id)} className="list-row list-row--hover" aria-pressed={selected === Number(c.id)}
-                    style={{ width: "100%", textAlign: "left", background: selected === Number(c.id) ? "var(--mg-raised)" : "none", border: 0, font: "inherit", color: "inherit", cursor: "pointer" }}
+                  <button type="button" key={String(c.id)} className="list-row list-row--hover" aria-pressed={active} disabled={list.stale}
+                    style={{ width: "100%", textAlign: "left", background: active ? "var(--mg-raised)" : "none", border: 0, font: "inherit", color: "inherit" }}
                     onClick={() => setSelected(Number(c.id))}>
                     <div className="list-main">
                       <div className="list-title">{c.title}</div>

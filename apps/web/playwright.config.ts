@@ -27,8 +27,8 @@ export default defineConfig({
   use: { baseURL, trace: "retain-on-failure", locale: "nl-NL" },
   projects: [
     { name: "desktop-1440", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
-    // peil.spec.ts en states.spec.ts kiezen zelf hun breedtes in het desktopproject.
-    { name: "mobile-390", testIgnore: /(?:peil|states)\.spec\.ts/, use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    // Peil- en bronproeven draaien in het desktopproject.
+    { name: "mobile-390", testIgnore: /(?:peil|states|bronversheid)\.spec\.ts/, use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
     { name: "mobile-360", testMatch: /screens\.spec\.ts/, grep: /@schermbreedte/, use: { ...devices["Desktop Chrome"], viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true } },
     { name: "tablet-768", testMatch: /screens\.spec\.ts/, grep: /@schermbreedte/, use: { ...devices["Desktop Chrome"], viewport: { width: 768, height: 1024 }, hasTouch: true } },
   ],

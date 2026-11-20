@@ -26,7 +26,7 @@ export function ModeSettingsCard() {
   const { can } = useSession();
   const toast = useToast();
   const { mode, paused, loading, error, setMode } = useMode();
-  const automation = useResource<AutomationStatus>("/automation/status");
+  const automation = useResource<AutomationStatus>("/automation/status", undefined, 60_000);
   const { reload: reloadAutomation } = automation;
   const [confirm, setConfirm] = useState<OperatingMode | null>(null);
   const [pending, setPending] = useState(false);
@@ -42,6 +42,7 @@ export function ModeSettingsCard() {
   useEffect(() => { void reloadAutomation(); }, [mode, paused, reloadAutomation]);
 
   const apply = async (next: OperatingMode) => {
+    if (!admin || mode === null || pending) return;
     setPending(true);
     setFailure(null);
     try {
@@ -55,21 +56,22 @@ export function ModeSettingsCard() {
       setPending(false);
     }
   };
-  const choose = (next: OperatingMode) => {
-    if (next === mode || pending) return;
+  const choose = (next: OperatingMode | "") => {
+    if (!next || !admin || mode === null || next === mode || pending) return;
     if (next === "read_only") void apply("read_only");
     else { setFailure(null); setConfirm(next); }
   };
 
-  const areas = automation.data?.areas ?? [];
+  const current = automation.error ? null : automation.data;
+  const areas = current?.areas ?? [];
   const autoOn = areas.filter((a) => a.auto_apply_safe);
-  const isAuto = mode === "autopilot";
+  const isAuto = current?.mode === "autopilot";
   const disabledReason = !admin ? t("mode.section.adminOnly") : mode === null ? (error ? t("mode.unknownReason") : t("mode.loadingReason")) : undefined;
   const opt = (value: OperatingMode, Icon: typeof Eye, label: string) => ({
     value, label: <><Icon className="ico ico-sm" aria-hidden="true" /> {label}</>, disabled: Boolean(disabledReason) || pending,
   });
-  const cap = automation.data?.max_per_hour;
-  const age = automation.data?.max_age_h;
+  const cap = current?.max_per_hour;
+  const age = current?.max_age_h;
 
   return (
     <div id="modus" ref={ref} style={{ scrollMarginTop: 72 }}>
@@ -88,7 +90,7 @@ export function ModeSettingsCard() {
             ) : null}
           </div>
           <span title={disabledReason} style={{ alignSelf: "flex-start" }}>
-            <Segmented<OperatingMode> label={t("mode.section.choose")} value={mode ?? "read_only"} onChange={choose}
+            <Segmented label={t("mode.section.choose")} value={mode ?? ""} onChange={choose}
               options={[
                 opt("read_only", Eye, t("mode.read_only")),
                 opt("manage", ShieldCheck, t("mode.manage")),
@@ -109,26 +111,28 @@ export function ModeSettingsCard() {
               <strong><Bot className="ico ico-sm" aria-hidden="true" /> {t("mode.section.autoTitle")}</strong>
               <Link href="/automatisering?tab=automatisch" className="link-more">{t("mode.section.autoLink")}</Link>
             </div>
-            <p className="hint" style={{ margin: 0 }}>{isAuto ? t("mode.section.autoHintAutopilot") : t("mode.section.autoHint")}</p>
-            {automation.data ? (
-              <div className="row wrap" style={{ gap: 6 }}>
-                {areas.map((a) => isAuto ? (
-                  <StatusChip key={a.area} tone={paused ? "neutral" : "accent"} icon={Bot}>{a.label}: {t("mode.section.autoViaAutopilot")}</StatusChip>
-                ) : (
-                  <StatusChip key={a.area} tone={a.auto_apply_safe ? (mode === "manage" && !paused ? "warning" : "neutral") : "neutral"} outline={!a.auto_apply_safe}>
-                    {a.label}: {a.auto_apply_safe ? t("automation.on") : t("automation.off")}
-                  </StatusChip>
-                ))}
-              </div>
-            ) : automation.error ? <InlineState tone="warning">{t("mode.section.autoUnavailable")}</InlineState> : null}
+            {current ? (
+              <>
+                <p className="hint" style={{ margin: 0 }}>{isAuto ? t("mode.section.autoHintAutopilot") : t("mode.section.autoHint")}</p>
+                <div className="row wrap" style={{ gap: 6 }}>
+                  {areas.map((a) => isAuto ? (
+                    <StatusChip key={a.area} tone={current.automation_allowed ? "accent" : "neutral"} icon={Bot}>{a.label}: {t("mode.section.autoViaAutopilot")}</StatusChip>
+                  ) : (
+                    <StatusChip key={a.area} tone={a.auto_apply_safe && current.automation_allowed ? "warning" : "neutral"} outline={!a.auto_apply_safe}>
+                      {a.label}: {a.auto_apply_safe ? t("automation.on") : t("automation.off")}
+                    </StatusChip>
+                  ))}
+                </div>
+              </>
+            ) : automation.error ? <InlineState tone="unknown">{t("mode.section.autoUnavailable")}</InlineState> : null}
           </div>
         </div>
       </Card>
 
       <Modal open={confirm === "manage"} onClose={() => setConfirm(null)} icon={ShieldCheck} title={t("mode.section.confirmTitle")} description={t("mode.section.confirmBody")}
-        footer={<><Button onClick={() => setConfirm(null)} data-autofocus>{t("action.cancel")}</Button><Button variant="primary" pending={pending} onClick={() => void apply("manage")} data-testid="mode-manage-confirm">{t("mode.section.confirm")}</Button></>}>
+        footer={<><Button onClick={() => setConfirm(null)} data-autofocus>{t("action.cancel")}</Button><Button variant="primary" pending={pending} disabled={Boolean(disabledReason)} title={disabledReason} onClick={() => void apply("manage")} data-testid="mode-manage-confirm">{t("mode.section.confirm")}</Button></>}>
         <div className="stack-sm">
-          {automation.data ? (
+          {current ? (
             autoOn.length
               ? <InlineState tone="warning">{t("mode.section.confirmAuto", { areas: autoOn.map((a) => a.label).join(", ") })}</InlineState>
               : <InlineState tone="info">{t("mode.section.confirmAutoNone")}</InlineState>
@@ -139,7 +143,7 @@ export function ModeSettingsCard() {
       </Modal>
 
       <Modal open={confirm === "autopilot"} onClose={() => setConfirm(null)} icon={Bot} title={t("mode.section.confirmAutopilotTitle")} description={t("mode.section.confirmAutopilotBody")}
-        footer={<><Button onClick={() => setConfirm(null)} data-autofocus>{t("action.cancel")}</Button><Button variant="primary" icon={Bot} pending={pending} onClick={() => void apply("autopilot")} data-testid="mode-autopilot-confirm">{t("mode.section.confirmAutopilot")}</Button></>}>
+        footer={<><Button onClick={() => setConfirm(null)} data-autofocus>{t("action.cancel")}</Button><Button variant="primary" icon={Bot} pending={pending} disabled={Boolean(disabledReason)} title={disabledReason} onClick={() => void apply("autopilot")} data-testid="mode-autopilot-confirm">{t("mode.section.confirmAutopilot")}</Button></>}>
         <div className="stack-sm">
           <AutopilotExplainer cap={cap} age={age} compact />
           {paused ? <InlineState tone="info">{t("mode.section.confirmAutopilotUnpause")}</InlineState> : null}

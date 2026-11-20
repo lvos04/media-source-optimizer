@@ -47,24 +47,25 @@ export function FallbackCard({ reloadKey }: { reloadKey?: number }) {
   const [open, setOpen] = useState<number | null>(null);
   const reload = list.reload;
   useEffect(() => { if (reloadKey) void reload(); }, [reloadKey, reload]);
-  const s = list.data?.settings;
+  const current = list.error ? null : list.data;
+  const s = current?.settings;
 
   return (
     <Card className="span-12" title={t("rec.fb.title")} icon={RefreshCcw} sub={t("rec.fb.sub")} flush
       actions={s ? (
         <span className="row wrap" style={{ gap: 6 }}>
           <StatusChip tone={s.fallback_on_failure ? "success" : "neutral"}>{t(s.fallback_on_failure ? "rec.fb.on" : "rec.fb.off")}</StatusChip>
-          {list.data?.summary?.autopilot ? <StatusChip tone="success">{t("rec.fb.autopilot")}</StatusChip>
+          {current?.summary?.autopilot ? <StatusChip tone="success">{t("rec.fb.autopilot")}</StatusChip>
             : <StatusChip tone={s.auto_send_fallback ? "warning" : "info"}>{t(s.auto_send_fallback ? "rec.fb.autoSend" : "rec.fb.approval")}</StatusChip>}
         </span>
       ) : undefined}>
-      {list.data?.summary?.autopilot ? (
+      {current?.summary?.autopilot ? (
         <div style={{ padding: "12px 16px 0" }}><InlineState tone="success">{t("rec.fb.autopilotNote")}</InlineState></div>
-      ) : s && list.data?.mediaguard_mode === "connected" && !s.allow_manual_send_connected ? (
+      ) : s && current?.mediaguard_mode === "connected" && !s.allow_manual_send_connected ? (
         <div style={{ padding: "12px 16px 0" }}><InlineState tone="info">{t("rec.fb.connectedNote")}</InlineState></div>
       ) : null}
-      {list.data?.summary ? (() => {
-        const sm = list.data.summary;
+      {current?.summary ? (() => {
+        const sm = current.summary;
         const parts = [
           sm.by_status.retry ? t("rec.fb.summary.retry", { n: num(sm.by_status.retry) }) : null,
           sm.by_status.mg_requested ? t("rec.fb.summary.mg", { n: num(sm.by_status.mg_requested) }) : null,

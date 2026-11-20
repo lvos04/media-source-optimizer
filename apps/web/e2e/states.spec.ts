@@ -187,15 +187,19 @@ for (const { path, endpoint, interval } of [
     await expect(kpis).toHaveCount(4);
     await expect(kpis.locator(".skeleton")).toHaveCount(0);
     await expect(stale).toHaveCount(0);
+    const subtitle = page.locator("main .page-header p");
+    if (path === "/") await expect(subtitle).not.toContainText("Modus onbekend");
 
     connected = false;
     await page.clock.fastForward(interval);
     await expect(stale).toHaveCount(4);
     await expect(kpis.locator('.kpi-value [data-status="unknown"]')).toHaveCount(4);
+    if (path === "/") await expect(subtitle).toContainText("Modus onbekend");
 
     connected = true;
     await page.clock.fastForward(interval);
     await expect(stale).toHaveCount(0);
+    if (path === "/") await expect(subtitle).not.toContainText("Modus onbekend");
   });
 }
 

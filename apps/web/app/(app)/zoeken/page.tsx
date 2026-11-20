@@ -184,8 +184,8 @@ export default function SearchPage() {
             ) : null}
             <Card className="span-8" title={t("zoeken.results")} icon={Search} flush
               sub={staleLabel ? <StaleMark>{staleLabel}</StaleMark> : res.data ? t("zoeken.resultsSub", { total: num(res.data.total) }) : undefined}
-              actions={<Button size="sm" icon={GitCompareArrows} disabled={selected.length < 2} title={selected.length < 2 ? t("zoeken.compareHint") : undefined}
-                onClick={() => setComparing(true)}>{t("zoeken.compare", { n: selected.length })}</Button>}>
+              actions={!res.stale ? <Button size="sm" icon={GitCompareArrows} disabled={selected.length < 2} title={selected.length < 2 ? t("zoeken.compareHint") : undefined}
+                onClick={() => setComparing(true)}>{t("zoeken.compare", { n: selected.length })}</Button> : undefined}>
               <ResourceView resource={res} endpoint="GET /api/v1/search" isEmpty={(d) => d.items.length === 0}
                 empty={<StateView kind="empty" title={t("zoeken.empty.title")} body={t("zoeken.empty.body")} />}>
                 {(d) => (
@@ -210,7 +210,7 @@ export default function SearchPage() {
                                 {/* 44 px hit area around the 20 px checkbox (Peil §6); name and role unchanged */}
                                 <label className="inline-flex size-touch cursor-pointer items-center justify-center">
                                   <input type="checkbox" className="check" aria-label={`${t("zoeken.compareSelect")}: ${it.title}`}
-                                    checked={selected.includes(it.token)} onChange={() => toggle(it.token)} />
+                                    checked={!res.stale && selected.includes(it.token)} disabled={res.stale} onChange={() => toggle(it.token)} />
                                 </label>
                               </td>
                               <td data-label={t("zoeken.col.release")}>
@@ -277,7 +277,7 @@ export default function SearchPage() {
           </>
         )}
       </div>
-      {comparing ? <CompareDrawer tokens={selected} category={query?.category ?? null} onClose={() => setComparing(false)} /> : null}
+      {comparing && !res.stale ? <CompareDrawer tokens={selected} category={query?.category ?? null} onClose={() => setComparing(false)} /> : null}
       {sending ? <SendDialog item={sending} onClose={() => setSending(null)} /> : null}
     </>
   );

@@ -16,7 +16,6 @@ import type { Risk } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
 import { localizeAuditSummary, type Overview } from "@/lib/api/insights";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { useMode } from "@/lib/mode";
 import { healthLabel, healthTone, peilStatusText } from "@/lib/status";
 
 const RISKS: Risk[] = ["toestemming_nodig", "automatisch_veilig", "advies"];
@@ -32,8 +31,7 @@ export default function OverviewPage() {
   const health = o?.health;
   const healthTxt = health ? t(healthLabel(health.status)) : "—";
   const cost = o?.costs;
-  const { mode: liveMode } = useMode();
-  const shownMode = liveMode ?? (ov.stale ? null : o?.mode) ?? null;
+  const shownMode = ov.error ? null : o?.mode;
   const staleLabel = t("state.stale", { age: relative(ov.fetchedAt) });
   return (
     <>

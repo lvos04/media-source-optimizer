@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { DiffViewer } from "@/components/mg/domain";
 import { Button, Card, InlineState, StatusChip } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ResourceView, StaleMark, StateView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview } from "@/components/mso/change-preview";
 import { RiskChip } from "@/components/mso/risk-chip";
@@ -71,7 +71,7 @@ export function PriorityCard() {
 
   return (
     <Card title={t("usenet.prio.title")} icon={ArrowDownUp} sub={t("usenet.prio.sub")} className="span-12" flush
-      actions={servers.data?.last_stats_at ? <span className="t-3">{t("usenet.prio.lastStats", { when: relative(servers.data.last_stats_at) })}</span> : undefined}>
+      actions={!servers.stale && servers.data?.last_stats_at ? <span className="t-3">{t("usenet.prio.lastStats", { when: relative(servers.data.last_stats_at) })}</span> : undefined}>
       <ResourceView resource={servers} endpoint="GET /api/v1/usenet/sab/servers" isEmpty={(d) => !d.items.length}
         empty={<StateView kind="empty" compact />}>
         {(d) => (
@@ -96,7 +96,9 @@ export function PriorityCard() {
                     <ServerAutopilotCell ap={s.autopilot} />
                     {tests.data?.items[s.name] ? (
                       <div style={{ marginTop: 4 }}>
-                        <ServerTestLine test={tests.data.items[s.name].latest} flapping={tests.data.items[s.name].flapping} />
+                        {tests.stale ? <StaleMark>{t("state.stale", { age: relative(tests.fetchedAt) })}</StaleMark> : (
+                          <ServerTestLine test={tests.data.items[s.name].latest} flapping={tests.data.items[s.name].flapping} />
+                        )}
                       </div>
                     ) : null}
                     {s.expire_date ? (

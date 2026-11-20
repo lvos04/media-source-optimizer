@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { ConnectorLogo, ConnectorStatusChip } from "@/components/mg/domain";
 import { Button, Field, InlineState, StatusChip, Switch } from "@/components/mg/primitives";
-import { ResourceView, StateView } from "@/components/mg/states";
+import { ErrorState, ResourceView, StateView } from "@/components/mg/states";
 import { api, errorMessage } from "@/lib/api/client";
 import { itemsOf, type Connector, type ConnectorTestResult } from "@/lib/api/contracts";
 import { useResource } from "@/lib/api/hooks";
@@ -192,6 +192,7 @@ export function ConnectorForm({ connector, onSaved, onTested, canEdit = true, di
 export function ConnectorList({ only, canEdit = true, disabledReason }: { only?: string[]; canEdit?: boolean; disabledReason?: string }) {
   const { t } = useI18n();
   const connectors = useResource<Connector[] | { items: Connector[] }>("/connectors");
+  if (connectors.error) return <ErrorState error={connectors.error} onRetry={() => void connectors.reload()} endpoint="GET /api/v1/connectors" />;
   return (
     <ResourceView resource={connectors} endpoint="GET /api/v1/connectors" isEmpty={(d) => itemsOf(d).filter((c) => !only || only.includes(String(c.id))).length === 0}
       empty={<StateView kind="empty" title={t("connector.empty")} />}>

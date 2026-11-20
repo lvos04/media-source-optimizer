@@ -33,6 +33,8 @@ export default function MediaGuardPage() {
   const isOperator = can("operator");
   const isAdmin = can("admin");
   const s = status.data;
+  const authMethod = status.error ? undefined : s?.auth_method;
+  const authDisabledReason = !isAdmin ? t("mg.needAdmin") : status.error || !s ? t("status.unknown") : undefined;
 
   const probe = async () => { const r = await run<MgStatus>("probe", "post", "/mediaguard/probe", undefined, t("mg.probed")); if (r) status.setData(() => r); };
   const [syncing, setSyncing] = useState(false);
@@ -43,7 +45,8 @@ export default function MediaGuardPage() {
     // poll the sync job, then refresh status/quota/KPIs (instead of guessing with a fixed delay)
     try { await waitForJob(r.job_id, { timeoutMs: 5 * 60_000 }); } finally { setSyncing(false); void status.reload(); void quota.reload(); }
   };
-  const setMethod = async (method: "apikey" | "user" | "token") => {
+  const setMethod = async (method: "apikey" | "user" | "token" | "") => {
+    if (!method || authDisabledReason || pending === "method") return;
     if (await run("method", "put", "/connectors/mediaguard", { options: { auth_method: method } }, t("mg.auth.saved"))) void probe();
   };
 
@@ -53,8 +56,8 @@ export default function MediaGuardPage() {
         actions={<>
           <Button icon={RefreshCw} pending={pending === "probe"} disabled={!isOperator || !s?.configured}
             title={!isOperator ? t("mg.needOperator") : !s?.configured ? t("mg.notConfigured") : undefined} onClick={() => void probe()}>{t("mg.probe")}</Button>
-          <Button variant="primary" icon={RefreshCw} pending={pending === "sync" || syncing} disabled={!isOperator || !s?.configured}
-            title={!isOperator ? t("mg.needOperator") : !s?.configured ? t("mg.notConfigured") : undefined} onClick={() => void sync()}>{t("mg.syncNow")}</Button>
+          <Button variant="primary" icon={RefreshCw} pending={pending === "sync" || syncing} disabled={!isOperator || !s?.configured || Boolean(status.error)}
+            title={!isOperator ? t("mg.needOperator") : status.error ? t("status.unknown") : !s?.configured ? t("mg.notConfigured") : undefined} onClick={() => void sync()}>{t("mg.syncNow")}</Button>
         </>} />
 
       <div className="grid">
@@ -93,13 +96,14 @@ export default function MediaGuardPage() {
               <li>{t("mg.auth.tokenWarn")}</li>
             </ul>
             {status.stale ? <StaleMark>{t("state.stale", { age: relative(status.fetchedAt) })}</StaleMark> : null}
-            <Segmented<"apikey" | "user" | "token"> label={t("mg.authMethod")} value={s?.auth_method ?? "apikey"} onChange={(v) => void setMethod(v)}
+            {!authMethod && !status.stale ? <StatusChip tone="unknown">{t("status.unknown")}</StatusChip> : null}
+            <Segmented<"apikey" | "user" | "token" | ""> label={t("mg.authMethod")} value={authMethod ?? ""} onChange={(v) => void setMethod(v)}
               options={[
-                { value: "apikey", label: t("mg.auth.apikey"), disabled: !isAdmin || pending === "method", title: isAdmin ? undefined : t("mg.needAdmin") },
-                { value: "user", label: t("mg.auth.user"), disabled: !isAdmin || pending === "method", title: isAdmin ? undefined : t("mg.needAdmin") },
-                { value: "token", label: t("mg.auth.token"), disabled: !isAdmin || pending === "method", title: isAdmin ? undefined : t("mg.needAdmin") },
+                { value: "apikey", label: t("mg.auth.apikey"), disabled: Boolean(authDisabledReason) || pending === "method", title: authDisabledReason },
+                { value: "user", label: t("mg.auth.user"), disabled: Boolean(authDisabledReason) || pending === "method", title: authDisabledReason },
+                { value: "token", label: t("mg.auth.token"), disabled: Boolean(authDisabledReason) || pending === "method", title: authDisabledReason },
               ]} />
-            {s?.auth_method === "token" ? <InlineState tone="warning">{t("mg.auth.tokenActive")}</InlineState> : null}
+            {authMethod === "token" ? <InlineState tone="warning">{t("mg.auth.tokenActive")}</InlineState> : null}
           </div>
         </Card>
 

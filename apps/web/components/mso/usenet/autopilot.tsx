@@ -7,7 +7,7 @@ import { Button, Card, InlineState, StatusChip, type Tone } from "@/components/m
 import { ResourceView } from "@/components/mg/states";
 import { useToast } from "@/components/mg/toast";
 import { ChangePreview } from "@/components/mso/change-preview";
-import { useMode, useWriteGate } from "@/components/mso/mode-gate";
+import { useWriteGate } from "@/components/mso/mode-gate";
 import { TestServerButton } from "@/components/mso/usenet/server-test";
 import { api, errorMessage } from "@/lib/api/client";
 import type { ChangeSet } from "@/lib/api/contracts";
@@ -146,7 +146,6 @@ function RetryDiagnosis({ retry, onChanged }: { retry: UsenetAutopilot["retry"] 
 export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
   const { t, num, relative } = useI18n();
   const toast = useToast();
-  const { autopilot } = useMode();
   const gate = useWriteGate("operator", false);
   const data = useResource<UsenetAutopilot>("/usenet/autopilot", undefined, 60_000);
   const [busy, setBusy] = useState(false);
@@ -175,13 +174,15 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
       actions={<Button size="sm" icon={RefreshCw} onClick={() => void check()} pending={busy} disabled={!gate.allowed} title={gate.reason}>{t("usenet.ap.check")}</Button>}>
       <ResourceView resource={data} endpoint="GET /api/v1/usenet/autopilot">
         {(d) => {
+          const autopilot = data.stale || typeof d.autopilot !== "boolean" ? null : d.autopilot;
           const servers = Object.entries(d.servers).filter((e): e is [string, ServerAutopilot] => Boolean(e[1]));
           const c = d.retry.counts;
           const q = d.retry.quota;
           return (
             <div className="stack">
-              <InlineState tone={autopilot ? "success" : "info"}>
-                {autopilot ? t("usenetserver.apOn", { hours: num(d.auto_disable_after_h), test: num(d.test_interval_h ?? 6) }) : t("usenet.ap.off")}
+              <InlineState tone={autopilot === null ? "unknown" : autopilot ? "success" : "info"}>
+                {autopilot === null ? t("mode.unknown")
+                  : autopilot ? t("usenetserver.apOn", { hours: num(d.auto_disable_after_h), test: num(d.test_interval_h ?? 6) }) : t("usenet.ap.off")}
               </InlineState>
               <div>
                 <span className="eyebrow">{t("usenet.ap.servers")}</span>
@@ -193,7 +194,7 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
                           <div className="list-title mono">{name}</div>
                           <ServerAutopilotCell ap={ap} />
                         </div>
-                        {ap.status === "disabled" || ap.status === "given_up" ? (
+                        {!data.stale && (ap.status === "disabled" || ap.status === "given_up") ? (
                           <div className="row wrap" style={{ gap: 6 }}>
                             <TestServerButton server={name} name={name} onDone={async () => { await data.reload(); onChanged?.(); }} />
                             <RetryServerButton server={name} name={name} onDone={async () => { await data.reload(); onChanged?.(); }} />
@@ -218,13 +219,13 @@ export function AutopilotCard({ onChanged }: { onChanged?: () => void }) {
                       {t("usenet.ap.retryQuota", { hour: num(q.hour_used), hourMax: num(q.hour_max), day: num(q.day_used), dayMax: num(q.day_max) })}
                       {d.retry.last_run?.at ? ` · ${t("usenet.ap.lastRun", { when: relative(d.retry.last_run.at) })}` : ""}
                     </span>
-                    <RetryDiagnosis retry={d.retry as UsenetAutopilot["retry"] & RetryDiag} onChanged={async () => { await data.reload(); onChanged?.(); }} />
+                    {!data.stale ? <RetryDiagnosis retry={d.retry as UsenetAutopilot["retry"] & RetryDiag} onChanged={async () => { await data.reload(); onChanged?.(); }} /> : null}
                     {d.retry.last_run?.retry?.status === "waiting" && d.retry.last_run.retry.reason ? (
                       <InlineState tone={(d.retry.last_run.retry as { kind?: string }).kind === "coverage" ? "info" : "warning"}>{d.retry.last_run.retry.reason}</InlineState>
                     ) : null}
                   </>
                 )}
-                {d.retry.open_change ? <OpenBundle id={d.retry.open_change.id} onChanged={() => void data.reload()} /> : null}
+                {!data.stale && d.retry.open_change ? <OpenBundle id={d.retry.open_change.id} onChanged={() => void data.reload()} /> : null}
                 {d.retry.items.length ? (
                   <details>
                     <summary className="t-2" style={{ cursor: "pointer" }}>{t("usenet.ap.recent")}</summary>

@@ -128,7 +128,7 @@ export default function CostsPage() {
 
       <div className="grid" style={{ marginTop: 16 }}>
         <Card className="span-12" title={t("costs.services")} icon={Coins} flush
-          actions={freeCount ? <label className="row" style={{ gap: 8 }}><Switch checked={showFree} label={t("costs.showFree")} onChange={setShowFree} /><span>{t("costs.showFree")}{services.stale ? "" : ` (${num(freeCount)})`}</span></label> : undefined}>
+          actions={!services.stale && freeCount ? <label className="row" style={{ gap: 8 }}><Switch checked={showFree} label={t("costs.showFree")} onChange={setShowFree} /><span>{t("costs.showFree")} ({num(freeCount)})</span></label> : undefined}>
           {freeCount && !showFree ? <p className="hint" style={{ margin: 0, padding: "10px 16px 0" }}>{t("costs.freeHidden", { count: num(freeCount) })} {servicesStale}</p> : null}
           <ResourceView resource={services} endpoint="GET /api/v1/costs/services" isEmpty={(d) => shown(d.items).length === 0}
             empty={services.data?.items.length ? <StateView kind="empty" title={t("costs.noPaidServices")} body={t("costs.noPaidServicesBody")} /> : <StateView kind="empty" title={t("costs.noServices")} body={t("costs.noServicesBody")}

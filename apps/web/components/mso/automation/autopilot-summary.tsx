@@ -18,7 +18,7 @@ import { NOT_ACTION_CATEGORIES, type AutopilotAction, type CalmAutopilotSummary,
 import { useResource } from "@/lib/api/hooks";
 import { localizeAuditSummary, type AutopilotCategory, type AutopilotCategoryKey } from "@/lib/api/insights";
 import { useI18n } from "@/lib/i18n";
-import { useMode, useWriteGate } from "@/lib/mode";
+import { useWriteGate } from "@/lib/mode";
 
 const ENDPOINT = "GET /api/v1/overview/autopilot";
 const WAIT_ENDPOINT = "GET /api/v1/overview/waiting";
@@ -28,16 +28,15 @@ const ICON: Record<AutopilotCategoryKey, LucideIcon> = {
 };
 const ACTIONS_SHOWN = 5;
 
-function ModeLine({ s }: { s: CalmAutopilotSummary }) {
+function ModeLine({ mode, paused }: { mode?: CalmAutopilotSummary["mode"]; paused?: boolean }) {
   const { t } = useI18n();
-  const { mode, paused, error } = useMode();
-  if (error) return <StatusChip tone="unknown">{t("mode.unknown")}</StatusChip>;
-  const m = mode ?? s.mode;
-  const p = mode === null ? s.paused : paused;
-  if (m === "autopilot" && !p) return <StatusChip tone="accent" icon={Bot}>{t("autopilot.modeOn")}</StatusChip>;
-  if (m === "autopilot") return <StatusChip tone="paused">{t("autopilot.modePaused")}</StatusChip>;
-  if (m === "manage") return <StatusChip tone="neutral">{p ? t("autopilot.modeManagePaused") : t("autopilot.modeManage")}</StatusChip>;
-  return <StatusChip tone="neutral" icon={Eye}>{t("autopilot.modeReadOnly")}</StatusChip>;
+  if (mode === "read_only") return <StatusChip tone="neutral" icon={Eye}>{t("autopilot.modeReadOnly")}</StatusChip>;
+  if (typeof paused !== "boolean") return <StatusChip tone="unknown">{t("mode.unknown")}</StatusChip>;
+  if (mode === "autopilot") return paused
+    ? <StatusChip tone="paused">{t("autopilot.modePaused")}</StatusChip>
+    : <StatusChip tone="accent" icon={Bot}>{t("autopilot.modeOn")}</StatusChip>;
+  if (mode === "manage") return <StatusChip tone="neutral">{paused ? t("autopilot.modeManagePaused") : t("autopilot.modeManage")}</StatusChip>;
+  return <StatusChip tone="unknown">{t("mode.unknown")}</StatusChip>;
 }
 
 /** All synchronisations as ONE status line, linking to Systeem → Automatische taken. */
@@ -132,7 +131,7 @@ export function AutopilotCard({ className = "span-12" }: { className?: string })
         {(s) => (
           <>
             <div className="row wrap" style={{ gap: 10, padding: "12px 16px 4px" }}>
-              <ModeLine s={s} />
+              <ModeLine mode={res.stale ? undefined : s.mode} paused={s.paused} />
               <span className="t-2" data-testid="actions-total">{t("calm.actionsTotal", { count: num(s.actions_total) })}</span>
               <SyncLine syncs={s.syncs} />
             </div>
@@ -241,7 +240,7 @@ export function WaitingCard({ className = "span-12" }: { className?: string }) {
   const own = useResource<WaitingInbox>(shared ? null : "/overview/waiting", undefined, 60_000);
   const res = shared ?? own;
   const w = res.data;
-  if (w && w.decisions === 0) {
+  if (!res.error && w?.decisions === 0) {
     return (
       <section className={`card ${className}`} id="wacht-op-jou" aria-label={t("autopilot.waitTitle")} data-testid="waiting-none">
         <div className="row wrap" style={{ gap: 10, padding: "12px 16px" }}>
@@ -257,7 +256,7 @@ export function WaitingCard({ className = "span-12" }: { className?: string }) {
   }
   return (
     <Card className={className} id="wacht-op-jou" title={t("autopilot.waitTitle")} sub={t("autopilot.waitSub")} icon={Hand} flush
-      actions={w?.decisions ? <StatusChip tone="neutral" icon={Hand}>{t("calm.waitDecisions", { count: num(w.decisions) })}</StatusChip> : undefined}>
+      actions={!res.error && w?.decisions ? <StatusChip tone="neutral" icon={Hand}>{t("calm.waitDecisions", { count: num(w.decisions) })}</StatusChip> : undefined}>
       <ResourceView resource={res} endpoint={WAIT_ENDPOINT} compact>
         {(data) => <><WaitingRows w={data} /><InfoRows w={data} /></>}
       </ResourceView>
@@ -276,7 +275,7 @@ export function WeeklyDigest() {
           {(s) => (
             <>
               <div className="row wrap" style={{ gap: 10, padding: "12px 16px 4px" }}>
-                <ModeLine s={s} />
+                <ModeLine mode={res.stale ? undefined : s.mode} paused={s.paused} />
                 <span className="t-2">{t("calm.actionsTotalWeek", { count: num(s.actions_total) })}</span>
                 <SyncLine syncs={s.syncs} />
                 {s.waiting.decisions ? <Link href="/#wacht-op-jou"><StatusChip tone="neutral" icon={Hand}>{t("autopilot.waitingChip", { count: num(s.waiting.decisions) })}</StatusChip></Link> : null}
@@ -288,7 +287,7 @@ export function WeeklyDigest() {
           )}
         </ResourceView>
       </Card>
-      {res.data ? res.data.by_day.map((d) => {
+      {!res.error && res.data ? res.data.by_day.map((d) => {
         const cats = res.data!.categories.filter((c) => d.categories[c.key] && !NOT_ACTION_CATEGORIES.includes(c.key));
         const actions = d.actions ?? 0;
         return (

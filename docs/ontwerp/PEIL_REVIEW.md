@@ -369,3 +369,19 @@ CI-job 134919256610 op deze commit voert twee controles voor de buildgegevens en
 De schermafdrukken in de voorgaande review horen bij de bouwcommit en de toenmalige herstelkopie. De herreview gebruikt die oudere resultaten als referentie. Het gedeelde stackslot bleef bezet en er zijn geen nieuwe lokale schermafdrukken of metingen gemaakt. De volledige lokale matrix met contrast, focusbedekking, tekstafstand, aanraakdoelen en overloop op de herstelcommit staat open. De afzonderlijke ontwerpkritiek- en toegankelijkheidscontroles waren in deze sessie niet beschikbaar.
 
 Het ketendossier `peil-review-s-p3-210` bevat de metingen van de bouwcommit `ec6d7733a30d7de82628e044d863eaecd1a04050` en de toenmalige herstelkopie. `metingen-herstel.json` bevat de 12 focusmetingen van die herstelkopie. `RAPPORT-A-HERSTEL-2.md` legt de meetdekking per geteste commit vast.
+
+## S-P3-280 — Bronversheid bij afzonderlijke uitval
+
+De schil en de bedrijfsmoduskeuze gebruiken `/system/mode`. De Usenet-kaart gebruikt
+`/usenet/autopilot`, de Overzichtskop `/overview` en de activiteit- en weekkaarten
+`/overview/autopilot`. De veilige ronde en de samenvatting van automatisch toepassen
+volgen `/automation/status`. De authenticatiemethode op MediaGuard volgt
+`/mediaguard/status`.
+
+Bij uitval tonen de kaarten Onbekend of markeren ze bewaarde gegevens met de bestaande
+Peil-weergave voor laatst bekende waarden. De modus- en authenticatiekeuzes verliezen
+hun actieve selectie bij een ontbrekende meting. Zodra hun bron bevestigt welke keuze
+geldt, toont ook `aria-pressed` die keuze weer.
+
+De vaste regressies staan in `apps/web/e2e/bronversheid.spec.ts` en
+`apps/web/e2e/states.spec.ts`. De gerichte herreview en R-EERLIJK volgen de herstelronde.

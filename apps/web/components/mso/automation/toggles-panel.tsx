@@ -9,7 +9,6 @@ import type { Resource } from "@/lib/api/hooks";
 import type { AutomationStatus } from "@/lib/api/insights";
 import type { AutopilotHold } from "@/lib/api/safety";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { useMode } from "@/lib/mode";
 import { useSession } from "@/lib/session";
 import { jobKindLabel } from "@/lib/status";
 
@@ -31,11 +30,9 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
   const { can } = useSession();
   const isAdmin = can("admin");
   const { run, pending } = useAction();
-  // live mode/pause state (same source as the topbar chip and pause button) — the status resource may lag behind
-  const { mode, paused, error: modeError } = useMode();
   const s = status.data as (AutomationStatus & { attempts_last_hour?: number; hold?: AutopilotHold | null }) | null;
   // Autopilot (mode, not paused or paused): the per-area toggles do not apply — every area is on via Autopilot
-  const autopilotMode = (mode ?? s?.mode) === "autopilot";
+  const autopilotMode = s?.mode === "autopilot";
   if (status.error) return (
     <Card className="span-12" title={t("automation.state")} icon={ShieldCheck}>
       {status.stale ? <StaleMark>{t("state.stale", { age: relative(status.fetchedAt) })}</StaleMark> : null}
@@ -63,8 +60,8 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
                 <StatusChip tone="accent" icon={Bot} title={t("automation.viaAutopilotTitle")}>{t("mode.section.autoViaAutopilot")}</StatusChip>
               ) : <>
                 <StatusChip tone={a.auto_apply_safe ? "success" : "neutral"}>{a.auto_apply_safe ? t("automation.on") : t("automation.off")}</StatusChip>
-                <span title={!isAdmin ? t("automation.adminOnly") : modeError ? t("mode.unknownReason") : undefined}>
-                  <Switch checked={a.auto_apply_safe} label={a.label} disabled={!isAdmin || Boolean(modeError) || pending === `t-${a.area}`} onChange={(v) => void toggle(a.area, v)} />
+                <span title={!isAdmin ? t("automation.adminOnly") : undefined}>
+                  <Switch checked={a.auto_apply_safe} label={a.label} disabled={!isAdmin || pending === `t-${a.area}`} onChange={(v) => void toggle(a.area, v)} />
                 </span>
               </>}
             </div>
@@ -74,13 +71,10 @@ export function TogglesPanel({ status }: { status: Resource<AutomationStatus> })
       <Card className="span-5" title={t("automation.state")} icon={ShieldCheck}>
         <div className="stack">
           {(() => {
-            if (modeError) return <InlineState tone="unknown">{t("mode.unknown")}</InlineState>;
-            const liveMode = mode ?? s.mode;
-            const livePaused = mode === null ? s.paused : paused;
-            if (s.hold?.active && liveMode !== "read_only" && !livePaused) return <InlineState tone="danger">{t("safety.stateHeld")}</InlineState>;
-            if (liveMode === "autopilot" && !livePaused) return <InlineState tone="success" icon={Bot}>{t("automation.allowedAutopilot")}</InlineState>;
-            if (liveMode === "manage" && !livePaused) return <InlineState tone="success">{t("automation.allowed")}</InlineState>;
-            return <InlineState tone="neutral" icon={Lock}>{liveMode === "read_only" ? t("automation.notAllowedReadOnly") : t("automation.notAllowedPaused")}</InlineState>;
+            if (!s.mode || typeof s.automation_allowed !== "boolean") return <InlineState tone="unknown">{t("mode.unknown")}</InlineState>;
+            if (s.hold?.active && s.mode !== "read_only" && !s.paused) return <InlineState tone="danger">{t("safety.stateHeld")}</InlineState>;
+            if (s.automation_allowed) return <InlineState tone="success" icon={autopilotMode ? Bot : undefined}>{t(autopilotMode ? "automation.allowedAutopilot" : "automation.allowed")}</InlineState>;
+            return <InlineState tone="neutral" icon={Lock}>{t(s.mode === "read_only" ? "automation.notAllowedReadOnly" : "automation.notAllowedPaused")}</InlineState>;
           })()}
           <dl className="kv">
             <dt>{t("automation.appliedLastHour")}</dt><dd>{num(s.applied_last_hour)}</dd>

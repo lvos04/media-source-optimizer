@@ -4,7 +4,7 @@ import { BrainCircuit, KeyRound, MessageSquareText, PlugZap, Trash2 } from "luci
 import { useEffect, useState } from "react";
 
 import { Button, Card, Field, InlineState, StatusChip, Switch } from "@/components/mg/primitives";
-import { StateView } from "@/components/mg/states";
+import { ErrorState, StateView } from "@/components/mg/states";
 import { useAction } from "@/lib/api/actions";
 import { useResource } from "@/lib/api/hooks";
 import type { AiAdvice, AiStatus } from "@/lib/api/insights";
@@ -38,7 +38,13 @@ export function AiCard() {
     setEffort(s.effort);
   }, [s]);
 
-  if (!s) return <Card className="span-12" title={t("ai.title")} icon={BrainCircuit}><StateView kind={status.error ? "error" : "loading"} compact /></Card>;
+  if (status.error || !s) {
+    return (
+      <Card className="span-12" title={t("ai.title")} icon={BrainCircuit}>
+        {status.error ? <ErrorState error={status.error} onRetry={() => void status.reload()} compact /> : <StateView kind="loading" compact />}
+      </Card>
+    );
+  }
   const adminReason = isAdmin ? undefined : t("automation.adminOnly");
   const saveConfig = async () => {
     const res = await run<AiStatus>("cfg", "put", "/ai/config", {

@@ -18,8 +18,11 @@ trap opruimen EXIT
 
 PGPASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
 export PGPASSWORD
-printf '%s\n' "$PGPASSWORD" | "${pg[@]}" "$MSO_PG_BIN/initdb" -D "$cluster/data" -U mso \
+# initdb heropent /dev/stdin. Maak de pipe als dezelfde gebruiker die haar zal lezen.
+"${pg[@]}" bash -euo pipefail -s -- "$MSO_PG_BIN" "$cluster/data" <<'INITDB'
+printf '%s\n' "$PGPASSWORD" | "$1/initdb" -D "$2" -U mso \
     --no-locale --encoding=UTF8 --auth-local=peer --auth-host=scram-sha-256 --pwfile=/dev/stdin >/dev/null
+INITDB
 port=$(python -c 'import socket; s = socket.socket(); s.bind(("localhost", 0)); print(s.getsockname()[1])')
 "${pg[@]}" "$MSO_PG_BIN/pg_ctl" -D "$cluster/data" -w -l "$cluster/postgres.log" \
     -o "-c listen_addresses=localhost -c unix_socket_directories='' -p $port" start

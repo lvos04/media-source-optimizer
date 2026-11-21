@@ -69,6 +69,9 @@ jobs:
             "$versie" "$GITHUB_SHA" "$(date -u +%FT%TZ)" >> "$GITHUB_ENV"
       - name: Bouw en beproef de alles-in-één-image met beide upgrades, herstel en schemaweigering
         run: bash .forgejo/scripts/alles-in-een.sh
+      - name: Eigen proefcontainers opruimen
+        if: always()
+        run: bash .forgejo/scripts/alles-in-een.sh ruim
       - name: Bouw core en web met dezelfde herkomstgegevens
         run: |
           bash scripts/build-images.sh core

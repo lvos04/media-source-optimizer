@@ -2,6 +2,13 @@
 # Bouw en beproef precies de image die de aanroeper eventueel publiceert.
 set -euo pipefail
 
+export MSO_AIO_NAME="mso-aio-$MSO_IMAGE_TAG"
+if [[ ${1:-} == ruim ]]; then
+    # Afsluitende stap: ook na afbreken de containers en het netwerk van deze proef weg.
+    docker rm -fv "$MSO_AIO_NAME" "$MSO_AIO_NAME-sab" >/dev/null 2>&1 || true
+    docker network rm "$MSO_AIO_NAME-net" >/dev/null 2>&1 || true
+    exit 0
+fi
 export MSO_BUILD_VERSION="${MSO_BUILD_VERSION:-$(< release/VERSION)}"
 export MSO_BUILD_TIME="${MSO_BUILD_TIME:-$(date -u +%FT%T.%3N+00:00)}"
 export MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL="${MSO_BUILD_CHANNEL:-development}"

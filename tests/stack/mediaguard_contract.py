@@ -218,7 +218,9 @@ def main() -> int:
         compose_file = Path(directory) / "compose.json"
         fixture_image = os.environ.get("MSO_CONTRACT_FIXTURE_IMAGE")
         compose_file.write_text(json.dumps(stack(fixture_image)), encoding="utf-8")
-        compose = ["docker", "compose", "-f", str(compose_file), "-p", f"mso-mg-contract-{uuid4().hex[:10]}"]
+        # CI geeft een vaste projectnaam per job mee, zodat de afsluitende stap ook na afbreken de stack opruimt.
+        project = os.environ.get("MSO_CONTRACT_PROJECT") or f"mso-mg-contract-{uuid4().hex[:10]}"
+        compose = ["docker", "compose", "-f", str(compose_file), "-p", project]
         try:
             if fixture_image:
                 subprocess.run([*compose, "build", "mock-radarr"], check=True, timeout=180)

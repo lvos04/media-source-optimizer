@@ -60,7 +60,8 @@ UPGRADE_160 = (
     "21 gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.6.0",
 )
 SCENARIO_COUNT = 17 + len(UPGRADE_150) + len(UPGRADE_160)
-NAME = f"mso-aio-{secrets.token_hex(6)}"
+# CI geeft een vaste naam per job mee, zodat de afsluitende stap ook na afbreken precies deze containers opruimt.
+NAME = os.environ.get("MSO_AIO_NAME") or f"mso-aio-{secrets.token_hex(6)}"
 NET, MOCK_NAME = f"{NAME}-net", f"{NAME}-sab"
 PORT = int(os.environ.get("MSO_AIO_TEST_PORT", "48091"))
 BASE = f"http://127.0.0.1:{PORT}"

@@ -21,9 +21,9 @@ PV2 = ROOT / "docs" / "platform-v2"
 BRON_REPO = "lvos04/ai-server-manager"
 #: vaste bron-commit (branch ccr-c133d7a0-kuz1cv); contract 1.3 inclusief de reviewcorrecties RV1–RV13 (ADR-0028) en
 #: de aanvullingen C-12 en M1/M3
-BRON_COMMIT = "bc1746e88e7b742fa8dae270ef94c34cbbc3fc4a"
+BRON_COMMIT = "cfc816328ea2789b30e0db97e28dbfd9ec654ecf"
 PINS = {
-    "PLATFORM_CONTRACTEN.md": "e3a8f6cdd11e6460708fdfae5fd6c44da05f62a8670bfebce951824d6aa46c0a",
+    "PLATFORM_CONTRACTEN.md": "3ef1bcdc5cd5e35e9d54dc0274434d6766aa6f777e3897e3dbc1c7d9421dd40b",
     "CONTRACT_1.3_CONFORMITEIT.md": "b5ebba073a8fe8beb715d58e6760feae38e33ad445956d107e64840133dd7924",
 }
 NAAST = ROOT.parent / "ai-server-manager"

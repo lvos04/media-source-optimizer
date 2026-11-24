@@ -193,10 +193,10 @@
   "id": "EX16",
   "status": "Bezig",
   "validatie": "NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub)",
-  "bewijs": "MSO-deel S-P3-220: apps/core/tests/test_machine_keys.py en test_machine_key_restore.py meten 401 na intrekking, ook na een onderbroken gegevensherstel. Op een lokale PostgreSQL-testdatabase vergelijkt test_machine_key_sessions.py per bestaande operatie status, inhoudstype, foutcode, foutvelden, genormaliseerde antwoordinhoud en auditdelta met de echte basis-app. test_machine_key_feeds.py vergelijkt bestaande toegang tot de twee feeds. Zie docs/test-evidence/machine-keys.md.",
-  "blokkade": "De integrale simulatorproef S-P6-18 moet nog worden uitgevoerd. S-P3-230/240 en de Hub-adapter ontbreken nog. NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub).",
-  "opmerking": "Bezig. Getoetst is dat MSO een ingetrokken sleutel weigert. De integrale proef moet ook meten dat de Hub de koppeling als onbekend toont en verouderde gegevens niet als actueel weergeeft.",
+  "bewijs": "MSO-deel S-P3-220: apps/core/tests/test_machine_keys.py en test_machine_key_restore.py meten 401 na intrekking, ook na een onderbroken gegevensherstel. Op een lokale PostgreSQL-testdatabase vergelijkt test_machine_key_sessions.py per bestaande operatie status, inhoudstype, foutcode, foutvelden, genormaliseerde antwoordinhoud en auditdelta met de echte basis-app. test_machine_key_feeds.py vergelijkt bestaande toegang tot de twee feeds. Zie docs/test-evidence/machine-keys.md. De MSO-leesconnector (S-P3-230, 9341438) weigert een ingetrokken sleutel op vijf leesroutes. De MSO-schrijfroutes (S-P3-240, fca4571) weigeren een wijziging als de preview_hash afwijkt. Beide weigeringen zijn gedekt in apps/core/tests/test_connector_api.py door test_a_toegang en test_signed_execution_refuses_without_writes.",
+  "blokkade": "De integrale simulatorproef S-P6-18 staat open. Na intrekking van de testsleutel moet de Hub de koppeling als onbekend tonen en een melding geven. Toegang met die sleutel moet geweigerd blijven en oude gegevens mogen niet als actueel verschijnen. Daarna volgt de acceptatieproef N-P6-03 op de echte NAS met de echte Hub. NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub).",
+  "opmerking": "De Hub-leesadapter voor openbare probes is gebouwd in S-P3-040. VERSIE 2: het goedkeuren van een MSO-wijziging vanuit de Hub (S-P3-120) is uitgesteld tot versie 1 op de NAS draait.",
   "repo": "media-source-optimizer",
-  "bijgewerkt": "2026-11-18"
+  "bijgewerkt": "2026-11-24"
  }
 ]

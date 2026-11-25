@@ -139,6 +139,13 @@ def test_evidence_volgt_paragraaf_11() -> None:
     assert fouten(_items(), _excel_ids(), _contractpunten(), dt.date.today()) == []
 
 
+@pytest.mark.parametrize("rid", ["B05-002", "B05-006"])
+def test_open_praktijkproef_heeft_de_nas_aantekening(rid: str) -> None:
+    rij = next(r for r in _items() if r["id"] == rid)
+    assert "NIET GEVALIDEERD (echte NAS)" in rij["validatie"].split("; ")
+    assert "alleen NAS-test nodig" in rij["opmerking"]
+
+
 def test_alle_excel_taken_van_deze_repo_staan_erin() -> None:
     ids = {i["id"] for i in _items()}
     assert _excel_ids() <= ids, sorted(_excel_ids() - ids)

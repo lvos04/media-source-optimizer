@@ -72,7 +72,13 @@ Valideer het manifest lokaal vanaf de hoofdmap met de validator van
 jl-manifest validate --strict deploy/manifest/media-source-optimizer.manifest.yaml
 ```
 
-De handmatige Forgejo-workflow `broncontroles.yaml` haalt dezelfde broncommit op voor de job
+De job `python` draait bij elke CI-run `python3 scripts/bronkopie.py vergelijk --online`. Deze controle
+vergelijkt de SHA-256 van het platformcontract en Peil met hun vastgezette commits en controleert
+vervolgens de bronbranch van `leon/ai-server-manager` op Forgejo. CI gebruikt het Actions-secret
+`BRON_LEESTOKEN`. Lokaal leest het script dezelfde omgevingsvariabele of het bestand
+`forgejo/token` in de gebruikersconfiguratie.
+
+De handmatige Forgejo-workflow `broncontroles.yaml` haalt de vastgezette validatorcommit op voor de job
 `manifest`. De job `bronvergelijking` vergelijkt het platformcontract en Peil met hun broncommits
 en de bronbranch. Voor deze twee privé-checkouts gebruikt de workflow het Actions-secret
 `BRON_LEESTOKEN` met leestoegang tot `leon/appstore-en-fork` en `leon/ai-server-manager`.

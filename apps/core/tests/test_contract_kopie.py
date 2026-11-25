@@ -4,7 +4,7 @@
 ``lvos04/ai-server-manager`` op de vaste bron-commit hieronder. Een repo past een kopie nooit aan; een nieuwe kopie
 overnemen is een stap van de orkestratie (``scripts/bronkopie.py bijwerken --soort contract``). Staat de bron naast deze
 repo uitgecheckt (zoals in de bouwomgeving), dan wordt ook de inhoud op die commit nagerekend; de vergelijking met de
-bron op GitHub doet CI (``scripts/bronkopie.py vergelijk --online``, job python).
+bron op Forgejo doet CI (``scripts/bronkopie.py vergelijk --online``, job python).
 """
 
 from __future__ import annotations

@@ -5,9 +5,13 @@ controle echt faalt. Geen database nodig."""
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+from email.message import Message
 from pathlib import Path
 from types import ModuleType
 
@@ -57,6 +61,62 @@ def test_naastliggende_bron_heeft_de_gepinde_inhoud() -> None:
         print("WAARSCHUWING", regel)
 
 
+@pytest.mark.parametrize("afwijking", [None, "andere bytes", "ontbreekt"])
+def test_online_contract_leest_beide_bestanden_op_pin_en_branch(
+    afwijking: str | None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    rel = "docs/platform-v2/HERKOMST_CONTRACT.json"
+    pin = bk.lees_pin(ROOT, rel)
+    basis = "https://git.medialeon.nl/api/v1/repos/leon/ai-server-manager/raw"
+    inhoud = {
+        f"{basis}/{b.bron}?ref={ref}": (ROOT / b.kopie).read_bytes()
+        for ref in (pin.bron_commit, pin.bron_ref) for b in pin.bestanden
+    }
+    afwijkende_url = f"{basis}/{pin.bestanden[0].bron}?ref={pin.bron_commit}"
+    gelezen = []
+    monkeypatch.setenv("BRON_LEESTOKEN", tmp_path.name)
+
+    def open_bron(verzoek: urllib.request.Request, timeout: int) -> io.BytesIO:
+        url = verzoek.full_url
+        gelezen.append(url)
+        assert verzoek.unredirected_hdrs["Authorization"] == f"token {tmp_path.name}"
+        assert "Authorization" not in verzoek.headers
+        if url == afwijkende_url and afwijking == "ontbreekt":
+            raise urllib.error.HTTPError(url, 404, "ontbreekt", Message(), None)
+        if url == afwijkende_url and afwijking == "andere bytes":
+            return io.BytesIO(inhoud[url] + b"\n")
+        return io.BytesIO(inhoud[url])
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_bron)
+    uit = bk.vergelijk(bk.online_lezer(pin.bron_repo), ROOT, (rel,))
+    assert sorted(gelezen) == sorted(inhoud)
+    assert not uit.waarschuwingen
+    if afwijking is None:
+        assert uit.fouten == []
+        assert all(any(b.sha256 in regel and pin.bron_commit in regel for regel in uit.ok) for b in pin.bestanden)
+    else:
+        assert len(uit.fouten) == 1 and pin.bron_commit[:12] in uit.fouten[0]
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_online_geweigerde_leestoegang_geeft_uitgang_drie(
+    status: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("BRON_LEESTOKEN", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "forgejo").mkdir()
+    (tmp_path / "forgejo" / "token").write_text(tmp_path.name + "\n", encoding="utf-8")
+
+    def weiger(verzoek: urllib.request.Request, timeout: int) -> None:
+        assert verzoek.get_header("Authorization") == f"token {tmp_path.name}"
+        raise urllib.error.HTTPError(verzoek.full_url, status, "geweigerd", Message(), None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", weiger)
+    assert bk.main(["vergelijk", "--online"]) == 3
+    melding = capsys.readouterr().err
+    assert f"HTTP {status}" in melding and tmp_path.name not in melding
+
+
 # --------------------------------------------------------------------------------------- nagebootste bron en repo
 CSS_V1 = "/* ===\n   Peil 1.1.1 — ontwerptaal test\n   === */\n:root { --x: #000; }\n"
 CSS_V1_ANDERS = "/* ===\n   Peil 1.1.1 — ontwerptaal test\n   === */\n:root { --x: #111; }\n"
@@ -80,7 +140,7 @@ def _commit(bron: Path, css: str, contract: str) -> str:
     (bron / "design" / "tokens.json").write_text('{"v": 1}\n', encoding="utf-8")
     (bron / "docs").mkdir(parents=True, exist_ok=True)
     (bron / "docs" / "CONTRACT.md").write_text(contract, encoding="utf-8")
-    _git(bron, "add", "-A")
+    _git(bron, "add", "design", "docs")
     _git(bron, "commit", "-q", "-m", "bron")
     return _git(bron, "rev-parse", "HEAD")
 
@@ -195,7 +255,7 @@ def test_gewijzigd_peildocument_zonder_nieuwe_versie_is_een_waarschuwing(opzet: 
     """Een md-document (regels/handoff/ADR) is geen kopie in de zin van ONTWERPTAAL §14: waarschuwing, geen drift."""
     repo, bron, commit, pinnen = opzet
     (bron / "docs" / "REGELS.md").write_text("# Regels\n", encoding="utf-8")
-    _git(bron, "add", "-A")
+    _git(bron, "add", "docs/REGELS.md")
     _git(bron, "commit", "-q", "-m", "regels")
     nieuw = _git(bron, "rev-parse", "HEAD")
     data = json.loads((repo / "pin/peil.json").read_text(encoding="utf-8"))

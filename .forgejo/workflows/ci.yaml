@@ -40,6 +40,10 @@ jobs:
       - run: ruff check apps/core apps/mocks tests/stack scripts
       - run: python scripts/check_dockerfile_digests.py
       - run: python scripts/bronkopie.py controleer
+      - name: Vergelijk contract en Peil met de gepinde commits en de bronbranch op Forgejo
+        env:
+          BRON_LEESTOKEN: ${{ secrets.BRON_LEESTOKEN }}
+        run: python scripts/bronkopie.py vergelijk --online
       - name: Pytest met PostgreSQL 16
         run: bash .forgejo/scripts/kernproef.sh --junitxml="$GITHUB_WORKSPACE/test-results/pytest.xml"
       - uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e # v4

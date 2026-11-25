@@ -30,7 +30,7 @@ tests en CI. OpenAPI is byte-gelijk.
    soort een pinbestand: `docs/platform-v2/HERKOMST_CONTRACT.json` (contract) en `design/ontwerptaal/HERKOMST.json`
    (Peil). Daar staan versie, bronrepo, branch, **volledige bron-commit** en de sha256 per bestand; nergens anders.
    `controleer` (offline) draait in `make lint`, in CI (job python) en in de unit-tests; `vergelijk --online` draait in
-   CI tegen GitHub; `vergelijk --bron <checkout>` lokaal. Een onbereikbare bron geeft uitgang 3 (**onbekend**, nooit
+   CI tegen Forgejo; `vergelijk --bron <checkout>` lokaal. Een onbereikbare bron geeft uitgang 3 (**onbekend**, nooit
    "in orde"). *Alternatief:* de sha256 alleen als constante in een test (zoals home-control-hub) — blijft daarnaast
    bestaan in `test_contract_kopie.py`, maar vergelijkt niet met de bron. *Alternatief:* vergelijken met de werkboom
    van de naastliggende bron — verworpen: dan faalt de test lokaal bij elke wijziging van een andere bouwer.
@@ -96,7 +96,7 @@ tests en CI. OpenAPI is byte-gelijk.
 
 ## Gevolgen
 
-- CI (job python) vergelijkt elke run met de bron op GitHub; een nieuwe Peil-versie geeft een waarschuwing, een stille
+- CI (job python) vergelijkt elke run met de bron op Forgejo; een nieuwe Peil-versie geeft een waarschuwing, een stille
   wijziging binnen dezelfde Peil-versie een rode run. Overnemen: `scripts/bronkopie.py bijwerken --soort peil|contract`
   + `PEIL_VERSION`/`PEIL_COMMIT` in `apps/web/scripts/check-peil.mjs` + de constanten in `test_contract_kopie.py`.
 - De e2e-suite (`make e2e`) controleert de UI met de 1.1.1-kopieën: axe (wcag2a/aa, 21a/aa, 22aa) = 0 op alle

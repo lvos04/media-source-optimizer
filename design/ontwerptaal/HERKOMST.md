@@ -35,7 +35,7 @@ zelfde versie, commit en sha256). De omzetting staat in `docs/ontwerp/PEIL_MIGRA
 
 ```sh
 python3 scripts/bronkopie.py controleer                       # offline: koppen, inhoud en pins (CI, job python)
-python3 scripts/bronkopie.py vergelijk --online               # tegen GitHub (CI, job python)
+python3 scripts/bronkopie.py vergelijk --online               # tegen Forgejo (CI, job python)
 python3 scripts/bronkopie.py vergelijk --bron ../ai-server-manager   # tegen een checkout ernaast
 (cd apps/web && npm run check:peil)                           # de kopieën in de Docker-context (CI, job web)
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Versie-gepinde kopieën uit ``lvos04/ai-server-manager`` bewaken (alleen de standaardbibliotheek).
+"""Versie-gepinde kopieën uit ai-server-manager bewaken (alleen de standaardbibliotheek).
 
 Twee soorten kopieën, elk met één pinbestand (de enige plek waar versie, bron-commit en sha256 staan):
 
@@ -17,7 +17,7 @@ Twee soorten kopieën, elk met één pinbestand (de enige plek waar versie, bron
 Opdrachten::
 
     controleer                                  offline: kopieën, koppen en pins kloppen (CI, elke run; unit-tests)
-    vergelijk --bron <map> | --online           tegen de bron (een checkout van ai-server-manager of GitHub)
+    vergelijk --bron <map> | --online           tegen een checkout van ai-server-manager of de Forgejo-bron
     bijwerken --soort peil|contract --bron <map> --commit <40 hex> [--ref <branch>]
 
 Uitgang: 0 = in orde (eventueel met waarschuwingen), 1 = drift of fout, 2 = verkeerd gebruik, 3 = bron niet bereikbaar
@@ -29,11 +29,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -41,7 +43,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PINNEN = ("docs/platform-v2/HERKOMST_CONTRACT.json", "design/ontwerptaal/HERKOMST.json")
-RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{pad}"
+BRON_REPO = "lvos04/ai-server-manager"  # herkomstnaam in de bestaande pins en Peil-koppen
+FORGEJO_RAW = "https://git.medialeon.nl/api/v1/repos/leon/ai-server-manager/raw"
 
 #: versie zoals de bron hem zelf noemt (in het bestand ``versiebron`` van de pin)
 VERSIE = {
@@ -239,16 +242,33 @@ def git_lezer(bron: Path) -> Lezer:
 
 
 def online_lezer(repo: str, pogingen: int = 4) -> Lezer:
+    if repo != BRON_REPO:
+        raise Fout(f"geen Forgejo-bron ingesteld voor {repo!r}")
+    token = os.environ.get("BRON_LEESTOKEN", "").strip()
+    if not token:
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        try:
+            token = (config / "forgejo" / "token").read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            pass
+        except (OSError, UnicodeError) as exc:
+            raise BronOnbereikbaar("het lokale Forgejo-leestoken is onleesbaar") from exc
+
     def lees(ref: str, pad: str) -> bytes | None:
-        url = RAW.format(repo=repo, ref=ref, pad=pad)
+        url = f"{FORGEJO_RAW}/{urllib.parse.quote(pad)}?{urllib.parse.urlencode({'ref': ref})}"
+        verzoek = urllib.request.Request(url, headers={"User-Agent": "mso-bronkopie/1"})  # noqa: S310 (vaste HTTPS-bron)
+        if token:
+            verzoek.add_unredirected_header("Authorization", f"token {token}")
         laatste = ""
         for poging in range(pogingen):
             try:
-                with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310 (vaste https-URL)
+                with urllib.request.urlopen(verzoek, timeout=30) as resp:  # noqa: S310 (vaste Forgejo-bron)
                     return bytes(resp.read())
             except urllib.error.HTTPError as exc:
                 if exc.code == 404:
                     return None
+                if exc.code in (401, 403):
+                    raise BronOnbereikbaar(f"Forgejo weigert leestoegang (HTTP {exc.code})") from exc
                 laatste = f"HTTP {exc.code}"
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 laatste = str(exc)
@@ -276,6 +296,8 @@ def vergelijk(
                     f"{b.kopie}: de gepinde bron-commit {pin.bron_commit[:12]} heeft andere inhoud voor {b.bron} "
                     f"({sha256(data)[:12]}… ≠ pin {b.sha256[:12]}…)"
                 )
+            else:
+                uit.ok.append(f"{b.kopie}  bron-commit {pin.bron_commit}  sha256 {b.sha256}")
         kop_ref = ref or pin.bron_ref
         hoofd = {b.bron: lezer(kop_ref, b.bron) for b in pin.bestanden}
         versiedata = hoofd.get(pin.versiebron)

@@ -25,7 +25,7 @@ from mso.connectors import mediaguard as mgc
 from mso.db import get_db, jsonb
 from mso.features.mediaguard import compat
 from mso.features.mediaguard import settings as _settings  # noqa: F401  (registers settings)
-from mso.security import redact
+from mso.security import UnsafeTarget, redact
 
 LOGGER = logging.getLogger(__name__)
 API = mgc.API
@@ -135,11 +135,13 @@ def status(*, refresh: bool = False) -> dict[str, Any]:
             p = refresh_probe(force=refresh)
         except cb.ConnectorNotConfigured:
             p = None
+        except UnsafeTarget as exc:
+            raise HTTPException(422, detail="De ingestelde MediaGuard-bestemming is niet toegestaan") from exc
     m, why = _mode(p)
     caps = (p or {}).get("capabilities") or {}
     sync_state = snap_data("sync_state", {}) or {}
     ok, search_why = can_request_search(p) if p else (False, why)
-    return {
+    result = {
         "mode": m,
         "reason": why,
         "configured": configured(),
@@ -167,6 +169,9 @@ def status(*, refresh: bool = False) -> dict[str, Any]:
         },
         "quota": quota_overview(fresh=True),
     }
+    if p and p.get("error_code"):
+        result["error_code"] = p["error_code"]
+    return result
 
 
 # ------------------------------------------------------------------ sync (read-only)

@@ -35,7 +35,7 @@ import httpx
 
 from mso.connectors import base as cb
 from mso.connectors import mediaguard_response as schema
-from mso.security import redact
+from mso.security import UnsafeTarget, redact
 
 LOGGER = logging.getLogger(__name__)
 CID = "mediaguard"
@@ -208,11 +208,7 @@ class MediaGuardClient:
         user, pw = self.cfg.secrets.get("username"), self.cfg.secrets.get("password")
         if not user or not pw:
             raise MediaGuardError("auth_failed", "Gebruikersnaam en wachtwoord voor MediaGuard ontbreken")
-        try:
-            with cb.http_client(self.base, timeout=self.timeout) as c:
-                r = c.post(f"{API}/auth/login", json={"username": user, "password": pw})
-        except (httpx.TimeoutException, httpx.ConnectError) as exc:
-            raise MediaGuardError("offline", "MediaGuard is niet bereikbaar") from exc
+        r = self._send("POST", f"{API}/auth/login", json={"username": user, "password": pw})
         if r.status_code == 401:
             raise MediaGuardError("auth_failed", "MediaGuard weigert de inloggegevens", 401)
         if r.status_code == 404:
@@ -260,6 +256,15 @@ class MediaGuardClient:
         return h
 
     # ------------------------------------------------------------------ transport
+    def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        try:
+            with cb.http_client(self.base, timeout=self.timeout) as client:
+                return client.request(method, path, **kwargs)
+        except (UnsafeTarget, httpx.HTTPError) as exc:
+            if isinstance(exc, UnsafeTarget) and exc.code != "dns_failure":
+                raise
+            raise MediaGuardError("offline", "MediaGuard is niet bereikbaar") from exc
+
     def _check_allowed(self, method: str, path: str) -> None:
         if method.upper() in ("GET", "HEAD"):
             return
@@ -286,13 +291,7 @@ class MediaGuardClient:
             h = dict(headers or {})
             if auth:
                 h.update(self._auth_headers(mutating=mutating, fresh=attempt == 2))
-            try:
-                with cb.http_client(self.base, timeout=self.timeout) as c:
-                    r = c.request(method, path, params=params, json=json, headers=h)
-            except (httpx.TimeoutException, httpx.ConnectError) as exc:
-                raise MediaGuardError("offline", "MediaGuard is niet bereikbaar") from exc
-            except httpx.HTTPError as exc:
-                raise MediaGuardError("offline", redact(f"HTTP-fout naar MediaGuard: {exc}")) from exc
+            r = self._send(method, path, params=params, json=json, headers=h)
             if r.status_code == 401 and auth and self.method == "user" and attempt == 1:
                 continue  # session expired → log in once more
             return r
@@ -495,21 +494,15 @@ def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
         out["auth_ok"] = True
         out["role"] = me["role"]
         caps["auth_me"] = True
+        _probe_routes(client, out)
     except MediaGuardError as exc:
-        caps["auth_me"] = False if exc.code == "route_missing" else None
+        if exc.code == "route_missing":
+            caps["auth_me"] = False
         out["error"], out["error_code"] = str(exc), exc.code
         if exc.code == "offline":
             out["reachable"] = False
+            out["auth_ok"] = False
         return out
-    if ROLE_LEVELS.get(out["role"], 0) >= ROLE_LEVELS["viewer"]:
-        try:
-            st = client.get(f"{API}/status", route_id="status")
-            out["emergency_stop"] = st["emergency_stop"]["active"]
-            out["version"] = out["version"] or st.get("version")
-            caps["status"] = True
-        except MediaGuardError as exc:
-            caps["status"] = False if exc.code == "route_missing" else None
-    _probe_routes(client, out["role"], caps)
     if out["auth_method"] == "apikey" and out["role"] == "admin":
         out["warnings"].append(
             "Deze MediaGuard-API-sleutel heeft rol 'admin'; maak een sleutel met rol 'operator' "
@@ -538,14 +531,15 @@ def probe(cfg: cb.ConnectorConfig) -> dict[str, Any]:
     return out
 
 
-def _probe_routes(client: MediaGuardClient, role: str | None, caps: dict[str, bool | None]) -> None:
+def _probe_routes(client: MediaGuardClient, out: dict[str, Any]) -> None:
     """Bevestig alleen leesroutes waarvoor de gekoppelde rol bevoegd is."""
     from mso.features.mediaguard import compat
 
     ids: dict[str, str] = {}
-    level = ROLE_LEVELS.get(role or "none", 0)
+    caps = out["capabilities"]
+    level = ROLE_LEVELS.get(out["role"] or "none", 0)
     for route in sorted(compat.ROUTES, key=lambda route: "{" in route.path):
-        if route.id in caps:
+        if route.id in ("health", "auth_me", "openapi"):
             continue
         caps[route.id] = None
         if route.method != "GET" or level < ROLE_LEVELS[route.role]:
@@ -557,7 +551,9 @@ def _probe_routes(client: MediaGuardClient, role: str | None, caps: dict[str, bo
             continue
         try:
             r = client.request("GET", path, params=route.probe_params, auth=route.role != "none")
-        except MediaGuardError:
+        except MediaGuardError as exc:
+            if exc.code == "offline":
+                raise
             continue
         if r.is_success:
             try:
@@ -565,7 +561,10 @@ def _probe_routes(client: MediaGuardClient, role: str | None, caps: dict[str, bo
             except UnreadableResponse:
                 continue
             caps[route.id] = True
-            if route.id == "wanted_list" and body["items"]:
+            if route.id == "status":
+                out["emergency_stop"] = body["emergency_stop"]["active"]
+                out["version"] = out["version"] or body.get("version")
+            elif route.id == "wanted_list" and body["items"]:
                 ids["wanted_id"] = str(body["items"][0]["id"])
             elif route.id == "instances_list" and body:
                 ids["instance_id"] = body[0]["id"]

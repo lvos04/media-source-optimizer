@@ -6,9 +6,12 @@ quota. Exercised over real HTTP against the MediaGuard mock (shapes from the ref
 from __future__ import annotations
 
 import json
+import socket
 from typing import Any
 
+import httpx
 import pytest
+import respx
 from mg_support import (
     VIEWER,
     assert_only_allowed_writes,
@@ -18,6 +21,7 @@ from mg_support import (
 )
 from msomocks import mediaguard as mgmock
 
+from mso.config import get_settings
 from mso.connectors import base as cb
 from mso.connectors import mediaguard as mgc
 
@@ -89,9 +93,68 @@ def test_offline_falls_back_to_standalone(serve: Any, admin: Any, viewer: Any, o
     assert t["ok"] is False and t["status"] == "offline"
     # closed port behaves the same
     configure(admin, "http://127.0.0.1:9")
-    assert viewer.get("/api/v1/mediaguard/status?refresh=true").json()["mode"] == "standalone"
+    antwoord = viewer.get("/api/v1/mediaguard/status?refresh=true")
+    assert antwoord.status_code == 200
+    assert antwoord.json()["mode"] == "standalone" and antwoord.json()["error_code"] == "offline"
     r = operator.post("/api/v1/recovery/items/mg:1/request-search")
     assert r.status_code in (404, 409)
+
+
+def test_status_bij_dnsuitval_en_herstel(serve, admin, viewer, monkeypatch):
+    mock, url = start_mock(serve)
+    doel = httpx.URL(url).copy_with(host="localhost")
+    configure(admin, str(doel))
+    status = "/api/v1/mediaguard/status"
+    assert viewer.get(status, params={"refresh": True}).json()["mode"] == "connected"
+    getaddrinfo = socket.getaddrinfo
+
+    def dns_uit(host, port, *args, **kwargs):
+        if (host, port) == (doel.host, doel.port):
+            raise socket.gaierror("Interne DNS-testmelding")
+        return getaddrinfo(host, port, *args, **kwargs)
+
+    with monkeypatch.context() as uitval:
+        uitval.setattr(socket, "getaddrinfo", dns_uit)
+        aantal = len(mock.state.calls)
+        antwoord = viewer.get(status, params={"refresh": True})
+        assert antwoord.status_code == 200
+        st = antwoord.json()
+        assert st["mode"] == "standalone" and st["reachable"] is False
+        assert st["error_code"] == "offline" and st["error"] == "MediaGuard is niet bereikbaar"
+        assert st["search"]["available"] is False
+        assert viewer.get(status).json()["mode"] == "standalone"
+        assert admin.put("/api/v1/settings", json={"values": {"backup.keep": 3}}).status_code == 200
+        assert viewer.get("/api/v1/settings").json()["values"]["backup.keep"] == 3
+        assert len(mock.state.calls) == aantal
+
+    hersteld = viewer.get(status, params={"refresh": True})
+    assert hersteld.status_code == 200
+    st = hersteld.json()
+    assert st["mode"] == "connected" and st["error"] is None
+    assert "error_code" not in st
+
+
+@pytest.mark.parametrize("pad", ["/health", "/auth/login", "/status", "/wanted"])
+def test_status_bij_timeout_tijdens_probe(mg, viewer, pad):
+    _, url = mg
+    with respx.mock(base_url=url, assert_all_called=False) as netwerk:
+        storing = netwerk.route(path=f"{mgc.API}{pad}").mock(side_effect=httpx.ReadTimeout("Interne testmelding"))
+        netwerk.route().pass_through()
+        antwoord = viewer.get("/api/v1/mediaguard/status", params={"refresh": True})
+    assert storing.called and antwoord.status_code == 200
+    st = antwoord.json()
+    assert st["mode"] == "standalone" and st["reachable"] is False
+    assert st["error_code"] == "offline" and st["error"] == "MediaGuard is niet bereikbaar"
+
+
+def test_status_weigert_geblokkeerd_doel(mg, viewer, monkeypatch):
+    mock, url = mg
+    monkeypatch.setattr(get_settings(), "ssrf_extra_blocked", [httpx.URL(url).host])
+    aantal = len(mock.state.calls)
+    antwoord = viewer.get("/api/v1/mediaguard/status", params={"refresh": True})
+    assert antwoord.status_code == 422
+    assert antwoord.json()["detail"] == "De ingestelde MediaGuard-bestemming is niet toegestaan"
+    assert len(mock.state.calls) == aantal
 
 
 def test_auth_failure_is_degraded(serve: Any, admin: Any, viewer: Any, operator: Any) -> None:

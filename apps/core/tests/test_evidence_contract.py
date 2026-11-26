@@ -146,6 +146,36 @@ def test_open_praktijkproef_heeft_de_nas_aantekening(rid: str) -> None:
     assert "alleen NAS-test nodig" in rij["opmerking"]
 
 
+@pytest.mark.parametrize(
+    ("rid", "afhankelijkheid"),
+    [
+        ("B05-002", "account"),
+        ("B05-003", "account"),
+        ("B05-004", "account"),
+        ("B05-005", "account"),
+        ("B05-006", "account"),
+        ("B05-007", "account"),
+        ("B05-009", "hardware"),
+        ("B05-009", "account"),
+        ("B05-010", "account"),
+        ("C1.3-MSO-02", "account"),
+        ("C1.3-MSO-04", "hardware"),
+        ("C1.3-MSO-04", "account"),
+        ("C1.3-MSO-05", "account"),
+        ("C1.3-MSO-06", "hardware"),
+        ("C1.3-MSO-06", "account"),
+        ("C1.3-ALG-05", "echte NAS"),
+        ("C1.3-ALG-05", "account"),
+        ("REVIEW-media-source-optimizer-contract-1.3", "account"),
+        ("EX16", "hardware"),
+        ("EX16", "account"),
+    ],
+)
+def test_praktijkproef_vermeldt_de_afhankelijkheid(rid: str, afhankelijkheid: str) -> None:
+    rij = next(r for r in _items() if r["id"] == rid)
+    assert f"NIET GEVALIDEERD ({afhankelijkheid})" in rij["validatie"].split("; ")
+
+
 def test_alle_excel_taken_van_deze_repo_staan_erin() -> None:
     ids = {i["id"] for i in _items()}
     assert _excel_ids() <= ids, sorted(_excel_ids() - ids)

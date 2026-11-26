@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from mso import resource_usage, retention, settings_registry
-from mso.config import BuildMetadata, get_settings
+from mso.config import VERSION, BuildMetadata, get_settings
 from mso.features.newznab_server import keys as newznab_keys
 from mso.security import limiter
 from tests.conftest import USER_FIXTURE_PASSWORD, AuthedClient
@@ -86,6 +86,10 @@ def _matrix_body(response, operation, caller, installed_schema):
     if operation == ("get", "/api/v1/settings"):
         # De registratievolgorde hangt af van welke modules pytest al heeft geïmporteerd.
         body["definitions"].sort(key=lambda definition: definition["key"])
+    if operation in (("get", "/api/v1/setup/status"), ("post", "/api/v1/setup/complete")):
+        release = Path(__file__).resolve().parents[3] / "release/VERSION"
+        assert body["version"] == VERSION == release.read_text().strip()
+        body["version"] = "1.6.0"  # Vergelijk de overige velden met de ongewijzigde basismeting.
     if operation == ("get", "/api/v1/connectors"):
         body.sort(key=lambda connector: connector["id"])
     if operation == ("get", "/api/v1/automation/schedules"):

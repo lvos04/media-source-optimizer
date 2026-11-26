@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 BUILD_TIME_UTC = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|\+00:00)")
 
 

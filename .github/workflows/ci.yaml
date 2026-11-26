@@ -6,15 +6,15 @@
 # manifest strikte validatie van het Custom App-manifest met de gepinde gedeelde validator
 # mediaguard_contract MSO-client tegen gepinde MediaGuard-core met nep-Radarr
 # web      Peil drift check + typecheck + lint + unit tests (vitest) + production build of the Next.js UI
-# images   docker build of core, web and mocks (pushed to ghcr.io only for release tags v*)
+# images   docker build of core, web and mocks (alleen testbouw)
 # allinone docker build of the all-in-one image (deploy/allinone, the TrueNAS Custom App) + tests/stack/allinone_test.py
 #          (empty /appdata as root → healthy, processes as 568, restart/kill without data loss, backup/restore,
-#          upgrade and restore with the pinned 1.5.0 and 1.6.0 images, schema refusal, user 568, wrong rights); never pushed
+#          upgrade and restore with the pinned 1.3.0, 1.5.0 and 1.6.0 images, schema refusal, user 568, wrong rights); never pushed
 # stack    full container stack (deploy/truenas/compose.yaml + mocks) + smoke/e2e test → tests/stack/results
 # e2e      fresh stack, prepared (admin, connectors → mocks, backup, wizard completed) + ALL Playwright tests
 #          (desktop + mobile) with credentials; a skipped test fails the job → screenshots/traces as artifacts
 #
-# Action versions are pinned by release tag.
+# De acties zijn op commit-SHA gepind.
 name: ci
 
 on:
@@ -23,11 +23,6 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: "Publish core/web images to ghcr.io with this version (e.g. 1.0.0); empty = build only"
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -57,8 +52,8 @@ jobs:
     env:
       MSO_TEST_DATABASE_URL: postgresql://mso@127.0.0.1:5432/postgres
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -85,7 +80,7 @@ jobs:
       - name: Pytest
         working-directory: apps/core
         run: python -m pytest -q -p no:warnings --junitxml=../../test-results/pytest.xml
-      - uses: actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: pytest-results
@@ -95,8 +90,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -e apps/core
@@ -111,14 +106,14 @@ jobs:
     env:
       ASF_COMMIT: a994c2a51f45b81b2c48c6533b0ccf51ba857f5a
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: lvos04/appstore-en-fork
           ref: ${{ env.ASF_COMMIT }}
           path: .appstore-validator
           persist-credentials: false
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Installeer de gepinde manifestvalidator
@@ -138,8 +133,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -156,9 +151,6 @@ jobs:
   images:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -167,56 +159,25 @@ jobs:
           - {name: media-source-optimizer-web, context: apps/web}
           - {name: mso-mocks, context: apps/mocks}
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: docker/setup-buildx-action@v3.11.1
-      - name: Login to GHCR (release tags or manual release only)
-        if: (startsWith(github.ref, 'refs/tags/v') || inputs.release_version != '') && matrix.name != 'mso-mocks'
-        uses: docker/login-action@v3.5.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tags
-        id: tags
-        env:
-          RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          if [[ -n "$RELEASE_VERSION" && "${{ matrix.name }}" != "mso-mocks" ]]; then
-            [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ongeldige versie: $RELEASE_VERSION"; exit 1; }
-            echo "tags=ghcr.io/lvos04/${{ matrix.name }}:${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
-            echo "push=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_REF" == refs/tags/v* && "${{ matrix.name }}" != "mso-mocks" ]]; then
-            echo "tags=ghcr.io/lvos04/${{ matrix.name }}:${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-            echo "push=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "tags=${{ matrix.name }}:ci" >> "$GITHUB_OUTPUT"
-            echo "push=false" >> "$GITHUB_OUTPUT"
-          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Buildgegevens
         id: build
         if: matrix.name != 'mso-mocks'
-        env:
-          PUBLISH: ${{ steps.tags.outputs.push }}
-          IMAGE_TAG: ${{ steps.tags.outputs.tags }}
         run: |
           version="$(< release/VERSION)"
-          channel=development
-          if [[ "$PUBLISH" == true ]]; then
-            version="${IMAGE_TAG##*:}"
-            channel=release
-          fi
           {
             echo 'args<<EOF'
             printf 'VERSION=%s\nGIT_SHA=%s\nBUILD_TIME=%s\nCHANNEL=%s\n' \
-              "$version" "$GITHUB_SHA" "$(date -u +%FT%TZ)" "$channel"
+              "$version" "$GITHUB_SHA" "$(date -u +%FT%TZ)" development
             echo EOF
           } >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6.18.0
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ matrix.name }}:ci
           build-args: ${{ steps.build.outputs.args }}
-          push: ${{ steps.tags.outputs.push }}
+          push: false
           provenance: false
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
@@ -227,10 +188,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # Vaste S-P3-205-broncommit voor de weigerimage
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Build all-in-one image + test mocks (local only, never pushed)
@@ -257,7 +218,7 @@ jobs:
       - name: Job summary
         if: always()
         run: cat tests/stack/results/allinone-report.md >> "$GITHUB_STEP_SUMMARY" || true
-      - uses: actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: allinone-results
@@ -270,8 +231,8 @@ jobs:
     timeout-minutes: 40
     needs: [python, images]
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install httpx==0.28.1
@@ -290,7 +251,7 @@ jobs:
       - name: Job summary
         if: always()
         run: cat tests/stack/results/smoke-report.md >> "$GITHUB_STEP_SUMMARY" || true
-      - uses: actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: stack-results
@@ -301,11 +262,11 @@ jobs:
     timeout-minutes: 40
     needs: [web, images]
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -324,7 +285,7 @@ jobs:
           MSO_BUILD_TIME="$(date -u +%FT%T.%3N+00:00)"
           export MSO_BUILD_VERSION MSO_BUILD_TIME MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL=development
           make e2e PY=python
-      - uses: actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: playwright-results

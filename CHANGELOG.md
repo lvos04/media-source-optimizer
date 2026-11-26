@@ -2,7 +2,12 @@
 
 Alle noemenswaardige wijzigingen. Versies volgen SemVer; databaseschema-versies staan in `docs/MIGRATION.md`.
 
-## [Unreleased]
+## [1.6.1] — in voorbereiding
+
+- De releaseworkflow test en publiceert de drie versie-images bij een nieuwe git-tag. De registerdigests
+  komen als bijlage bij de GitHub Release.
+- De upgradeproef omvat ook de gepubliceerde 1.3.0-image met een gevulde database en de terugweg met de
+  volledige APPDATA. Zie [Een bestaande installatie bijwerken](deploy/truenas/BIJWERKEN.md).
 
 ### Database van een nieuwere versie weigeren (S-P3-205)
 - Numerieke, alleen-lezen voorcontrole vóór back-up en API/worker-initialisatie; `migrate_up` controleert opnieuw

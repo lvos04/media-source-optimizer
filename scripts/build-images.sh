@@ -29,6 +29,9 @@ build() {  # name context
   local -a metadata=()
   local binding variable
   if [[ "$1" != mso-mocks ]]; then
+    if [[ -n "${MSO_BUILD_SOURCE_URL:-}" ]]; then
+      metadata+=(--label "org.opencontainers.image.source=$MSO_BUILD_SOURCE_URL")
+    fi
     for binding in VERSION:MSO_BUILD_VERSION GIT_SHA:MSO_BUILD_GIT_SHA BUILD_TIME:MSO_BUILD_TIME CHANNEL:MSO_BUILD_CHANNEL; do
       variable=${binding#*:}
       if [[ -n "${!variable:-}" ]]; then

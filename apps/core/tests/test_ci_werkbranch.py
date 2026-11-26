@@ -1,27 +1,15 @@
-"""S-P3-200 (B05-001, P3-04/P3-14, besluit Z-10 optie 1): CI op de werkbranch en opgeruimde repo. Geen database nodig.
-
-- ``.github/workflows/ci.yaml`` start bij een push op ``main`` én op de werkbranches ``ccr-*``; ``tags: ["v*"]``,
-  ``pull_request``, ``workflow_dispatch`` en de invoer ``release_version`` blijven zoals ze waren.
-- Publiceren naar ghcr.io blijft alleen bij een tag ``v*`` of een gevulde ``release_version``: een push op een
-  werkbranch publiceert niets. Dat wordt op gedrag getoetst (R-TECH-1): het script van de stap ``Tags`` wordt uit
-  ``ci.yaml`` gelezen en in bash uitgevoerd (``refs/heads/ccr-x`` zonder ``release_version`` geeft ``push=false`` en
-  een tag zonder ghcr.io; ``refs/tags/v1.2.3`` geeft ``push=true``), de ``if:`` van de login-stap moet precies de
-  huidige uitdrukking zijn en ``docker/build-push-action`` moet ``push: ${{ steps.tags.outputs.push }}`` hebben.
-- ``release.yaml`` start alleen bij een wijziging van ``release/VERSION`` of met de hand.
-- ``*.egg-info/`` staat in ``.gitignore`` en git volgt geen egg-info-bestanden meer.
-
-De controles zijn losse functies; de negatieve gevallen onderaan bewijzen dat ze echt falen. Bewust zonder YAML-
-bibliotheek (die is geen afhankelijkheid van ``mso-core``): het ``on:``-blok wordt als tekst gelezen.
-"""
+"""Toets CI-triggers, lokale testbouw en de publicatiegrens voor versietags."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import subprocess
-import tempfile
+from hashlib import sha256
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -78,130 +66,30 @@ def ci_fouten(tekst: str) -> list[str]:
             fouten.append(f"on.push.branches heeft onverwachte branches: {sorted(set(b) - {'main', 'ccr-*'})}")
     if len(tags) != 1 or lijst(tags[0].split(":", 1)[1]) != ["v*"]:
         fouten.append('on.push.tags is niet meer precies ["v*"]')
-    if not any(r.strip() == "release_version:" for r in blok):
-        fouten.append("workflow_dispatch-invoer release_version ontbreekt")
-    if any(r.strip().startswith("default:") and r.strip() != 'default: ""' for r in blok):
-        fouten.append("release_version heeft niet meer de lege standaardwaarde")
+    if any(r.strip().startswith("inputs:") for r in blok):
+        fouten.append("de gewone CI heeft publicatie-invoer")
     return fouten
 
 
 def publiceer_fouten(tekst: str) -> list[str]:
-    """Elke stap die bij ghcr.io inlogt of pusht hangt aan een tag ``v*`` of een gevulde ``release_version``."""
-    fouten: list[str] = []
+    """De CI bouwt op alle gebeurtenissen lokaal, ook bij een tag."""
+    fouten = []
+    for verboden in ("docker/login-action", "docker push", "packages: write", "release_version"):
+        if verboden in tekst:
+            fouten.append(verboden)
     stappen = re.split(r"\n\s*- (?=name:|uses:|run:)", tekst)
-    for stap in stappen:
-        if "ghcr.io" not in stap or not re.search(r"docker/login-action|push:\s*true|docker push", stap):
-            continue
-        voorwaarde = re.search(r"^\s*if:\s*(.+)$", stap, re.M)
-        if not voorwaarde or "refs/tags/v" not in voorwaarde.group(1) or "release_version" not in voorwaarde.group(1):
-            fouten.append(f"publicatiestap zonder voorwaarde op tag/release_version: {stap.strip().splitlines()[0]}")
-    return fouten
-
-
-LOGIN_IF = "(startsWith(github.ref, 'refs/tags/v') || inputs.release_version != '') && matrix.name != 'mso-mocks'"
-BUILD_PUSH = "push: ${{ steps.tags.outputs.push }}"
-
-
-def stappen(tekst: str) -> list[str]:
-    """De stappen van alle jobs als losse tekstblokken (vanaf ``- name:``/``- uses:``/``- run:``)."""
-    return re.split(r"\n\s*- (?=name:|uses:|run:)", tekst)[1:]
-
-
-def tags_script(tekst: str) -> str | None:
-    """De ``run: |``-tekst van de stap ``Tags`` zonder inspringing; ``None`` als die er niet precies één keer is."""
-    regels = tekst.splitlines()
-    starts = [i for i, r in enumerate(regels) if re.fullmatch(r"\s*- name: Tags\s*", r)]
-    if len(starts) != 1:
-        return None
-    stap_inspring = len(regels[starts[0]]) - len(regels[starts[0]].lstrip())
-    for i in range(starts[0] + 1, len(regels)):
-        regel = regels[i]
-        inspring = len(regel) - len(regel.lstrip())
-        if regel.strip() and inspring <= stap_inspring:
-            return None
-        if re.fullmatch(r"\s*run: \|\s*", regel):
-            run_inspring = inspring
-            script: list[str] = []
-            for r in regels[i + 1 :]:
-                if r.strip() and len(r) - len(r.lstrip()) <= run_inspring:
-                    break
-                script.append(r)
-            breedte = min(len(r) - len(r.lstrip()) for r in script if r.strip())
-            return "\n".join(r[breedte:] for r in script).strip() + "\n"
-    return None
-
-
-def tags_uitvoer(script: str, ref: str, release_version: str, naam: str) -> dict[str, str]:
-    """Voer het Tags-script uit zoals GitHub dat doet (``bash -e``) en geef de regels uit ``$GITHUB_OUTPUT`` terug."""
-    bash = shutil.which("bash")
-    assert bash, "bash is nodig voor deze controle"
-    script = script.replace("${{ matrix.name }}", naam)
-    assert "${{" not in script, f"onbekende expressie in het Tags-script: {script}"
-    with tempfile.TemporaryDirectory() as map_:
-        uit = Path(map_) / "github_output"
-        uit.write_text("", encoding="utf-8")
-        env = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "GITHUB_REF": ref,
-            "GITHUB_REF_NAME": ref.split("/", 2)[2],
-            "RELEASE_VERSION": release_version,
-            "GITHUB_OUTPUT": str(uit),
-        }
-        subprocess.run(
-            [bash, "--noprofile", "--norc", "-e", "-c", script], check=True, env=env, capture_output=True, text=True
-        )
-        paren = [r.split("=", 1) for r in uit.read_text(encoding="utf-8").splitlines() if "=" in r]
-    return {k: v for k, v in paren}
-
-
-def gedrag_fouten(tekst: str) -> list[str]:
-    """R-TECH-1: toets wat de workflow dóét bij een push op ccr-* en bij een tag, niet alleen of tekst aanwezig is."""
-    fouten: list[str] = []
-    script = tags_script(tekst)
-    if script is None:
-        fouten.append("stap 'Tags' met 'run: |' niet (precies één keer) gevonden")
-    else:
-        for naam in ("media-source-optimizer-core", "media-source-optimizer-web", "mso-mocks"):
-            werk = tags_uitvoer(script, "refs/heads/ccr-x", "", naam)
-            if werk.get("push") != "false":
-                fouten.append(f"Tags op refs/heads/ccr-x ({naam}) geeft push={werk.get('push')!r}, niet 'false'")
-            if "ghcr.io" in werk.get("tags", "ghcr.io"):
-                fouten.append(f"Tags op refs/heads/ccr-x ({naam}) geeft tag {werk.get('tags')!r}: ghcr.io of leeg")
-        for naam in ("media-source-optimizer-core", "media-source-optimizer-web"):
-            tag = tags_uitvoer(script, "refs/tags/v1.2.3", "", naam)
-            if tag.get("push") != "true":
-                fouten.append(f"Tags op refs/tags/v1.2.3 ({naam}) geeft push={tag.get('push')!r}, niet 'true'")
-            if tag.get("tags") != f"ghcr.io/lvos04/{naam}:1.2.3":
-                fouten.append(f"Tags op refs/tags/v1.2.3 ({naam}) geeft tag {tag.get('tags')!r}")
-    logins = [s for s in stappen(tekst) if "docker/login-action" in s]
-    if len(logins) != 1:
-        fouten.append(f"verwacht precies één stap met docker/login-action, gevonden: {len(logins)}")
-    for stap in logins:
-        voorwaarde = re.search(r"^\s*if:\s*(.+?)\s*$", stap, re.M)
-        if not voorwaarde or voorwaarde.group(1) != LOGIN_IF:
-            fouten.append(f"login-if is niet precies {LOGIN_IF!r}: {voorwaarde.group(1) if voorwaarde else None!r}")
-    bouwers = [s for s in stappen(tekst) if "docker/build-push-action" in s]
+    bouwers = [stap for stap in stappen if "uses: docker/build-push-action@" in stap]
     if not bouwers:
-        fouten.append("geen stap met docker/build-push-action")
+        fouten.append("testbouw ontbreekt")
     for stap in bouwers:
-        pushes = [r.strip() for r in stap.splitlines() if re.match(r"^\s*push:", r)]
-        if pushes != [BUILD_PUSH]:
-            fouten.append(f"build-push-action heeft niet precies {BUILD_PUSH!r}: {pushes}")
+        velden = [regel.strip() for regel in stap.splitlines()]
+        if "push: false" not in velden or "tags: ${{ matrix.name }}:ci" not in velden:
+            fouten.append("build-push-action moet lokaal bouwen met testtag")
     return fouten
 
 
-def release_fouten(tekst: str) -> list[str]:
-    blok = on_blok(tekst)
-    sleutels = {r.strip().split(":")[0] for r in blok if re.match(r"^  [a-z_]+:", r)}
-    fouten: list[str] = []
-    if sleutels != {"push", "workflow_dispatch"}:
-        fouten.append(f"release.yaml start op meer dan push(paths)/workflow_dispatch: {sorted(sleutels)}")
-    paths = [r for r in blok if r.startswith("    paths:")]
-    if len(paths) != 1 or lijst(paths[0].split(":", 1)[1]) != ["release/VERSION"]:
-        fouten.append("release.yaml push hangt niet meer alleen aan release/VERSION")
-    if any(r.startswith(("    branches:", "    tags:")) for r in blok):
-        fouten.append("release.yaml push heeft branches/tags gekregen")
-    return fouten
+def release_trigger(tekst: str) -> bool:
+    return on_blok(tekst) == ["  push:", '    tags: ["v*.*.*"]']
 
 
 def gitignore_fouten(tekst: str) -> list[str]:
@@ -216,18 +104,60 @@ def test_ci_start_ook_bij_push_op_werkbranch() -> None:
     assert ci_fouten(CI.read_text(encoding="utf-8")) == []
 
 
-def test_push_op_werkbranch_publiceert_niets() -> None:
-    tekst = CI.read_text(encoding="utf-8")
-    assert "ghcr.io" in tekst
-    assert publiceer_fouten(tekst) == []
+def test_ci_publiceert_bij_geen_enkele_gebeurtenis() -> None:
+    assert publiceer_fouten(CI.read_text()) == []
 
 
-def test_push_op_werkbranch_publiceert_niets_gedrag() -> None:
-    assert gedrag_fouten(CI.read_text(encoding="utf-8")) == []
+@pytest.mark.parametrize("pad", [RELEASE, ROOT / ".forgejo/workflows/release.yaml"])
+def test_release_start_alleen_op_versietags(pad) -> None:
+    tekst = pad.read_text()
+    assert release_trigger(tekst)
+    registercontrole = "bash scripts/controleer-releasetag.sh "
+    assert tekst.index(registercontrole) < tekst.index('docker push "$image"')
 
 
-def test_release_start_niet_door_een_gewone_push() -> None:
-    assert release_fouten(RELEASE.read_text(encoding="utf-8")) == []
+def test_release_hecht_digest_aan_de_bestaande_tag() -> None:
+    tekst = RELEASE.read_text()
+    assert tekst.index('docker push "$image"') < tekst.index('gh release create')
+    bijlage = tekst.split("gh release create", 1)[1]
+    assert '"$GITHUB_REF_NAME" --verify-tag' in bijlage and "release/digests.json" in bijlage
+    assert "--clobber" not in tekst and "git push" not in tekst
+    for workflow in (RELEASE, CI):
+        acties = re.findall(r"uses: ([^\s]+)", workflow.read_text())
+        assert acties and all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", actie) for actie in acties)
+
+
+@pytest.mark.parametrize("storing", ["geen", "ongeldige_digest", "pushfout"])
+def test_releasebijlage_bevat_drie_registerdigests_of_ontbreekt(tmp_path, storing):
+    tekst = RELEASE.read_text()
+    stap = tekst.split("      - name: Push de drie release-images", 1)[1].split("\n      - ", 1)[0]
+    script = dedent(stap.split("        run: |\n", 1)[1])
+    (tmp_path / "release").mkdir()
+    docker = tmp_path / "docker"
+    docker.write_text("""#!/bin/bash
+set -eu
+[[ "$1" == push ]]
+digest=$(printf '%s' "$2" | sha256sum | cut -d' ' -f1)
+if [[ "$2" == *-core:* ]]; then
+    case "$STORING" in
+        ongeldige_digest) digest=onvolledig ;;
+        pushfout) exit 1 ;;
+    esac
+fi
+echo "${2##*:}: digest: sha256:$digest size: 123"
+""")
+    docker.chmod(0o700)
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": str(tmp_path),
+           "STORING": storing, "MSO_BUILD_VERSION": "1.2.3"}
+    run = subprocess.run(["bash", "-eo", "pipefail", "-c", script], cwd=tmp_path, env=env, capture_output=True)
+    bijlage = tmp_path / "release/digests.json"
+    if storing != "geen":
+        assert run.returncode != 0 and not bijlage.exists()
+        return
+    assert run.returncode == 0
+    images = [f"ghcr.io/lvos04/media-source-optimizer{suffix}:1.2.3" for suffix in ("", "-core", "-web")]
+    verwacht = {image: "sha256:" + sha256(image.encode()).hexdigest() for image in images}
+    assert json.loads(bijlage.read_text()) == verwacht
 
 
 def test_egg_info_genegeerd() -> None:
@@ -254,11 +184,6 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: "x"
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -276,8 +201,7 @@ def test_goed_voorbeeld_heeft_geen_fouten() -> None:
         ('branches: [main, "ccr-*"]', 'branches: ["ccr-*"]', "mist main"),
         ('branches: [main, "ccr-*"]', 'branches: [main, "ccr-*", "*"]', "onverwachte branches"),
         ('tags: ["v*"]', 'tags: ["*"]', "tags"),
-        ("      release_version:\n", "      versie:\n", "release_version ontbreekt"),
-        ('default: ""', 'default: "1.0.0"', "lege standaardwaarde"),
+        ("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n", "publicatie-invoer"),
         ("  pull_request:\n", "", "pull_request ontbreekt"),
     ],
 )
@@ -287,25 +211,24 @@ def test_ci_fout_wordt_gezien(oud: str, nieuw: str, fout: str) -> None:
     assert any(fout in f for f in fouten), fouten
 
 
-def test_publicatie_zonder_voorwaarde_wordt_gezien() -> None:
-    stap = """    steps:
-      - name: Inloggen bij ghcr.io
-        if: (startsWith(github.ref, 'refs/tags/v') || inputs.release_version != '')
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-"""
-    voorwaarde = "        if: (startsWith(github.ref, 'refs/tags/v') || inputs.release_version != '')\n"
-    assert voorwaarde in stap
-    assert publiceer_fouten(stap) == []
-    assert publiceer_fouten(stap.replace(voorwaarde, ""))
+@pytest.mark.parametrize("verboden", ["docker/login-action", "docker push", "packages: write", "release_version"])
+def test_publicatiemogelijkheid_in_ci_wordt_gezien(verboden) -> None:
+    assert verboden in publiceer_fouten(CI.read_text() + "\n" + verboden)
 
 
-def test_release_fout_wordt_gezien() -> None:
-    goed = 'on:\n  push:\n    paths: ["release/VERSION"]\n  workflow_dispatch:\n\njobs:\n'
-    assert release_fouten(goed) == []
-    assert release_fouten(goed.replace('    paths: ["release/VERSION"]\n', '    branches: ["ccr-*"]\n'))
-    assert release_fouten(goed.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  pull_request:\n"))
+@pytest.mark.parametrize("vervanging", ["push: true", "", "push: ${{ inputs.publiceren }}"])
+def test_bouw_met_gewijzigde_push_wordt_gezien(vervanging) -> None:
+    assert publiceer_fouten(CI.read_text().replace("push: false", vervanging))
+
+
+def test_ci_weigert_registertag_in_testbouw() -> None:
+    assert publiceer_fouten(CI.read_text().replace("tags: ${{ matrix.name }}:ci", "tags: ghcr.io/test/image:ci"))
+
+
+@pytest.mark.parametrize("extra", ["  workflow_dispatch:", "  pull_request:", '    branches: ["ccr-*"]',
+                                   '    paths: ["release/VERSION"]'])
+def test_extra_releasetrigger_wordt_gezien(extra) -> None:
+    assert not release_trigger(RELEASE.read_text().replace("  push:", extra + "\n  push:"))
 
 
 def test_gitignore_fout_wordt_gezien() -> None:
@@ -313,47 +236,43 @@ def test_gitignore_fout_wordt_gezien() -> None:
     assert gitignore_fouten(".venv/\n") == ["*.egg-info/ staat niet in .gitignore"]
 
 
-# --- R-TECH-1: de mutatie van de reviewer (login-if + Tags publiceren op ccr-*) moet rood worden --------------------
-
-TAGS_ELSE_GOED = """            echo "tags=${{ matrix.name }}:ci" >> "$GITHUB_OUTPUT"
-            echo "push=false" >> "$GITHUB_OUTPUT"
-"""
-TAGS_ELSE_FOUT = """            echo "tags=ghcr.io/lvos04/${{ matrix.name }}:ci" >> "$GITHUB_OUTPUT"
-            echo "push=true" >> "$GITHUB_OUTPUT"
-"""
-LOGIN_IF_FOUT = (
-    "(startsWith(github.ref, 'refs/tags/v') || inputs.release_version != ''"
-    " || startsWith(github.ref, 'refs/heads/ccr-')) && matrix.name != 'mso-mocks'"
-)
+def controleer_tag(tmp_path, ref, *args):
+    env = {**os.environ, "GITHUB_REF": ref, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]}
+    return subprocess.run(["bash", str(ROOT / "scripts/controleer-releasetag.sh"), *args], cwd=tmp_path,
+                          env=env, capture_output=True, text=True)
 
 
-def test_mutatie_publiceren_op_werkbranch_wordt_gezien() -> None:
-    echt = CI.read_text(encoding="utf-8")
-    assert TAGS_ELSE_GOED in echt and LOGIN_IF in echt
-    alleen_tags = echt.replace(TAGS_ELSE_GOED, TAGS_ELSE_FOUT)
-    alleen_login = echt.replace(LOGIN_IF, LOGIN_IF_FOUT)
-    beide = alleen_tags.replace(LOGIN_IF, LOGIN_IF_FOUT)
-    assert any("ccr-x" in f and "push='true'" in f for f in gedrag_fouten(alleen_tags))
-    assert any("ccr-x" in f and "ghcr.io" in f for f in gedrag_fouten(alleen_tags))
-    assert any("login-if" in f for f in gedrag_fouten(alleen_login))
-    fouten = gedrag_fouten(beide)
-    assert any("ccr-x" in f for f in fouten) and any("login-if" in f for f in fouten), fouten
+@pytest.mark.parametrize(("versie", "ref", "geldig"), [
+    ("1.2.3", "refs/tags/v1.2.3", True), ("1.2.3", "refs/tags/v1.2.2", False),
+    ("1.2.3", "refs/heads/v1.2.3", False), ("1.2.3", "refs/heads/ccr-x", False),
+    ("latest", "refs/tags/vlatest", False), ("1.2.3-test", "refs/tags/v1.2.3-test", False),
+    ("01.2.3", "refs/tags/v01.2.3", False),
+])
+def test_gitref_en_versiebestand_moeten_exact_overeenkomen(tmp_path, versie, ref, geldig) -> None:
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release/VERSION").write_text(versie + "\n")
+    resultaat = controleer_tag(tmp_path, ref)
+    assert (resultaat.returncode == 0) == geldig
+    if geldig:
+        assert resultaat.stdout.strip() == versie
 
 
-def test_build_push_zonder_tags_uitvoer_wordt_gezien() -> None:
-    echt = CI.read_text(encoding="utf-8")
-    assert BUILD_PUSH in echt
-    assert any("build-push-action" in f for f in gedrag_fouten(echt.replace(BUILD_PUSH, "push: true")))
-    assert any("build-push-action" in f for f in gedrag_fouten(echt.replace("          " + BUILD_PUSH + "\n", "")))
-
-
-def test_tags_zonder_publicatie_bij_tag_wordt_gezien() -> None:
-    echt = CI.read_text(encoding="utf-8")
-    goed = (
-        'echo "tags=ghcr.io/lvos04/${{ matrix.name }}:${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"\n'
-        '            echo "push=true"'
+@pytest.mark.parametrize("bestaand", ["media-source-optimizer", "media-source-optimizer-core",
+                                     "media-source-optimizer-web"])
+@pytest.mark.parametrize(("antwoord", "toestaan"), [
+    ("manifest unknown", True), ("bestaat", False), ("unauthorized", False), ("timeout", False),
+])
+def test_register_moet_elke_tag_uitdrukkelijk_vrij_melden(tmp_path, bestaand, antwoord, toestaan):
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release/VERSION").write_text("1.2.3\n")
+    # De andere twee manifesten ontbreken. Een fout bij één naam blokkeert de volledige publicatiestap.
+    docker = tmp_path / "docker"
+    docker.write_text(
+        '#!/bin/bash\n[[ "$1 $2" == "manifest inspect" ]] || exit 2\n'
+        f'if [[ "$3" == "register/{bestaand}:1.2.3" ]]; then\n'
+        + ('  exit 0\n' if antwoord == "bestaat" else f'  echo "{antwoord}" >&2; exit 1\n')
+        + 'fi\necho "manifest unknown" >&2; exit 1\n'
     )
-    assert goed in echt
-    fout = goed.replace('echo "push=true"', 'echo "push=false"')
-    assert any("v1.2.3" in f for f in gedrag_fouten(echt.replace(goed, fout)))
-    assert any("Tags" in f for f in gedrag_fouten(echt.replace("- name: Tags\n", "- name: Labels\n")))
+    docker.chmod(0o700)
+    resultaat = controleer_tag(tmp_path, "refs/tags/v1.2.3", "register")
+    assert (resultaat.returncode == 0) == toestaan

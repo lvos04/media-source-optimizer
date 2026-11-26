@@ -31,6 +31,8 @@ Screenshots: [docs/screenshots/](docs/screenshots/).
 
 ## Installeren
 
+Draait MSO al? Herken eerst de installatievorm en volg de [handleiding voor bijwerken en terugdraaien](deploy/truenas/BIJWERKEN.md).
+
 > **P-INSTALLATIE staat open.** De installatie op TrueNAS niet uitvoeren tot de poort is gehaald.
 
 Gebruik na vrijgave het [standaard Custom App-formulier](deploy/truenas/CUSTOM_APP.md) voor de alles-in-één-image
@@ -94,10 +96,10 @@ De CI-job `mediaguard_contract` draait dezelfde proef. Als ophalen uit het regis
 `OVERGESLAGEN` met exitcode 77. De CI-controle vereist een uitgevoerde proef.
 
 Forgejo voert de CI uit bij pushes naar `main` en `ccr-*`, bij pull requests en bij tags `v*`.
-Op een werkbranch bouwt en test de CI de images. Met de handmatige invoer `release_version` publiceert de CI
-core en web in het Forgejo-register. Bij een versiewijziging of versietag verzorgt de releaseworkflow de
-publicatie van alle drie de images. Een handmatige releaseproef bouwt en controleert de images. Vink
-`publiceren` aan om ze daarna ook te pushen.
+De gewone CI bouwt en test de images. Publicatie loopt via de releaseworkflow op een nieuwe
+git-tag die exact overeenkomt met `release/VERSION`. Voor TrueNAS komen de drie gepinde images uit GHCR.
+De registerdigests staan in de bijlage **digests.json** van de GitHub Release. [Releaseprocedure](release/README.md)
+
 [Broncode](https://git.medialeon.nl/leon/media-source-optimizer) · [CI-runs](https://git.medialeon.nl/leon/media-source-optimizer/actions)
 
 ## Licenties

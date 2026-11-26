@@ -9,12 +9,13 @@
   Het beschreven ix-app-formulier (1.4.8) vereist minimaal TrueNAS SCALE 24.10.2.2.
 - Leg bij een upgrade de huidige installatie (D07) vast, inclusief image-tags, API-versies,
   configuratieback-ups, gezondheid en actief gebruik.
-- Gebruik de doeltag en registerdigest uit het releasebewijs. De tagplaatshouder uit het
-  [manifest](../manifest/media-source-optimizer.manifest.yaml) heeft nog geen registerdigest. Wacht op de vrijgegeven image.
+- Gebruik de doeltag en registerdigest uit het releasebewijs. Bij release `v1.6.1` staat de waarde in **digests.json** bij
+  `ghcr.io/lvos04/media-source-optimizer:1.6.1`. Het [manifest](../manifest/media-source-optimizer.manifest.yaml)
+  wacht nog op deze registerdigest. Wacht op de vrijgegeven image.
 - Laat de optionele wizardwaarden RPO (maximaal dataverlies) en RTO (maximale hersteltijd) open tot bevestiging (D16).
 - Kies bij een eerste installatie in **Datasets → Add Dataset** een eigen dataset met de preset **Apps**.
   Behoud bij een upgrade de bestaande volledige APPDATA-dataset en de huidige formulierwaarden. Maak vooraf
-  een herstelbare snapshot volgens de [upgrade- en terugvalroute](../../docs/TRUENAS_CUSTOM_APP.md#updaten-en-terugdraaien).
+  een herstelbare snapshot volgens [Een bestaande installatie bijwerken](BIJWERKEN.md).
 - Gebruik een vertrouwd lokaal netwerk. Maak de beheerder direct bij het eerste gebruik in de MSO-wizard aan.
 
 ## Formulier

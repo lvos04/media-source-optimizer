@@ -15,7 +15,8 @@ De eerder gepubliceerde tags zijn ouder dan de bronstand van het manifest. Het
 
 ## Updaten en terugdraaien
 
-Doorloop eerst [Updaten via TrueNAS](#updaten-via-truenas). Gebruik het terugvalpad als de applicatie,
+Stel eerst de installatievorm vast in [Een bestaande installatie bijwerken](../deploy/truenas/BIJWERKEN.md).
+De onderstaande stappen gelden voor de bestaande alles-in-één Custom App. Gebruik het terugvalpad als de applicatie,
 migratie of gegevenscontrole faalt.
 
 ## Updaten via TrueNAS

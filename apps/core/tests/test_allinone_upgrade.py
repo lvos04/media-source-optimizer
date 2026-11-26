@@ -12,7 +12,8 @@ FILENAME = "test-pre-upgrade.dump"
 MARKER = f"back-up vóór upgrade gemaakt: {FILENAME}"
 
 
-@pytest.mark.parametrize("first_migration", [(600, "v160_base"), (608, "machine_keys")], ids=["1.5.0", "1.6.0"])
+@pytest.mark.parametrize("first_migration", [(202, "usenet_missing_credentials"), (600, "v160_base"),
+                                             (608, "machine_keys")], ids=["1.3.0", "1.5.0", "1.6.0"])
 @pytest.mark.parametrize("migration_first", [True, False], ids=["weigert-omgekeerd", "accepteert-correct"])
 def test_backup_moet_voor_eerste_migratie_staan(monkeypatch, migration_first, first_migration):
     scenario = runpy.run_path(str(STACK_TEST))

@@ -2,16 +2,7 @@ name: release
 
 on:
   push:
-    branches: ["**"]
-    tags: ["v*"]
-    paths: ["release/VERSION"]
-  workflow_dispatch:
-    inputs:
-      publiceren:
-        description: "Publiceer na alle proeven de drie versie-images in het Forgejo-register"
-        type: boolean
-        required: false
-        default: false
+    tags: ["v*.*.*"]
 
 permissions:
   contents: read
@@ -61,9 +52,7 @@ jobs:
       - name: Bepaal de versie en gezamenlijke bouwtijd
         id: versie
         run: |
-          versie=$(tr -d '[:space:]' < release/VERSION)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then versie=${GITHUB_REF_NAME#v}; fi
-          [[ "$versie" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          versie=$(bash scripts/controleer-releasetag.sh)
           echo "nummer=$versie" >> "$GITHUB_OUTPUT"
           printf 'MSO_BUILD_VERSION=%s\nMSO_BUILD_GIT_SHA=%s\nMSO_BUILD_TIME=%s\n' \
             "$versie" "$GITHUB_SHA" "$(date -u +%FT%TZ)" >> "$GITHUB_ENV"
@@ -110,16 +99,15 @@ jobs:
           done
           exit "$audit_status"
       - name: Meld aan bij het Forgejo-register
-        if: github.event_name == 'push' || inputs.publiceren == true
         uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1
         with:
           registry: git.medialeon.nl
           username: ${{ vars.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_TOKEN }}
       - name: Publiceer de drie getoetste images en registreer de bevestigde digests
-        if: github.event_name == 'push' || inputs.publiceren == true
         shell: bash
         run: |
+          bash scripts/controleer-releasetag.sh "$MSO_REGISTRY"
           digest_pairs="$RUNNER_TEMP/release-digests.tsv"
           : > "$digest_pairs"
           for name in media-source-optimizer{,-core,-web}; do

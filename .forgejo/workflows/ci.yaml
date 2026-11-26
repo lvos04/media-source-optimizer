@@ -6,11 +6,6 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: "Versie voor handmatige publicatie van core en web (leeg voor een testbouw)"
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -73,7 +68,6 @@ jobs:
     env:
       IMAGE: ${{ matrix.image }}
       MSO_IMAGE_TAG: ci-${{ github.run_id }}
-      RELEASE_VERSION: ${{ inputs.release_version }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -81,29 +75,10 @@ jobs:
       - name: Bouw de image met de herkomstgegevens
         run: |
           version=$(< release/VERSION)
-          channel=development
-          if [[ -n "$RELEASE_VERSION" && "$IMAGE" != mocks ]]; then
-            [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-            version=$RELEASE_VERSION
-            channel=release
-          fi
-          export MSO_BUILD_VERSION="$version" MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL="$channel"
+          export MSO_BUILD_VERSION="$version" MSO_BUILD_GIT_SHA="$GITHUB_SHA" MSO_BUILD_CHANNEL=development
           MSO_BUILD_TIME=$(date -u +%FT%TZ)
           export MSO_BUILD_TIME
           bash scripts/build-images.sh "$IMAGE"
-      - name: Meld aan bij het Forgejo-register voor handmatige publicatie
-        if: github.event_name == 'workflow_dispatch' && inputs.release_version != '' && matrix.image != 'mocks'
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
-        with:
-          registry: git.medialeon.nl
-          username: ${{ vars.REGISTRY_USER }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
-      - name: Publiceer de gevraagde versie van core of web
-        if: github.event_name == 'workflow_dispatch' && inputs.release_version != '' && matrix.image != 'mocks'
-        run: |
-          image="git.medialeon.nl/leon/media-source-optimizer-$IMAGE:$RELEASE_VERSION"
-          docker tag "media-source-optimizer-$IMAGE:$MSO_IMAGE_TAG" "$image"
-          docker push "$image"
 
   mediaguard_contract:
     runs-on: ubuntu-24.04
@@ -139,7 +114,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.13"
-      - name: Beproef opstart, herstel, beide gepubliceerde versies en schemaweigering
+      - name: Beproef opstart, herstel, drie gepubliceerde versies en schemaweigering
         run: bash .forgejo/scripts/alles-in-een.sh
       - name: Eigen proefcontainers opruimen
         if: always()

@@ -2,7 +2,7 @@
 # Deze proef gebruikt een aparte datamap zodat zij geen data met de losse stack deelt.
 services:
   media-source-optimizer:
-    image: ghcr.io/lvos04/media-source-optimizer:1.6.0
+    image: ghcr.io/lvos04/media-source-optimizer:1.6.1
     restart: unless-stopped
     ports:
       - "${MSO_WEB_PORT:-38081}:38081"

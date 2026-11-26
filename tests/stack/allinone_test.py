@@ -25,6 +25,8 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
 19  gepinde S-P3-205-image weigert het inmiddels nieuwere schema zonder gegevenswijziging
 20  upgrade van de gepubliceerde 1.6.0-image met gegevens en pre-upgrade-archief
 21  gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.6.0
+22  upgrade van de gepubliceerde 1.3.0-image met gegevens en pre-upgrade-archief
+23  gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.3.0
 """
 
 from __future__ import annotations
@@ -45,6 +47,8 @@ import httpx
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else "media-source-optimizer:local"
 MOCKS = os.environ.get("MSO_MOCKS_IMAGE", "mso-mocks:stack")
 DATA_VOLUME = os.environ.get("MSO_AIO_DATA_VOLUME")
+PUBLISHED_130 = ("ghcr.io/lvos04/media-source-optimizer"
+                 "@sha256:df147ab09d112116f08920bef8c0c3e07c0b4eb7656917d95919574691d960be")
 PUBLISHED_150 = ("ghcr.io/lvos04/media-source-optimizer"
                  "@sha256:7ee5cb5e3c37d8ca6e3c8445cd6ef24f8b175e2f3167ccd40541737564866be2")
 PUBLISHED_160 = ("ghcr.io/lvos04/media-source-optimizer"
@@ -59,7 +63,11 @@ UPGRADE_160 = (
     "20 upgrade vanaf de gepubliceerde 1.6.0-image",
     "21 gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.6.0",
 )
-SCENARIO_COUNT = 17 + len(UPGRADE_150) + len(UPGRADE_160)
+UPGRADE_130 = (
+    "22 upgrade vanaf de gepubliceerde 1.3.0-image",
+    "23 gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.3.0",
+)
+SCENARIO_COUNT = 17 + len(UPGRADE_150) + len(UPGRADE_160) + len(UPGRADE_130)
 # CI geeft een vaste naam per job mee, zodat de afsluitende stap ook na afbreken precies deze containers opruimt.
 NAME = os.environ.get("MSO_AIO_NAME") or f"mso-aio-{secrets.token_hex(6)}"
 NET, MOCK_NAME = f"{NAME}-net", f"{NAME}-sab"
@@ -299,14 +307,31 @@ def api_data(client: httpx.Client, route: str) -> dict | list:
     return client.get("/api/v1/" + route).raise_for_status().json()
 
 
+def manual_backup(client: httpx.Client, csrf: str) -> tuple[str, dict | None]:
+    job_id = client.post("/api/v1/backups", headers={"X-CSRF-Token": csrf},
+                         json={"include_secrets": False}).raise_for_status().json()["job_id"]
+    for _ in range(40):
+        job = api_data(client, f"jobs/{job_id}")
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(1)
+    filename = (job.get("result") or {}).get("file")
+    backup = next((row for row in api_data(client, "backups")["items"]
+                   if row["kind"] == "manual" and row["file"] == filename), None)
+    return job["status"], backup
+
+
 def upgrade_data(client: httpx.Client, change_id: int) -> tuple:
     users = api_data(client, "users")["items"]
     connector = next(row for row in api_data(client, "connectors") if row["id"] == "sabnzbd")
     change = api_data(client, f"changes/{change_id}")
+    audit = api_data(client, "audit?action=settings.updated")["items"]
     return (
         [{k: row[k] for k in ("id", "username", "role", "disabled")} for row in users],
         {k: connector[k] for k in ("id", "url", "enabled", "options")},
         {k: change[k] for k in ("id", "target", "title", "status", "ops", "created_by")},
+        api_data(client, "settings")["values"]["backup.keep"],
+        [{k: row[k] for k in ("id", "actor", "action", "summary", "detail")} for row in audit],
     )
 
 
@@ -499,6 +524,7 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
             initial = client.post("/api/v1/setup/admin", json={"username": ADMIN, "password": ADMIN_PW})
             csrf = initial.raise_for_status().json()["csrf_token"]
             headers = {"X-CSRF-Token": csrf}
+            client.put("/api/v1/settings", headers=headers, json={"values": {"backup.keep": 23}}).raise_for_status()
             connector = {"url": "http://sabnzbd:8080", "enabled": True, "options": {"probe": "upgrade"}}
             client.put("/api/v1/connectors/sabnzbd", headers=headers,
                        json={**connector, "secrets": {"api_key": SAB_KEY}}).raise_for_status()
@@ -513,41 +539,56 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
                 "risk='advies', db=db)['id']); db.close()",
             ))
             original = upgrade_data(client, change_id)
-            users, stored_connector, change = original
+            users, stored_connector, change, setting, audit = original
+            assert setting == 23 and any(row["actor"] == ADMIN for row in audit), "proefinstelling of audit ontbreekt"
             assert len(users) == 1 and users[0]["username"] == ADMIN, "proefgebruiker ontbreekt"
             assert stored_connector == {"id": "sabnzbd", **connector}, "ingestelde proefkoppeling ontbreekt"
             assert change["title"] == "Upgradeproef" and change["status"] == "preview", "proefvoorstel ontbreekt"
             old_info = api_data(client, "system/info")
+            assert old_info["version"] == version, "de draaiende bronversie wijkt af"
             assert old_info["schema_version"] == schema, f"de upgrade moet op schema {schema} beginnen"
             old_history = migration_history(old_info)
+            status, manual = manual_backup(client, csrf)
+            assert status == "done" and manual and manual["present"] and manual["size_bytes"] > 0, (
+                "de handmatige databaseback-up van de oude app ontbreekt"
+            )
         stop_cleanly()
         before_db, before_files = json.loads(stopped_data_fingerprint(data))
         snapshot = tmp / "snapshot"
         snapshot_stopped_appdata(data, snapshot, image)
 
-        run(data)
+        run(data, "--user", "568:568")
         assert wait_healthy() == "healthy", f"de nieuwe image startte niet op de {version}-map"
+        safe, detail = privilege_probe(root_start=False)
+        assert safe, detail
         client, csrf = login()
         with closing(client):
             assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij upgrade"
             check_sab_read(client, csrf)
             info = api_data(client, "system/info")
+            candidate_version = (Path(__file__).resolve().parents[2] / "release/VERSION").read_text().strip()
+            assert api_data(client, "setup/status")["version"] == candidate_version, "de doelversie wijkt af"
             expected = known_migrations(IMAGE)
             assert expected[-1][0] == info["schema_version"] > schema, "de kandidaat heeft geen nieuwer schema"
             assert [[row["version"], row["name"]] for row in info["migrations"]] == expected, "migraties ontbreken"
-            assert migration_history(info)[:len(old_history)] == old_history, "migratiehistorie wijkt af"
+            # Bij 1.3.0 ontbreken ook migraties met een nummer ónder de toenmalige maximumversie 500.
+            old_versions = {row[0] for row in old_history}
+            assert [row for row in migration_history(info) if row[0] in old_versions] == old_history, (
+                "migratiehistorie wijkt af"
+            )
             archives = [row for row in api_data(client, "backups")["items"] if row["kind"] == "pre-upgrade"]
             assert len(archives) == 1 and archives[0]["schema_version"] == schema and archives[0]["present"], (
                 f"verwacht één aanwezig pre-upgrade-archief van schema {schema}"
             )
             check_daily_resource_sample(client)
         archive = archives[0]
-        first_migration = next(row for row in expected if row[0] > schema)
+        first_migration = next(row for row in expected if row[0] not in old_versions)
         assert_backup_before_migration(container_logs(), archive["file"], first_migration)
         stop_cleanly()
         record(scenarios[0], True, f"{schema} → {info['schema_version']}; {len(expected)} migraties; "
-               "archief vooraf; gebruiker, koppeling, voorstel, inlog en SABnzbd-wachtrijlezing behouden; "
-               "opslagmeting door de worker")
+               "handmatige back-up en archief vooraf; instelling, audit, gebruiker, koppeling en voorstel behouden; "
+               "SABnzbd-wachtrijlezing werkt; "
+               "healthy met UID 568 inclusief PID 1 en healthcheck; opslagmeting door de worker")
         scenario = 1
 
         partial = tmp / "partial"
@@ -610,6 +651,8 @@ def schema_guard_case(upgrade: tuple[Path, int] | None) -> None:
 
 
 def main() -> int:
+    if sys.argv[2:] not in ([], ["--vanaf-1.3.0"]):
+        raise SystemExit("Gebruik: allinone_test.py IMAGE [--vanaf-1.3.0]")
     tmp = Path(".") if DATA_VOLUME else Path(tempfile.mkdtemp(prefix="mso-aio-"))
     data = tmp / "appdata"
     make_data_dir(data, mode=0o755)
@@ -632,6 +675,11 @@ def main() -> int:
         f"api_key={SAB_KEY}",
     )
     try:
+        if sys.argv[2:] == ["--vanaf-1.3.0"]:
+            published_image_upgrade(tmp / "published-1.3.0", "1.3.0", PUBLISHED_130, 500, UPGRADE_130)
+            passed = sum(ok is True for _, ok, _ in RESULTS)
+            print(f"Update en terugweg vanaf 1.3.0: {passed}/2 controles groen", flush=True)
+            return 0 if passed == len(RESULTS) == 2 else 1
         # 1
         run(data)
         st = wait_healthy()
@@ -749,17 +797,9 @@ def main() -> int:
                f"HTTP {info.status_code}; overeenkomende velden: {', '.join(matches)}")
 
         # 3
-        job = c.post("/api/v1/backups", headers={"X-CSRF-Token": csrf}, json={"include_secrets": False}).json()
-        status = "?"
-        for _ in range(40):
-            status = c.get(f"/api/v1/jobs/{job['job_id']}").json()["status"]
-            if status in ("done", "failed"):
-                break
-            time.sleep(1)
-        items = c.get("/api/v1/backups").json()["items"]
+        status, b = manual_backup(c, csrf)
         restored = None
-        if items:
-            b = items[0]
+        if b:
             restored = c.post(
                 f"/api/v1/backups/{b['id']}/restore", headers={"X-CSRF-Token": csrf}, json={"confirm": b["file"]}
             )
@@ -772,7 +812,7 @@ def main() -> int:
             and restored is not None
             and restored.status_code == 200
             and sab["secret_fields"][0]["status"] == "ingesteld",
-            f"job {status}; {len(items)} back-up(s); herstel {restored.status_code if restored else '-'}; "
+            f"job {status}; handmatige back-up: {bool(b)}; herstel {restored.status_code if restored else '-'}; "
             f"sleutel na herstel: {sab['secret_fields'][0]['status']}",
         )
 
@@ -861,6 +901,7 @@ def main() -> int:
         legacy_upgrade = published_image_upgrade(tmp / "published-1.5.0", "1.5.0", PUBLISHED_150, 501, UPGRADE_150)
         schema_guard_case(legacy_upgrade)
         published_image_upgrade(tmp / "published-1.6.0", "1.6.0", PUBLISHED_160, 607, UPGRADE_160)
+        published_image_upgrade(tmp / "published-1.3.0", "1.3.0", PUBLISHED_130, 500, UPGRADE_130)
     finally:
         sh("docker", "rm", "-f", NAME, MOCK_NAME, check=False)
         sh("docker", "network", "rm", NET, check=False)

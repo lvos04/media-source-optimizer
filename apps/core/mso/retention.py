@@ -31,7 +31,7 @@ from pydantic import BaseModel
 
 from mso import backups, jobs, resource_usage, state
 from mso import settings_registry as sr
-from mso.api import NoQuery
+from mso.api import READ_RESPONSES, NoQuery
 from mso.audit import audit
 from mso.auth import Principal, require
 from mso.connector_api.status import BACKUP_MAX_AGE, measurement_reason
@@ -330,7 +330,7 @@ class BackupReading(BaseModel):
     space_ok: bool | None
 
 
-@router.get("/maintenance/backup-status")
+@router.get("/maintenance/backup-status", responses=READ_RESPONSES)
 def backup_status(query: Annotated[NoQuery, Query()], _: Principal = Depends(require("viewer"))) -> BackupReading:
     """Ruimte en ouderdom van de laatste geregistreerde back-up, zonder bestandsnaam of herstelactie."""
     db = get_db()

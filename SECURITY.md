@@ -168,6 +168,11 @@ MSO-adres. De sleutel hoort bij deze APPDATA-installatie. Bij een kopie van APPD
 verhuist ook de instantie-identiteit. Registreer een kloon onder een eigen identiteit
 voordat beide installaties afzonderlijk gekoppeld worden.
 
+MSO leest de installatiesleutel opnieuw voor elke uitgifte van de pin of een leesbewijs.
+Bij een ontbrekend, onleesbaar of afwijkend sleutelbestand geven beide routes HTTP 503
+met foutcode `installation_identity_unavailable`. Zodra het oorspronkelijke bestand
+weer leesbaar is, kan dezelfde pin nieuwe bewijzen verifiëren.
+
 Vraag vóór beschermde uitlezing met alleen `X-Api-Key` een bewijs op bij
 `GET /api/v1/machine-keys/read-proof`. Het veld `proof` bevat een compacte JWS.
 MSO geeft die uitsluitend af voor een actieve machine-sleutel met exact `read`.
@@ -189,8 +194,9 @@ Herbevestig de koppeling als adres, versie of verificatiesleutel verandert.
 Met dat leesrecht zijn twee beperkte bronmetingen beschikbaar.
 
 - `GET /api/v1/usenet/categories/diagnosis/cached` geeft alleen `verdict` en
-  `checked_at`. De bronmeettijd hoort bij de laatst opgehaalde categoriegegevens.
-  Na tien minuten wordt het oordeel `onbekend`. Ontbrekende gegevens starten geen verversing.
+  `checked_at`. MSO slaat het oordeel en de meettijd samen op wanneer het de
+  categoriegegevens ophaalt. Latere lokale downloadresultaten tellen mee bij de volgende
+  bronmeting. Na tien minuten of bij een oude cacheregel zonder oordeel geeft de leesroute `onbekend`.
 - `GET /api/v1/system/maintenance/backup-status` geeft de meettijd, de tijd van de laatste
   geregistreerde back-up, de beschikbare en benodigde bytes, `space_ok` en `backup_fresh`.
   De versheidsgrens is twee dagen. Bij ontbrekende of toekomstige registratietijd is

@@ -32,7 +32,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from mso import changes, jobs, state
 from mso import settings_registry as sr
@@ -242,19 +242,18 @@ def _mediaguard(*, refresh: bool = False) -> dict[str, Any]:
     return out
 
 
-def _remote(*, refresh: bool) -> dict[str, Any]:
-    """SABnzbd + MediaGuard reads, cached ``CACHE_S`` in ``system_state`` (only names/categories, no secrets)."""
+def _remote(*, refresh: bool) -> tuple[dict[str, Any], bool]:
+    """Geef de brongegevens en of ze bij deze diagnose opnieuw zijn gemeten."""
     cached = state.get_state(STATE_KEY)
     if not refresh and isinstance(cached, dict) and cached.get("checked_at"):
         try:
             age = (_now() - datetime.fromisoformat(cached["checked_at"])).total_seconds()
-        except ValueError:
+        except (TypeError, ValueError):
             age = CACHE_S
-        if age < CACHE_S:
-            return cached
+        if 0 <= age < CACHE_S:
+            return cached, False
     data = {"checked_at": _iso(_now()), "sab": _sab(), "mediaguard": _mediaguard(refresh=refresh)}
-    state.set_state(STATE_KEY, data)
-    return data
+    return data, True
 
 
 # ------------------------------------------------------------------ MSO's own sends + '*' counts (local DB)
@@ -500,20 +499,20 @@ def cached_diagnosis() -> CachedCategoryDiagnosis:
         return CachedCategoryDiagnosis()
     if age < 0:
         return CachedCategoryDiagnosis()
-    result = CachedCategoryDiagnosis(checked_at=at)
     if age < CACHE_S:
         try:
-            verdict = _evaluate(remote, star_series())["verdict"]
-        except (KeyError, TypeError, AttributeError):
-            return result  # Onvolledige historische cache.
-        return CachedCategoryDiagnosis(verdict=verdict, checked_at=at)
-    return result
+            return CachedCategoryDiagnosis(verdict=remote.get("verdict", "onbekend"), checked_at=at)
+        except ValidationError:
+            pass  # Ook bij een onleesbaar oordeel blijft de bekende bronmeettijd beschikbaar.
+    return CachedCategoryDiagnosis(checked_at=at)
 
 
 def diagnose(*, refresh: bool = False) -> dict[str, Any]:
-    remote = _remote(refresh=refresh)
+    remote, nieuw_gemeten = _remote(refresh=refresh)
     stats = star_series()
     ev = _evaluate(remote, stats)
+    if nieuw_gemeten:
+        state.set_state(STATE_KEY, {**remote, "verdict": ev["verdict"]})
     sab, mg = remote["sab"], remote["mediaguard"]
     return {
         "checked_at": remote["checked_at"],

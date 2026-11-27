@@ -69,14 +69,25 @@ class Vault:
         # Een eigen cryptografisch domein per installatie, ook voor bestaande APPDATA.
         seed = HKDF(algorithm=hashes.SHA256(), length=32, salt=None,
                     info=b"mso/machine-read-proof/ed25519/v1").derive(key)
-        self.read_proof_signer = Ed25519PrivateKey.from_private_bytes(seed)
+        self._read_proof_signer = Ed25519PrivateKey.from_private_bytes(seed)
+
+    def _key_matches_file(self) -> bool:
+        try:
+            key = _read_key(get_settings().secret_key_file, wait_s=0)
+        except (OSError, RuntimeError, ValueError):
+            return False
+        return hmac.compare_digest(hashlib.sha256(key).digest(), self._key_digest)
+
+    @property
+    def read_proof_signer(self) -> Ed25519PrivateKey | None:
+        """Geef de ondertekenaar vrij zolang het bestand de actieve installatie-identiteit bevestigt."""
+        return self._read_proof_signer if self._key_matches_file() else None
 
     def key_file_is_current(self) -> bool:
         """Controleer de actieve sleutel en de authenticiteit van ieder aanwezig kluisrecord."""
+        if not self._key_matches_file():
+            return False
         try:
-            key = _read_key(get_settings().secret_key_file, wait_s=0)
-            if not hmac.compare_digest(hashlib.sha256(key).digest(), self._key_digest):
-                return False
             with self.db.tx() as conn, conn.cursor(name="vault_readiness") as rows:
                 rows.execute("SELECT name, nonce, ciphertext FROM secrets")
                 for row in rows:

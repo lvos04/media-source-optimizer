@@ -3036,6 +3036,92 @@
     "title": "PurgeBody",
     "type": "object"
    },
+   "QueryFieldError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "title": "Loc",
+      "type": "array"
+     },
+     "msg": {
+      "title": "Msg",
+      "type": "string"
+     }
+    },
+    "required": [
+     "loc",
+     "msg"
+    ],
+    "title": "QueryFieldError",
+    "type": "object"
+   },
+   "ReadAccessError": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+     },
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "details": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Details"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     },
+     "trace_id": {
+      "anyOf": [
+       {
+        "format": "uuid",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Trace Id"
+     }
+    },
+    "required": [
+     "code",
+     "correlation_id",
+     "detail"
+    ],
+    "title": "ReadAccessError",
+    "type": "object"
+   },
    "ReadProof": {
     "properties": {
      "proof": {
@@ -3047,6 +3133,70 @@
      "proof"
     ],
     "title": "ReadProof",
+    "type": "object"
+   },
+   "ReadQueryError": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+     },
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/QueryFieldError"
+      },
+      "title": "Detail",
+      "type": "array"
+     },
+     "details": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Details"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/QueryFieldError"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     },
+     "trace_id": {
+      "anyOf": [
+       {
+        "format": "uuid",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Trace Id"
+     }
+    },
+    "required": [
+     "code",
+     "correlation_id",
+     "detail"
+    ],
+    "title": "ReadQueryError",
     "type": "object"
    },
    "Readback": {
@@ -7989,6 +8139,16 @@
        }
       },
       "description": "Internal Server Error"
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "De actuele installatiesleutel kan niet worden bevestigd."
      }
     },
     "security": [
@@ -8109,6 +8269,16 @@
        }
       },
       "description": "Internal Server Error"
+     },
+     "503": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "De actuele installatiesleutel kan niet worden bevestigd."
      }
     },
     "security": [
@@ -10785,6 +10955,36 @@
        }
       },
       "description": "Successful Response"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReadAccessError"
+        }
+       }
+      },
+      "description": "Een geldige sessie of machine-sleutel is vereist."
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReadAccessError"
+        }
+       }
+      },
+      "description": "De aanroeper heeft geen toegang tot deze leesroute."
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReadQueryError"
+        }
+       }
+      },
+      "description": "Deze leesroute accepteert geen queryparameters."
      }
     },
     "security": [
@@ -12230,7 +12430,7 @@
   },
   "/api/v1/usenet/categories/diagnosis/cached": {
    "get": {
-    "description": "Diagnose uit de bestaande cache en lokale tellingen, met de oorspronkelijke bronmeettijd.",
+    "description": "Oordeel dat bij de laatste bronmeting is opgeslagen, met de oorspronkelijke meettijd.",
     "operationId": "cached_diagnosis_api_v1_usenet_categories_diagnosis_cached_get",
     "responses": {
      "200": {
@@ -12242,6 +12442,36 @@
        }
       },
       "description": "Successful Response"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReadAccessError"
+        }
+       }
+      },
+      "description": "Een geldige sessie of machine-sleutel is vereist."
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReadAccessError"
+        }
+       }
+      },
+      "description": "De aanroeper heeft geen toegang tot deze leesroute."
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReadQueryError"
+        }
+       }
+      },
+      "description": "Deze leesroute accepteert geen queryparameters."
      }
     },
     "security": [

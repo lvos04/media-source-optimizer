@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -404,13 +405,25 @@ def admin_only(p: Principal = Depends(current_principal)) -> Principal:
     return p
 
 
-@router.get("/verification-key")
+IDENTITY_UNAVAILABLE = "De actuele installatiesleutel kan niet worden bevestigd."
+READ_PROOF_ERRORS = {503: {"model": MachineKeyErrorView, "description": IDENTITY_UNAVAILABLE}}
+
+
+def _read_proof_signer() -> Ed25519PrivateKey:
+    signer = get_vault().read_proof_signer
+    if signer is None:
+        raise MachineKeyError(503, "installation_identity_unavailable", IDENTITY_UNAVAILABLE)
+    return signer
+
+
+@router.get("/verification-key", responses=READ_PROOF_ERRORS)
 def get_verification_key(_: Principal = Depends(admin_only)) -> read_proof.VerificationKey:
     """Publieke verificatiesleutel die de beheerder bij de juiste installatie bevestigt."""
-    return read_proof.verification_key(get_vault().read_proof_signer)
+    return read_proof.verification_key(_read_proof_signer())
 
 
 @router.get("/read-proof", responses={
+    **READ_PROOF_ERRORS,
     403: {"model": MachineKeyErrorView, "description": "Uitsluitend een machine-sleutel met exact read"},
     413: {"model": MachineKeyErrorView, "description": "payload_too_large: maximaal 1 MiB"},
     422: {"model": MachineKeyErrorView, "description": "Ongeldige invoer"},
@@ -422,7 +435,7 @@ def get_read_proof(request: Request, response: Response,
             or CSRF_HEADER in request.headers or "Authorization" in request.headers):
         raise MachineKeyError(403, "read_only_key_required", "Een machine-sleutel met uitsluitend read is vereist.")
     response.headers["Cache-Control"] = "no-store"
-    return read_proof.issue(get_vault().read_proof_signer, p.machine_key_id, token_hash(request.headers["x-api-key"]))
+    return read_proof.issue(_read_proof_signer(), p.machine_key_id, token_hash(request.headers["x-api-key"]))
 
 
 @router.get("", response_model=MachineKeyList)

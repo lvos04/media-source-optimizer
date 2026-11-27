@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import secrets
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import NonCallableMock
@@ -78,6 +79,48 @@ def test_verklaring_bindt_instantie_sleutel_versie_en_geldigheid(admin, client):
         assert client.get(PROOF, headers={"X-Api-Key": made["key"]}).status_code == 401
     with pytest.raises(InvalidSignature):
         key.verify(proofs[0][1], proofs[1][0])
+
+
+@pytest.mark.parametrize("toestand", ["verwijderd", "vervangen", "onleesbaar", "afgekapt"])
+def test_installatiesleutel_weigert_pin_en_bewijs_tot_herstel(toestand, admin, client, tmp_path):
+    from mso.config import get_settings
+    from mso.vault import get_vault
+
+    headers = {"X-Api-Key": create(admin)["key"]}
+    eerste_pin = admin.get(PIN)
+    assert eerste_pin.status_code == 200
+    assert client.get(PROOF, headers=headers).status_code == 200
+    bestand = get_settings().secret_key_file
+    origineel = bestand.rename(tmp_path / "origineel")
+    try:
+        if toestand == "vervangen":
+            bestand.write_bytes(secrets.token_bytes(32))
+        elif toestand == "onleesbaar":
+            bestand.mkdir()  # Lezen als bestand geeft ook onder root een OSError.
+        elif toestand == "afgekapt":
+            bestand.touch()
+        pin = admin.get(PIN)
+        bewijs = client.get(PROOF, headers=headers)
+        assert (pin.status_code, bewijs.status_code) == (503, 503)
+        assert get_vault().read_proof_signer is None
+        for geweigerd in (pin, bewijs):
+            assert geweigerd.json()["code"] == "installation_identity_unavailable"
+            assert {"x", "kid", "proof"}.isdisjoint(geweigerd.json())
+        if toestand == "verwijderd":
+            assert not bestand.exists()
+    finally:
+        if bestand.is_dir():
+            bestand.rmdir()
+        origineel.replace(bestand)
+
+    herstelde_pin = admin.get(PIN)
+    assert herstelde_pin.status_code == 200
+    assert herstelde_pin.json() == eerste_pin.json()
+    bewijs = client.get(PROOF, headers=headers)
+    assert bewijs.status_code == 200
+    header, claims, signature = bewijs.json()["proof"].split(".")
+    public = Ed25519PublicKey.from_public_bytes(decode(eerste_pin.json()["x"]))
+    public.verify(decode(signature), f"{header}.{claims}".encode("ascii"))
 
 
 def test_weiger_sessies_onbevestigde_pins_en_extra_rechten(admin, operator, viewer, client, db, database_bytes):

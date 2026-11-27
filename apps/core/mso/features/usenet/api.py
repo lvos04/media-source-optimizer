@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from mso import jobs
 from mso import settings_registry as sr
-from mso.api import NoQuery
+from mso.api import READ_RESPONSES, NoQuery
 from mso.audit import audit
 from mso.auth import Principal, require
 from mso.connectors import base as cb
@@ -264,10 +264,10 @@ def categories_diagnosis(refresh: bool = False, p: Principal = Depends(require("
     return categories.diagnose(refresh=refresh)
 
 
-@router.get("/categories/diagnosis/cached")
+@router.get("/categories/diagnosis/cached", responses=READ_RESPONSES)
 def cached_diagnosis(query: Annotated[NoQuery, Query()],
                      _: Principal = Depends(require("viewer"))) -> categories.CachedCategoryDiagnosis:
-    """Diagnose uit de bestaande cache en lokale tellingen, met de oorspronkelijke bronmeettijd."""
+    """Oordeel dat bij de laatste bronmeting is opgeslagen, met de oorspronkelijke meettijd."""
     return categories.cached_diagnosis()
 
 

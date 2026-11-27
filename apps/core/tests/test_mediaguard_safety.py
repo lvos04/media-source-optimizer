@@ -253,3 +253,32 @@ def test_contractstack_is_intern_en_gebruikt_tijdelijke_data(contract):
     assert "volumes" not in mg and {v.split(":")[0] for v in mg["tmpfs"]} == {"/config", "/work"}
     assert mg["environment"]["MG_DEV_AUTH_BYPASS"] == "0"
     assert services["mock-radarr"]["volumes"] == [f"{contract['ROOT'] / 'apps' / 'mocks'}:/fixture:ro"]
+
+
+@pytest.mark.parametrize(("method", "route"), [
+    ("GET", "/wanted/1"), ("GET", "/quota"), ("POST", "/wanted/1/search"), ("POST", "/probe"),
+])
+def test_geweigerde_bestemming_is_422_en_behoudt_voortgang(
+    admin, operator, serve, db, database_bytes, monkeypatch, confirmed_search_route, method, route,
+):
+    from mso.security import UnsafeTarget
+
+    mock, url = start_mock(serve)
+    configure(admin, url, api_key=KEYS["operator"])
+    assert service.sync()["ok"]
+    db.execute("DELETE FROM mg_snapshots WHERE key='quota'")
+    before = database_bytes(db)
+    calls = list(mock.state.calls)
+
+    def geweigerd(*args, **kwargs):
+        raise UnsafeTarget("interne proefbestemming")
+
+    monkeypatch.setattr(base, "http_client", geweigerd)
+    response = operator.request(method, "/api/v1/mediaguard" + route)
+    assert response.status_code == 422
+    assert "interne proefbestemming" not in response.text
+    after = database_bytes(db)
+    for table in ("mg_snapshots", "mg_wanted_cache"):
+        assert after[table] == before[table]
+    assert mock.state.calls == calls
+    assert db.scalar("SELECT count(*) FROM mg_search_requests WHERE status='pending'") == 0

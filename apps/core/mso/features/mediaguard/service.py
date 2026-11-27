@@ -514,6 +514,8 @@ def refresh_quota(*, force: bool = False) -> bool:
         return False
     try:
         data = client().get(f"{API}/wanted/backfill/quota", route_id="backfill_quota")
+    except UnsafeTarget:
+        raise
     except Exception as exc:  # unreachable/auth: keep the cached copy (its age is shown)
         LOGGER.info("MediaGuard-quotum niet ververst: %s", redact(str(exc))[:200])
         return False
@@ -652,7 +654,16 @@ def request_search(mg_id: int, *, actor: str, trigger: str = "manual") -> dict[s
             "quota": quota_overview(),
             "message": "Al aangevraagd binnen het idempotentievenster; niet opnieuw verstuurd.",
         }
-    req_id = int(row["id"])
+    try:
+        return _send_reserved_search(row, item, p)
+    except UnsafeTarget:
+        _finish(row["id"], key, "failed", error="De ingestelde MediaGuard-bestemming is niet toegestaan")
+        raise
+
+
+def _send_reserved_search(row: dict[str, Any], item: dict[str, Any], p: dict[str, Any]) -> dict[str, Any]:
+    req_id, key, mg_id = row["id"], row["idempotency_key"], row["mg_id"]
+    actor, trigger = row["actor"], row["trigger"]
     # backoff after repeated failures
     bo = _backoff_row(mg_id)
     if bo and bo["next_allowed_at"] and bo["next_allowed_at"] > _now():
@@ -726,7 +737,7 @@ def request_search(mg_id: int, *, actor: str, trigger: str = "manual") -> dict[s
         for k in ("instance_id", "run_id", "issued", "issued_wanted_ids", "skipped_in_queue", "errors")
     }
     done = _finish(req_id, key, "sent", http_status=200, response=summary)
-    db.execute("DELETE FROM mg_search_backoff WHERE mg_id=%s", (mg_id,))
+    get_db().execute("DELETE FROM mg_search_backoff WHERE mg_id=%s", (mg_id,))
     _refresh_quota_after_search(c, item["instance_id"], before=mgq, issued=summary.get("issued"))
     audit(
         actor,

@@ -32,7 +32,7 @@ from mso.connector_api.errors import ConnectorRequestMiddleware, ErrorBody, erro
 from mso.connector_api.status import Readiness, readiness
 from mso.connectors import base as connectors
 from mso.db import Database, check_schema_compatibility, get_db, migrate_up, set_db, upgrade_lock
-from mso.security import configure_logging, limiter, redact
+from mso.security import UnsafeTarget, configure_logging, limiter, redact
 from mso.vault import Vault, set_vault
 
 LOGGER = logging.getLogger(__name__)
@@ -215,6 +215,10 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
             return _error(422, detail, code, request)
         errors = [{"loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()]
         return _error(422, errors, "invalid", request)
+
+    @app.exception_handler(UnsafeTarget)
+    async def unsafe_target(request: Request, exc: UnsafeTarget) -> JSONResponse:
+        return _error(422, "De ingestelde bestemming is niet toegestaan", "invalid", request)
 
     @app.exception_handler(connectors.ConnectorNotConfigured)
     async def not_configured(request: Request, exc: connectors.ConnectorNotConfigured) -> JSONResponse:

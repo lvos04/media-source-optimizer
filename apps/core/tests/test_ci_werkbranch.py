@@ -338,3 +338,26 @@ def test_verwijderde_forgejo_tag_start_geen_publicatie():
 def test_een_github_tag_start_uitsluitend_de_release():
     assert not any(r.strip().startswith("tags:") for r in on_blok(CI.read_text()))
     assert release_trigger(RELEASE.read_text())
+
+
+@pytest.mark.parametrize("pad", [RELEASE, ROOT / ".forgejo/workflows/release.yaml"])
+def test_rode_audit_breekt_de_echte_releasestap_af(pad, tmp_path):
+    workflow = pad.read_text()
+    # Draai de auditstap uit de workflow. Alleen de pakketinstallatie en de twee lokale images zijn nagebootst.
+    step = next(part for part in workflow.split("\n      - ") if "audit_status=0" in part)
+    script = dedent(step.split("        run: |\n", 1)[1])
+    audit_bin = tmp_path / "release-audit/bin"
+    audit_bin.mkdir(parents=True)
+    (tmp_path / "release").mkdir()
+    (tmp_path / "test-results/release").mkdir(parents=True)
+    for file, command in [(tmp_path / "python", 'test "$1" = "-m" && test "$2" = "venv"'),
+                          (audit_bin / "pip", 'test "$1" = "install"'),
+                          (audit_bin / "pip-audit", 'echo audit >> "$RUNNER_TEMP/meting"; exit 9'),
+                          (tmp_path / "docker", 'test "$1" = "run" && echo proefpakket==1.0')]:
+        file.write_text("#!/bin/sh\n" + command + "\n")
+        file.chmod(0o700)
+    env = dict(os.environ, RUNNER_TEMP=str(tmp_path), MSO_BUILD_VERSION="1.2.3", MSO_IMAGE_TAG="proef",
+               PATH=str(tmp_path) + os.pathsep + os.environ["PATH"])
+    result = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, env=env, capture_output=True)
+    assert result.returncode == 9
+    assert (tmp_path / "meting").read_text().splitlines() == ["audit", "audit"]

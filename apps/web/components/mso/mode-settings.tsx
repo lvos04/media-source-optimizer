@@ -115,7 +115,7 @@ export function ModeSettingsCard() {
             </div>
             {current ? (
               <>
-                <p className="hint" style={{ margin: 0 }}>{isAuto ? t("mode.section.autoHintAutopilot") : t("mode.section.autoHint")}</p>
+                <p className="hint" style={{ margin: 0 }}>{current.automation_allowed === false ? t("mode.section.stopped") : isAuto ? t("mode.section.autoHintAutopilot") : t("mode.section.autoHint")}</p>
                 <div className="row wrap" style={{ gap: 6 }}>
                   {areas.map((a) => {
                     if (current.automation_allowed === false || a.effective === false) {

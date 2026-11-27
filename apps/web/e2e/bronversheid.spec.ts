@@ -201,14 +201,20 @@ test("Automatisering gebruikt haar eigen stand en weigert de ronde bij bronuitva
 
 test("Weekoverzicht gebruikt zijn eigen modus en markeert gemiste peilingen", async ({ page }) => {
   let offline = false;
+  let actief = true;
   await bron(page, MODE, () => ({ mode: "read_only", paused: false }));
   await bron(page, SUMMARY, () => offline ? "offline" : {
-    mode: "autopilot", paused: false, actions_total: 0, by_day: [], categories: [],
+    mode: "autopilot", paused: false, autopilot: actief, automation_allowed: actief, actions_total: 0, by_day: [], categories: [],
     syncs: { failing_now: [], state: "idle", link: "/systeem" }, waiting: { decisions: 0 },
   });
   await page.goto("/automatisering?tab=samenvatting");
   const card = page.getByRole("region", { name: "Weekoverzicht" });
   await expect(card.getByText("Autopilot actief")).toBeVisible();
+  actief = false;
+  await page.clock.fastForward(120_000);
+  await expect(card.getByText("Autopilot staat stil")).toBeVisible();
+  await expect(card.getByText("Autopilot actief")).toHaveCount(0);
+  actief = true;
   offline = true;
   await page.clock.fastForward(120_000);
   await expect(card.getByText("Modus onbekend")).toBeVisible();

@@ -33,6 +33,16 @@ def stack(fixture_image: str | None = None) -> dict:
     radarr.update(
         entrypoint=["python", "-m", "msomocks"],
         environment={"PYTHONPATH": "/fixture", "PYTHONDONTWRITEBYTECODE": "1"},
+        healthcheck={
+            "test": ["CMD", "python", "-c", (
+                "import json\n"
+                "from urllib.request import urlopen\n"
+                "with urlopen('http://mock-radarr:8080/api/v3/system/status', timeout=2) as response:\n"
+                "    name = json.load(response).get('appName')\n"
+                "raise SystemExit(0 if name == 'Radarr' else 1)"
+            )],
+            "interval": "2s", "timeout": "3s", "retries": 12, "start_period": "5s",
+        },
     )
     if fixture_image:
         # Een afzonderlijke buildengine ontvangt de bron via de bouwcontext van de job.
@@ -44,6 +54,7 @@ def stack(fixture_image: str | None = None) -> dict:
         radarr["volumes"] = [f"{ROOT / 'apps' / 'mocks'}:/fixture:ro"]
     services["mediaguard"] = {
         "image": IMAGE,
+        "depends_on": {"mock-radarr": {"condition": "service_healthy"}},
         "environment": {"MG_START_BACKGROUND": "0", "MG_DEV_AUTH_BYPASS": "0"},
         "tmpfs": ["/config:uid=568,gid=568,mode=0700", "/work:uid=568,gid=568,mode=0700"],
         "networks": ["app"],
@@ -52,10 +63,21 @@ def stack(fixture_image: str | None = None) -> dict:
 
 
 def response_json(response: httpx.Response, status: int = 200):
-    assert response.status_code == status, (
-        f"Contractafwijking: {response.request.method} {response.request.url.path} "
-        f"geeft HTTP {response.status_code}; verwacht HTTP {status}."
-    )
+    if response.status_code != status:
+        path = response.request.url.path
+        reason = ""
+        if response.status_code == 422 and path == f"{API}/instances":
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
+            codes = ("ARR_AUTH", "ARR_CONFLICT", "ARR_ERROR", "ARR_NOT_FOUND", "ARR_TIMEOUT",
+                     "ARR_UNAVAILABLE", "ARR_VALIDATION")
+            if isinstance(detail, dict) and detail.get("code") in codes:
+                reason = f" Broncode {detail['code']}."
+        raise AssertionError(f"Contractafwijking: {response.request.method} {path} "
+                             f"geeft HTTP {response.status_code}; verwacht HTTP {status}.{reason}")
     return response.json() if response.content else None
 
 

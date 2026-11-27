@@ -241,6 +241,16 @@ def test_contract_weigert_afwijkende_status(contract, verwacht, gemeten):
         contract["response_json"](respons, verwacht)
 
 
+@pytest.mark.parametrize(("code", "toon_code"), [("ARR_UNAVAILABLE", True), ("onbekende_proefwaarde", False)])
+def test_contract_meldt_alleen_bekende_bronfouten(contract, code, toon_code):
+    request = httpx.Request("POST", "https://proef.invalid/api/v1/instances")
+    resp = httpx.Response(422, request=request, json={"detail": {"code": code, "message": "intern_proefdetail"}})
+    with pytest.raises(AssertionError) as fout:
+        contract["response_json"](resp, 201)
+    assert (code in str(fout.value)) is toon_code
+    assert "intern_proefdetail" not in str(fout.value)
+
+
 def test_contractstack_is_intern_en_gebruikt_tijdelijke_data(contract):
     stack = contract["stack"]()
     assert stack["networks"] == {"app": {"internal": True}}
@@ -253,6 +263,33 @@ def test_contractstack_is_intern_en_gebruikt_tijdelijke_data(contract):
     assert "volumes" not in mg and {v.split(":")[0] for v in mg["tmpfs"]} == {"/config", "/work"}
     assert mg["environment"]["MG_DEV_AUTH_BYPASS"] == "0"
     assert services["mock-radarr"]["volumes"] == [f"{contract['ROOT'] / 'apps' / 'mocks'}:/fixture:ro"]
+
+
+@pytest.mark.parametrize("fixture_image", [None, "proef-radarr"])
+@pytest.mark.parametrize(("body", "expected"), [
+    (b'{"appName":"Radarr"}', 0), (b'{"status":"ok"}', 1), (b'{"appName":"Sonarr"}', 1),
+])
+def test_contract_start_pas_bij_het_radarr_statusantwoord(
+    contract, fixture_image, body, expected, monkeypatch, tmp_path,
+):
+    import io
+    from urllib import request
+
+    services = contract["stack"](fixture_image)["services"]
+    assert services["mediaguard"].get("depends_on") == {"mock-radarr": {"condition": "service_healthy"}}
+    command = services["mock-radarr"]["healthcheck"]["test"]
+    assert command[:3] == ["CMD", "python", "-c"]
+
+    def status(url, *, timeout):
+        assert url == "http://mock-radarr:8080/api/v3/system/status" and 0 < timeout <= 3
+        return io.BytesIO(body)
+
+    monkeypatch.setattr(request, "urlopen", status)
+    script = tmp_path / "radarr_status.py"
+    script.write_text(command[3])
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(script))
+    assert result.value.code == expected
 
 
 @pytest.mark.parametrize(("method", "route"), [

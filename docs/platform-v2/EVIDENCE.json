@@ -190,6 +190,16 @@
   "bijgewerkt": "2026-11-12"
  },
  {
+  "id": "REVIEW-media-source-optimizer-nextjs-buildsleutels",
+  "status": "Bezig",
+  "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "apps/web/tests/unit/next-keys.test.mjs toetst elf gevallen, waaronder gelijktijdige eerste starts, hergebruik op dezelfde appmap, verschillende installaties en weigering van onveilige bestandsrechten. Beide Dockerfiles gebruiken apps/web/scripts/verpak-web.mjs. De ingepakte lokale productiebuild bevatte nul Server Actions en Gitleaks vond in de standalone .next geen treffers.",
+  "blokkade": "NIET GEVALIDEERD (echte NAS).",
+  "opmerking": "Versie 2. De webserver maakt de installatiesleutel zelf aan met modus 0600. De tijdelijke preview- en actiemanifesten worden voor elke start opgebouwd.",
+  "repo": "media-source-optimizer",
+  "bijgewerkt": "2026-11-27"
+ },
+ {
   "id": "EX16",
   "status": "Bezig",
   "validatie": "NIET GEVALIDEERD (echte NAS); NIET GEVALIDEERD (echte Hub); NIET GEVALIDEERD (hardware); NIET GEVALIDEERD (account)",

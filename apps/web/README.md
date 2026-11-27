@@ -17,6 +17,12 @@ npm run build     # standalone output; production entrypoint is `node server.mjs
 MSO_E2E_BASE_URL=http://localhost:3000 npm run e2e   # Playwright against a running stack
 ```
 
+Beide Docker-images voeren na `next build` ook `node scripts/verpak-web.mjs` uit.
+Bij de eerste start maakt de webserver zelf `/appdata/web/server-actions.key` aan (0600).
+Een nieuwe container met dezelfde appmap gebruikt dezelfde sleutel. De webserver leidt hieruit
+de previewwaarden af en schrijft de Next.js-manifesten in zijn eigen tijdelijke map.
+Neem de submap `web` mee bij het verplaatsen of kopiëren van de volledige appmap.
+
 ## Structure
 
 ```

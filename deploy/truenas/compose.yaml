@@ -185,6 +185,8 @@ services:
       MSO_CORE_URL: http://api:8200
       MSO_WEB_HOST: 0.0.0.0
       PORT: "3000"
+    volumes:
+      - ${APPDATA:-../../var/mso-dev/appdata}/web:/appdata/web
     # Alleen LAN: publiceer niet via port-forwarding op je router. Wil je alleen een reverse proxy op
     # dezelfde host toelaten, zet MSO_WEB_BIND op 127.0.0.1.
     ports: ["${MSO_WEB_BIND:-0.0.0.0}:${MSO_WEB_PORT:-38081}:3000"]

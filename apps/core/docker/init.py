@@ -82,6 +82,7 @@ def main() -> int:
     ensure_dir(APPDATA / "postgres", 0o700, log, strict_mode=True)
     ensure_dir(APPDATA / "db", 0o700, log, strict_mode=True)
     ensure_dir(APPDATA / "secrets", 0o700, log)
+    ensure_dir(APPDATA / "web", 0o700, log)
     ensure_dir(APPDATA / "backups", 0o750, log)
     ensure_dir(WORK, 0o750, log)
     for sub in ("cache", "index", "tmp"):

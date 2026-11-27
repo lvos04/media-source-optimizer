@@ -17,8 +17,9 @@ import { createServer } from "node:http";
 import { connect as netConnect } from "node:net";
 import { PassThrough } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
+import { fileURLToPath } from "node:url";
 
-import next from "next";
+import { prepareManifests, routeTemplate } from "./next-keys.mjs";
 
 const host = process.env.MSO_WEB_HOST ?? process.env.LAN_LISTEN_HOST ?? "0.0.0.0";
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -196,11 +197,18 @@ function proxyUpgrade(req, socket, head, dest) {
 // Standalone build (Docker): no next.config.ts / TypeScript at runtime — use the config that
 // `next build` serialised, exactly like Next's own standalone server.js does.
 const requiredFiles = new URL("./.next/required-server-files.json", import.meta.url);
+const nextDir = new URL("./.next/", import.meta.url);
+if (existsSync(new URL(routeTemplate, nextDir))) {
+  process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY = prepareManifests(
+    fileURLToPath(nextDir), process.env.MSO_DATA_DIR ?? "/appdata",
+  );
+}
 if (!development && !process.env.__NEXT_PRIVATE_STANDALONE_CONFIG && existsSync(requiredFiles)) {
   process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(JSON.parse(readFileSync(requiredFiles, "utf8")).config);
 }
 
-const application = next({ dev: development, hostname: host, port, dir: new URL(".", import.meta.url).pathname });
+const { default: next } = await import("next");
+const application = next({ dev: development, hostname: host, port, dir: fileURLToPath(new URL(".", import.meta.url)) });
 await application.prepare();
 const handle = application.getRequestHandler();
 const handleUpgrade = application.getUpgradeHandler();

@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(import.meta.dirname, ".") } },
   oxc: { jsx: { runtime: "automatic" } },
   test: {
-    include: ["tests/unit/**/*.test.{ts,tsx}"],
+    include: ["tests/unit/**/*.test.{ts,tsx,mjs}"],
     environment: "node",
     pool: "threads",
     maxWorkers: 2,

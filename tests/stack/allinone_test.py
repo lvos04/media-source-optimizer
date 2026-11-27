@@ -292,6 +292,30 @@ def container_logs() -> str:
     ).stdout
 
 
+def web_key_fingerprints() -> list[str]:
+    """Vergelijk de echte opstartmanifesten per installatie. Alleen vingerafdrukken verlaten het proefproces."""
+    probe = """
+import hashlib, json, os, stat, sys
+from pathlib import Path
+stored = Path('/appdata/web/server-actions.key')
+assert stat.S_IMODE(stored.stat().st_mode) == 0o600 and stored.stat().st_uid == os.getuid()
+root = Path('/opt/mso-web/.next')
+actions = json.loads((root / 'server/server-reference-manifest.json').read_text())
+preview = json.loads((root / 'server/preview-props.json').read_text())
+assert stored.read_text() == actions['encryptionKey']
+assert preview == json.loads((root / 'prerender-manifest.json').read_text())['preview']
+values = [actions['encryptionKey'], *preview.values()]
+logs = sys.stdin.read()
+assert len(set(values)) == 4 and all(value and value not in logs for value in values)
+print(json.dumps([hashlib.sha256(value.encode()).hexdigest() for value in values]))
+"""
+    result = subprocess.run(
+        ["docker", "exec", "-i", "--user", "568:568", NAME, "python", "-c", probe],
+        input=container_logs(), capture_output=True, text=True, check=True,
+    )
+    return json.loads(result.stdout)
+
+
 def assert_backup_before_migration(logs: str, filename: str, first_migration: list | tuple[int, str]) -> None:
     marker = "back-up vóór upgrade gemaakt: " + filename
     applied = f"migratie {first_migration[0]:04d}_{first_migration[1]} toegepast"
@@ -817,11 +841,16 @@ def main() -> int:
         )
 
         # 4
+        first_keys = web_key_fingerprints()
         sh("docker", "restart", NAME)
         st = wait_healthy()
         c, csrf = login()
         n_users = len(c.get("/api/v1/users").json()["items"])
-        record("4 docker restart → data en login blijven", st == "healthy" and n_users == 1, f"health={st}")
+        login_page = c.get("/login")
+        record("4 docker restart → data, login en websleutels blijven",
+               st == "healthy" and n_users == 1 and login_page.status_code == 200
+               and "text/html" in login_page.headers.get("content-type", "")
+               and web_key_fingerprints() == first_keys, f"health={st}, /login HTTP {login_page.status_code}")
 
         # 10 (upgrade from the previous release's schema)
         latest = c.get("/api/v1/system/info").json()["schema_version"]
@@ -885,7 +914,8 @@ def main() -> int:
         # Lokale GET-controles blijven bereikbaar met een onbruikbare proxy in de omgeving.
         run(d2, "--user", "568:568", "-e", "http_proxy=http://localhost:1", "-e", "no_proxy=")
         st = wait_healthy()
-        record("7 --user 568 op map van 568 → gezond", st == "healthy", f"health={st}")
+        record("7 --user 568 op tweede appmap → gezond met eigen websleutels",
+               st == "healthy" and set(first_keys).isdisjoint(web_key_fingerprints()), f"health={st}")
         user_ok, user_details = privilege_probe(root_start=False)
         record("13 procesboom en healthcheck bij beide startmodi", root_ok and user_ok,
                f"root-start: {root_details}; gebruiker 568: {user_details}")

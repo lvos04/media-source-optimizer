@@ -33,11 +33,7 @@ RUN --mount=type=secret,id=ca_bundle,required=false \
     npm ci --no-audit --no-fund --ignore-scripts
 COPY apps/web/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build \
-    && cp server.mjs .next/standalone/ \
-    && cp -r public .next/standalone/public \
-    && cp -r .next/static .next/standalone/.next/static \
-    && rm -rf .next/standalone/node_modules/@img .next/standalone/node_modules/sharp .next/standalone/.next/cache
+RUN npm run build && node scripts/verpak-web.mjs
 
 # ---------------------------------------------------------------- Python core
 FROM ${PYTHON_IMAGE} AS core

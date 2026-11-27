@@ -65,7 +65,7 @@ export function ModeSettingsCard() {
   const current = automation.error ? null : automation.data;
   const areas = current?.areas ?? [];
   const autoOn = areas.filter((a) => a.auto_apply_safe);
-  const isAuto = current?.mode === "autopilot";
+  const isAuto = current?.autopilot === true && current.automation_allowed === true;
   const disabledReason = !admin ? t("mode.section.adminOnly") : mode === null ? (error ? t("mode.unknownReason") : t("mode.loadingReason")) : undefined;
   const opt = (value: OperatingMode, Icon: typeof Eye, label: string) => ({
     value, label: <><Icon className="ico ico-sm" aria-hidden="true" /> {label}</>, disabled: Boolean(disabledReason) || pending,
@@ -85,8 +85,10 @@ export function ModeSettingsCard() {
                 : <StatusChip tone={loading ? "neutral" : "unknown"} pending={loading}>{loading ? t("mode.loadingReason") : t("mode.unknown")}</StatusChip>}
             {mode !== null ? (
               paused ? <StatusChip tone="paused">{t("mode.section.pausedChip")}</StatusChip>
-                : mode === "manage" || mode === "autopilot" ? <StatusChip tone="success">{t("mode.section.runningChip")}</StatusChip>
-                  : <StatusChip tone="neutral" icon={Lock}>{t("mode.section.blockedChip")}</StatusChip>
+                : mode === "read_only" ? <StatusChip tone="neutral" icon={Lock}>{t("mode.section.blockedChip")}</StatusChip>
+                  : current?.automation_allowed === false ? <StatusChip tone="paused">{t("mode.section.stopped")}</StatusChip>
+                    : current?.mode === mode && current.automation_allowed === true ? <StatusChip tone="success">{t("mode.section.runningChip")}</StatusChip>
+                      : <StatusChip tone="unknown">{t("status.unknown")}</StatusChip>
             ) : null}
           </div>
           <span title={disabledReason} style={{ alignSelf: "flex-start" }}>
@@ -115,13 +117,17 @@ export function ModeSettingsCard() {
               <>
                 <p className="hint" style={{ margin: 0 }}>{isAuto ? t("mode.section.autoHintAutopilot") : t("mode.section.autoHint")}</p>
                 <div className="row wrap" style={{ gap: 6 }}>
-                  {areas.map((a) => isAuto ? (
-                    <StatusChip key={a.area} tone={current.automation_allowed ? "accent" : "neutral"} icon={Bot}>{a.label}: {t("mode.section.autoViaAutopilot")}</StatusChip>
-                  ) : (
-                    <StatusChip key={a.area} tone={a.auto_apply_safe && current.automation_allowed ? "warning" : "neutral"} outline={!a.auto_apply_safe}>
-                      {a.label}: {a.auto_apply_safe ? t("automation.on") : t("automation.off")}
-                    </StatusChip>
-                  ))}
+                  {areas.map((a) => {
+                    if (current.automation_allowed === false || a.effective === false) {
+                      return <StatusChip key={a.area} tone="neutral">{a.label}: {t("automation.off")}</StatusChip>;
+                    }
+                    if (current.automation_allowed !== true || a.effective !== true || typeof a.via_autopilot !== "boolean") {
+                      return <StatusChip key={a.area} tone="unknown">{a.label}: {t("status.unknown")}</StatusChip>;
+                    }
+                    return a.via_autopilot
+                      ? <StatusChip key={a.area} tone="accent" icon={Bot}>{a.label}: {t("mode.section.autoViaAutopilot")}</StatusChip>
+                      : <StatusChip key={a.area} tone="warning">{a.label}: {t("automation.on")}</StatusChip>;
+                  })}
                 </div>
               </>
             ) : automation.error ? <InlineState tone="unknown">{t("mode.section.autoUnavailable")}</InlineState> : null}

@@ -83,6 +83,8 @@ export const messages = {
   "mode.section.autoLink": "Wijzigen bij Automatisering",
   "mode.section.autoUnavailable": "Status van automatisch toepassen niet beschikbaar.",
   "mode.section.pausedChip": "Automatisering gepauzeerd",
+  "mode.section.stopped": "Automatisering staat stil",
+  "autopilot.modeStopped": "Autopilot staat stil",
   "mode.section.runningChip": "Automatisering actief",
   "mode.section.blockedChip": "Automatisering staat stil (alleen-lezen)",
   "mode.autopilot": "Autopilot",

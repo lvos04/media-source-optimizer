@@ -9,6 +9,8 @@ import MediaGuardPage from "@/app/(app)/mediaguard/page";
 import WantedPage from "@/app/(app)/ontbrekend/page";
 import SystemPage from "@/app/(app)/systeem/page";
 import SearchPage from "@/app/(app)/zoeken/page";
+import { AutopilotCard, WeeklyDigest } from "@/components/mso/automation/autopilot-summary";
+import { ModeSettingsCard } from "@/components/mso/mode-settings";
 import { UsenetDownloadsTab } from "@/components/mso/downloads/usenet-tab";
 import { CompatTable } from "@/components/mso/mediaguard/parts";
 import { HeaderIndexCard } from "@/components/mso/usenet/header-index";
@@ -24,13 +26,14 @@ vi.mock("next/link", () => ({
 }));
 
 let root: Root;
-let uitval: "geen" | "offline" | "serverfout" | "kostenbron" | "dienstenbron";
+let uitval: "geen" | "offline" | "serverfout" | "kostenbron" | "dienstenbron" | "modusbron";
 let mislukteVerzoeken: string[];
 let bronGepauzeerd: boolean;
 let maandbedragInCenten: number;
 let bestemmingGekoppeld: boolean;
 let wachtrijGepauzeerd: boolean;
 let zoekresultaten: number;
+let uitvoeringActief: boolean;
 const perTestId = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
 function knop(container: ParentNode, label: string) {
@@ -47,6 +50,7 @@ beforeEach(() => {
   bestemmingGekoppeld = false;
   wachtrijGepauzeerd = true;
   zoekresultaten = 17;
+  uitvoeringActief = true;
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -61,7 +65,17 @@ beforeEach(() => {
       mislukteVerzoeken.push(endpoint);
       return Response.json({ detail: "Storing in de proefbron" }, { status: 500 });
     }
+    if (uitval === "modusbron" && endpoint === "/system/mode") return Response.error();
     switch (endpoint) {
+      case "/overview/autopilot": return Response.json({
+        mode: "autopilot", paused: false, autopilot: uitvoeringActief, automation_allowed: uitvoeringActief,
+        generated_at: new Date().toISOString(), actions_total: 0, by_day: [], waiting: {}, syncs: { failing_now: [] },
+      });
+      case "/automation/status": return Response.json({
+        mode: "autopilot", paused: false, autopilot: uitvoeringActief, automation_allowed: uitvoeringActief,
+        areas: [{ area: "usenet", label: "Usenet", auto_apply_safe: true, effective: uitvoeringActief,
+          via_autopilot: uitvoeringActief }],
+      });
       case "/setup/status": return Response.json({ setup_required: false, admin_exists: true });
       case "/auth/me": return Response.json({ user: { username: "proef", role: "admin" } });
       case "/system/health": return Response.json({ status: "healthy", components: [{ name: "Proefbron", status: "healthy" }] });
@@ -294,4 +308,20 @@ it("markeert het aantal zoekresultaten en het bronrapport na een mislukte zoekve
   await knop(document, "Zoeken");
   expect(kop?.textContent).toContain("22 gevonden");
   expect(rapport?.querySelector('[data-status="stale"]')).toBeNull();
+});
+
+it("toont stilstand en hervatting op beide overzichten en per onderdeel bij uitval van de modusbron", async () => {
+  uitval = "modusbron";
+  uitvoeringActief = false;
+  await toon("/", <><AutopilotCard /><WeeklyDigest /><ModeSettingsCard /></>);
+  const kaart = () => perTestId("mode-auto-apply")?.textContent;
+  expect(document.body.textContent).not.toContain("Autopilot actief");
+  expect(document.body.textContent?.match(/Autopilot staat stil/g)).toHaveLength(2);
+  expect(kaart()).toContain("Usenet: Uit");
+  expect(kaart()).not.toContain("aan via Autopilot");
+
+  uitvoeringActief = true;
+  await act(async () => vi.advanceTimersByTimeAsync(120_000));
+  expect(document.body.textContent?.match(/Autopilot actief/g)).toHaveLength(2);
+  expect(kaart()).toContain("Usenet: aan via Autopilot");
 });

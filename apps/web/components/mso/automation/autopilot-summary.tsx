@@ -28,10 +28,19 @@ const ICON: Record<AutopilotCategoryKey, LucideIcon> = {
 };
 const ACTIONS_SHOWN = 5;
 
-function ModeLine({ mode, paused }: { mode?: CalmAutopilotSummary["mode"]; paused?: boolean }) {
+function ModeLine({ summary }: { summary?: CalmAutopilotSummary }) {
+  const { mode, paused, autopilot, automation_allowed } = summary ?? {};
   const { t } = useI18n();
   if (mode === "read_only") return <StatusChip tone="neutral" icon={Eye}>{t("autopilot.modeReadOnly")}</StatusChip>;
   if (typeof paused !== "boolean") return <StatusChip tone="unknown">{t("mode.unknown")}</StatusChip>;
+  if (!paused && (mode === "autopilot" || mode === "manage")) {
+    if (automation_allowed === false || (mode === "autopilot" && autopilot === false)) {
+      return <StatusChip tone="paused">{t(mode === "autopilot" ? "autopilot.modeStopped" : "mode.section.stopped")}</StatusChip>;
+    }
+    if (automation_allowed !== true || (mode === "autopilot" && autopilot !== true)) {
+      return <StatusChip tone="unknown">{t("status.unknown")}</StatusChip>;
+    }
+  }
   if (mode === "autopilot") return paused
     ? <StatusChip tone="paused">{t("autopilot.modePaused")}</StatusChip>
     : <StatusChip tone="accent" icon={Bot}>{t("autopilot.modeOn")}</StatusChip>;
@@ -131,7 +140,7 @@ export function AutopilotCard({ className = "span-12" }: { className?: string })
         {(s) => (
           <>
             <div className="row wrap" style={{ gap: 10, padding: "12px 16px 4px" }}>
-              <ModeLine mode={res.stale ? undefined : s.mode} paused={s.paused} />
+              <ModeLine summary={res.stale ? undefined : s} />
               <span className="t-2" data-testid="actions-total">{t("calm.actionsTotal", { count: num(s.actions_total) })}</span>
               <SyncLine syncs={s.syncs} />
             </div>
@@ -275,7 +284,7 @@ export function WeeklyDigest() {
           {(s) => (
             <>
               <div className="row wrap" style={{ gap: 10, padding: "12px 16px 4px" }}>
-                <ModeLine mode={res.stale ? undefined : s.mode} paused={s.paused} />
+                <ModeLine summary={res.stale ? undefined : s} />
                 <span className="t-2">{t("calm.actionsTotalWeek", { count: num(s.actions_total) })}</span>
                 <SyncLine syncs={s.syncs} />
                 {s.waiting.decisions ? <Link href="/#wacht-op-jou"><StatusChip tone="neutral" icon={Hand}>{t("autopilot.waitingChip", { count: num(s.waiting.decisions) })}</StatusChip></Link> : null}

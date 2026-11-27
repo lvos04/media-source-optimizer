@@ -64,8 +64,8 @@ def ci_fouten(tekst: str) -> list[str]:
             fouten.append("on.push.branches mist de werkbranches ccr-*")
         if set(b) - {"main", "ccr-*"}:
             fouten.append(f"on.push.branches heeft onverwachte branches: {sorted(set(b) - {'main', 'ccr-*'})}")
-    if len(tags) != 1 or lijst(tags[0].split(":", 1)[1]) != ["v*"]:
-        fouten.append('on.push.tags is niet meer precies ["v*"]')
+    if tags:
+        fouten.append("on.push.tags laat de gewone CI naast de release lopen")
     if any(r.strip().startswith("inputs:") for r in blok):
         fouten.append("de gewone CI heeft publicatie-invoer")
     return fouten
@@ -181,7 +181,6 @@ GOED = """name: ci
 on:
   push:
     branches: [main, "ccr-*"]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -200,7 +199,7 @@ def test_goed_voorbeeld_heeft_geen_fouten() -> None:
         ('branches: [main, "ccr-*"]', "branches: [main]", "mist de werkbranches"),
         ('branches: [main, "ccr-*"]', 'branches: ["ccr-*"]', "mist main"),
         ('branches: [main, "ccr-*"]', 'branches: [main, "ccr-*", "*"]', "onverwachte branches"),
-        ('tags: ["v*"]', 'tags: ["*"]', "tags"),
+        ('  pull_request:', '    tags: ["v*"]\n  pull_request:', "tags"),
         ("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n", "publicatie-invoer"),
         ("  pull_request:\n", "", "pull_request ontbreekt"),
     ],
@@ -276,3 +275,66 @@ def test_register_moet_elke_tag_uitdrukkelijk_vrij_melden(tmp_path, bestaand, an
     docker.chmod(0o700)
     resultaat = controleer_tag(tmp_path, "refs/tags/v1.2.3", "register")
     assert (resultaat.returncode == 0) == toestaan
+
+
+def job(tekst: str, naam: str) -> str:
+    match = re.search(rf"^  {naam}:\n(.*?)(?=^  [\w-]+:\n|\Z)", tekst, re.MULTILINE | re.DOTALL)
+    assert match, f"Job {naam} ontbreekt"
+    return match[1]
+
+
+@pytest.mark.parametrize("pad", [RELEASE, ROOT / ".forgejo/workflows/release.yaml"])
+def test_release_weigert_ongepinde_checkout_voor_publicatie(pad, tmp_path):
+    tekst = pad.read_text()
+    test = job(tekst, "test")
+    command = re.search(r"^      - run: (python3? scripts/check_dockerfile_digests.py)$", test, re.MULTILINE)
+    assert command, "De release controleert de basisimages uit de checkout niet"
+    for source in (ROOT / "scripts/check_dockerfile_digests.py", *ROOT.glob("apps/*/Dockerfile"),
+                   ROOT / "deploy/allinone/Dockerfile"):
+        dest = tmp_path / source.relative_to(ROOT)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, dest)
+    (tmp_path / "apps/core/Dockerfile").write_text("FROM voorbeeld:1\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "--", "apps", "deploy"], cwd=tmp_path, check=True)
+    result = subprocess.run(command[1].split(), cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 1 and "FROM voorbeeld:1" in result.stderr + result.stdout
+    assert "needs: test" in job(tekst, "verify" if pad == RELEASE else "publish")
+
+
+def test_audit_en_imagebouw_hebben_alleen_leesrechten():
+    tekst = RELEASE.read_text()
+    verify, publish = job(tekst, "verify"), job(tekst, "publish")
+    assert "  contents: read" in tekst.split("jobs:", 1)[0]
+    assert "write" not in verify.split("    steps:", 1)[0]
+    assert "pip-audit" in verify and "exit \"$audit_status\"" in verify and "SYFT" in verify
+    assert "needs: verify" in publish and "if: always()" not in publish
+    assert "packages: write" in publish and "contents: write" not in publish
+    assert "docker image save" in verify and "docker image load" in publish
+    assert "docker push" not in verify and "pip-audit==" not in publish
+
+
+def test_releasebijlagen_kunnen_na_groene_push_afzonderlijk_worden_hervat():
+    tekst = RELEASE.read_text()
+    publish, afronden = job(tekst, "publish"), job(tekst, "release")
+    assert "needs: publish" in afronden and "contents: write" in afronden and "packages: write" not in afronden
+    assert "docker push" not in afronden and "gh release create" in afronden
+    assert "release-bewijs-" in publish and "download-artifact@" in afronden
+    assert "artifact-ids: ${{ needs.publish.outputs.evidence }}" in afronden
+    assert "actions/upload-artifact@" in publish and "steps.sbom" not in publish
+    assert "check_dockerfile_digests" not in afronden and "docker/login-action" not in afronden
+
+
+def test_verwijderde_forgejo_tag_start_geen_publicatie():
+    tekst = (ROOT / ".forgejo/workflows/release.yaml").read_text()
+    guard = job(tekst, "test").split("    runs-on:", 1)[0]
+    nul = "0" * 40
+    assert f"github.event.before == '{nul}'" in guard
+    assert f"github.event.after != '{nul}'" in guard and "github.event.after != ''" in guard
+    assert "needs: test" in job(tekst, "publish")
+    assert "if: always()" not in job(tekst, "publish").split("    steps:", 1)[0]
+
+
+def test_een_github_tag_start_uitsluitend_de_release():
+    assert not any(r.strip().startswith("tags:") for r in on_blok(CI.read_text()))
+    assert release_trigger(RELEASE.read_text())

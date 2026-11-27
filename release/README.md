@@ -14,8 +14,7 @@ de push naar het register. De web-image bevat geen Python-applicatie.
 
 Zet uitsluitend op de beoogde broncommit een nieuwe tag die exact gelijk is aan `v` gevolgd door
 `release/VERSION`. Voor deze kandidaat is dat `v1.6.1`. De workflow **release**
-(`.github/workflows/release.yaml`) test de software en de upgrade vóór publicatie. De gewone CI
-bouwt alleen. Een bestaande GitHub Release, bezette imagetag of onduidelijk registerantwoord blokkeert
+(`.github/workflows/release.yaml`) test de software en de upgrade vóór publicatie. De gewone GitHub-CI draait bij branchwijzigingen en pull requests. Een bestaande GitHub Release, bezette imagetag of onduidelijk registerantwoord blokkeert
 de publicatie. Bij een onderbroken push kunnen enkele tags al bestaan. Controleer dan welke images en
 digests bevestigd zijn en gebruik voor een nieuwe bouw een nieuw versienummer. Verplaats geen oude git-tag.
 
@@ -24,7 +23,11 @@ De release publiceert exact de versietag op `ghcr.io/lvos04/media-source-optimiz
 De workflow schrijft `release/digests.json` en voegt dat bestand als **digests.json** met de SBOM's
 en auditrapporten toe aan de GitHub Release. Elke JSON-sleutel is de volledige imagenaam met versietag.
 De waarde is de SHA-256-registerdigest die de push bevestigde. Het workflowartefact
-`release-bewijs-<versie>` bevat dezelfde bewijsbestanden.
+`release-bewijs-<versie>-<poging>` bevat dezelfde bewijsbestanden.
+
+Als de job `publish` groen is en de job `release` faalt, kies in dezelfde run **Re-run failed jobs**.
+De releasejob haalt het bewijs op via het artefact-ID van de voltooide push. Zo kunnen de bijlagen
+bij dezelfde tag worden gepubliceerd zonder een tweede imagepush.
 
 Controleer na publicatie dat de drie versies publiek op digest kunnen worden opgehaald. Vul in het
 [installatiemanifest](../deploy/manifest/media-source-optimizer.manifest.yaml) de digest van de

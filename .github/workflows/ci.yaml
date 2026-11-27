@@ -20,7 +20,6 @@ name: ci
 on:
   push:
     branches: [main, "ccr-*"]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 

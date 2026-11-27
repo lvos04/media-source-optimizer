@@ -1,4 +1,4 @@
-"""Regressieproef voor de logvolgorde in het vorige-image-scenario."""
+"""Regressieproeven voor de diagnostiek bij upgrades vanaf gepubliceerde images."""
 
 import runpy
 import subprocess
@@ -10,6 +10,44 @@ import pytest
 STACK_TEST = Path(__file__).resolve().parents[3] / "tests/stack/allinone_test.py"
 FILENAME = "test-pre-upgrade.dump"
 MARKER = f"back-up vóór upgrade gemaakt: {FILENAME}"
+
+
+def test_docker_run_bewaart_de_hele_fout_zonder_proefgeheimen(monkeypatch):
+    scenario = runpy.run_path(str(STACK_TEST))
+    cause = "docker: Error response from daemon: proefvolume ontbreekt"
+    tail = "Run 'docker run --help' for more information"
+    private = scenario["SAB_KEY"]
+    password = scenario["ADMIN_PW"]
+
+    def refused(command, **kwargs):
+        return subprocess.CompletedProcess(command, 125, stdout=password,
+                                           stderr=f"{cause}\n{private} {password}\n\n{tail}\n")
+
+    monkeypatch.setattr(subprocess, "run", refused)
+    with pytest.raises(RuntimeError) as error:
+        scenario["sh"]("docker", "run", "--env", private)
+    assert str(error.value) == f"docker run exitcode 125: {cause}\n[afgeschermd] [afgeschermd]\n\n{tail}"
+
+
+def test_geweigerde_testmap_telt_als_mislukte_upgrade(monkeypatch):
+    monkeypatch.setenv("MSO_AIO_DATA_VOLUME", "proefvolume")
+    scenario = runpy.run_path(str(STACK_TEST))
+    upgrade, rollback = scenario["UPGRADE_130"]
+
+    def docker(command, **kwargs):
+        if command[:2] == ("docker", "pull"):
+            return subprocess.CompletedProcess(command, 0, "", "")
+        assert command[:2] == ("docker", "run") and "--entrypoint" in command and "mkdir" in command
+        return subprocess.CompletedProcess(command, 125, "", "proefvolume geweigerd")
+
+    monkeypatch.setattr(subprocess, "run", docker)
+    result = scenario["published_image_upgrade"](Path("published-1.3.0"), "1.3.0", scenario["PUBLISHED_130"], 500,
+                                                 (upgrade, rollback))
+    assert result is None
+    assert scenario["RESULTS"] == [
+        (upgrade, False, "docker run exitcode 125: proefvolume geweigerd"),
+        (rollback, None, "OVERGESLAGEN: een voorgaande upgrade- of herstelproef faalde"),
+    ]
 
 
 @pytest.mark.parametrize("first_migration", [(202, "usenet_missing_credentials"), (600, "v160_base"),

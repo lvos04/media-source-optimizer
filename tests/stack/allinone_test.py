@@ -96,8 +96,11 @@ print(json.dumps(processes))
 def sh(*cmd: str, check: bool = True) -> str:
     r = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if check and r.returncode != 0:
-        detail = (r.stderr.strip().splitlines() or ["geen foutmelding"])[-1]
-        raise RuntimeError(f"{' '.join(cmd[:2])} exitcode {r.returncode}: {detail[:400]}")
+        detail = r.stderr.strip() or "geen foutmelding"
+        detail = detail.replace(ADMIN_PW, "[afgeschermd]").replace(SAB_KEY, "[afgeschermd]")
+        if cmd[:2] != ("docker", "run"):
+            detail = detail.splitlines()[-1][:400]
+        raise RuntimeError(f"{' '.join(cmd[:2])} exitcode {r.returncode}: {detail}")
     return r.stdout.strip()
 
 
@@ -538,8 +541,8 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
             record(name, None, f"OVERGESLAGEN: de verplichte openbare {version}-digest is niet opgehaald")
         return None
 
-    make_data_dir(tmp)
     try:
+        make_data_dir(tmp)
         data = tmp / "upgrade"
         make_data_dir(data)
         run(data, image=image)
@@ -610,7 +613,8 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
         assert_backup_before_migration(container_logs(), archive["file"], first_migration)
         stop_cleanly()
         record(scenarios[0], True, f"{schema} → {info['schema_version']}; {len(expected)} migraties; "
-               "handmatige back-up en archief vooraf; instelling, audit, gebruiker, koppeling en voorstel behouden; "
+               f"handmatige back-up en archief vooraf; {len(users)} gebruiker en {len(audit)} auditregel(s) behouden; "
+               "instelling, koppeling en voorstel behouden; "
                "SABnzbd-wachtrijlezing werkt; "
                "healthy met UID 568 inclusief PID 1 en healthcheck; opslagmeting door de worker")
         scenario = 1
@@ -954,7 +958,9 @@ def main() -> int:
         "|---|---|---|",
     ]
     labels = {True: "ok", False: "MISLUKT", None: "OVERGESLAGEN"}
-    lines += [f"| {n} | {labels[o]} | {d.replace('|', '/')} |" for n, o, d in RESULTS]
+    for name, result, detail in RESULTS:
+        cell = "<br>".join(detail.replace("|", r"\|").splitlines())
+        lines.append(f"| {name} | {labels[result]} | {cell} |")
     (out / "allinone-report.md").write_text("\n".join(lines) + "\n")
     (out / "allinone-report.json").write_text(
         json.dumps([{"scenario": n, "ok": o, "detail": d} for n, o, d in RESULTS], indent=2, ensure_ascii=False)

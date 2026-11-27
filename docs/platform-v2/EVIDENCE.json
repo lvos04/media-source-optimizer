@@ -192,8 +192,8 @@
  {
   "id": "REVIEW-media-source-optimizer-nextjs-buildsleutels",
   "status": "Bezig",
-  "validatie": "Unit-getest; NIET GEVALIDEERD (echte NAS)",
-  "bewijs": "apps/web/tests/unit/next-keys.test.mjs toetst elf gevallen, waaronder gelijktijdige eerste starts, hergebruik op dezelfde appmap, verschillende installaties en weigering van onveilige bestandsrechten. Beide Dockerfiles gebruiken apps/web/scripts/verpak-web.mjs. De ingepakte lokale productiebuild bevatte nul Server Actions en Gitleaks vond in de standalone .next geen treffers.",
+  "validatie": "Unit-getest; Sim-getest; NIET GEVALIDEERD (echte NAS)",
+  "bewijs": "apps/web/tests/unit/next-keys.test.mjs toetst elf gevallen, waaronder gelijktijdige eerste starts, hergebruik op dezelfde appmap, verschillende installaties en weigering van onveilige bestandsrechten. Beide Dockerfiles gebruiken apps/web/scripts/verpak-web.mjs. De ingepakte lokale productiebuild bevatte nul Server Actions en Gitleaks vond in de standalone .next geen treffers. De lokale alles-in-één-proef had 23/23 groene scenario’s. De websleutels bleven gelijk na herstart en verschilden bij een tweede installatie. De upgrades vanaf 1.6.0, 1.5.0 en 1.3.0 bereikten schema 613 met alle 28 migraties. Na volledige terugval kwamen per versie de logische databasedump en de vingerafdruk van APPDATA overeen met de meting vóór de upgrade.",
   "blokkade": "NIET GEVALIDEERD (echte NAS).",
   "opmerking": "Versie 2. De webserver maakt de installatiesleutel zelf aan met modus 0600. De tijdelijke preview- en actiemanifesten worden voor elke start opgebouwd.",
   "repo": "media-source-optimizer",

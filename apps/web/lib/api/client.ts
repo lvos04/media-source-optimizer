@@ -102,7 +102,7 @@ export function buildPath(path: string, query?: RequestOptions["query"]): string
   return s ? `${path}${path.includes("?") ? "&" : "?"}${s}` : path;
 }
 
-export async function coreRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function coreRequestOnce<T>(path: string, options: RequestOptions): Promise<T> {
   const method = options.method ?? "GET";
   const url = `${CORE_BASE}${buildPath(path, options.query)}`;
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -143,6 +143,20 @@ export async function coreRequest<T>(path: string, options: RequestOptions = {})
   if (response.status === 204) return undefined as T;
   const type = response.headers.get("content-type") ?? "";
   return (type.includes("json") ? await response.json() : await response.text()) as T;
+}
+
+export async function coreRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  try {
+    return await coreRequestOnce<T>(path, options);
+  } catch (error) {
+    // De systeemkaart heeft echte buildgegevens nodig na een kort verbroken proxyverbinding.
+    if (path !== "/system/info" || (options.method ?? "GET") !== "GET" || !(error instanceof ApiError)
+        || error.status !== 502 || error.code !== "upstream_unreachable" || error.retryAfterSeconds !== null) {
+      throw error;
+    }
+    options.signal?.throwIfAborted();
+    return coreRequestOnce<T>(path, options);
+  }
 }
 
 export const api = {

@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source tests/stack/proefvolume.sh
 
 proef=${1:?stack of e2e}
 export COMPOSE_PROJECT_NAME="mso-$proef-$GITHUB_RUN_ID"
+if [[ ${2:-} == ruim ]]; then
+    docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans
+    ruim_proefvolume "$COMPOSE_PROJECT_NAME-volume"
+    exit 0
+fi
 export MSO_STACK_IMAGE_TAG="$COMPOSE_PROJECT_NAME"
 export MSO_STACK_DATA_DIR="$RUNNER_TEMP/$COMPOSE_PROJECT_NAME"
 export MSO_STACK_RESULTS_ROOT="$GITHUB_WORKSPACE/test-results/$proef"
@@ -13,9 +19,8 @@ export MSO_BUILD_VERSION MSO_BUILD_TIME
 export MSO_POSTGRES_IMAGE=postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
 # De bestaande Compose-definitie bindt submappen van APPDATA. Wijs haar naar het eigen,
 # verse volume op de buildengine. De jobcontainer bewaart alleen de rapporten.
-volume=$(docker volume create)
-trap 'docker volume rm "$volume" >/dev/null' EXIT
-MSO_STACK_ENGINE_DATA_DIR=$(docker volume inspect --format '{{.Mountpoint}}' "$volume")
+start_proefvolume "$COMPOSE_PROJECT_NAME-volume" "$MSO_POSTGRES_IMAGE"
+MSO_STACK_ENGINE_DATA_DIR=$(docker volume inspect --format '{{.Mountpoint}}' "$proefvolume")
 export MSO_STACK_ENGINE_DATA_DIR MSO_STACK_WEB_PORT=0 MSO_STACK_API_PORT=0
 case "$proef" in
     stack) bash tests/stack/run.sh ;;

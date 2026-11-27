@@ -107,7 +107,7 @@ def sh(*cmd: str, check: bool = True) -> str:
 def make_data_dir(path: Path, *, mode: int | None = None) -> None:
     if DATA_VOLUME:
         permissions = 0o755 if mode is None else mode
-        sh("docker", "run", "--rm", "--network", "none", "--user", "0:0",
+        sh("docker", "run", "--rm", "--pull=never", "--network", "none", "--user", "0:0",
            "--mount", f"type=volume,src={DATA_VOLUME},dst=/fixture", "--entrypoint", "mkdir",
            IMAGE, "-m", format(permissions, "o"), f"/fixture/{path}")
     else:

@@ -8,4 +8,10 @@ De review van 27 november 2026 betreft de OpenAPI-rij uit S-P3-265 (`c6f21d3`) e
 
 **De component bewaart dezelfde betekenis op de desktop.** De kolomkoppen staan in een tabelkop. Bij stapeling neemt iedere cel haar eigen kolomlabel mee. De tabelregio heeft een toegankelijke naam en kan met het toetsenbord worden bereikt. De componentproef in `apps/web/tests/unit/schermtoestanden.test.tsx` voert de combinatie van een geverifieerde bron en beperkte toegang daadwerkelijk door de renderer. De bronproef in `apps/core/tests/test_mediaguard_probe.py` controleert welke routes een viewer en een operator werkelijk kunnen bevestigen.
 
-Voor de OpenAPI-rij is geen tekst- of stijlwijziging nodig. De aparte vraag welke zoekmogelijkheden MediaGuard aan een leesrol kan bevestigen, ligt bij het API-contract. De aanvullende browseropnamen en metingen bij deze review horen bij het bouwrapport VV-MSO.
+Voor de OpenAPI-rij is geen tekst- of stijlwijziging nodig. De aparte vraag welke zoekmogelijkheden MediaGuard aan een leesrol kan bevestigen, ligt bij het API-contract.
+
+## Eigen browserproef
+
+De echte React-component `CompatTable` met de MSO-routematrix en de Nederlandse vertaling werd gerenderd met het productie-CSS. Chromium bekeek de component offline bij 360, 390, 768 en 1440 px, telkens in het lichte en het donkere thema. In alle acht combinaties bleven de vereiste rol, de bronverificatie en het toegangsresultaat leesbaar. Tab en Shift+Tab brachten de focus naar de tabel met een zichtbare omtrek. De pagina had geen horizontale overloop, de inhoud paste in de vijf cellen van de OpenAPI-rij en axe vond geen overtredingen in de tabelregio.
+
+Op de mobiele opname loopt de uitleg over de twee HTTP-statussen door op meerdere regels. De statuschips hebben elk hun eigen label. De desktopopname toont dezelfde waarden naast elkaar. [OpenAPI bij 390 px in het donkere thema](../screenshots/peil/review/s-p3-265-openapi-390-donker.png) · [OpenAPI bij 1440 px in het lichte thema](../screenshots/peil/review/s-p3-265-openapi-1440-licht.png)

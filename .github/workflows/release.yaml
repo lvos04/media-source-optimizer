@@ -259,9 +259,45 @@ jobs:
           merge-multiple: true
           path: release
       - name: Voeg digests en controles toe aan de GitHub Release
+        shell: bash
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVIDENCE_ID: ${{ needs.publish.outputs.evidence }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Media Source Optimizer $GITHUB_REF_NAME" \
-            --generate-notes release/digests.json release/*.spdx.json release/*.pip-audit.json
+          marker="<!-- mso-release $GITHUB_RUN_ID $GITHUB_SHA $EVIDENCE_ID -->"
+          view=(gh release view "$GITHUB_REF_NAME" --json "tagName,body,isDraft,databaseId")
+          if ! release=$("${view[@]}"); then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "Media Source Optimizer $GITHUB_REF_NAME" \
+              --notes "$marker" --generate-notes
+            release=$("${view[@]}")
+          fi
+          id=$(jq -er --arg tag "$GITHUB_REF_NAME" --arg marker "$marker" \
+            'select(.tagName == $tag and (.body | split("\n") | index($marker) != null)) | .databaseId | numbers' <<< "$release")
+          draft=$(jq -r '.isDraft' <<< "$release")
+          endpoint="repos/$GH_REPO/releases/$id/assets?per_page=100"
+          assets=$(gh api "$endpoint")
+          files=(release/digests.json release/media-source-optimizer{,-core,-web}.spdx.json
+                 release/media-source-optimizer{,-core}.pip-audit.json)
+          for file in "${files[@]}"; do
+            name=${file##*/}
+            digest="sha256:$(sha256sum "$file" | cut -d' ' -f1)"
+            asset=$(jq -c --arg name "$name" 'map(select(.name == $name)) | if length <= 1 then .[0] else error("Dubbele bijlage") end' <<< "$assets")
+            if jq -e --arg digest "$digest" '.state == "uploaded" and .digest == $digest' <<< "$asset" > /dev/null; then
+              continue
+            fi
+            [[ "$draft" == true ]] || { echo "Afwijkend bewijs in gepubliceerde release." >&2; exit 1; }
+            if [[ "$asset" != null ]]; then
+              starter=$(jq -er 'select(.state == "starter" and .size == 0 and .digest == null) | .id | numbers' <<< "$asset")
+              gh api --method DELETE "repos/$GH_REPO/releases/assets/$starter"
+            fi
+            gh release upload "$GITHUB_REF_NAME" "$file"
+          done
+          assets=$(gh api "$endpoint")
+          [[ $(jq length <<< "$assets") -eq ${#files[@]} ]]
+          for file in "${files[@]}"; do
+            digest="sha256:$(sha256sum "$file" | cut -d' ' -f1)"
+            jq -e --arg name "${file##*/}" --arg digest "$digest" \
+              'any(.[]; .name == $name and .state == "uploaded" and .digest == $digest)' <<< "$assets" > /dev/null
+          done
+          if [[ "$draft" == true ]]; then gh release edit "$GITHUB_REF_NAME" --draft=false; fi

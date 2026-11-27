@@ -26,8 +26,9 @@ De waarde is de SHA-256-registerdigest die de push bevestigde. Het workflowartef
 `release-bewijs-<versie>-<poging>` bevat dezelfde bewijsbestanden.
 
 Als de job `publish` groen is en de job `release` faalt, kies in dezelfde run **Re-run failed jobs**.
-De releasejob haalt het bewijs op via het artefact-ID van de voltooide push. Zo kunnen de bijlagen
-bij dezelfde tag worden gepubliceerd zonder een tweede imagepush.
+De releasejob herkent zijn eigen concept aan de run, de commit en het artefact-ID van de voltooide push.
+Na een onderbreking vult hij de ontbrekende bijlagen aan. Hij vergelijkt alle zes SHA-256-digests vóór
+publicatie. Bij een afwijkend bestaand bestand of een concept van een andere run stopt de job.
 
 Controleer na publicatie dat de drie versies publiek op digest kunnen worden opgehaald. Vul in het
 [installatiemanifest](../deploy/manifest/media-source-optimizer.manifest.yaml) de digest van de

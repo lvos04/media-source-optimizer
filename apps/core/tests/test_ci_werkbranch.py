@@ -370,3 +370,78 @@ def test_rode_audit_breekt_de_echte_releasestap_af(pad, tmp_path):
     result = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, env=env, capture_output=True)
     assert result.returncode == 9
     assert (tmp_path / "meting").read_text().splitlines() == ["audit", "audit"]
+
+
+def test_hervat_dezelfde_conceptrelease_na_een_onderbroken_upload(tmp_path):
+    workflow = job(RELEASE.read_text(), "release")
+    script = dedent(workflow.rsplit("        run: |\n", 1)[1])
+    bestanden = ["digests.json", *(f"media-source-optimizer{deel}.spdx.json" for deel in ("", "-core", "-web")),
+                 *(f"media-source-optimizer{deel}.pip-audit.json" for deel in ("", "-core"))]
+    mapje = tmp_path / "release"
+    mapje.mkdir()
+    for naam in bestanden:
+        (mapje / naam).write_text("{}")
+    remote = tmp_path / "opslag"
+    remote.mkdir()
+    # De simulator onderbreekt de tweede upload één keer na het aanmaken van de lege bijlage.
+    gh = tmp_path / "gh"
+    gh.write_text(dedent("""\
+        #!/usr/bin/env python3
+        import hashlib, json, sys
+        from pathlib import Path
+        args = sys.argv[1:]
+        staat = Path("opslag/staat.json")
+        data = json.loads(staat.read_text()) if staat.exists() else None
+        if args[:2] == ["release", "view"]:
+            if data is None:
+                sys.exit(1)
+            print(json.dumps(data))
+        elif args[:2] == ["release", "create"]:
+            assert data is None and "--verify-tag" in args and "--draft" in args
+            data = {"tagName": args[2], "body": args[args.index("--notes")+1], "isDraft": True,
+                    "databaseId": 20, "assets": []}
+        elif args[:2] == ["release", "upload"]:
+            assert data["isDraft"]
+            f = Path(args[3])
+            assert f.name not in [a["name"] for a in data["assets"]]
+            half = len(data["assets"]) == 1 and not Path("onderbroken").exists()
+            data["assets"].append({"name": f.name, "id": len(data["assets"])+1,
+                                   "state": "starter" if half else "uploaded", "size": 0 if half else f.stat().st_size,
+                                   "digest": None if half else "sha256:"+hashlib.sha256(f.read_bytes()).hexdigest()})
+            if half:
+                Path("onderbroken").touch()
+                staat.write_text(json.dumps(data))
+                sys.exit(9)
+        elif args[0] == "api" and args[-1].endswith("/assets?per_page=100"):
+            print(json.dumps(data["assets"]))
+        elif args[:3] == ["api", "--method", "DELETE"]:
+            asset_id = int(args[-1].rsplit("/",1)[1])
+            (asset,) = [a for a in data["assets"] if a["id"] == asset_id]
+            assert asset["state"] == "starter" and data["isDraft"]
+            data["assets"].remove(asset)
+        elif args[:2] == ["release", "edit"]:
+            assert len(data["assets"]) == 6 and all(a["state"] == "uploaded" for a in data["assets"])
+            assert "--draft=false" in args
+            data["isDraft"] = False
+        else:
+            raise AssertionError(args)
+        staat.write_text(json.dumps(data))
+    """))
+    gh.chmod(0o700)
+    env = dict(os.environ, PATH=str(tmp_path) + os.pathsep + os.environ["PATH"], GH_REPO="proef/app",
+               GITHUB_SHA="a" * 40, GITHUB_REF_NAME="v1.2.3", GITHUB_RUN_ID="80", EVIDENCE_ID="90")
+
+    def uitvoeren(**overrides):
+        return subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, env=env | overrides,
+                              capture_output=True, text=True).returncode
+
+    assert uitvoeren() == 9
+    half = (remote / "staat.json").read_bytes()
+    assert uitvoeren(GITHUB_RUN_ID="81") != 0
+    assert (remote / "staat.json").read_bytes() == half
+    assert uitvoeren() == 0
+    voltooid = (remote / "staat.json").read_bytes()
+    assert not json.loads(voltooid)["isDraft"]
+    assert uitvoeren() == 0 and (remote / "staat.json").read_bytes() == voltooid
+    (mapje / "digests.json").write_text("afwijkende inhoud")
+    assert uitvoeren() != 0 and (remote / "staat.json").read_bytes() == voltooid

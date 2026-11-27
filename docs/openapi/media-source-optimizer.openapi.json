@@ -2937,6 +2937,19 @@
     "title": "PurgeBody",
     "type": "object"
    },
+   "ReadProof": {
+    "properties": {
+     "proof": {
+      "title": "Proof",
+      "type": "string"
+     }
+    },
+    "required": [
+     "proof"
+    ],
+    "title": "ReadProof",
+    "type": "object"
+   },
    "Readback": {
     "additionalProperties": false,
     "properties": {
@@ -3793,6 +3806,36 @@
      "type"
     ],
     "title": "ValidationError",
+    "type": "object"
+   },
+   "VerificationKey": {
+    "properties": {
+     "crv": {
+      "const": "Ed25519",
+      "default": "Ed25519",
+      "title": "Crv",
+      "type": "string"
+     },
+     "kid": {
+      "title": "Kid",
+      "type": "string"
+     },
+     "kty": {
+      "const": "OKP",
+      "default": "OKP",
+      "title": "Kty",
+      "type": "string"
+     },
+     "x": {
+      "title": "X",
+      "type": "string"
+     }
+    },
+    "required": [
+     "x",
+     "kid"
+    ],
+    "title": "VerificationKey",
     "type": "object"
    },
    "mso__api__foundation__RestoreBody": {
@@ -7741,6 +7784,236 @@
      "Machine-sleutels"
     ],
     "x-idempotency-exception": "Bewuste eenmalige uitgifte van een nieuw geheim (contract §5)."
+   }
+  },
+  "/api/v1/machine-keys/read-proof": {
+   "get": {
+    "description": "Verklaar de vaste scopes van de aangeboden sleutel voor deze installatie en bronversie.",
+    "operationId": "get_read_proof_api_v1_machine_keys_read_proof_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReadProof"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Unauthorized"
+     },
+     "403": {
+      "description": "Uitsluitend een machine-sleutel met exact read"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Unprocessable Entity"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Too Many Requests"
+     },
+     "500": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Internal Server Error"
+     }
+    },
+    "security": [
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Get Read Proof",
+    "tags": [
+     "Machine-sleutels"
+    ],
+    "x-machine-scopes": [
+     "read"
+    ]
+   }
+  },
+  "/api/v1/machine-keys/verification-key": {
+   "get": {
+    "description": "Publieke verificatiesleutel die de beheerder bij de juiste installatie bevestigt.",
+    "operationId": "get_verification_key_api_v1_machine_keys_verification_key_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerificationKey"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "idempotency_key_required of idempotency_key_invalid"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Niet ingelogd"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "admin_required: alleen menselijke beheerder"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "duplicate_name: naam bestaat al"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "payload_too_large: maximaal 1 MiB"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "invalid_name, scope_required, unknown_scope of idempotency_key_reused"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "rate_limited: wacht volgens Retry-After"
+     },
+     "500": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
+      "description": "Internal Server Error"
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     }
+    ],
+    "summary": "Get Verification Key",
+    "tags": [
+     "Machine-sleutels"
+    ]
    }
   },
   "/api/v1/machine-keys/{key_id}/revoke": {

@@ -159,3 +159,29 @@ torrents; nooit automatisch abonnementen opzeggen; MediaGuard-kwaliteitseisen zi
 Dit is een zelf-gehoste applicatie zonder publieke dienst. Meld een kwetsbaarheid via een privé *security
 advisory* in de repository `lvos04/media-source-optimizer` (Security → Report a vulnerability), niet als gewoon
 (openbaar) issue.
+
+## Leesbewijs voor een Hub-koppeling
+
+De beheerder bevestigt via de vertrouwde MSO-beheersessie de publieke JWK uit
+`GET /api/v1/machine-keys/verification-key` en koppelt deze aan het bevestigde
+MSO-adres. De sleutel hoort bij deze APPDATA-installatie. Bij een kopie van APPDATA
+verhuist ook de instantie-identiteit. Registreer een kloon onder een eigen identiteit
+voordat beide installaties afzonderlijk gekoppeld worden.
+
+Vraag vóór beschermde uitlezing met alleen `X-Api-Key` een bewijs op bij
+`GET /api/v1/machine-keys/read-proof`. Het veld `proof` bevat een compacte JWS.
+MSO geeft die uitsluitend af voor een actieve machine-sleutel met exact `read`.
+Scopes liggen vanaf uitgifte vast. Wijzigen van rechten vereist intrekken en een nieuwe
+sleutel uitgeven. Elke beschermde aanvraag controleert de actuele sleutel opnieuw.
+
+De afnemer controleert de handtekening op de twee oorspronkelijke base64url-segmenten
+met de vooraf bevestigde publieke sleutel. Vereis `alg=EdDSA`, `typ=mso-read-proof+jwt`
+en `kid=sha256:<hex>`, berekend over de 32 ruwe bytes van die publieke sleutel.
+Vergelijk de ondertekende velden met de eigen koppelgegevens.
+
+- `iss` is `urn:mso:` gevolgd door de volledige `kid`. `aud` is `hub`.
+- `sub` is de sleutel-UUID. `key_sha256` is de SHA-256 in hex van de aangeboden machine-sleutel.
+- `scopes` is exact `["read"]`. `source_version` is de bevestigde MSO-versie.
+- `iat` en `exp` zijn gehele UTC-epochseconden. Vereis `iat <= nu < exp` en een looptijd van 60 seconden.
+
+Herbevestig de koppeling als adres, versie of verificatiesleutel verandert.

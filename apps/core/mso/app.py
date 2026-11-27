@@ -26,7 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import HTTPConnection
 
-from mso import settings_registry
+from mso import read_proof, settings_registry
 from mso.config import VERSION, get_settings
 from mso.connector_api.errors import ConnectorRequestMiddleware, ErrorBody, error_response, is_connector
 from mso.connector_api.status import Readiness, readiness
@@ -284,7 +284,9 @@ def create_app(db: Database | None = None, *, migrate: bool = True) -> FastAPI:
                     for parameter in operation["parameters"]:
                         if parameter["name"] == "Idempotency-Key":
                             parameter["required"] = True
-            if path.startswith("/api/v1/machine-keys"):
+            if path == read_proof.PATH:
+                operations["get"]["security"] = [{"MachineKey": []}]
+            elif path.startswith("/api/v1/machine-keys"):
                 for method, operation in operations.items():
                     operation["security"] = [{"SessionCookie": []}]
                     if (method, path) in IDEMPOTENCY_EXCEPTIONS:

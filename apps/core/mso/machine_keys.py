@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,11 +25,13 @@ from starlette.datastructures import Headers
 from starlette.requests import HTTPConnection
 from starlette.routing import Match
 
+from mso import read_proof
 from mso.audit import audit
-from mso.auth import Principal, current_principal, token_hash
+from mso.auth import CSRF_HEADER, SESSION_COOKIE, Principal, current_principal, token_hash
 from mso.connector_api.errors import PREFIX, is_connector
 from mso.db import Database, get_db, jsonb
 from mso.security import redact
+from mso.vault import get_vault
 
 SCOPES = frozenset({"read", "changes:approve"})
 IDEMPOTENCY_EXCEPTIONS = {
@@ -151,6 +153,7 @@ def _size_error() -> JSONResponse:
 # Nieuwe routes worden nooit automatisch geopend. Geen GET die importeert, synchroniseert,
 # cache ververst, een geheim leest/maakt of een externe opdracht start.
 READ_ROUTES = frozenset({
+    read_proof.PATH,
     f"{PREFIX}/discover", f"{PREFIX}/health", f"{PREFIX}/items", f"{PREFIX}/events", f"{PREFIX}/evidence/{{id}}",
     "/api/v1/overview", "/api/v1/overview/goals", "/api/v1/overview/autopilot", "/api/v1/overview/waiting",
     "/api/v1/system/mode", "/api/v1/system/health", "/api/v1/system/info",
@@ -399,6 +402,23 @@ def admin_only(p: Principal = Depends(current_principal)) -> Principal:
     if p.machine or not p.can("admin"):
         raise MachineKeyError(403, "admin_required", "Alleen beheerders kunnen machine-sleutels beheren.")
     return p
+
+
+@router.get("/verification-key")
+def get_verification_key(_: Principal = Depends(admin_only)) -> read_proof.VerificationKey:
+    """Publieke verificatiesleutel die de beheerder bij de juiste installatie bevestigt."""
+    return read_proof.verification_key(get_vault().read_proof_signer)
+
+
+@router.get("/read-proof", responses={403: {"description": "Uitsluitend een machine-sleutel met exact read"}})
+def get_read_proof(request: Request, response: Response,
+                   p: Principal = Depends(current_principal)) -> read_proof.ReadProof:
+    """Verklaar de vaste scopes van de aangeboden sleutel voor deze installatie en bronversie."""
+    if (not p.machine or not p.machine_key_id or p.scopes != {"read"} or SESSION_COOKIE in request.cookies
+            or CSRF_HEADER in request.headers or "Authorization" in request.headers):
+        raise MachineKeyError(403, "read_only_key_required", "Een machine-sleutel met uitsluitend read is vereist.")
+    response.headers["Cache-Control"] = "no-store"
+    return read_proof.issue(get_vault().read_proof_signer, p.machine_key_id, token_hash(request.headers["x-api-key"]))
 
 
 @router.get("", response_model=MachineKeyList)

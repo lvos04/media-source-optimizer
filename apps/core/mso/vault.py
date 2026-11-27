@@ -15,7 +15,10 @@ import time
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from mso.config import get_settings
 from mso.db import Database
@@ -63,6 +66,10 @@ class Vault:
         key = key or _load_key(get_settings().secret_key_file)
         self._key_digest = hashlib.sha256(key).digest()
         self._aes = AESGCM(key)
+        # Een eigen cryptografisch domein per installatie, ook voor bestaande APPDATA.
+        seed = HKDF(algorithm=hashes.SHA256(), length=32, salt=None,
+                    info=b"mso/machine-read-proof/ed25519/v1").derive(key)
+        self.read_proof_signer = Ed25519PrivateKey.from_private_bytes(seed)
 
     def key_file_is_current(self) -> bool:
         """Controleer de actieve sleutel en de authenticiteit van ieder aanwezig kluisrecord."""

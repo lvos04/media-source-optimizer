@@ -22,11 +22,14 @@ function usenet(autopilot: boolean) {
   };
 }
 
-function automation() {
+function automation(actief = true) {
   return {
-    mode: "autopilot", paused: false, automation_allowed: true, max_per_hour: 4, max_age_h: 12,
+    mode: "autopilot", paused: false, autopilot: actief, automation_allowed: actief, max_per_hour: 4, max_age_h: 12,
     auto_rollback: true, applied_last_hour: 0, risk_explanation: {}, log: [], jobs: [], evaluators: [],
-    areas: [{ area: "usenet", label: "Usenet", auto_apply_safe: false, setting_key: "proef", pending_safe_changes: 0 }],
+    areas: [{
+      area: "usenet", label: "Usenet", auto_apply_safe: false, setting_key: "proef", pending_safe_changes: 0,
+      effective: actief, via_autopilot: actief,
+    }],
   };
 }
 
@@ -75,11 +78,13 @@ test("Usenet volgt de eigen Autopilot-bron bij afzonderlijke uitval en herstel",
 
 test("Instellingen wist de zichtbare en toegankelijke modusselectie bij uitval", async ({ page }) => {
   let offline = false;
+  let actief = true;
   await bron(page, MODE, () => offline ? "offline" : { mode: "autopilot", paused: false });
-  await bron(page, AUTOMATION, automation);
+  await bron(page, AUTOMATION, () => automation(actief));
   await page.goto("/instellingen?tab=systeem");
   const group = page.getByRole("group", { name: "Bedrijfsmodus kiezen" });
   const selection = group.getByRole("button", { pressed: true });
+  const uitvoering = page.getByTestId("mode-auto-apply");
   await expect(selection).toHaveText("Autopilot");
 
   offline = true;
@@ -87,12 +92,20 @@ test("Instellingen wist de zichtbare en toegankelijke modusselectie bij uitval",
   await expect(page.locator("#modus").getByText("Modus onbekend")).toBeVisible();
   await expect(selection).toHaveCount(0);
   await expect(group.getByRole("button", { disabled: true })).toHaveCount(3);
-  await expect(page.getByTestId("mode-auto-apply").getByText(/Usenet: aan via Autopilot/)).toBeVisible();
+  await expect(uitvoering.getByText(/Usenet: aan via Autopilot/)).toBeVisible();
+
+  actief = false;
+  await page.clock.fastForward(60_000);
+  await expect(uitvoering.getByText("Usenet: Uit", { exact: true })).toBeVisible();
+  await expect(uitvoering.getByText(/aan via Autopilot/)).toHaveCount(0);
+  await expect(selection).toHaveCount(0);
 
   offline = false;
+  actief = true;
   await page.clock.fastForward(60_000);
   await expect(selection).toHaveText("Autopilot");
   await expect(selection).toBeEnabled();
+  await expect(uitvoering.getByText(/Usenet: aan via Autopilot/)).toBeVisible();
 });
 
 test("de schil markeert een laatst bekende pauze en herstelt na bevestiging", async ({ page }) => {

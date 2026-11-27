@@ -29,9 +29,10 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 from mso import changes, jobs, state
 from mso import settings_registry as sr
@@ -481,6 +482,32 @@ def _last_applied(db: Any = None) -> dict[str, Any] | None:
         "rolled_back_at": row["rolled_back_at"],
         "categories": _op_names(row["ops"]),
     }
+
+
+class CachedCategoryDiagnosis(BaseModel):
+    verdict: Literal["a", "b", "c", "ok", "geen_ster", "onbekend"] = "onbekend"
+    checked_at: datetime | None = None
+
+
+def cached_diagnosis() -> CachedCategoryDiagnosis:
+    remote = state.get_state(STATE_KEY)
+    if not isinstance(remote, dict):
+        return CachedCategoryDiagnosis()
+    try:
+        at = datetime.fromisoformat(remote["checked_at"])
+        age = (_now() - at).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        return CachedCategoryDiagnosis()
+    if age < 0:
+        return CachedCategoryDiagnosis()
+    result = CachedCategoryDiagnosis(checked_at=at)
+    if age < CACHE_S:
+        try:
+            verdict = _evaluate(remote, star_series())["verdict"]
+        except (KeyError, TypeError, AttributeError):
+            return result  # Onvolledige historische cache.
+        return CachedCategoryDiagnosis(verdict=verdict, checked_at=at)
+    return result
 
 
 def diagnose(*, refresh: bool = False) -> dict[str, Any]:

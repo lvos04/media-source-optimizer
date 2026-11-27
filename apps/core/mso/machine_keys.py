@@ -153,7 +153,7 @@ def _size_error() -> JSONResponse:
 # Nieuwe routes worden nooit automatisch geopend. Geen GET die importeert, synchroniseert,
 # cache ververst, een geheim leest/maakt of een externe opdracht start.
 READ_ROUTES = frozenset({
-    read_proof.PATH,
+    read_proof.PATH, "/api/v1/usenet/categories/diagnosis/cached", "/api/v1/system/maintenance/backup-status",
     f"{PREFIX}/discover", f"{PREFIX}/health", f"{PREFIX}/items", f"{PREFIX}/events", f"{PREFIX}/evidence/{{id}}",
     "/api/v1/overview", "/api/v1/overview/goals", "/api/v1/overview/autopilot", "/api/v1/overview/waiting",
     "/api/v1/system/mode", "/api/v1/system/health", "/api/v1/system/info",

@@ -185,3 +185,17 @@ Vergelijk de ondertekende velden met de eigen koppelgegevens.
 - `iat` en `exp` zijn gehele UTC-epochseconden. Vereis `iat <= nu < exp` en een looptijd van 60 seconden.
 
 Herbevestig de koppeling als adres, versie of verificatiesleutel verandert.
+
+Met dat leesrecht zijn twee beperkte bronmetingen beschikbaar.
+
+- `GET /api/v1/usenet/categories/diagnosis/cached` geeft alleen `verdict` en
+  `checked_at`. De bronmeettijd hoort bij de laatst opgehaalde categoriegegevens.
+  Na tien minuten wordt het oordeel `onbekend`. Ontbrekende gegevens starten geen verversing.
+- `GET /api/v1/system/maintenance/backup-status` geeft de meettijd, de tijd van de laatste
+  geregistreerde back-up, de beschikbare en benodigde bytes, `space_ok` en `backup_fresh`.
+  De versheidsgrens is twee dagen. Bij ontbrekende of toekomstige registratietijd is
+  de versheid onbekend (`null`). Een onmeetbare vrije ruimte geeft `space_ok: null`.
+  De registratie en de ruimtemeting leveren op zichzelf geen bewijs van herstelbaarheid.
+
+Beide routes weigeren queryopties. De volledige diagnose en het starten van onderhoud
+houden hun bestaande toegangsregels.

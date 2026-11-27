@@ -24,14 +24,17 @@ import logging
 import math
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from mso import backups, jobs, resource_usage, state
 from mso import settings_registry as sr
+from mso.api import NoQuery
 from mso.audit import audit
 from mso.auth import Principal, require
+from mso.connector_api.status import BACKUP_MAX_AGE, measurement_reason
 from mso.db import Database, get_db
 from mso.resource_usage import database_usage
 
@@ -316,6 +319,31 @@ def maintenance(_: Principal = Depends(require("viewer"))) -> dict[str, Any]:
         "growth": growth,
         "provenance": provenance,
     }
+
+
+class BackupReading(BaseModel):
+    observed_at: datetime
+    last_backup_at: datetime | None
+    backup_fresh: bool | None
+    free_bytes: int | None
+    needed_bytes: int
+    space_ok: bool | None
+
+
+@router.get("/maintenance/backup-status")
+def backup_status(query: Annotated[NoQuery, Query()], _: Principal = Depends(require("viewer"))) -> BackupReading:
+    """Ruimte en ouderdom van de laatste geregistreerde back-up, zonder bestandsnaam of herstelactie."""
+    db = get_db()
+    space = backups.space_status(db)
+    last = db.scalar("SELECT max(created_at) FROM backups")
+    now = datetime.now(UTC)
+    reason = measurement_reason(last, now, BACKUP_MAX_AGE)
+    return BackupReading(
+        observed_at=now, last_backup_at=None if reason == "meting_in_toekomst" else last,
+        backup_fresh=None if reason in {"meting_ontbreekt", "meting_in_toekomst"} else reason is None,
+        free_bytes=space["free_bytes"], needed_bytes=space["needed_bytes"],
+        space_ok=None if space["free_bytes"] is None else space["ok"],
+    )
 
 
 @router.post("/maintenance/run")

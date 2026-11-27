@@ -5,9 +5,10 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, Path, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel
 
 from mso import change_requests, changes
+from mso.api import NoQuery
 from mso.audit import _clean
 from mso.auth import Principal, require
 from mso.change_actions import ACTIONS
@@ -95,10 +96,6 @@ class Item(BaseModel):
 class ItemsPage(BaseModel):
     items: list[Item]
     next_cursor: str | None
-
-
-class NoQuery(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class PageQuery(NoQuery):

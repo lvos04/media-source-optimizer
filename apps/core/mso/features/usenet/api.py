@@ -5,13 +5,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from mso import jobs
 from mso import settings_registry as sr
+from mso.api import NoQuery
 from mso.audit import audit
 from mso.auth import Principal, require
 from mso.connectors import base as cb
@@ -261,6 +262,13 @@ def categories_diagnosis(refresh: bool = False, p: Principal = Depends(require("
     if refresh:
         _limit("usenet-categories-refresh", p.actor, 6)
     return categories.diagnose(refresh=refresh)
+
+
+@router.get("/categories/diagnosis/cached")
+def cached_diagnosis(query: Annotated[NoQuery, Query()],
+                     _: Principal = Depends(require("viewer"))) -> categories.CachedCategoryDiagnosis:
+    """Diagnose uit de bestaande cache en lokale tellingen, met de oorspronkelijke bronmeettijd."""
+    return categories.cached_diagnosis()
 
 
 class CategoryProposalIn(BaseModel):

@@ -304,6 +304,74 @@
     "title": "BackupBody",
     "type": "object"
    },
+   "BackupReading": {
+    "properties": {
+     "backup_fresh": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Backup Fresh"
+     },
+     "free_bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Free Bytes"
+     },
+     "last_backup_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Backup At"
+     },
+     "needed_bytes": {
+      "title": "Needed Bytes",
+      "type": "integer"
+     },
+     "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+     },
+     "space_ok": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Space Ok"
+     }
+    },
+    "required": [
+     "observed_at",
+     "last_backup_at",
+     "backup_fresh",
+     "free_bytes",
+     "needed_bytes",
+     "space_ok"
+    ],
+    "title": "BackupReading",
+    "type": "object"
+   },
    "BlacklistBody": {
     "properties": {
      "media_ref": {
@@ -384,6 +452,37 @@
      }
     },
     "title": "BoundChangeBody",
+    "type": "object"
+   },
+   "CachedCategoryDiagnosis": {
+    "properties": {
+     "checked_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Checked At"
+     },
+     "verdict": {
+      "default": "onbekend",
+      "enum": [
+       "a",
+       "b",
+       "c",
+       "ok",
+       "geen_ster",
+       "onbekend"
+      ],
+      "title": "Verdict",
+      "type": "string"
+     }
+    },
+    "title": "CachedCategoryDiagnosis",
     "type": "object"
    },
    "CandidateBody": {
@@ -10665,6 +10764,39 @@
     ]
    }
   },
+  "/api/v1/system/maintenance/backup-status": {
+   "get": {
+    "description": "Ruimte en ouderdom van de laatste geregistreerde back-up, zonder bestandsnaam of herstelactie.",
+    "operationId": "backup_status_api_v1_system_maintenance_backup_status_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BackupReading"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Backup Status",
+    "tags": [
+     "systeem"
+    ],
+    "x-machine-scopes": [
+     "read"
+    ]
+   }
+  },
   "/api/v1/system/maintenance/run": {
    "post": {
     "operationId": "maintenance_run_api_v1_system_maintenance_run_post",
@@ -12086,6 +12218,39 @@
     "summary": "Categories Diagnosis",
     "tags": [
      "usenet"
+    ]
+   }
+  },
+  "/api/v1/usenet/categories/diagnosis/cached": {
+   "get": {
+    "description": "Diagnose uit de bestaande cache en lokale tellingen, met de oorspronkelijke bronmeettijd.",
+    "operationId": "cached_diagnosis_api_v1_usenet_categories_diagnosis_cached_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CachedCategoryDiagnosis"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "SessionCookie": []
+     },
+     {
+      "MachineKey": []
+     }
+    ],
+    "summary": "Cached Diagnosis",
+    "tags": [
+     "usenet"
+    ],
+    "x-machine-scopes": [
+     "read"
     ]
    }
   },

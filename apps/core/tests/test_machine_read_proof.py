@@ -4,6 +4,8 @@ import base64
 import hashlib
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import NonCallableMock
 
 import pytest
 from cryptography.exceptions import InvalidSignature
@@ -16,6 +18,26 @@ PIN = "/api/v1/machine-keys/verification-key"
 
 def decode(segment):
     return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+
+
+def test_twee_installaties_hebben_elk_een_vaste_handtekeningssleutel(tmp_path, monkeypatch):
+    from mso import vault
+    from mso.read_proof import verification_key
+
+    def open_installatie(naam):
+        bestand = tmp_path / naam / "vault.key"
+        monkeypatch.setattr(vault, "get_settings", lambda: SimpleNamespace(secret_key_file=bestand))
+        return vault.Vault(NonCallableMock(spec_set=[])).read_proof_signer
+
+    eerste = open_installatie("eerste")
+    handtekening = eerste.sign(b"proef")
+    herstart = open_installatie("eerste")
+    assert verification_key(eerste) == verification_key(herstart)
+    herstart.public_key().verify(handtekening, b"proef")
+    tweede = open_installatie("tweede")
+    assert verification_key(eerste) != verification_key(tweede)
+    with pytest.raises(InvalidSignature):
+        tweede.public_key().verify(handtekening, b"proef")
 
 
 def test_verklaring_bindt_instantie_sleutel_versie_en_geldigheid(admin, client):

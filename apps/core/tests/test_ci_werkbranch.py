@@ -104,6 +104,15 @@ def test_ci_start_ook_bij_push_op_werkbranch() -> None:
     assert ci_fouten(CI.read_text(encoding="utf-8")) == []
 
 
+@pytest.mark.parametrize("pad", [CI, ROOT / ".forgejo/workflows/ci.yaml"])
+def test_twee_commits_op_dezelfde_branch_behouden_hun_ci_run(pad) -> None:
+    blok = pad.read_text().split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
+    groep = re.search(r"^  group: (.+)$", blok, re.MULTILINE)[1]
+    groepen = {groep.replace("${{ github.sha }}", sha) for sha in ("a" * 40, "b" * 40)}
+    assert len(groepen) == 2
+    assert "  cancel-in-progress: false" in blok.splitlines()
+
+
 def test_ci_publiceert_bij_geen_enkele_gebeurtenis() -> None:
     assert publiceer_fouten(CI.read_text()) == []
 

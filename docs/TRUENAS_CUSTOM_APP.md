@@ -1,6 +1,6 @@
 # Installeren als standaard TrueNAS Custom App
 
-> **P-INSTALLATIE en de release zijn vrijgavevoorwaarden.** De stappen hieronder vóór vrijgave niet uitvoeren.
+> **P-INSTALLATIE staat open.** Voer de stappen hieronder pas uit na vrijgave voor installatie.
 > **NIET GEVALIDEERD (echte NAS).** De [hardwarechecklist](HARDWARE_ACCEPTANCE.md) beschrijft de praktijkproef.
 
 Installeer Media Source Optimizer (MSO) via het [standaard Custom App-formulier](../deploy/truenas/CUSTOM_APP.md).
@@ -9,9 +9,9 @@ APPDATA-dataset. Kies bij een eerste installatie een eigen dataset en open MSO o
 hebt bevestigd. Maak de beheerder aan in de MSO-wizard, test de koppelingen vanuit de app en begin in
 **Alleen-lezen**.
 
-Het formulier gebruikt de tag en registerdigest van de vrijgegeven image. Controleer de digest vóór ingebruikname.
-De eerder gepubliceerde tags zijn ouder dan de bronstand van het manifest. Het
-[containerbewijs](test-evidence/allinone-report.md) hoort bij de bronrevisies die daarin zijn genoemd.
+Het installatiemanifest bevat de tag en registerdigest van de gepubliceerde alles-in-één-image voor 1.6.1.
+Controleer de digest vóór ingebruikname. Het containerbewijs vermeldt de geteste bronrevisies.
+[Installatiemanifest](../deploy/manifest/media-source-optimizer.manifest.yaml) · [Containerbewijs](test-evidence/allinone-report.md)
 
 ## Updaten en terugdraaien
 

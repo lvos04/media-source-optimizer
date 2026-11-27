@@ -1,9 +1,11 @@
 """Toets de vrijgave, upgrade en terugval in de TrueNAS-documentatie."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 DOCS = ROOT / "docs"
@@ -96,7 +98,13 @@ def test_formulier_onderscheidt_huidige_installatie_releasepin_en_hersteldoelen(
 def test_formulier_vereist_digestcontrole_na_beide_tagroutes() -> None:
     formulier = FORMULIER.read_text(encoding="utf-8")
     tagregel = next(regel for regel in formulier.splitlines() if regel.startswith("| | Tag |"))
-    assert "<VERSIE>@sha256:<DIGEST>" in tagregel and "exacte tag" in tagregel
+    versie = (ROOT / "release/VERSION").read_text(encoding="utf-8").strip()
+    image = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["image"]
+    assert image["tag"] == versie
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", image["digest"] or "")
+    pin = f"`{versie}@{image['digest']}`"
+    assert pin in tagregel and f"exacte tag `{versie}`" in tagregel
+    assert pin in FORMULIER.with_name("BIJWERKEN.md").read_text(encoding="utf-8")
     assert "[digestcontrole](#na-het-opslaan)" in tagregel
     controle = formulier.split("\n## Na het opslaan\n", 1)[1].split("\n2. ", 1)[0]
     assert "elke installatie en update" in controle and "beide tagroutes" in controle

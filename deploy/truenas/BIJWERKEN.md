@@ -1,6 +1,6 @@
 # Een bestaande Media Source Optimizer bijwerken naar 1.6.1
 
-**NIET GEVALIDEERD (echte NAS).** Begin met het herkennen van de draaiende installatie. Wacht met wijzigen tot 1.6.1 is vrijgegeven voor installatie en bij de GitHub Release `v1.6.1` de bijlage **digests.json** staat. Bewaar de oude installatie en haar herstelpunt tot de controles na de update kloppen.
+**NIET GEVALIDEERD (echte NAS).** Begin met het herkennen van de draaiende installatie. Wijzig de app pas na vrijgave van P-INSTALLATIE. Bewaar de oude installatie en haar herstelpunt tot de controles na de update kloppen.
 
 ## 1. Lees af wat er draait
 
@@ -23,13 +23,13 @@
 
 ## 3. Wijzig de bestaande alles-in-één Custom App
 
-1. Open **digests.json** bij de vrijgegeven versie. Gebruik de waarde bij de exacte sleutel `ghcr.io/lvos04/media-source-optimizer:1.6.1`. Deze waarde begint met `sha256:`.
-2. Open de gestopte app onder **Apps → Edit**. Behoud de bestaande opslagkoppelingen, inclusief de bron van `/appdata`, de webpoort en gebruikersinstellingen. Laat **Repository** op `ghcr.io/lvos04/media-source-optimizer` staan of wijzig deze naar die waarde als je de herkomst van de oude alles-in-één-image hebt vastgesteld. Vul bij **Tag** `1.6.1@sha256:<digest>` in met de 64 tekens uit de bijlage. Accepteert het formulier uitsluitend een versietag, gebruik dan `1.6.1` en controleer de werkelijk opgehaalde registerdigest voordat je het gebruik hervat.
+1. Controleer de digest voor de alles-in-één-image bij de sleutel `ghcr.io/lvos04/media-source-optimizer:1.6.1` in de releasebijlage. [digests.json van v1.6.1](https://github.com/lvos04/media-source-optimizer/releases/download/v1.6.1/digests.json)
+2. Open de gestopte app onder **Apps → Edit**. Behoud de bestaande opslagkoppelingen, inclusief de bron van `/appdata`, de webpoort en gebruikersinstellingen. Laat **Repository** op `ghcr.io/lvos04/media-source-optimizer` staan of wijzig deze naar die waarde als je de herkomst van de oude alles-in-één-image hebt vastgesteld. Vul bij **Tag** `1.6.1@sha256:d17217d82ddbef0f6721c32f7f89aa65cc5bdbbd701cab760f2061a5db44d47a` in. Accepteert het formulier uitsluitend een versietag, gebruik dan `1.6.1` en controleer de werkelijk opgehaalde registerdigest voordat je het gebruik hervat.
 3. Kies **Update** of **Save**. Start MSO als de app gestopt blijft. Controleer in de appdetails de gebruikte image en vergelijk de registerdigest van de lokaal opgehaalde image met de bijlage. Gebruik de teruggelezen digest van deze installatie. Toont de webinterface alleen een Image ID of een tag en kun je de actuele registerdigest nergens aflezen, stop dan hier en houd MSO gepauzeerd. [TrueNAS-formuliervelden](https://www.truenas.com/docs/scale/24.10/scaleuireference/apps/installcustomappscreens/)
 
 ### Overstap vanuit meerdere containers of YAML
 
-**STOP vóór het wijzigen van de installatie.** Het standaardformulier wijzigt één image. De geleverde meervoudige opzet gebruikt `media-source-optimizer-core`, `media-source-optimizer-web` en een afzonderlijke PostgreSQL 16 op Alpine. Daar krijgt PostgreSQL de submap `postgres` van APPDATA en hebben core en worker een afzonderlijk gekoppelde `/work`. De kandidaat start zijn eigen PostgreSQL 16 op Debian in `/appdata/postgres` en gebruikt standaard `/appdata/work`. Bij een lege databasemap maakt hij een nieuwe database aan.
+**STOP vóór het wijzigen van de installatie.** Het standaardformulier wijzigt één image. De geleverde meervoudige opzet gebruikt `media-source-optimizer-core`, `media-source-optimizer-web` en een afzonderlijke PostgreSQL 16 op Alpine. Daar krijgt PostgreSQL de submap `postgres` van APPDATA en hebben core en worker een afzonderlijk gekoppelde `/work`. De alles-in-één-image start zijn eigen PostgreSQL 16 op Debian in `/appdata/postgres` en gebruikt standaard `/appdata/work`. Bij een lege databasemap maakt hij een nieuwe database aan.
 
 Alleen een andere tag invullen, een lege dataset kiezen of de oude en nieuwe database tegelijk op dezelfde opslag starten kan gegevens onbereikbaar maken of beschadigen. Een gedeeld PostgreSQL-hoofdversienummer bewijst geen compatibiliteit van de twee clusters. Er is geen beproefde omzetting via deze webformulieren die ook de database, de kluissleutel, werkopslag en eventuele afwijkende mounts meeneemt. Dat geldt ook voor een YAML-app waarvan de precieze indeling nog moet worden vastgesteld.
 

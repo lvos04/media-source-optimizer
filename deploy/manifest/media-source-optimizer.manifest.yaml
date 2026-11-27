@@ -12,8 +12,8 @@ install:
   method: custom_app
 image:
   repository: ghcr.io/lvos04/media-source-optimizer
-  tag: "1.6.1" # Installatie vereist ook de registerdigest uit de releasebijlage.
-  digest: null
+  tag: "1.6.1"
+  digest: "sha256:d17217d82ddbef0f6721c32f7f89aa65cc5bdbbd701cab760f2061a5db44d47a"
 custom_app:
   storage:
     - name: appdata
@@ -128,8 +128,3 @@ accounts:
     aanmaak: eerste_gebruik
     controle: beheerder_ingesteld
     beschrijving_nl: De beheerder maakt het eigen account aan in de MSO-wizard na de eerste start.
-accepted_findings:
-  - code: digest_pending_release
-    reden_nl: >-
-      De registerdigest voor deze bronstand ontbreekt (BLOK-06). Vul na publicatie de digest bij de
-      exacte versietag in vanuit digests.json voordat het manifest voor installatie wordt gebruikt.

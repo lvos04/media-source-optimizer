@@ -1,6 +1,6 @@
 # Standaard Custom App voor Media Source Optimizer
 
-> **P-INSTALLATIE en de release zijn vrijgavevoorwaarden.** De stappen hieronder vóór vrijgave niet uitvoeren.
+> **P-INSTALLATIE staat open.** Voer de stappen hieronder pas uit na vrijgave voor installatie.
 > **NIET GEVALIDEERD (echte NAS).** Zie de [hardwarechecklist](../../docs/HARDWARE_ACCEPTANCE.md).
 
 ## Vooraf
@@ -9,9 +9,9 @@
   Het beschreven ix-app-formulier (1.4.8) vereist minimaal TrueNAS SCALE 24.10.2.2.
 - Leg bij een upgrade de huidige installatie (D07) vast, inclusief image-tags, API-versies,
   configuratieback-ups, gezondheid en actief gebruik.
-- Gebruik de doeltag en registerdigest uit het releasebewijs. Bij release `v1.6.1` staat de waarde in **digests.json** bij
-  `ghcr.io/lvos04/media-source-optimizer:1.6.1`. Het [manifest](../manifest/media-source-optimizer.manifest.yaml)
-  wacht nog op deze registerdigest. Wacht op de vrijgegeven image.
+- Gebruik de doeltag en registerdigest uit het releasebewijs. Voor de alles-in-één-image staat de digest bij
+  `ghcr.io/lvos04/media-source-optimizer:1.6.1` en in het installatiemanifest.
+  [digests.json van v1.6.1](https://github.com/lvos04/media-source-optimizer/releases/download/v1.6.1/digests.json) · [Installatiemanifest](../manifest/media-source-optimizer.manifest.yaml)
 - Laat de optionele wizardwaarden RPO (maximaal dataverlies) en RTO (maximale hersteltijd) open tot bevestiging (D16).
 - Kies bij een eerste installatie in **Datasets → Add Dataset** een eigen dataset met de preset **Apps**.
   Behoud bij een upgrade de bestaande volledige APPDATA-dataset en de huidige formulierwaarden. Maak vooraf
@@ -26,7 +26,7 @@ Ga naar **Apps → Discover Apps → Custom App**. Open bij een upgrade de besta
 |---|---|---|
 | Application Name | | `media-source-optimizer` bij een eerste installatie. |
 | Image Configuration | Repository | `ghcr.io/lvos04/media-source-optimizer` |
-| | Tag | `<VERSIE>@sha256:<DIGEST>` uit het releasebewijs. Weigert het formulier het digestdeel, vul dan de exacte tag in. Voer in beide gevallen de [digestcontrole](#na-het-opslaan) uit. |
+| | Tag | `1.6.1@sha256:d17217d82ddbef0f6721c32f7f89aa65cc5bdbbd701cab760f2061a5db44d47a`. Weigert het formulier het digestdeel, vul dan de exacte tag `1.6.1` in. Voer in beide gevallen de [digestcontrole](#na-het-opslaan) uit. |
 | | Pull Policy | *Pull the image if it is not already present on host*. |
 | Container Configuration | Entrypoint / Command / Environment Variables | Leeg laten bij een eerste installatie. Laat bij een upgrade de bestaande instellingen staan. |
 | | Restart Policy | *Unless Stopped*. |

@@ -410,7 +410,11 @@ def get_verification_key(_: Principal = Depends(admin_only)) -> read_proof.Verif
     return read_proof.verification_key(get_vault().read_proof_signer)
 
 
-@router.get("/read-proof", responses={403: {"description": "Uitsluitend een machine-sleutel met exact read"}})
+@router.get("/read-proof", responses={
+    403: {"model": MachineKeyErrorView, "description": "Uitsluitend een machine-sleutel met exact read"},
+    413: {"model": MachineKeyErrorView, "description": "payload_too_large: maximaal 1 MiB"},
+    422: {"model": MachineKeyErrorView, "description": "Ongeldige invoer"},
+})
 def get_read_proof(request: Request, response: Response,
                    p: Principal = Depends(current_principal)) -> read_proof.ReadProof:
     """Verklaar de vaste scopes van de aangeboden sleutel voor deze installatie en bronversie."""

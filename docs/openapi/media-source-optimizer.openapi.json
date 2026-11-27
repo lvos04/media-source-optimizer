@@ -7921,6 +7921,13 @@
       "description": "Unauthorized"
      },
      "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MachineKeyErrorView"
+        }
+       }
+      },
       "description": "Uitsluitend een machine-sleutel met exact read"
      },
      "404": {
@@ -7951,7 +7958,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "payload_too_large: maximaal 1 MiB"
      },
      "422": {
       "content": {
@@ -7961,7 +7968,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "Ongeldige invoer"
      },
      "429": {
       "content": {

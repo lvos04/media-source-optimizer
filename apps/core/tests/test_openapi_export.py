@@ -84,3 +84,15 @@ def test_afwijking_wordt_gezien(runtime: Any) -> None:
     schema = json.loads(json.dumps(runtime.openapi()))
     schema["paths"]["/api/v1/bestaat-niet"] = {"get": {"responses": {"200": {"description": "x"}}}}
     assert serialiseer(schema) != EXPORT.read_text(encoding="utf-8")
+
+
+def test_leesbewijs_behoudt_dezelfde_export_bij_andere_http_statusnamen(runtime, monkeypatch) -> None:
+    from http.client import responses
+
+    # Python 3.13 gebruikt de nieuwere omschrijvingen van deze twee HTTP-statussen.
+    for te_groot, ongeldig in (("Request Entity Too Large", "Unprocessable Entity"),
+                               ("Content Too Large", "Unprocessable Content")):
+        monkeypatch.setitem(responses, 413, te_groot)
+        monkeypatch.setitem(responses, 422, ongeldig)
+        runtime.openapi_schema = None
+        assert serialiseer(runtime.openapi()) == EXPORT.read_text(encoding="utf-8")

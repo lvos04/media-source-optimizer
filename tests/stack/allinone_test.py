@@ -27,6 +27,8 @@ Scenarios (each prints OK/FAIL, report → tests/stack/results/allinone-report.m
 21  gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.6.0
 22  upgrade van de gepubliceerde 1.3.0-image met gegevens en pre-upgrade-archief
 23  gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.3.0
+24  upgrade van de gepinde 1.6.1-image met gevulde MediaGuard-cache en herstart met dezelfde websleutel
+25  herstel uit de handmatige back-up en volledige APPDATA-terugval met de gepinde 1.6.1-image
 """
 
 from __future__ import annotations
@@ -53,6 +55,8 @@ PUBLISHED_150 = ("ghcr.io/lvos04/media-source-optimizer"
                  "@sha256:7ee5cb5e3c37d8ca6e3c8445cd6ef24f8b175e2f3167ccd40541737564866be2")
 PUBLISHED_160 = ("ghcr.io/lvos04/media-source-optimizer"
                  "@sha256:9bcdec69f7af0bc1747c42326d65f70eda28e6d00d2559d884e00a58ebfbf3da")
+PUBLISHED_161 = ("ghcr.io/lvos04/media-source-optimizer"
+                 "@sha256:d17217d82ddbef0f6721c32f7f89aa65cc5bdbbd701cab760f2061a5db44d47a")
 GUARD_REVISION = "2512cd761ad30f42a4787935687388e9a3f0d428"
 UPGRADE_150 = (
     "17 upgrade vanaf de gepubliceerde 1.5.0-image",
@@ -67,7 +71,17 @@ UPGRADE_130 = (
     "22 upgrade vanaf de gepubliceerde 1.3.0-image",
     "23 gedeeltelijk archiefherstel en volledige APPDATA-terugval met 1.3.0",
 )
-SCENARIO_COUNT = 17 + len(UPGRADE_150) + len(UPGRADE_160) + len(UPGRADE_130)
+UPGRADE_161 = (
+    "24 upgrade vanaf de gepubliceerde 1.6.1-image",
+    "25 archiefherstel en volledige APPDATA-terugval met 1.6.1",
+)
+PUBLISHED_UPGRADES = {
+    "1.5.0": (PUBLISHED_150, 501, UPGRADE_150),
+    "1.6.0": (PUBLISHED_160, 607, UPGRADE_160),
+    "1.3.0": (PUBLISHED_130, 500, UPGRADE_130),
+    "1.6.1": (PUBLISHED_161, 613, UPGRADE_161),
+}
+SCENARIO_COUNT = 17 + sum(len(names) for _, _, names in PUBLISHED_UPGRADES.values())
 # CI geeft een vaste naam per job mee, zodat de afsluitende stap ook na afbreken precies deze containers opruimt.
 NAME = os.environ.get("MSO_AIO_NAME") or f"mso-aio-{secrets.token_hex(6)}"
 NET, MOCK_NAME = f"{NAME}-net", f"{NAME}-sab"
@@ -362,6 +376,41 @@ def upgrade_data(client: httpx.Client, change_id: int) -> tuple:
     )
 
 
+def seed_mediaguard_progress() -> None:
+    # Eén gelezen pagina in de oude MSO-database. De bronkoppeling blijft uit zodat de worker
+    # verdwenen voortgang tijdens de proef niet opnieuw uit een simulator kan ophalen.
+    sh("docker", "exec", "--user", "568:568", NAME, "psql", "-X", "-v", "ON_ERROR_STOP=1",
+       "-h", "/tmp/mso-pg", "-U", "mso", "-d", "mso", "-c", """
+        INSERT INTO mg_wanted_cache(mg_id, instance_id, kind, title, status, attempts, expires_at)
+        VALUES (41, 'proef', 'movie', 'Proeffilm', 'open', 3, now() + interval '1 day');
+        INSERT INTO mg_snapshots(key, data) VALUES ('sync_state', jsonb_build_object(
+            'next_page', 2, 'cycle_items', 1, 'total_open', 2, 'complete', false,
+            'cycle_started_at', now(), 'last_success_at', now()));
+    """)
+
+
+def mediaguard_progress(client: httpx.Client) -> tuple[dict, dict]:
+    wanted = api_data(client, "mediaguard/wanted")
+    state = api_data(client, "mediaguard/status")["last_sync"]
+    assert [(r["mg_id"], r["attempts"]) for r in wanted["items"]] == [(41, 3)], "proefitem of pogingen ontbreken"
+    sync = wanted["sync"]
+    assert sync["partial"] and sync["cycle_items"] == 1 and sync["total_open"] == 2, "onvolledige proefvoortgang"
+    assert state and state.get("next_page") == 2, "MediaGuard-hervatpagina ontbreekt"
+    return wanted, state
+
+
+def check_upgraded_restart(change_id: int, original: tuple, progress: tuple[dict, dict]) -> None:
+    keys = web_key_fingerprints()
+    sh("docker", "restart", NAME)
+    assert wait_healthy() == "healthy", "de bijgewerkte installatie herstartte niet"
+    assert web_key_fingerprints() == keys, "de nieuwe websleutels wijzigden bij herstart"
+    client, csrf = login()
+    with closing(client):
+        assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij herstart"
+        assert mediaguard_progress(client) == progress, "MediaGuard-voortgang wijzigde bij herstart"
+        check_sab_read(client, csrf)
+
+
 def check_sab_read(client: httpx.Client, csrf: str, *, expect_access: bool = True) -> None:
     # Geef enkel de sessie mee. MSO moet de proefsleutel uit de eigen kluis lezen.
     result = client.post("/api/v1/connectors/sabnzbd/test", headers={"X-CSRF-Token": csrf}).raise_for_status().json()
@@ -575,6 +624,14 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
             assert old_info["version"] == version, "de draaiende bronversie wijkt af"
             assert old_info["schema_version"] == schema, f"de upgrade moet op schema {schema} beginnen"
             old_history = migration_history(old_info)
+            progress = None
+            if version == "1.6.1":
+                sh("docker", "exec", NAME, "test", "!", "-e", "/appdata/web/server-actions.key")
+                seed_mediaguard_progress()
+                logged_in, _ = login()
+                with closing(logged_in):
+                    assert upgrade_data(logged_in, change_id) == original, "nulmeting na aanmelden wijkt af"
+                    progress = mediaguard_progress(logged_in)
             status, manual = manual_backup(client, csrf)
             assert status == "done" and manual and manual["present"] and manual["size_bytes"] > 0, (
                 "de handmatige databaseback-up van de oude app ontbreekt"
@@ -592,37 +649,58 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
         with closing(client):
             assert upgrade_data(client, change_id) == original, "proefgegevens wijzigden bij upgrade"
             check_sab_read(client, csrf)
+            if progress is not None:
+                assert mediaguard_progress(client) == progress, "MediaGuard-voortgang wijzigde bij upgrade"
             info = api_data(client, "system/info")
             candidate_version = (Path(__file__).resolve().parents[2] / "release/VERSION").read_text().strip()
             assert api_data(client, "setup/status")["version"] == candidate_version, "de doelversie wijkt af"
             expected = known_migrations(IMAGE)
-            assert expected[-1][0] == info["schema_version"] > schema, "de kandidaat heeft geen nieuwer schema"
+            assert expected[-1][0] == info["schema_version"], "het schema wijkt af van de kandidaatimage"
             assert [[row["version"], row["name"]] for row in info["migrations"]] == expected, "migraties ontbreken"
             # Bij 1.3.0 ontbreken ook migraties met een nummer ónder de toenmalige maximumversie 500.
             old_versions = {row[0] for row in old_history}
             assert [row for row in migration_history(info) if row[0] in old_versions] == old_history, (
                 "migratiehistorie wijkt af"
             )
-            archives = [row for row in api_data(client, "backups")["items"] if row["kind"] == "pre-upgrade"]
-            assert len(archives) == 1 and archives[0]["schema_version"] == schema and archives[0]["present"], (
-                f"verwacht één aanwezig pre-upgrade-archief van schema {schema}"
-            )
+            backups = api_data(client, "backups")["items"]
+            archives = [row for row in backups if row["kind"] == "pre-upgrade"]
+            pending = [row for row in expected if row[0] not in old_versions]
+            if pending:
+                assert info["schema_version"] > schema, "de kandidaat heeft geen nieuwer schema"
+                assert len(archives) == 1 and archives[0]["schema_version"] == schema and archives[0]["present"], (
+                    f"verwacht één aanwezig pre-upgrade-archief van schema {schema}"
+                )
+                archive = archives[0]
+                assert_backup_before_migration(container_logs(), archive["file"], pending[0])
+                backup_detail = "handmatige back-up en archief vooraf"
+            else:
+                assert version == "1.6.1" and info["schema_version"] == schema, "de verwachte migraties ontbreken"
+                assert not archives and manual in backups, "onverwacht migratiearchief of ontbrekende oude back-up"
+                assert "back-up vóór upgrade: niet nodig (geen openstaande migraties)" in container_logs(), (
+                    "de opstart bevestigde het pad zonder openstaande migraties niet"
+                )
+                archive = manual
+                backup_detail = "geen openstaande migraties; geen migratiearchief; handmatige back-up behouden"
             check_daily_resource_sample(client)
-        archive = archives[0]
-        first_migration = next(row for row in expected if row[0] not in old_versions)
-        assert_backup_before_migration(container_logs(), archive["file"], first_migration)
+        progress_detail = ""
+        if progress is not None:
+            check_upgraded_restart(change_id, original, progress)
+            progress_detail = ("aanmelding en MediaGuard-proefitem met 3 pogingen en hervatpagina 2 gelijk "
+                               "vóór en na upgrade en na herstart; nieuwe websleutel 0600 behouden; ")
         stop_cleanly()
         record(scenarios[0], True, f"{schema} → {info['schema_version']}; {len(expected)} migraties; "
-               f"handmatige back-up en archief vooraf; {len(users)} gebruiker en {len(audit)} auditregel(s) behouden; "
+               f"{backup_detail}; {len(users)} gebruiker en {len(audit)} auditregel(s) behouden; "
                "instelling, koppeling en voorstel behouden; "
-               "SABnzbd-wachtrijlezing werkt; "
+               f"SABnzbd-wachtrijlezing werkt; {progress_detail}"
                "healthy met UID 568 inclusief PID 1 en healthcheck; opslagmeting door de worker")
         scenario = 1
 
         partial = tmp / "partial"
         make_data_dir(partial)
         filename = archive["file"]
-        assert filename == Path(filename).name and filename.endswith("-pre-upgrade.dump"), "ongeldige archiefnaam"
+        assert filename == Path(filename).name and filename.endswith(f"-{archive['kind']}.dump"), (
+            "ongeldige archiefnaam"
+        )
         restore_partial_archive(partial, data / "backups", filename, archive["sha256"], image)
         run(partial, image=image)
         assert wait_healthy() == "healthy", f"{version} startte niet na gedeeltelijk archiefherstel"
@@ -644,13 +722,17 @@ def published_image_upgrade(tmp: Path, version: str, image: str, schema: int,
         client, csrf = login()
         with closing(client):
             restored_info = api_data(client, "system/info")
+            assert restored_info["version"] == version, "de terugval startte een andere bronversie"
             assert migration_history(restored_info) == old_history, "de migratiehistorie na volledige terugval wijkt af"
             assert restored_info["schema_version"] == schema, f"volledige terugval moet naar schema {schema}"
             assert upgrade_data(client, change_id) == original, "proefgegevens wijken af na volledige terugval"
             check_sab_read(client, csrf)
+            if progress is not None:
+                assert mediaguard_progress(client) == progress, "MediaGuard-voortgang wijkt af na volledige terugval"
         stop_cleanly()
         record(scenarios[1], True, f"gedeeltelijk: SHA-256 gecontroleerd, schema {schema}, wachtrijlezing geweigerd; "
-               f"volledig: schema {schema}, alle tabelinhoud en APPDATA-bestanden gelijk, SABnzbd-wachtrijlezing werkt")
+               f"volledig: schema {schema}, alle tabelinhoud en APPDATA-bestanden gelijk, SABnzbd-wachtrijlezing werkt"
+               + ("; aanmelding en MediaGuard-voortgang gelijk aan de nulmeting" if progress is not None else ""))
         return data, info["schema_version"]
     except (AssertionError, RuntimeError, httpx.HTTPError, subprocess.CalledProcessError) as exc:
         record(scenarios[scenario], False, str(exc))
@@ -679,8 +761,9 @@ def schema_guard_case(upgrade: tuple[Path, int] | None) -> None:
 
 
 def main() -> int:
-    if sys.argv[2:] not in ([], ["--vanaf-1.3.0"]):
-        raise SystemExit("Gebruik: allinone_test.py IMAGE [--vanaf-1.3.0]")
+    options = {f"--vanaf-{version}": version for version in PUBLISHED_UPGRADES}
+    if sys.argv[2:] and (len(sys.argv) != 3 or sys.argv[2] not in options):
+        raise SystemExit(f"Gebruik: allinone_test.py IMAGE [{'|'.join(options)}]")
     tmp = Path(".") if DATA_VOLUME else Path(tempfile.mkdtemp(prefix="mso-aio-"))
     data = tmp / "appdata"
     make_data_dir(data, mode=0o755)
@@ -703,10 +786,11 @@ def main() -> int:
         f"api_key={SAB_KEY}",
     )
     try:
-        if sys.argv[2:] == ["--vanaf-1.3.0"]:
-            published_image_upgrade(tmp / "published-1.3.0", "1.3.0", PUBLISHED_130, 500, UPGRADE_130)
+        if sys.argv[2:]:
+            version = options[sys.argv[2]]
+            published_image_upgrade(tmp / f"published-{version}", version, *PUBLISHED_UPGRADES[version])
             passed = sum(ok is True for _, ok, _ in RESULTS)
-            print(f"Update en terugweg vanaf 1.3.0: {passed}/2 controles groen", flush=True)
+            print(f"Update en terugweg vanaf {version}: {passed}/2 controles groen", flush=True)
             return 0 if passed == len(RESULTS) == 2 else 1
         # 1
         run(data)
@@ -932,10 +1016,10 @@ def main() -> int:
         log8 = subprocess.run(["docker", "logs", NAME], capture_output=True, text=True, check=False)
         msg = [ln for ln in (log8.stdout + log8.stderr).splitlines() if "FOUT" in ln]
         record("8 --user 568 op root-map → duidelijke foutmelding", bool(msg), msg[0] if msg else "geen melding")
-        legacy_upgrade = published_image_upgrade(tmp / "published-1.5.0", "1.5.0", PUBLISHED_150, 501, UPGRADE_150)
-        schema_guard_case(legacy_upgrade)
-        published_image_upgrade(tmp / "published-1.6.0", "1.6.0", PUBLISHED_160, 607, UPGRADE_160)
-        published_image_upgrade(tmp / "published-1.3.0", "1.3.0", PUBLISHED_130, 500, UPGRADE_130)
+        for version, source in PUBLISHED_UPGRADES.items():
+            upgrade = published_image_upgrade(tmp / f"published-{version}", version, *source)
+            if version == "1.5.0":
+                schema_guard_case(upgrade)
     finally:
         sh("docker", "rm", "-f", NAME, MOCK_NAME, check=False)
         sh("docker", "network", "rm", NET, check=False)

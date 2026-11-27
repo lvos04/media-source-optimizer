@@ -6,10 +6,35 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 STACK_TEST = Path(__file__).resolve().parents[3] / "tests/stack/allinone_test.py"
 FILENAME = "test-pre-upgrade.dump"
 MARKER = f"back-up vóór upgrade gemaakt: {FILENAME}"
+
+
+def test_manifestimage_is_een_verplichte_upgradebron(monkeypatch):
+    manifest_path = STACK_TEST.parents[2] / "deploy/manifest/media-source-optimizer.manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    version = manifest["version"]
+    image = manifest["image"]
+    assert image["tag"] == version
+    monkeypatch.setenv("MSO_AIO_DATA_VOLUME", "proefvolume")
+    monkeypatch.setattr(sys, "argv", [str(STACK_TEST), "proefimage", f"--vanaf-{version}"])
+    scenario = runpy.run_path(str(STACK_TEST))
+    pulls = []
+
+    def docker(*cmd, check=True):
+        if cmd[:2] == ("docker", "pull"):
+            pulls.append(cmd[2])
+            raise RuntimeError("proefregister onbereikbaar")
+        return ""
+
+    monkeypatch.setitem(scenario["main"].__globals__, "sh", docker)
+    assert scenario["main"]() == 1, "een ontbrekende manifestimage moet de poort rood maken"
+    assert pulls == [f"{image['repository']}@{image['digest']}"]
+    results = scenario["RESULTS"]
+    assert len(results) == 2 and all(version in name and ok is None for name, ok, _ in results)
 
 
 def test_docker_run_bewaart_de_hele_fout_zonder_proefgeheimen(monkeypatch):
